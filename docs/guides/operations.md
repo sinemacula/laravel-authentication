@@ -209,23 +209,26 @@ audience), that its provider resolves to an `IdentityProvider`, its `principal_r
 when the package's `AudiencePolicy` is bound, the rate limits of every flow, the password identifier, the refresh token
 transport and, when its audience allows `passkey` or it sets a `passkeys` block, its passkey relying party; each
 `api_key` guard's provider, `principal_resolver` override, audience settings (which must allow `api_key`) and rate
-limits; and, for the whole package, the configured device model and pruning retention
-(`authentication.device.prune_after_days`, otherwise checked only when `model:prune` runs), the pending sign-in lifetime
-(`authentication.sign_in.pending_ttl_seconds`, otherwise checked only when a sign-in waits for a further factor or a
-choice of principal), the password policy settings (`authentication.passwords`), the one-time code settings and key
-(`authentication.codes`) and a bound `OneTimeCodeSender` when any guard allows a code sign-in method (`phone_code`,
-`email_code`, or a `CodeSignIn` you registered), the delivery queue (`authentication.delivery.queue`), the passkey
-challenge lifetime (`authentication.passkeys.challenge_ttl_seconds`), the API key settings (`authentication.api_keys`)
-and the identifier change settings (`authentication.identifier_changes`). Every check runs, so one run lists every
-problem, each as `[<guard>] <message>` (`[device]` for the device model and retention, `[sign_in]` for the pending
-lifetime, `[passwords]` for the password policy, `[codes]` for the code settings and sender, `[delivery]` for the
-delivery queue, `[passkeys]` for the challenge lifetime, `[api_keys]` for the API key settings, `[identifier_changes]`
-for the identifier change settings), and a subject without one as `[<guard>] OK`. Delivery on a `sync` queue connection,
-or on a `failover` one that can fall back to `sync`, while any `jwt` guard is configured (any of them may send codes,
-reset links and codes, or identifier change codes and notices), is a `[delivery]` warning that leaves the exit code
-alone, as is a `jwt` guard whose password resets or identifier changes would refuse to run: its provider's model on
-another connection than the device model, or, for resets, a password identifier other than `email` while Laravel's
-notification is the reset link sender (see [Password reset](passwords.md#password-reset)). Only the named guards are
-checked with `--guard=api --guard=admin`; a named guard that is not configured, or neither a `jwt` nor an `api_key`
-guard, is a problem. The command reads configuration only: it opens no database connection and never prints a key. The
-package does not run these checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
+limits; and, for the whole package, the storage and rate limit connections (`authentication.storage.connection`,
+`authentication.rate_limits.connection`: a connection name configured in `database.connections`, or none), the
+configured device model, which must live on the storage connection, and the pruning retention while any `jwt` guard is
+configured (`authentication.device.prune_after_days`, otherwise checked only when `model:prune` runs), the pending
+sign-in lifetime (`authentication.sign_in.pending_ttl_seconds`, otherwise checked only when a sign-in waits for a
+further factor or a choice of principal), the password policy settings (`authentication.passwords`), the one-time code
+settings and key (`authentication.codes`) and a bound `OneTimeCodeSender` when any guard allows a code sign-in method
+(`phone_code`, `email_code`, or a `CodeSignIn` you registered), the delivery queue (`authentication.delivery.queue`),
+the passkey challenge lifetime (`authentication.passkeys.challenge_ttl_seconds`), the API key settings
+(`authentication.api_keys`) and the identifier change settings (`authentication.identifier_changes`). Every check runs,
+so one run lists every problem, each as `[<guard>] <message>` (`[storage]` for the connections, `[device]` for the
+device model and retention, `[sign_in]` for the pending lifetime, `[passwords]` for the password policy, `[codes]` for
+the code settings and sender, `[delivery]` for the delivery queue, `[passkeys]` for the challenge lifetime, `[api_keys]`
+for the API key settings, `[identifier_changes]` for the identifier change settings), and a subject without one as
+`[<guard>] OK`. Delivery on a `sync` queue connection, or on a `failover` one that can fall back to `sync`, while any
+`jwt` guard is configured (any of them may send codes, reset links and codes, or identifier change codes and notices),
+is a `[delivery]` warning that leaves the exit code alone, as is a `jwt` guard whose password resets or identifier
+changes would refuse to run: its provider's model on another connection than the storage connection, or, for resets, a
+password identifier other than `email` while Laravel's notification is the reset link sender (see [Password
+reset](passwords.md#password-reset)). Only the named guards are checked with `--guard=api --guard=admin`; a named guard
+that is not configured, or neither a `jwt` nor an `api_key` guard, is a problem. The command reads configuration only:
+it opens no database connection and never prints a key. The package does not run these checks at boot; a
+misconfiguration otherwise surfaces when a guard first uses the setting.

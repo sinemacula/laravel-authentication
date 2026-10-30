@@ -8,6 +8,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase as OrchestraTestCase;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
+use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Models\Device;
 
 /**
@@ -29,21 +30,30 @@ abstract class TestCase extends OrchestraTestCase
     /** @var array<string, true> Worker databases this process has created. */
     private static array $workerDatabases = [];
 
+    /** @var array<string, mixed> The storage settings the shipped migrations ran with. */
+    private array $storageSettings = [];
+
     /**
-     * Destroy the application, then close its database connections.
+     * Put the storage settings back as the shipped migrations ran with them,
+     * destroy the application, then close its database connections.
      *
-     * The application's objects reference each other, so a destroyed
-     * application's PDO is only closed once the cycles are collected. Without
-     * this, a long run against a persistent database holds dozens of
-     * connections at once, and parallel workers exhaust the server's limit. It
-     * runs after every teardown callback, migration rollbacks included, so none
-     * of them finds its connection gone.
+     * The settings are restored first so rolling the migrations back drops the
+     * tables where they were created. The application's objects reference each
+     * other, so a destroyed application's PDO is only closed once the cycles
+     * are collected. Without this, a long run against a persistent database
+     * holds dozens of connections at once, and parallel workers exhaust the
+     * server's limit. The connections are closed after every teardown callback,
+     * migration rollbacks included, so none of them finds its connection gone.
      *
      * @return void
      */
     #[\Override]
     protected function tearDown(): void
     {
+        if ($this->storageSettings !== []) {
+            app(ConfigRepository::class)->set($this->storageSettings);
+        }
+
         /** @var ?\Illuminate\Database\DatabaseManager $database */
         $database = $this->app?->make('db');
 
@@ -105,36 +115,48 @@ abstract class TestCase extends OrchestraTestCase
      * Run the package's shipped migrations so the default `devices`,
      * `pending_sign_ins`, `rate_limits`, `one_time_codes`, `passkeys`,
      * `passkey_challenges`, `api_keys` and `identifier_changes` tables exist
-     * for tests that use the shipped models.
+     * for tests that use the shipped models, on the connections the storage
+     * settings name when they run.
      *
-     * With persistent databases (MySQL, PostgreSQL) the tables survive between
-     * test classes, so they must be dropped on teardown to prevent the
-     * migration collision guard, or a duplicate table, from failing the next
-     * class.
+     * A test may point the storage settings elsewhere once the tables exist;
+     * `tearDown()` puts them back before the migrations are rolled back. With
+     * persistent databases (MySQL, PostgreSQL) the tables survive between test
+     * classes, so they must be dropped on teardown to prevent the migration
+     * collision guard, or a duplicate table, from failing the next class.
      *
      * @return void
      */
     #[\Override]
     protected function defineDatabaseMigrations(): void
     {
+        $config = app(ConfigRepository::class);
+
+        $this->storageSettings = [
+            'authentication.storage.connection'     => $config->get('authentication.storage.connection'),
+            'authentication.rate_limits.connection' => $config->get('authentication.rate_limits.connection'),
+        ];
+
         $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
+
+        $storage = StorageConnection::name();
+        $limits  = StorageConnection::forRateLimits();
 
         if ((getenv('DB_CONNECTION') ?: 'sqlite') === 'sqlite') {
             return;
         }
 
-        $this->beforeApplicationDestroyed(function (): void {
+        $this->beforeApplicationDestroyed(static function () use ($storage, $limits): void {
 
             $config = app(ConfigRepository::class);
 
-            Schema::dropIfExists($config->string('authentication.device.table', 'devices'));
-            Schema::dropIfExists($config->string('authentication.sign_in.pending_table', 'pending_sign_ins'));
-            Schema::dropIfExists($config->string('authentication.rate_limits.table', 'rate_limits'));
-            Schema::dropIfExists($config->string('authentication.codes.table', 'one_time_codes'));
-            Schema::dropIfExists($config->string('authentication.passkeys.table', 'passkeys'));
-            Schema::dropIfExists($config->string('authentication.passkeys.challenges_table', 'passkey_challenges'));
-            Schema::dropIfExists($config->string('authentication.api_keys.table', 'api_keys'));
-            Schema::dropIfExists($config->string('authentication.identifier_changes.table', 'identifier_changes'));
+            Schema::connection($storage)->dropIfExists($config->string('authentication.device.table', 'devices'));
+            Schema::connection($storage)->dropIfExists($config->string('authentication.sign_in.pending_table', 'pending_sign_ins'));
+            Schema::connection($limits)->dropIfExists($config->string('authentication.rate_limits.table', 'rate_limits'));
+            Schema::connection($storage)->dropIfExists($config->string('authentication.codes.table', 'one_time_codes'));
+            Schema::connection($storage)->dropIfExists($config->string('authentication.passkeys.table', 'passkeys'));
+            Schema::connection($storage)->dropIfExists($config->string('authentication.passkeys.challenges_table', 'passkey_challenges'));
+            Schema::connection($storage)->dropIfExists($config->string('authentication.api_keys.table', 'api_keys'));
+            Schema::connection($storage)->dropIfExists($config->string('authentication.identifier_changes.table', 'identifier_changes'));
         });
     }
 

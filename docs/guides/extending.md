@@ -9,7 +9,7 @@ inheritance:
 | Extension point                   | How                                                                                                              |
 |-----------------------------------|------------------------------------------------------------------------------------------------------------------|
 | Custom identity / principal model | Implement `Identity`, `Principal` (and optional capability interfaces)                                           |
-| Custom device model               | Implement `EloquentDevice`, use the `ActsAsDevice` trait (and `PrunesDevices` to be pruned)                      |
+| Custom device model               | Implement `EloquentDevice`, use `ActsAsDevice` (and `PrunesDevices` to be pruned), on the storage connection     |
 | Ending device-less access tokens  | Implement `HasTokensValidAfter` on the identity or principal, or use `ProvidesTokensValidAfter`                  |
 | Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally                                                        |
 | Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                                                             |

@@ -124,15 +124,15 @@ since a device-less token can only be ended through it: every device is still re
 device-less tokens keep working too, until they expire.
 
 A bulk revocation first moves the scope's "tokens valid after" cutoff to now, when the identity or principal records one
-(`HasTokensValidAfter`), then, in one transaction on the device model's connection, revokes each unrevoked device, read
-on the write connection in key order 500 at a time, and deletes the pending sign-ins and, for an identity, its pending
-identifier changes. Once that transaction commits,
-`DeviceRevoked` reports each device it revoked (with the device's own guard) and then `SignedOutEverywhere` reports the
-scope, with the acting guard, the reason, the count (also `0`, so the action itself is recorded), the cutoff it set (or
-`null`), and the device it kept. If the device transaction fails, the cutoff it already moved stands: more is cut off,
-never less, and calling again finishes the job. One window stays open: a sign-in that has already passed its credential
-check when a bulk revocation reads the devices can still create its device afterwards. Closing it would take a lock that
-every sign-in and every revocation take on the identity, which the package does not add.
+(`HasTokensValidAfter`), then, in one transaction on the storage connection, revokes each unrevoked device, read on the
+write connection in key order 500 at a time, and deletes the pending sign-ins and, for an identity, its pending
+identifier changes. Once that transaction commits, `DeviceRevoked` reports each device it revoked (with the device's own
+guard) and then `SignedOutEverywhere` reports the scope, with the acting guard, the reason, the count (also `0`, so the
+action itself is recorded), the cutoff it set (or `null`), and the device it kept. If the device transaction fails, the
+cutoff it already moved stands: more is cut off, never less, and calling again finishes the job. One window stays open:
+a sign-in that has already passed its credential check when a bulk revocation reads the devices can still create its
+device afterwards. Closing it would take a lock that every sign-in and every revocation take on the identity, which the
+package does not add.
 
 ### Listing devices
 

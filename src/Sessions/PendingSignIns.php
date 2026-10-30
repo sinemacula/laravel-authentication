@@ -229,7 +229,7 @@ final readonly class PendingSignIns
      * @param  \Carbon\CarbonImmutable  $now
      * @return ?\SineMacula\Laravel\Authentication\Models\PendingSignIn
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      */
     public function discard(string $guard, #[\SensitiveParameter] string $token, CarbonImmutable $now): ?PendingSignIn
     {
@@ -318,7 +318,7 @@ final readonly class PendingSignIns
      * @param  ?string  $purpose
      * @return ?array{0: \SineMacula\Laravel\Authentication\Models\PendingSignIn, 1: string}
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      */
     public static function live(string $guard, #[\SensitiveParameter] string $token, CarbonImmutable $now, ?string $purpose): ?array
     {
@@ -486,7 +486,7 @@ final readonly class PendingSignIns
      * @param  string  $id
      * @return ?\SineMacula\Laravel\Authentication\Models\PendingSignIn
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      */
     private static function load(string $id): ?PendingSignIn
     {

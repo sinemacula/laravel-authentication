@@ -42,7 +42,8 @@ final class RateLimitTest extends TestCase
 
     /**
      * The model reads its table and connection from the configuration each time
-     * it is built; an empty connection name means the default.
+     * it is built; an empty connection name means the storage connection, the
+     * default one unless it names another.
      *
      * @return void
      */
@@ -53,11 +54,16 @@ final class RateLimitTest extends TestCase
 
         config()->set('authentication.rate_limits.table', 'attempt_counters');
         config()->set('authentication.rate_limits.connection', 'limits');
+        config()->set('authentication.storage.connection', 'package_store');
 
         self::assertSame('attempt_counters', (new RateLimit)->getTable());
         self::assertSame('limits', (new RateLimit)->getConnectionName());
 
         config()->set('authentication.rate_limits.connection', '');
+
+        self::assertSame('package_store', (new RateLimit)->getConnectionName());
+
+        config()->set('authentication.storage.connection', null);
 
         self::assertNull((new RateLimit)->getConnectionName());
     }
@@ -79,7 +85,7 @@ final class RateLimitTest extends TestCase
 
     /**
      * A connection that is not a name fails closed instead of counting on the
-     * default connection, inside the transactions a separate connection keeps
+     * storage connection, inside the transactions a separate connection keeps
      * the counts out of.
      *
      * @param  mixed  $connection
@@ -95,7 +101,7 @@ final class RateLimitTest extends TestCase
 
             self::fail('Expected the connection to be refused.');
         } catch (\InvalidArgumentException $e) {
-            self::assertSame('`authentication.rate_limits.connection` must be a connection name, or null or empty for the default connection.', $e->getMessage());
+            self::assertSame('`authentication.rate_limits.connection` must be a connection name, or null or empty for the storage connection.', $e->getMessage());
         } finally {
             config()->set('authentication.rate_limits.connection', null);
         }

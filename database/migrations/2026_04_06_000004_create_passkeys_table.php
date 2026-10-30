@@ -7,6 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
 use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
+use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
  * Create the passkeys table: the WebAuthn credentials identities sign in with,
@@ -27,11 +28,11 @@ return new class extends Migration {
     public function up(): void
     {
         $table  = $this->table();
-        $schema = Schema::getConnection()->getSchemaBuilder();
+        $schema = Schema::connection($this->getConnection());
 
         (new MigrationCollisionGuard($schema))->ensureNotExists($table, 'passkeys.table');
 
-        Schema::create($table, static function (Blueprint $blueprint) use ($table): void {
+        $schema->create($table, static function (Blueprint $blueprint) use ($table): void {
             $blueprint->uuid('id')->primary();
 
             // A credential id reaches 1023 bytes, beyond what MySQL indexes as
@@ -77,7 +78,21 @@ return new class extends Migration {
      */
     public function down(): void
     {
-        Schema::dropIfExists($this->table());
+        Schema::connection($this->getConnection())->dropIfExists($this->table());
+    }
+
+    /**
+     * The connection the package's tables live on (see `StorageConnection`),
+     * the one the model reads and writes the table on.
+     *
+     * @return ?string
+     *
+     * @throws \InvalidArgumentException
+     */
+    #[Override]
+    public function getConnection(): ?string
+    {
+        return StorageConnection::name();
     }
 
     /**

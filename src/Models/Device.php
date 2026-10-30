@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Config;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsDevice;
 use SineMacula\Laravel\Authentication\Concerns\PrunesDevices;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
  * Default shipped Device Eloquent model.
@@ -22,6 +23,10 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
  * default Eloquent adapter. Non-`final` so consumers may subclass; subclasses
  * that remain refreshable MUST continue satisfying the `EloquentDevice`
  * persistence boundary.
+ *
+ * Kept on the storage connection (see `Database\StorageConnection`), with the
+ * package's other tables, unless a subclass names a connection of its own,
+ * which must then be the storage connection too.
  *
  * Only the client-described metadata is mass assignable. Ownership, the
  * request-derived columns, and the session state (digests, rotation time,
@@ -74,19 +79,22 @@ class Device extends Model implements EloquentDevice
     ];
 
     /**
-     * Create a new Device bound to the package-configured table name. Reads the
-     * table name lazily on each instantiation so runtime config swaps (tests,
-     * tenancy) take effect immediately. The table has to be applied here,
-     * before Eloquent reads it, so this is construction rather than model
-     * behaviour.
+     * Create a new Device bound to the package-configured table name and,
+     * unless the class names a connection of its own, the storage connection.
+     * Reads both lazily on each instantiation so runtime config swaps (tests,
+     * tenancy) take effect immediately. Both have to be applied here, before
+     * Eloquent reads them, so this is construction rather than model behaviour.
      *
      * @param  array<string, mixed>  $attributes
+     *
+     * @throws \InvalidArgumentException
      *
      * @phpstan-ignore sineMaculaLaravel.modelBehaviour
      */
     public function __construct(array $attributes = [])
     {
         $this->setTable($this->resolveConfiguredTable());
+        $this->connection ??= $this->resolveStorageConnection();
 
         parent::__construct($attributes);
     }
@@ -182,5 +190,19 @@ class Device extends Model implements EloquentDevice
         }
 
         return $table === '' ? 'devices' : $table;
+    }
+
+    /**
+     * Read the storage connection, or `null` (the default connection) while the
+     * Config facade is not yet bootstrapped. A malformed setting is not
+     * swallowed: it fails closed.
+     *
+     * @return ?string
+     *
+     * @throws \InvalidArgumentException
+     */
+    private function resolveStorageConnection(): ?string
+    {
+        return Config::getFacadeRoot() === null ? null : StorageConnection::name();
     }
 }

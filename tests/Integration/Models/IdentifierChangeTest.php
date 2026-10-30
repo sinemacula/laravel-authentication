@@ -42,21 +42,30 @@ final class IdentifierChangeTest extends TestCase
     }
 
     /**
-     * The model reads the configured table, on the device model's connection,
-     * each time one is made.
+     * The model reads the configured table, on the storage connection, each
+     * time one is made, whatever connection the device model names.
      *
      * @return void
      */
-    public function testUsesTheConfiguredTableOnTheDeviceModelsConnection(): void
+    public function testUsesTheConfiguredTableOnTheStorageConnection(): void
     {
         self::assertSame('identifier_changes', (new IdentifierChange)->getTable());
-        self::assertNull((new IdentifierChange)->getConnectionName());
 
         config()->set('authentication.identifier_changes.table', 'pending_email_changes');
-        config()->set('authentication.device.model', SeparateConnectionDevice::class);
 
         self::assertSame('pending_email_changes', (new IdentifierChange)->getTable());
-        self::assertSame((new SeparateConnectionDevice)->getConnectionName(), (new IdentifierChange)->getConnectionName());
+
+        config()->set('authentication.device.model', SeparateConnectionDevice::class);
+
+        self::assertNull((new IdentifierChange)->getConnectionName());
+
+        config()->set('authentication.storage.connection', 'package_store');
+
+        self::assertSame('package_store', (new IdentifierChange)->getConnectionName());
+
+        config()->set('authentication.storage.connection', '');
+
+        self::assertNull((new IdentifierChange)->getConnectionName());
     }
 
     /**

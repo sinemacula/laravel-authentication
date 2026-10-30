@@ -14,6 +14,7 @@ use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
+use Tests\Integration\Fixtures\SeparateConnectionDevice;
 use Tests\Unit\Stubs\PlainDeviceFixture;
 use Tests\Unit\Stubs\StubAlternateGuardScopedPrincipalResolver;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
@@ -156,6 +157,36 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
             'driver'   => 'jwt',
             'provider' => 'identities',
         ]);
+    }
+
+    /**
+     * JWT guards fail fast when the configured device model names a connection
+     * other than the storage connection, where its sessions are written with
+     * the package's other rows in one transaction; once the storage connection
+     * is that connection, the guard is built.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testJwtGuardRejectsADeviceModelOffTheStorageConnection(): void
+    {
+        config()->set('auth.guards.custom_jwt', ['driver' => 'jwt', 'provider' => 'identities']);
+        config()->set('authentication.device.model', SeparateConnectionDevice::class);
+
+        try {
+            AuthenticationServiceProvider::createJwtGuard($this->app, 'custom_jwt', ['driver' => 'jwt', 'provider' => 'identities']);
+
+            self::fail('Expected the device model to be refused.');
+        } catch (InvalidDeviceModelConfigurationException $exception) {
+            $expected = 'the device model is on [device_store], the storage connection is [' . config()->string('database.default') . '].';
+
+            self::assertStringContainsString($expected, $exception->getMessage());
+        }
+
+        config()->set('authentication.storage.connection', SeparateConnectionDevice::CONNECTION);
+
+        self::assertSame('custom_jwt', AuthenticationServiceProvider::createJwtGuard($this->app, 'custom_jwt', ['driver' => 'jwt', 'provider' => 'identities'])->getName());
     }
 
     /**

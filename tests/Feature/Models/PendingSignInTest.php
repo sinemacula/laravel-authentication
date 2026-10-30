@@ -6,14 +6,13 @@ namespace Tests\Feature\Models;
 
 use Illuminate\Support\Facades\Config;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use Tests\Integration\Fixtures\SeparateConnectionDevice;
 use Tests\TestCase;
 
 /**
  * Feature tests for where the pending sign-in model keeps its rows: the
- * configured table, on the device model's connection.
+ * configured table, on the storage connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -41,18 +40,24 @@ final class PendingSignInTest extends TestCase
     }
 
     /**
-     * The model follows the device model onto its connection, so a pending
-     * sign-in and the device it may continue live on the same one.
+     * The model lives on the storage connection, read each time it is built,
+     * where the devices must live too, so a pending sign-in and the device it
+     * may continue share it; the device model's own connection does not move
+     * it.
      *
      * @return void
      */
-    public function testTheConnectionIsTheDeviceModelsOne(): void
+    public function testTheConnectionIsTheStorageConnection(): void
     {
         Config::set('authentication.device.model', SeparateConnectionDevice::class);
 
-        self::assertSame(SeparateConnectionDevice::CONNECTION, (new PendingSignIn)->getConnectionName());
+        self::assertNull((new PendingSignIn)->getConnectionName());
 
-        Config::set('authentication.device.model', Device::class);
+        Config::set('authentication.storage.connection', 'package_store');
+
+        self::assertSame('package_store', (new PendingSignIn)->getConnectionName());
+
+        Config::set('authentication.storage.connection', '');
 
         self::assertNull((new PendingSignIn)->getConnectionName());
     }

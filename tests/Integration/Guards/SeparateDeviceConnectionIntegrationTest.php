@@ -59,8 +59,9 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
 
     /**
      * Freeze the clocks, create the identity table on the default connection
-     * and the device table on the device's own, record the refresh outcome
-     * events, and register a route behind the `auth` middleware.
+     * (the shipped migrations created the device table on the storage
+     * connection), record the refresh outcome events, and register a route
+     * behind the `auth` middleware.
      *
      * @return void
      */
@@ -81,8 +82,6 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
             $blueprint->boolean('is_active')->default(true);
             $blueprint->timestamps();
         });
-
-        self::createDeviceTable('devices', 'id', SeparateConnectionDevice::CONNECTION);
 
         $this->dispatched = new \ArrayObject;
 
@@ -113,8 +112,8 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
 
     /**
      * A refresh rotates the device on its own connection, the new access token
-     * authenticates through the `auth` middleware, and nothing is written to
-     * the default connection's devices table.
+     * authenticates through the `auth` middleware, and the default connection
+     * has no devices table at all.
      *
      * @return void
      *
@@ -132,7 +131,7 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
 
         $this->withHeaders(['Authorization' => 'Bearer ' . $pair->accessToken])->getJson('/me')->assertOk()->assertJson(['device' => $device->id]);
 
-        self::assertSame(0, DB::table('devices')->count());
+        self::assertFalse(Schema::hasTable('devices'));
     }
 
     /**
@@ -288,8 +287,9 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Keep the devices on their own connection, a separate database, and
-     * configure the `api` guard.
+     * Keep the devices on their own connection, a separate database, as the
+     * storage connection, the counters on the default one, and configure the
+     * `api` guard.
      *
      * @param  mixed  $app
      * @return void
@@ -303,6 +303,8 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
         $config = app(ConfigRepository::class);
 
         $config->set('database.connections.' . SeparateConnectionDevice::CONNECTION, ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
+        $config->set('authentication.storage.connection', SeparateConnectionDevice::CONNECTION);
+        $config->set('authentication.rate_limits.connection', 'testing');
         $config->set('authentication.device.model', SeparateConnectionDevice::class);
         $config->set('auth.defaults.guard', 'api');
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => SeparateConnectionDeviceIdentity::class]);

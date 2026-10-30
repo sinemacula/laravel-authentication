@@ -192,10 +192,10 @@ is not an Eloquent model; a non-human identity (`MachineIdentity`) has no passwo
 `PasswordSet` reports the password set, with the flow, once the transaction commits on the identity's connection, and
 never for one rolled back; its context names the guard, the client and the identity, and, for a change, the device kept.
 Called inside a transaction of yours, the hash, the cutoff and the revocations are part of it, and every event waits for
-its commit. When the device model lives on another connection than the identity, the devices are revoked in their own
-transaction, which commits inside the identity's: a failure after it leaves the devices revoked and the password
-unchanged, so more is ended, never less, and calling again finishes the job. The automatic rehash on sign-in never
-fires `PasswordSet`.
+its commit. When the identity lives on another connection than the devices (the storage connection), the devices are
+revoked in their own transaction, which commits inside the identity's: a failure after it leaves the devices revoked and
+the password unchanged, so more is ended, never less, and calling again finishes the job. The automatic rehash on
+sign-in never fires `PasswordSet`.
 
 ## Password reset
 

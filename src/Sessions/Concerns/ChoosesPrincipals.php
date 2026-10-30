@@ -435,7 +435,7 @@ trait ChoosesPrincipals
      * @param  \Carbon\CarbonImmutable  $now
      * @return ?array{0: \SineMacula\Laravel\Authentication\Models\PendingSignIn, 1: string, 2: \SineMacula\Laravel\Authentication\Contracts\Identity}
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      */
     private function liveChoice(#[\SensitiveParameter] string $token, CarbonImmutable $now): ?array
     {

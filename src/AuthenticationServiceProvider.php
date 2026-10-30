@@ -35,8 +35,8 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
+use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
-use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
@@ -45,6 +45,7 @@ use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Http\UnauthenticatedResponse;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
+use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
@@ -141,7 +142,8 @@ final class AuthenticationServiceProvider extends ServiceProvider
 
     /**
      * Construct a `JwtGuard` from the supplied container, guard name, and
-     * Laravel guard config block.
+     * Laravel guard config block. A device model that is misconfigured, or not
+     * on the storage connection, fails here rather than on the first request.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  string  $name
@@ -149,6 +151,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
     public static function createJwtGuard(Application $app, string $name, array $config): JwtGuard
@@ -162,9 +165,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $resolver  = $selection['resolver'];
         $events    = $app->make(Dispatcher::class);
 
-        InvalidDeviceModelConfigurationException::validate(
-            $app->make(ConfigRepository::class)->string('authentication.device.model', ''),
-        );
+        DeviceLookup::model();
 
         /** @var \SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory $tokenFactory */
         $tokenFactory = $app->make(JwtTokenServiceFactory::class);
@@ -207,7 +208,9 @@ final class AuthenticationServiceProvider extends ServiceProvider
 
     /**
      * Construct an `ApiKeyGuard` from the supplied container, guard name, and
-     * Laravel guard config block.
+     * Laravel guard config block. A malformed storage connection, where the
+     * guard's keys live, fails here rather than on the first request; the
+     * device model is not read, since keys have no device sessions.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  string  $name
@@ -215,7 +218,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
      * @return \SineMacula\Laravel\Authentication\Guards\ApiKeyGuard
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      */
     public static function createApiKeyGuard(Application $app, string $name, array $config): ApiKeyGuard
     {
@@ -226,9 +229,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
 
         $selection = self::resolveGuardPrincipalResolver($app, $name, $config);
 
-        InvalidDeviceModelConfigurationException::validate(
-            $app->make(ConfigRepository::class)->string('authentication.device.model', ''),
-        );
+        StorageConnection::name();
 
         $guard = new ApiKeyGuard(
             $name,

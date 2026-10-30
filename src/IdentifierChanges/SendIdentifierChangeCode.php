@@ -79,7 +79,6 @@ final class SendIdentifierChangeCode implements ShouldBeEncrypted, ShouldQueue
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
     public function handle(Container $container): void
     {

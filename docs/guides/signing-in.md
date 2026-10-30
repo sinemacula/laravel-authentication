@@ -264,8 +264,8 @@ used before, a code for another guard, purpose or number, and the right code for
 identity whose number is not verified is `identifier_unverified` (the code proved the number is held, so this tells a
 guesser nothing). Then the session service does the rest, as for a password: activity, the principal, the audience
 policy, a further factor and the device, which records `phone_code`. The code's attempts are counted on its row, on the
-device model's connection, so a transaction you open there and roll back around a sign-in gives the attempt back; the
-sign-in limits on `rate_limits.connection` still count it.
+storage connection, so a transaction you open there and roll back around a sign-in gives the attempt back; the sign-in
+limits on `rate_limits.connection` still count it.
 
 Another identifier type signs in by code once it has a normaliser and a column: register a code method for it, and
 allow it.

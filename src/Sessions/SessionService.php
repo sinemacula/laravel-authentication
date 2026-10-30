@@ -308,7 +308,7 @@ final readonly class SessionService
      * @param  string  $token
      * @return bool
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      *
      * @imperative
      */

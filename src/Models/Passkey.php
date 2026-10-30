@@ -6,7 +6,7 @@ namespace SineMacula\Laravel\Authentication\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Config;
-use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
+use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
  * A passkey: a WebAuthn credential an identity signs in with, scoped to the
@@ -14,9 +14,9 @@ use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
  * key, sign counter and transports, the user handle it was registered under,
  * its backup state, and when it was last used.
  *
- * Kept on the device model's connection, in the table named by
- * `authentication.passkeys.table`. Passkeys are not pruned: one lasts until its
- * owner removes it.
+ * Kept on the storage connection (see `Database\StorageConnection`), in the
+ * table named by `authentication.passkeys.table`. Passkeys are not pruned: one
+ * lasts until its owner removes it.
  *
  * Only the class name is public; its columns and behaviour belong to the
  * passkey service. Read an identity's passkeys through
@@ -61,20 +61,20 @@ final class Passkey extends Model
     protected $hidden = ['credential_id_hash', 'credential_id', 'user_handle', 'public_key', 'sign_count'];
 
     /**
-     * Create a passkey on the device model's connection, in the configured
-     * table. Both are applied here, before Eloquent reads them, so this is
-     * construction rather than model behaviour.
+     * Create a passkey on the storage connection, in the configured table. Both
+     * are applied here, before Eloquent reads them, so this is construction
+     * rather than model behaviour.
      *
      * @param  array<string, mixed>  $attributes
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      *
      * @phpstan-ignore sineMaculaLaravel.modelBehaviour
      */
     public function __construct(array $attributes = [])
     {
         $this->setTable(Config::string('authentication.passkeys.table', 'passkeys'));
-        $this->setConnection(DeviceLookup::model()->getConnectionName());
+        $this->setConnection(StorageConnection::name());
 
         parent::__construct($attributes);
     }

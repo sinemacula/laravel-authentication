@@ -65,7 +65,7 @@ use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
  * change stands if that notice fails.
  *
  * A confirmation writes the proof, the pending change and the identity in one
- * transaction, so the identity must be an Eloquent model on the device model's
+ * transaction, so the identity must be an Eloquent model on the storage
  * connection (see `SharedConnection`), where the codes and the pending changes
  * are kept; a machine identity has no identifiers to change. Misconfiguration
  * throws before anything is counted or written; every refusal is a result,
@@ -278,7 +278,6 @@ final readonly class IdentifierChangeService
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      *
      * @phpstan-impure
      */
@@ -408,7 +407,7 @@ final readonly class IdentifierChangeService
      * @param  \Carbon\CarbonImmutable  $now
      * @return ?\SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRefused
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      * @throws \SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRefused
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong

@@ -34,7 +34,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   slots back, those the method took on the accounts it checked included; a pending sign-in keeps them all, with their
   windows, until `complete()` starts its session. The slots are written on `rate_limits.connection`, outside the
   session's own transaction but not outside a transaction the caller opened on that connection: with the default
-  (`null`, the default connection) a caller that rolls back around a sign-in rolls its counts back too, so its attempts
+  (`null`, the storage connection) a caller that rolls back around a sign-in rolls its counts back too, so its attempts
   go uncounted. Only counters on a connection of their own survive such a rollback. `complete()` therefore gives the
   slots back only once its delete of the pending sign-in commits on that row's connection: a rollback restores the
   pending sign-in, and slots given back before it would be given back again when the token is completed a second time. A
