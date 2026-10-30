@@ -222,7 +222,8 @@ return [
     | phone normaliser accepts only numbers already in E.164 form (`+` and up
     | to 15 digits) and refuses anything else: an application that takes
     | mobile or free-form numbers binds its own normaliser under `phone`,
-    | backed by `giggsey/libphonenumber-for-php` (see the README).
+    | backed by `giggsey/libphonenumber-for-php` (see
+    | docs/guides/identity-models.md).
     |
     */
 

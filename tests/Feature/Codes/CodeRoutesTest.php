@@ -28,7 +28,7 @@ use Tests\Integration\Fixtures\CodeIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests of the README's one-time code routes, registered as an
+ * Feature tests of the documented one-time code routes, registered as an
  * application would and driven over HTTP: request a code, sign in with it, and
  * authenticate through `auth:mobile` with the access token; request and confirm
  * a code that verifies the signed-in identity's number; with the code-sender
@@ -244,7 +244,7 @@ final class CodeRoutesTest extends TestCase
     }
 
     /**
-     * The README's code request route: validate, send, answer a rate-limited
+     * The documented code request route: validate, send, answer a rate-limited
      * request 429 with the wait, an invalid number 422, and every sent code
      * 202, whether or not anyone has the number.
      *
@@ -267,7 +267,7 @@ final class CodeRoutesTest extends TestCase
     }
 
     /**
-     * The README's code sign-in route: validate, sign in through the session
+     * The documented code sign-in route: validate, sign in through the session
      * service, and hand out the token pair, or answer 401.
      *
      * @param  \Illuminate\Http\Request  $request
@@ -290,8 +290,8 @@ final class CodeRoutesTest extends TestCase
     }
 
     /**
-     * The README's route that sends the signed-in identity a code verifying its
-     * number.
+     * The documented route that sends the signed-in identity a code verifying
+     * its number.
      *
      * @return \Illuminate\Http\JsonResponse
      *
@@ -309,7 +309,7 @@ final class CodeRoutesTest extends TestCase
     }
 
     /**
-     * The README's route that checks the code and verifies the signed-in
+     * The documented route that checks the code and verifies the signed-in
      * identity's number.
      *
      * @param  \Illuminate\Http\Request  $request

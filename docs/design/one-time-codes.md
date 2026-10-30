@@ -134,7 +134,7 @@ Each flow is held to the same criterion, and its tests prove it rather than assu
 - Verification by code: the caller holds the identity, so the criterion is delivery only: queued, as above.
 
 Passkey sign-in (`passkeys.md`), API keys and client credentials (`machine-credentials.md`) are held to the same
-criterion, and README's "Enumeration resistance" table lists every flow together.
+criterion, and the signing-in guide's "Enumeration resistance" table lists every flow together.
 
 ## Implementation Anchors
 

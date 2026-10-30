@@ -91,8 +91,8 @@ outdates, and why the change stands when the notice to the old identifier fails.
 ## Failure / Edge Cases
 
 - A confirmation link's `GET` should only show a confirmation whose form posts back to the same signed address (the
-  README's routes do): mail scanners and link previews fetch links unasked, and a change confirmed by such a fetch, of an
-  address mistyped into a stranger's scanned mailbox, would make that address the one password resets go to.
+  documented routes do): mail scanners and link previews fetch links unasked, and a change confirmed by such a fetch, of
+  an address mistyped into a stranger's scanned mailbox, would make that address the one password resets go to.
   `confirmByLink()` reads the signature from the request's query, so the `POST` carries it.
 - No recent authentication, a wrong password, or a password on a guard that does not allow passwords (a code- or
   passkey-only audience, which counts nothing): `reauthentication_required`. A password checked too often: the
@@ -120,7 +120,7 @@ outdates, and why the change stands when the notice to the old identifier fails.
   change records whether it was verified when the change was requested (`previous_verified`, read with
   `hasVerifiedIdentifier()`), and the notice carries it (`IdentifierChangeNotice::$previousVerified`), so the notifier
   decides what, if anything, to tell it; the package still queues the notice, since whether an unverified address is
-  the owner's is the application's to judge. The README's notifier sends nothing to one, and names only part of the
+  the owner's is the application's to judge. The documented notifier sends nothing to one, and names only part of the
   new identifier to a verified one.
 - Sessions are not revoked by a change; the application may sign the identity out everywhere if it wants that.
 - Every bulk revocation of an identity's sessions deletes every pending change of the identity, of each type with a
