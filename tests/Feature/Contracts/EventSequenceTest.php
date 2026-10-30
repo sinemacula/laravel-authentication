@@ -363,13 +363,14 @@ final class EventSequenceTest extends TestCase
      */
     public function testAnApiKeyAuthenticatesItsOwnerWithoutADevice(): void
     {
-        $machine = MachineClient::query()->create(['email' => 'robot@example.test']);
-        $key     = $this->keys()->issue($machine, $machine, ['reports'])->key();
+        $machine  = MachineClient::query()->create(['email' => 'robot@example.test']);
+        $key      = $this->keys()->issue($machine, $machine, ['reports'])->key();
+        $tampered = substr($key, 0, -1) . (str_ends_with($key, 'x') ? 'y' : 'x');
 
         $this->recordSequence();
 
         self::assertNotNull($this->bearerGuard($key, 'keys')->user());
-        self::assertNull($this->bearerGuard(substr($key, 0, -1) . 'x', 'keys')->user());
+        self::assertNull($this->bearerGuard($tampered, 'keys')->user());
         self::assertSame([
             'Authenticated keys i1',
             'PrincipalAssigned keys i1/p1/-',
