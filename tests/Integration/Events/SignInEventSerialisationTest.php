@@ -8,9 +8,13 @@ use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
+use Illuminate\Queue\Worker;
+use Illuminate\Queue\WorkerOptions;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
@@ -27,14 +31,17 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
+use Tests\Integration\Fixtures\RecordSignedInLater;
 use Tests\TestCase;
 
 /**
  * Integration tests for the sign-in events as a queued listener receives them:
  * serialised and restored, with the identity, principal, tenant and device
  * loaded again from the database as Eloquent models (so a change made while the
- * event was queued shows), and the client, method and other values kept as they
- * were.
+ * event was queued shows), or `null` once their rows are gone, and the
+ * snapshot, the client, the method and the other values kept as they were,
+ * whatever was deleted meanwhile; through a real queued listener, on the `sync`
+ * connection and through a worker on the `database` one.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -238,35 +245,117 @@ final class SignInEventSerialisationTest extends TestCase
 
         $context = self::roundTrip($this->recordedEvent(SignedIn::class))->context;
 
+        self::assertSame($this->recordedEvent(SignedIn::class)->context->toArray(), $context->toArray());
+        self::assertSame($this->member->getMorphClass(), $context->identityMorphClass);
         self::assertSame((string) $this->member->getKey(), $context->identityId); // @phpstan-ignore cast.string
-        self::assertSame($this->membership->getMorphClass(), $context->principalType);
+        self::assertSame($this->membership->getMorphClass(), $context->principalMorphClass);
         self::assertSame((string) $this->membership->getKey(), $context->principalId); // @phpstan-ignore cast.string
+        self::assertSame($this->tenant->getMorphClass(), $context->tenantMorphClass);
         self::assertSame((string) $this->tenant->getKey(), $context->tenantId); // @phpstan-ignore cast.string
         self::assertSame($session->device->getKey(), $context->deviceId);
+        self::assertTrue(CarbonImmutable::now()->equalTo($context->occurredAt));
     }
 
     /**
-     * A queued listener cannot restore an event whose device was deleted while
-     * it waited (a pruned device): Laravel's `ModelNotFoundException` says so,
-     * and the snapshots are the record to keep.
+     * An event whose device, identity, principal and tenant were all deleted
+     * while it waited (a pruned device, an erased account) still restores: the
+     * models are `null`, and the snapshot names them as they were.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAnEventWhoseDeviceWasDeletedCannotBeRestored(): void
+    public function testAnEventWhoseRowsWereDeletedStillRestores(): void
     {
         $this->recordEvents([SignedIn::class]);
 
         self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member@example.test'))->isSignedIn());
 
-        $queued = serialize($this->recordedEvent(SignedIn::class));
+        $event  = $this->recordedEvent(SignedIn::class);
+        $queued = serialize($event);
 
-        Device::query()->delete();
+        $this->deleteEverything();
 
-        $this->expectException(ModelNotFoundException::class);
+        $copy = unserialize($queued);
 
-        unserialize($queued);
+        self::assertInstanceOf(SignedIn::class, $copy);
+        self::assertNull($copy->context->identity);
+        self::assertNull($copy->context->principal);
+        self::assertNull($copy->context->tenant);
+        self::assertNull($copy->context->device);
+        self::assertSame($event->context->toArray(), $copy->context->toArray());
+        self::assertTrue($copy->deviceCreated);
+    }
+
+    /**
+     * A queued listener on the `sync` connection, which serialises the event as
+     * any queue does, gets it after an earlier listener deleted its rows: with
+     * no models and the whole snapshot.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAQueuedListenerOnTheSyncConnectionGetsTheSnapshotOfDeletedRows(): void
+    {
+        config()->set('queue.default', 'sync');
+
+        RecordSignedInLater::$received = [];
+
+        Event::listen(SignedIn::class, fn () => $this->deleteEverything());
+        Event::listen(SignedIn::class, RecordSignedInLater::class);
+
+        $this->recordEvents([SignedIn::class]);
+
+        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member@example.test'))->isSignedIn());
+
+        $this->assertReceivedTheSnapshotAlone($this->recordedEvent(SignedIn::class));
+    }
+
+    /**
+     * A queued listener on the `database` connection, run by a worker after the
+     * rows were deleted, gets the event with no models and the whole snapshot.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAQueuedListenerRunByAWorkerGetsTheSnapshotOfDeletedRows(): void
+    {
+        Schema::create('jobs', static function (Blueprint $blueprint): void {
+            $blueprint->id();
+            $blueprint->string('queue')->index();
+            $blueprint->longText('payload');
+            $blueprint->unsignedTinyInteger('attempts');
+            $blueprint->unsignedInteger('reserved_at')->nullable();
+            $blueprint->unsignedInteger('available_at');
+            $blueprint->unsignedInteger('created_at');
+        });
+
+        $this->beforeApplicationDestroyed(static fn () => Schema::dropIfExists('jobs'));
+
+        config()->set('queue.default', 'database');
+        config()->set('queue.connections.database', ['driver' => 'database', 'table' => 'jobs', 'queue' => 'default', 'retry_after' => 90]);
+        config()->set('queue.failed.driver', 'null');
+
+        RecordSignedInLater::$received = [];
+
+        Event::listen(SignedIn::class, RecordSignedInLater::class);
+
+        $this->recordEvents([SignedIn::class]);
+
+        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member@example.test'))->isSignedIn());
+        self::assertSame([], RecordSignedInLater::$received);
+
+        $this->deleteEverything();
+
+        $worker = app('queue.worker');
+
+        self::assertInstanceOf(Worker::class, $worker);
+
+        $worker->runNextJob('database', 'default', new WorkerOptions(sleep: 0, maxTries: 1));
+
+        $this->assertReceivedTheSnapshotAlone($this->recordedEvent(SignedIn::class));
     }
 
     /**
@@ -310,6 +399,42 @@ final class SignInEventSerialisationTest extends TestCase
         self::assertNotSame($event, $copy);
 
         return $copy;
+    }
+
+    /**
+     * Delete every device, membership, member and tenant, the tenant for good.
+     *
+     * @return void
+     */
+    private function deleteEverything(): void
+    {
+        Device::query()->delete();
+        ActivatableTenantMembership::query()->delete();
+        ActivatableTenantMember::query()->delete();
+        ActivatableTenant::query()->forceDelete();
+    }
+
+    /**
+     * Assert the queued listener received the event once, with no models and
+     * the snapshot of the event as dispatched.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Events\SignedIn  $dispatched
+     * @return void
+     */
+    private function assertReceivedTheSnapshotAlone(SignedIn $dispatched): void
+    {
+        self::assertCount(1, RecordSignedInLater::$received);
+
+        $received = RecordSignedInLater::$received[0];
+
+        self::assertNotSame($dispatched, $received);
+        self::assertNull($received->context->identity);
+        self::assertNull($received->context->principal);
+        self::assertNull($received->context->tenant);
+        self::assertNull($received->context->device);
+        self::assertSame($dispatched->context->toArray(), $received->context->toArray());
+        self::assertSame((string) $this->member->getKey(), $received->context->identityId); // @phpstan-ignore cast.string
+        self::assertSame($dispatched->context->deviceId, $received->context->deviceId);
     }
 
     /**

@@ -69,7 +69,7 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   fails for its reason, a replay (`rotation_reuse`) revoking the device as a first judgement does. There is never a
   second swap.
 - `PrincipalChoiceRequired` and `PrincipalSwitched` are dispatched through `AfterCommit` on the device model's
-  connection. `PrincipalSwitched` carries the device's recorded previous type and identifier and the previous
+  connection. `PrincipalSwitched` carries the device's recorded previous morph class and identifier and the previous
   principal only when the hinted path still returns that very principal (same type and identifier).
 
 ## Success Path

@@ -22,9 +22,13 @@ namespace SineMacula\Laravel\Authentication\Contracts;
 interface HasType
 {
     /**
-     * Return the model's type string, or an empty string for none.
+     * Return the model's type string, or an empty string for none. Throw a
+     * `LogicException` rather than report none when the type cannot be read
+     * (`ProvidesType` does for a model selected without its type column).
      *
      * @return string
+     *
+     * @throws \LogicException
      */
     public function getType(): string;
 }

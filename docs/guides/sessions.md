@@ -71,7 +71,7 @@ and the client retries with its current token. When another request changes the 
 write, the row is read again with a lock and judged once more under the same rules; the swap is never tried twice.
 
 A switch dispatches `PrincipalSwitched` once committed on the device's connection, with the new principal and tenant in
-its context, and the previous principal as the device recorded it (`previousPrincipalType`, `previousPrincipalId`)
+its context, and the previous principal as the device recorded it (`previousPrincipalMorphClass`, `previousPrincipalId`)
 and, when it still resolves for the identity, the principal itself (`previousPrincipal`); then it binds the guard to the
 target (`Authenticated`, `PrincipalAssigned`, `DeviceAuthenticated`, no `Login`), so a listener that throws on those
 cannot withhold the report.

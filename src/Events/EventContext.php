@@ -4,13 +4,16 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Events;
 
+use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Queue\SerializesModels;
+use SineMacula\Laravel\Authentication\Audience\PrincipalType;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Events\Concerns\SerializesLiveModels;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
@@ -33,37 +36,53 @@ use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
  * principal or a refused switch to another principal names no principal, even
  * when it carries a device.
  *
- * The identifiers are snapshots taken when the event is built, as strings: the
- * identity's auth identifier, the principal's recorded type and identifier, the
- * tenant's and the device's identifiers. They survive queueing unchanged, so
- * audit sinks should record them. The models are live references: a synchronous
- * listener gets the instances the package holds, and a queued listener gets
- * them re-fetched in their state when it runs (or a `ModelNotFoundException`
- * when one was deleted in between), as Laravel's `SerializesModels` does. A
- * principal, tenant or device that is not an Eloquent model is serialised as
- * the object itself. The credential's id and scopes are plain strings, so they
- * survive queueing unchanged too: `scopes` is `null` for a human identity's
- * session, which no credential limits, and the list the credential grants
- * otherwise (`[]` grants none). Never carries a token, a key, a digest, a
- * password or any other secret.
+ * Everything but the four models is the snapshot, fixed when the context is
+ * built: when (`occurredAt`), the guard, the client, the method, the
+ * credential's id and scopes, the morph class (an Eloquent model's morph class,
+ * else the class name) and identifier of the identity, the principal and the
+ * tenant, the principal's categorical type (`principalCategory`, as
+ * `Auth::type()` reports it), and the device's identifier. It is the record an
+ * audit sink keeps, and `toArray()` gives it as scalars. The models are a
+ * convenience: a synchronous listener gets the instances the package holds, and
+ * after a queue each Eloquent model is fetched again in its state then (with
+ * the relations it had loaded), or is `null` once its row is gone; a part that
+ * is not an Eloquent model does not cross a queue and is `null` after one. A
+ * queued model is current state, not evidence of what was authorised. `scopes`
+ * is `null` for a human identity's session, which no credential limits, and the
+ * list the credential grants otherwise (`[]` grants none). Never carries a
+ * token, a key, a digest, a password or any other secret.
  *
  * @api
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
+ *
+ * @implements \Illuminate\Contracts\Support\Arrayable<string, mixed>
  */
-final readonly class EventContext
+final readonly class EventContext implements Arrayable
 {
-    use SerializesModels;
+    use SerializesLiveModels;
+
+    /** @var \Carbon\CarbonImmutable When the event was built. */
+    public CarbonImmutable $occurredAt;
+
+    /** @var ?string The identity's morph class (an Eloquent model's morph class, or its class name) when the event was built. */
+    public ?string $identityMorphClass;
 
     /** @var ?string The identity's auth identifier when the event was built. */
     public ?string $identityId;
 
-    /** @var ?string The principal's recorded type (its morph class, or its class name) when the event was built. */
-    public ?string $principalType;
+    /** @var ?string The principal's morph class (an Eloquent model's morph class, or its class name), as a device records it, when the event was built. */
+    public ?string $principalMorphClass;
 
     /** @var ?string The principal's identifier when the event was built. */
     public ?string $principalId;
+
+    /** @var ?string The principal's categorical type (its own, else its tenant's), as `Auth::type()` reports it, when the event was built. */
+    public ?string $principalCategory;
+
+    /** @var ?string The tenant's morph class (an Eloquent model's morph class, or its class name) when the event was built. */
+    public ?string $tenantMorphClass;
 
     /** @var ?string The tenant's identifier when the event was built. */
     public ?string $tenantId;
@@ -125,21 +144,85 @@ final readonly class EventContext
     ) {
         $recorded = $fromDevice ? $device : null;
 
-        $this->identityId    = $identity  === null ? self::recordedOn($recorded, 'owner') : IdentifierCoercion::stringify($identity->getAuthIdentifier());
-        $this->principalType = $principal === null ? self::recordedOn($recorded, 'type') : PrincipalReference::type($principal);
-        $this->principalId   = $principal === null ? self::recordedOn($recorded, 'id') : PrincipalReference::id($principal);
-        $this->tenantId      = IdentifierCoercion::stringify($tenant?->getTenantIdentifier());
-        $this->deviceId      = $device === null ? $deviceId : IdentifierCoercion::stringify($device->getDeviceIdentifier());
+        $this->occurredAt          = CarbonImmutable::now();
+        $this->identityMorphClass  = $identity  === null ? self::recordedOn($recorded, 'ownerType') : self::morphClassOf($identity);
+        $this->identityId          = $identity  === null ? self::recordedOn($recorded, 'owner') : IdentifierCoercion::stringify($identity->getAuthIdentifier());
+        $this->principalMorphClass = $principal === null ? self::recordedOn($recorded, 'type') : PrincipalReference::type($principal);
+        $this->principalId         = $principal === null ? self::recordedOn($recorded, 'id') : PrincipalReference::id($principal);
+        $this->principalCategory   = self::categoryOf($principal, $tenant);
+        $this->tenantMorphClass    = $tenant === null ? null : self::morphClassOf($tenant);
+        $this->tenantId            = IdentifierCoercion::stringify($tenant?->getTenantIdentifier());
+        $this->deviceId            = $device === null ? $deviceId : IdentifierCoercion::stringify($device->getDeviceIdentifier());
+    }
+
+    /**
+     * Return the snapshot as scalars, the record an audit sink keeps: the time
+     * as an ISO 8601 UTC string to the microsecond, and the client as its IP
+     * address and user agent. The models are left out.
+     *
+     * @return array<string, mixed>
+     */
+    #[\Override]
+    public function toArray(): array
+    {
+        return [
+            'occurred_at'           => $this->occurredAt->utc()->format('Y-m-d\TH:i:s.u\Z'),
+            'guard'                 => $this->guard,
+            'method'                => $this->method,
+            'ip'                    => $this->client->ip,
+            'user_agent'            => $this->client->userAgent,
+            'identity_morph_class'  => $this->identityMorphClass,
+            'identity_id'           => $this->identityId,
+            'principal_morph_class' => $this->principalMorphClass,
+            'principal_id'          => $this->principalId,
+            'principal_category'    => $this->principalCategory,
+            'tenant_morph_class'    => $this->tenantMorphClass,
+            'tenant_id'             => $this->tenantId,
+            'device_id'             => $this->deviceId,
+            'credential_id'         => $this->credentialId,
+            'scopes'                => $this->scopes,
+        ];
+    }
+
+    /**
+     * The principal's categorical type from what is loaded: its own, else the
+     * tenant's; `null` without a principal, and when the principal or tenant
+     * was loaded without its type, which is unknown here rather than a reason
+     * to fail the flow the event reports.
+     *
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @return ?string
+     */
+    private static function categoryOf(?Principal $principal, ?Tenant $tenant): ?string
+    {
+        try {
+            return $principal === null ? null : PrincipalType::loaded($principal, $tenant);
+        } catch (\LogicException) {
+            return null;
+        }
+    }
+
+    /**
+     * The morph class an identity or tenant is recorded by: an Eloquent model's
+     * morph class, any other object's class name.
+     *
+     * @param  object  $subject
+     * @return string
+     */
+    private static function morphClassOf(object $subject): string
+    {
+        return $subject instanceof Model ? $subject->getMorphClass() : $subject::class;
     }
 
     /**
      * What an Eloquent device row records, read from its attributes without a
-     * query: its owner's identifier (`owner`), or its principal's type (`type`)
-     * or identifier (`id`); `null` when the row records none or there is no
-     * such row.
+     * query: its owner's morph class (`ownerType`) or identifier (`owner`), or
+     * its principal's morph class (`type`) or identifier (`id`); `null` when
+     * the row records none or there is no such row.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
-     * @param  'id'|'owner'|'type'  $part
+     * @param  'id'|'owner'|'ownerType'|'type'  $part
      * @return ?string
      */
     private static function recordedOn(?Device $device, string $part): ?string
@@ -152,7 +235,8 @@ final readonly class EventContext
 
         /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice $blank */
         $blank   = $device->newInstance();
-        $columns = ['owner' => $blank->authenticatable()->getForeignKeyName(), 'type' => $type, 'id' => $id];
+        $owner   = $blank->authenticatable();
+        $columns = ['ownerType' => $owner->getMorphType(), 'owner' => $owner->getForeignKeyName(), 'type' => $type, 'id' => $id];
 
         return IdentifierCoercion::stringify($device->getAttributes()[$columns[$part]] ?? null);
     }

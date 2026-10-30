@@ -727,7 +727,7 @@ final class ChoosesPrincipalsTest extends TestCase
         self::assertSame(IdentifierCoercion::stringify($session->device->getDeviceIdentifier()), $pending->deviceId);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $pending->identityId);
         self::assertNull($pending->principal);
-        self::assertNull($pending->principalType);
+        self::assertNull($pending->principalMorphClass);
         self::assertNull($pending->principalId);
 
         $continued = $this->sessions(self::GUARD)->choose($again, $first)->session;

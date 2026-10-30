@@ -45,27 +45,19 @@ the published config:
 ```
 
 Every package event implements `SineMacula\...\Contracts\AuthenticationEvent` and carries one `EventContext` in
-`$event->context` (also `$event->context()`), so one listener takes them all and attributes each the same way:
+`$event->context` (also `$event->context()`), so one listener takes them all and attributes each the same way. Record
+the event's class, the context's snapshot (`toArray()`) and whichever of the event's own fields you need:
 
 ```php
 use Illuminate\Support\Facades\Event;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 
 Event::listen(AuthenticationEvent::class, function (AuthenticationEvent $event): void {
-    $context = $event->context();
-
     AuditLog::record(
         event: $event::class,
-        guard: $context->guard,
-        identity: $context->identityId,
-        principal: [$context->principalType, $context->principalId],
-        tenant: $context->tenantId,
-        device: $context->deviceId,
-        method: $context->method,
-        credential: $context->credentialId,
-        scopes: $context->scopes,
-        ip: $context->client->ip,
-        userAgent: $context->client->userAgent,
+        context: $event->context()->toArray(),
+        reason: $event instanceof AuthenticationFailed ? $event->reason->value : null,
     );
 });
 ```
@@ -74,22 +66,29 @@ The context holds the guard, the client of the request being served (IP address 
 columns are), and as much as the event's flow established of the identity, the principal, the tenant it acts within, the
 device and the sign-in method (for a device's events, the method its session records), and the credential (an API key or
 a passkey) in `credentialId` with the scopes it grants in `scopes` (`null` for a human identity's session, which no
-credential limits); what was not established is `null`. It also snapshots, when the event is built, the identity's auth
-identifier (`identityId`), the principal's recorded type and identifier (`principalType`, `principalId`), and the
-tenant's and the device's identifiers (`tenantId`, `deviceId`, which keeps the device id a token named even when no
-device was found). An event about a device row itself (every `DeviceRevoked`, and a refresh or switch refused on the
-row's own state before its owner was read, such as a revoked or ended device or a replay) names the owner and principal
-the row records in `identityId`, `principalType` and `principalId` when the flow did not load them; a device records no
-tenant, so a revocation's `tenantId` is known only when the tenant's deactivation or the request's own session is why.
-Other events name only what they hold, even when they carry a device: an identity's `SignedOutEverywhere`,
-`PrincipalChoiceRequired` and a switch refused for its target have no principal. The snapshots, the client, the method
-and the other values are fixed facts that survive a queue unchanged. The models are live references: a synchronous
-listener gets the package's own instances, and a queued listener gets them re-fetched in their state when it runs, as
-Laravel's `SerializesModels` does, or a `ModelNotFoundException` when one was deleted meanwhile (a pruned device, say).
-Audit sinks should record the snapshots. No event carries a token, a digest, a password or any other secret. An event
-that reports a write is dispatched once the write is committed on the written row's own connection: at once when it has
-no open transaction, on its commit otherwise, and never when it is rolled back; a transaction on another connection
-neither delays nor withdraws it.
+credential limits); what was not established is `null`. It also snapshots, when the event is built, when it happened
+(`occurredAt`), the identity, the principal and the tenant each by morph class and identifier (`identityMorphClass` and
+`identityId`, `principalMorphClass` and `principalId`, `tenantMorphClass` and `tenantId`; the morph class is an Eloquent
+model's `getMorphClass()`, else its class name), the principal's categorical type as `Auth::type()` reports it
+(`principalCategory`: its own type, else its tenant's), and the device's identifier (`deviceId`, which keeps the device
+id a token named even when no device was found). An event about a device row itself (every `DeviceRevoked`, and a
+refresh or switch refused on the row's own state before its owner was read, such as a revoked or ended device or a
+replay) names the owner and principal the row records in `identityMorphClass`, `identityId`, `principalMorphClass` and
+`principalId` when the flow did not load them; a device records no tenant, so a revocation's `tenantId` is known only
+when the tenant's deactivation or the request's own session is why. Other events name only what they hold, even when
+they carry a device: an identity's `SignedOutEverywhere`, `PrincipalChoiceRequired` and a switch refused for its target
+have no principal.
+
+Everything but the four models is the snapshot, fixed when the event is built: record it, not the models. `toArray()`
+gives it as scalars, with `occurred_at` as an ISO 8601 UTC string to the microsecond, ready to store or to queue on its
+own. The models are a convenience: a synchronous listener gets the package's own instances, and a queued listener gets
+each Eloquent model fetched again from the writer in its state when it runs, or `null` once its row is gone (a pruned
+device, an erased account), so a deleted row never stops the event from restoring with its snapshot. A part that is not
+an Eloquent model does not cross a queue and is `null` there. A model a queued listener gets is current state, not
+evidence of what happened. No event carries a token, a digest, a password or any other secret. An event that reports a
+write is dispatched once the write is committed on the written row's own connection: at once when it has no open
+transaction, on its commit otherwise, and never when it is rolled back; a transaction on another connection neither
+delays nor withdraws it.
 
 A request's bearer token authenticates; it is not a sign-in. It dispatches only Laravel's `Authenticated` and the
 package's `PrincipalAssigned` and `DeviceAuthenticated`, and a rejected token only `AuthenticationFailed`, once per
