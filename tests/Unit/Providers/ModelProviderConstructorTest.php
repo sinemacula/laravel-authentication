@@ -63,7 +63,8 @@ final class ModelProviderConstructorTest extends TestCase
     public function testConstructorRejectsEmptyModelClass(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('non-empty Eloquent model class');
+        $this->expectExceptionMessage('ModelProvider requires a non-empty Eloquent model class - set `auth.providers.<name>.model`'
+            . ' to a fully-qualified class name in config/auth.php.');
 
         $provider = new ModelProvider($this->hasher, '');
 
@@ -78,7 +79,7 @@ final class ModelProviderConstructorTest extends TestCase
     public function testConstructorRejectsUnknownModelClass(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('App\Models\Nope');
+        $this->expectExceptionMessage('ModelProvider received unknown class "App\Models\Nope" as its identity model.');
 
         $provider = new ModelProvider($this->hasher, 'App\Models\Nope');
 
@@ -141,23 +142,28 @@ final class ModelProviderConstructorTest extends TestCase
 
     /**
      * `createModel()` returns a fresh instance of the configured Eloquent class
-     * on every call. Pins the parent `createModel()` body so a test that
-     * overrides the method on a subclass cannot mask a regression to the
-     * production path.
+     * on every call, to a subclass building on it as well as to the provider.
+     * Pins the parent `createModel()` body so a test that overrides the method
+     * on a subclass cannot mask a regression to the production path.
      *
      * @return void
-     *
-     * @throws \ReflectionException
      */
     public function testCreateModelReturnsFreshConfiguredClassInstance(): void
     {
-        $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
+        $provider = new class ($this->hasher, StubAuthenticatableModel::class) extends ModelProvider {
+            /**
+             * Build a model as the provider does.
+             *
+             * @return \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model
+             */
+            public function build(): Authenticatable&Model
+            {
+                return $this->createModel();
+            }
+        };
 
-        $reflection = new \ReflectionClass(ModelProvider::class);
-        $method     = $reflection->getMethod('createModel');
-
-        $first  = $method->invoke($provider);
-        $second = $method->invoke($provider);
+        $first  = $provider->build();
+        $second = $provider->build();
 
         self::assertInstanceOf(StubAuthenticatableModel::class, $first);
         self::assertInstanceOf(StubAuthenticatableModel::class, $second);

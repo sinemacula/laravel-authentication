@@ -31,7 +31,6 @@ final class IdentifierCoercion
     public static function stringify(mixed $identifier): ?string
     {
         return match (true) {
-            $identifier === null   => null,
             is_string($identifier) => $identifier,
             is_int($identifier),
             is_float($identifier),

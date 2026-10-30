@@ -55,6 +55,21 @@ final class StubCredentialGuard extends AbstractGuard
     }
 
     /**
+     * Resolve the identity's principal, with an optional hint, through the
+     * inherited `resolvePrincipal()` hook.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  mixed  $hint
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    public function principalFor(Identity $identity, mixed $hint = null): ?Principal
+    {
+        return $this->resolvePrincipal($identity, $hint);
+    }
+
+    /**
      * Clear the bound state through the inherited `clearContextualState()`
      * hook.
      *

@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use Tests\Unit\Stubs\Stub3dPrincipal;
+use Tests\Unit\Stubs\Stub3dPrincipalWithMemberNames;
 use Tests\Unit\Stubs\Stub3dPrincipalWithOwnerRelation;
 use Tests\Unit\Stubs\StubActivatableTenant;
 use Tests\Unit\Stubs\StubModel;
@@ -110,6 +111,30 @@ final class ActsAsPrincipalTest extends TestCase
         $principal->setRelation('owner', $identity);
 
         self::assertSame($identity, $principal->getIdentity());
+    }
+
+    /**
+     * A subclass can build its attribute and relation names on the trait's
+     * defaults, and the identifier, identity and tenant are read through the
+     * names it builds.
+     *
+     * @return void
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     */
+    public function testOverridesCanBuildOnTheDefaultNames(): void
+    {
+        $identity = \Mockery::mock(Identity::class);
+        $tenant   = new StubTenant;
+
+        $principal = new Stub3dPrincipalWithMemberNames;
+        $principal->setAttribute('member_id', 42);
+        $principal->setRelation('memberIdentity', $identity);
+        $principal->setRelation('memberTenant', $tenant);
+
+        self::assertSame(42, $principal->getPrincipalIdentifier());
+        self::assertSame($identity, $principal->getIdentity());
+        self::assertSame($tenant, $principal->getTenant());
     }
 
     /**

@@ -10,6 +10,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use Tests\Unit\Stubs\StubBareDevice;
 use Tests\Unit\Stubs\StubDevice;
+use Tests\Unit\Stubs\StubNonModelDevice;
 
 /**
  * Unit tests for the InvalidDeviceModelConfigurationException.
@@ -70,6 +71,20 @@ final class InvalidDeviceModelConfigurationExceptionTest extends TestCase
         $this->expectException(InvalidDeviceModelConfigurationException::class);
 
         InvalidDeviceModelConfigurationException::validate(\stdClass::class);
+    }
+
+    /**
+     * `validate()` throws for a class that declares the Eloquent device
+     * contract but is not an Eloquent model.
+     *
+     * @return void
+     */
+    public function testValidateThrowsForEloquentDeviceThatIsNotAModel(): void
+    {
+        $this->expectException(InvalidDeviceModelConfigurationException::class);
+        $this->expectExceptionMessage(StubNonModelDevice::class);
+
+        InvalidDeviceModelConfigurationException::validate(StubNonModelDevice::class);
     }
 
     /**

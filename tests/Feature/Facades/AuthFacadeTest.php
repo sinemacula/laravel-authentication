@@ -27,6 +27,10 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 #[CoversClass(Auth::class)]
 final class AuthFacadeTest extends TestCase
 {
+    /** @var string The message for an `auth` binding that is not the package manager. */
+    private const string UNREGISTERED_MESSAGE = 'The `auth` container binding did not resolve to an AuthManager instance'
+        . ' - check that AuthenticationServiceProvider is registered.';
+
     /**
      * The package facade subclass extends Laravel's framework `Auth` facade so
      * IDE autocompletion picks up both surfaces.
@@ -94,9 +98,31 @@ final class AuthFacadeTest extends TestCase
         $this->app?->instance('auth', new IlluminateAuthManager($this->app));
 
         $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage('AuthManager');
+        $this->expectExceptionMessage(self::UNREGISTERED_MESSAGE);
 
         Auth::manager();
+    }
+
+    /**
+     * `Auth::manager()` throws the same `LogicException` when the facades have
+     * no application to resolve the binding from.
+     *
+     * @return void
+     */
+    public function testManagerThrowsWhenTheFacadesHaveNoApplication(): void
+    {
+        $application = Auth::getFacadeApplication();
+
+        Auth::setFacadeApplication(null);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage(self::UNREGISTERED_MESSAGE);
+
+        try {
+            Auth::manager();
+        } finally {
+            Auth::setFacadeApplication($application);
+        }
     }
 
     /**
