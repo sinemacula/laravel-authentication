@@ -17,21 +17,35 @@ to these events, so the shape and the timing are a contract.
   session records). Where a credential is involved it also holds the credential's id (`credentialId`: an API key's or a
   passkey's id) and the scopes it grants (`scopes`: the granted list for an API key or a client credentials token, `[]`
   for a machine bound without one, `null` for a human identity's session). A part that was not established is `null`.
-- A context snapshots, when it is built, the identity's auth identifier, the principal's recorded type (its morph class,
-  or its class name) and identifier, the tenant's identifier and the device's identifier, all as strings. A device id a
-  token named is kept as the device snapshot when no device row was loaded.
+- A context snapshots, when it is built, when (`occurredAt`, a `CarbonImmutable` to the microsecond), and, as strings,
+  the identity's morph class (an Eloquent model's morph class, else its class name; the class name too for a model an
+  enforced morph map leaves out, so building a context never throws `ClassMorphViolationException` for a tenant that
+  never needed an alias) and auth identifier (`identityMorphClass`, `identityId`), the principal's morph class, as a
+  device row records it, and identifier (`principalMorphClass`, `principalId`), the principal's categorical type as
+  `Auth::type()` reports it (`principalCategory`: its own `HasType` type, else that of the context's tenant, read from
+  what is loaded and never with a query; `null` when neither reports one or a type was loaded without its column), and
+  the tenant's morph class and identifier (`tenantMorphClass`, `tenantId`) and the device's identifier (`deviceId`). A
+  device id a token named is kept as the device snapshot when no device row was loaded. The morph class and the
+  categorical type are distinct: the first says which model a reference names, the second what kind of principal it is.
 - An event about a device row itself is built with `fromDevice`: every `DeviceRevoked`, and a refresh or switch refused
-  on the row's own state before its owner was read (a `RefreshJudgement` verdict, `identity_unknown`, a row that
-  changed under the compare-and-swap). An identity or principal it does not hold then takes the snapshot of the owner
-  and the principal the row records, read from its attributes without a query; devices record no tenant. Every other
-  event keeps the snapshots of what it holds, even when it carries a device: an identity's `SignedOutEverywhere` (its
-  device is the one kept), `PrincipalChoiceRequired` (the proven device) and a switch refused for its target name no
-  principal.
-- The snapshots, the credential's id and scopes, the enums, the client and the other strings are facts fixed at event
-  time and survive a queue unchanged. The models are live references: a synchronous listener gets the instances the
-  package holds, and a queued listener gets them re-fetched in their state when it runs, or Laravel's
-  `ModelNotFoundException` when one was deleted meanwhile (a pruned device, say). Audit sinks should record the
-  snapshots.
+  on the row's own state before its owner was read (a `RefreshJudgement` verdict, `identity_unknown`, a row that changed
+  under the compare-and-swap). An identity or principal it does not hold then takes the snapshot of the owner (its morph
+  class and identifier) and the principal the row records, read from its attributes without a query; devices record no
+  tenant and no categorical type. Every other event keeps the snapshots of what it holds, even when it carries a device:
+  an identity's `SignedOutEverywhere` (its device is the one kept), `PrincipalChoiceRequired` (the proven device) and a
+  switch refused for its target name no principal.
+- Everything in a context but its four models is the snapshot: facts fixed at event time, the record audit sinks keep,
+  which survives a queue unchanged; `toArray()` gives it as scalars (snake_case keys, `occurred_at` as an ISO 8601 UTC
+  string to the microsecond, the client as `ip` and `user_agent`), a payload a sink can store or queue on its own. It is
+  attribution, not the whole record: the event's class and its own fields (a failure's flow and reason, a switch's
+  previous principal) say what happened.
+- The models are a convenience. A synchronous listener gets the instances the package holds. Across a queue
+  (`Events\Concerns\SerializesLiveModels`, used by `EventContext` and for `PrincipalSwitched::$previousPrincipal`) an
+  Eloquent model crosses as Laravel's model identifier and is fetched again from the writer when the event is restored,
+  in its state then and with the relations it had loaded, or comes back `null` once its row is gone (a soft-deleted row
+  is still there, and is restored); a database error still surfaces. A part that is not an Eloquent model does not cross
+  and is `null` after a queue, so no arbitrary object enters the payload. A restored model is current state, not
+  evidence of what was authorised: audit sinks record the snapshot.
 - No event field carries a token, a digest, a password, a pending credential or any other secret. The device's digests
   are hidden from its serialisation; like Laravel's own auth events, the live identity model holds its attributes.
 - An event that reports a write is dispatched through `Database\AfterCommit` on the written row's connection: at once
@@ -62,17 +76,23 @@ to these events, so the shape and the timing are a contract.
 
 ## Success Path
 
-- Sign-in: the session service builds one context for a written session (guard, client, identity, principal, the
-  tenant admission loaded, device, method) and dispatches `DeviceCreated` (new devices) and `SignedIn` with it after
-  the device's connection commits. A sign-in held for a factor dispatches `AdditionalFactorRequired` with the proven
-  device, after the pending sign-in commits, and one held for a choice of principal `PrincipalChoiceRequired`, with
-  the identity, the method and the proven device but no principal or tenant.
-- Switch of principal: the guard binds the switched session, then `PrincipalSwitched` carries the new principal and
-  tenant in its context and the previous principal's recorded type and identifier as snapshots of its own, after the
-  switch commits on the device's connection.
-- Refresh: the guard binds the exchanged session, then dispatches `Refreshed` with the session's context, including the
-  tenant the exchange's activity check loaded and the method the device records, after the rotation commits on the
-  device's connection.
+- Sign-in: the session service builds one context for a written session (guard, client, identity, principal, the tenant
+  admission loaded, device, method) and dispatches `DeviceCreated` (new devices) and `SignedIn` with it after the
+  device's connection commits, scheduling them before it binds the guard. A sign-in held for a factor dispatches
+  `AdditionalFactorRequired` with the proven device, after the pending sign-in commits, and one held for a choice of
+  principal `PrincipalChoiceRequired`, with the identity, the method and the proven device but no principal or tenant.
+- Switch of principal: `PrincipalSwitched` carries the new principal and tenant in its context and the previous
+  principal's recorded morph class and identifier as snapshots of its own, after the switch commits on the device's
+  connection; it is scheduled before the guard binds the switched session.
+- Refresh: the guard dispatches `Refreshed` and `SignedIn` with the session's context, including the tenant the
+  exchange's activity check loaded and the method the device records, after the rotation commits on the device's
+  connection, scheduling them before it binds the exchanged session.
+- A write is reported before the guard binds to it, so a bind listener that throws (on `Validated`, `Login`,
+  `Authenticated`, `PrincipalAssigned` or `DeviceAuthenticated`) cannot withhold the report: its exception still reaches
+  the caller, and the events still never fire for a rolled-back write. With no transaction open they are dispatched
+  before the bind events, so a listener on them reads the context, not the guard; inside a transaction they follow its
+  commit. A listener that throws on a lifecycle event propagates as any listener does and stops what follows it, so
+  independence from bind listeners is the guarantee, not delivery to every subscriber.
 - Revocation: each `DeviceRevoked` carries the revoked device, the device's own guard and the method its session
   records, with the identity, principal and tenant the revocation knew, and the snapshots of the owner and principal
   the row records for those it did not; a bulk revocation then dispatches one `SignedOutEverywhere` per scope with the
@@ -100,12 +120,14 @@ to these events, so the shape and the timing are a contract.
   principal named, inactive, ineligible, a factor required) names the principal resolved for it, if any, never the
   one the device acts as.
 - A refresh refused by the limits (`rate_limited`) carries the wait in `retryAfter`, and the guard then throws its 429.
-- A queued listener of an event whose device was pruned before it ran cannot restore the event; the snapshots are the
-  record to keep.
+- A queued listener of an event whose device, identity, principal or tenant was deleted before it ran (a pruned device,
+  an erased account) still gets the event, with that model `null` and the snapshot naming it as it was.
 
 ## Implementation Anchors
 
-- `src/Events/EventContext.php`, `src/Contracts/AuthenticationEvent.php`, `src/Events/AuthenticationFailed.php`,
+- `src/Events/EventContext.php` (`toArray()`), `src/Events/Concerns/SerializesLiveModels.php`,
+  `src/Audience/PrincipalType.php` (`loaded()`), `src/Contracts/AuthenticationEvent.php`,
+  `src/Events/AuthenticationFailed.php`,
   `src/Events/Enums/FailureReason.php`, `src/Events/Enums/AuthenticationFlow.php`,
   `src/Events/Enums/RevocationReason.php`.
 - `src/Guards/Concerns/BindsContextualState.php`: `bindContext()`, `boundContext()`, `boundTenant()`, and the context
@@ -123,8 +145,19 @@ to these events, so the shape and the timing are a contract.
 ## Authoritative Tests
 
 - `tests/Unit/Events/EventContextTest.php`
-  `testSnapshotsEveryIdentifierAsAString`, `testSnapshotsDoNotFollowLaterChanges`,
-  `testKeepsANamedDeviceIdWithoutADevice`, `testKeepsTheCredentialAndItsScopes`
+  `testRecordsWhenItWasBuilt`, `testSnapshotsEveryReferenceAsAString`, `testRecordsEloquentModelsByTheirMorphClass`,
+  `testRecordsThePrincipalsCategoricalType`, `testATypeLoadedWithoutItsColumnIsRecordedAsUnknown`,
+  `testSnapshotsDoNotFollowLaterChanges`, `testKeepsANamedDeviceIdWithoutADevice`,
+  `testKeepsTheCredentialAndItsScopes`, `testToArrayIsTheSnapshotAsScalars`, `testSurvivesASerialiseRoundTrip`,
+  `testAModelAnEnforcedMorphMapLeavesOutIsRecordedByItsClassName`
+- `tests/Feature/Events/Concerns/SerializesLiveModelsTest.php`
+  `testALiveModelIsFetchedAgainInItsStateThen`, `testALiveModelWhoseRowIsGoneComesBackNull`,
+  `testAPartThatIsNotAnEloquentModelDoesNotCross`, `testADatabaseErrorStillSurfaces`,
+  `testAPreviousPrincipalWhoseRowIsGoneComesBackNull`, `testALiveModelNamedByItsMorphAliasIsRestored`
+- `tests/Integration/Events/ReplicaSerializesLiveModelsTest.php`
+  `testALiveModelIsFetchedAgainFromTheWriter`
+- `tests/Integration/Events/EveryEventRestoresTest.php`
+  `testTheEventRestoresWithItsSnapshotOnceItsRowsAreGone`, `testEveryPackageEventIsChecked`
 - `tests/Feature/Events/EventContextTest.php`
   `testALoadedDeviceRowStandsInForAnUnloadedIdentityAndPrincipal`, `testWithoutFromDeviceTheRowStandsInForNothing`
 - `tests/Unit/Events/Enums/FailureReasonTest.php`
@@ -138,7 +171,8 @@ to these events, so the shape and the timing are a contract.
   `testATenantThatCannotBeLoadedIsReportedAsNone`, `testAMisconfiguredTenantPropagatesFromATrustedBind`
 - `tests/Integration/Events/SignInEventSerialisationTest.php`
   `testAQueuedEventHoldsIdentifiersAndNoSecret`, `testTheSnapshotsSurviveTheQueue`,
-  `testAnEventWhoseDeviceWasDeletedCannotBeRestored`
+  `testAnEventWhoseRowsWereDeletedStillRestores`, `testAQueuedListenerOnTheSyncConnectionGetsTheSnapshotOfDeletedRows`,
+  `testAQueuedListenerRunByAWorkerGetsTheSnapshotOfDeletedRows`
 - `tests/Integration/Events/CustomEventsIntegrationTest.php`
   `testOneListenerOnTheContractReceivesEveryPackageEvent`
 - `tests/Integration/Guards/SeparateDeviceConnectionIntegrationTest.php`
@@ -147,14 +181,26 @@ to these events, so the shape and the timing are a contract.
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
   `testAFailureIsReturnedNotDispatched`
 - `tests/Feature/Sessions/SessionServiceTest.php`
-  `testAMethodThatRefusesWithAServiceReasonIsAMisconfiguration`
+  `testAMethodThatRefusesWithAServiceReasonIsAMisconfiguration`, `testASignInWhoseBindListenerThrowsIsStillReported`,
+  `testACompletionWhoseBindListenerThrowsIsStillReportedAndGivesItsSlotsBack`,
+  `testACompletionWhoseBindListenerThrowsFollowsTheCallersTransaction`, `testALifecycleListenerThatThrowsStopsTheBind`
+- `tests/Feature/Sessions/ChoosesPrincipalsTest.php`
+  `testAChoiceWhoseBindListenerThrowsIsStillReported`, `testAChoiceWhoseBindListenerThrowsFollowsTheCallersTransaction`,
+  `testASwitchWhoseBindListenerThrowsIsStillReported`, `testASwitchWhoseBindListenerThrowsIsReportedOnTheCallersCommit`,
+  `testAChoiceUnderAnEnforcedMorphMapRecordsAnUnmappedTenantByItsClass`
+- `tests/Feature/Guards/JwtGuardTest.php`
+  `testARefreshWhoseBindListenerThrowsIsStillReported`
+- `tests/Integration/Sessions/SessionServiceTest.php`
+  `testAThrowingBindListenerStillLetsTheSessionBeReported`,
+  `testAThrowingBindListenerInsideTheCallersTransactionFollowsItsOutcome`,
+  `testAThrowingBindListenerOnARefreshFollowsTheCallersTransaction`
 
 ## Change Triggers
 
 Update this note when any of the following change:
 
-- the parts of `EventContext` or what it snapshots
+- the parts of `EventContext`, what it snapshots, or how its models cross a queue
 - an event that stops implementing `AuthenticationEvent`, or a new package event
-- the commit-bound dispatch of an event that reports a write
+- the commit-bound dispatch of an event that reports a write, or its place before the bind
 - the failure event, its flows or its reasons
 - which side dispatches the refresh exchange's failure

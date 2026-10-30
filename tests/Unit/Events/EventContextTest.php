@@ -4,20 +4,27 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Events;
 
-use Illuminate\Queue\SerializesModels;
+use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Support\Arrayable;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesType;
+use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use Tests\Unit\Stubs\PlainDeviceFixture;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
+use Tests\Unit\Stubs\PlainTenantFixture;
+use Tests\Unit\Stubs\Stub3dPrincipal;
+use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubPrincipal;
 use Tests\Unit\Stubs\StubTenant;
 
 /**
- * EventContext unit tests: the parts it keeps and the identifiers it snapshots
- * when it is built.
+ * EventContext unit tests: the parts it keeps, the snapshot it takes when it is
+ * built, and the snapshot as scalars.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -27,6 +34,21 @@ use Tests\Unit\Stubs\StubTenant;
 #[CoversClass(EventContext::class)]
 final class EventContextTest extends TestCase
 {
+    /**
+     * Release the clock and the morph map.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function tearDown(): void
+    {
+        CarbonImmutable::setTestNow();
+        Relation::requireMorphMap(false);
+        Relation::morphMap([], false);
+
+        parent::tearDown();
+    }
+
     /**
      * Every part given is kept as given.
      *
@@ -75,31 +97,53 @@ final class EventContextTest extends TestCase
     }
 
     /**
-     * The identifiers are snapshotted as strings: the identity's auth
-     * identifier, the principal's class and identifier, the tenant's and the
-     * device's.
+     * The context records when it was built, to the microsecond, as the clock
+     * says then.
      *
      * @return void
      */
-    public function testSnapshotsEveryIdentifierAsAString(): void
+    public function testRecordsWhenItWasBuilt(): void
+    {
+        $now = CarbonImmutable::parse('2026-04-06 12:00:00.123456', 'UTC');
+
+        CarbonImmutable::setTestNow($now);
+
+        $context = new EventContext('api', new ClientContext(null, null));
+
+        CarbonImmutable::setTestNow($now->addHour());
+
+        self::assertTrue($now->equalTo($context->occurredAt));
+        self::assertSame('123456', $context->occurredAt->format('u'));
+    }
+
+    /**
+     * The identifiers are snapshotted as strings, and the identity, principal
+     * and tenant by their class as well: the identity's auth identifier, the
+     * principal's and the tenant's identifiers, and the device's.
+     *
+     * @return void
+     */
+    public function testSnapshotsEveryReferenceAsAString(): void
     {
         $client  = new ClientContext(null, null);
-        $context = new EventContext('api', $client, new PlainIdentityFixture(7), new PlainPrincipalFixture(42), self::tenant(3), new PlainDeviceFixture('device-1'));
+        $context = new EventContext('api', $client, new PlainIdentityFixture(7), new PlainPrincipalFixture(42), new PlainTenantFixture(3), new PlainDeviceFixture('device-1'));
 
+        self::assertSame(PlainIdentityFixture::class, $context->identityMorphClass);
         self::assertSame('7', $context->identityId);
-        self::assertSame(PlainPrincipalFixture::class, $context->principalType);
+        self::assertSame(PlainPrincipalFixture::class, $context->principalMorphClass);
         self::assertSame('42', $context->principalId);
+        self::assertSame(PlainTenantFixture::class, $context->tenantMorphClass);
         self::assertSame('3', $context->tenantId);
         self::assertSame('device-1', $context->deviceId);
     }
 
     /**
-     * An Eloquent principal is recorded by its morph class, as the device row
-     * records it, not by its class name.
+     * An Eloquent identity, principal or tenant is recorded by its morph class,
+     * as a device row records a principal, not by its class name.
      *
      * @return void
      */
-    public function testRecordsAnEloquentPrincipalByItsMorphClass(): void
+    public function testRecordsEloquentModelsByTheirMorphClass(): void
     {
         $principal = new class extends StubPrincipal {
             /**
@@ -114,17 +158,96 @@ final class EventContextTest extends TestCase
             }
         };
 
+        $tenant = new class extends StubTenant {
+            /**
+             * Return the alias the morph map gives the model.
+             *
+             * @return string
+             */
+            #[\Override]
+            public function getMorphClass(): string
+            {
+                return 'workspace';
+            }
+        };
+
         $principal->forceFill(['id' => 9]);
+        $tenant->forceFill(['id' => 4]);
 
-        $context = new EventContext('api', new ClientContext(null, null), principal: $principal);
+        $context = new EventContext('api', new ClientContext(null, null), $principal, $principal, $tenant);
 
-        self::assertSame('member', $context->principalType);
+        self::assertSame('member', $context->identityMorphClass);
+        self::assertSame('9', $context->identityId);
+        self::assertSame('member', $context->principalMorphClass);
         self::assertSame('9', $context->principalId);
+        self::assertSame('workspace', $context->tenantMorphClass);
+        self::assertSame('4', $context->tenantId);
     }
 
     /**
-     * A context with nothing established keeps only the guard and client, and
-     * every snapshot is null.
+     * Under an enforced morph map, an identity, principal or tenant the map
+     * leaves out is recorded by its class name rather than failing the flow the
+     * event reports, and one the map names by its alias.
+     *
+     * @return void
+     */
+    public function testAModelAnEnforcedMorphMapLeavesOutIsRecordedByItsClassName(): void
+    {
+        Relation::enforceMorphMap(['member' => StubPrincipal::class]);
+
+        $member = (new StubPrincipal)->forceFill(['id' => 9]);
+
+        $unmapped = new EventContext('api', new ClientContext(null, null), (new StubIdentity)->forceFill(['id' => 7]), new Stub3dPrincipal(['id' => 8]), self::tenant(4));
+        $mapped   = new EventContext('api', new ClientContext(null, null), $member, $member);
+
+        self::assertSame(StubIdentity::class, $unmapped->identityMorphClass);
+        self::assertSame('7', $unmapped->identityId);
+        self::assertSame(Stub3dPrincipal::class, $unmapped->principalMorphClass);
+        self::assertSame('8', $unmapped->principalId);
+        self::assertSame(StubTenant::class, $unmapped->tenantMorphClass);
+        self::assertSame('4', $unmapped->tenantId);
+        self::assertSame('member', $mapped->identityMorphClass);
+        self::assertSame('member', $mapped->principalMorphClass);
+    }
+
+    /**
+     * The principal's categorical type is what `Auth::type()` reports, read
+     * from what the context holds: the principal's own type, else its tenant's,
+     * else none; an empty type reads as none, and without a principal there is
+     * none to report, whatever the tenant's.
+     *
+     * @return void
+     */
+    public function testRecordsThePrincipalsCategoricalType(): void
+    {
+        $client = new ClientContext(null, null);
+
+        self::assertSame('staff', (new EventContext('api', $client, principal: self::typedPrincipal('staff'), tenant: self::tenant(3, 'workspace')))->principalCategory);
+        self::assertSame('workspace', (new EventContext('api', $client, principal: self::typedPrincipal(''), tenant: self::tenant(3, 'workspace')))->principalCategory);
+        self::assertSame('workspace', (new EventContext('api', $client, principal: new PlainPrincipalFixture(1), tenant: self::tenant(3, 'workspace')))->principalCategory);
+        self::assertNull((new EventContext('api', $client, principal: new PlainPrincipalFixture(1), tenant: self::tenant(3, '')))->principalCategory);
+        self::assertNull((new EventContext('api', $client, principal: new PlainPrincipalFixture(1)))->principalCategory);
+        self::assertNull((new EventContext('api', $client, tenant: self::tenant(3, 'workspace')))->principalCategory);
+    }
+
+    /**
+     * A principal or tenant loaded without its type column has a type the
+     * context cannot read without a query: it is recorded as unknown rather
+     * than failing the flow that reports the event.
+     *
+     * @return void
+     */
+    public function testATypeLoadedWithoutItsColumnIsRecordedAsUnknown(): void
+    {
+        $context = new EventContext('api', new ClientContext(null, null), principal: new PlainPrincipalFixture(1), tenant: self::tenant(3));
+
+        self::assertNull($context->principalCategory);
+        self::assertSame('3', $context->tenantId);
+    }
+
+    /**
+     * A context with nothing established keeps only the guard, the client and
+     * the time, and every other snapshot is null.
      *
      * @return void
      */
@@ -138,9 +261,12 @@ final class EventContextTest extends TestCase
         self::assertNull($context->tenant);
         self::assertNull($context->device);
         self::assertNull($context->method);
+        self::assertNull($context->identityMorphClass);
         self::assertNull($context->identityId);
-        self::assertNull($context->principalType);
+        self::assertNull($context->principalMorphClass);
         self::assertNull($context->principalId);
+        self::assertNull($context->principalCategory);
+        self::assertNull($context->tenantMorphClass);
         self::assertNull($context->tenantId);
         self::assertNull($context->deviceId);
     }
@@ -171,66 +297,160 @@ final class EventContextTest extends TestCase
     }
 
     /**
-     * The snapshots are taken when the context is built: changing a model
-     * afterwards changes the live reference, not the snapshot.
+     * The snapshot is taken when the context is built: changing the models
+     * afterwards changes the live references, not the snapshot.
      *
      * @return void
      */
     public function testSnapshotsDoNotFollowLaterChanges(): void
     {
-        $tenant  = self::tenant(3);
-        $context = new EventContext('api', new ClientContext(null, null), tenant: $tenant);
+        $principal = self::typedPrincipal('staff');
+        $tenant    = self::tenant(3, 'workspace');
 
+        $principal->forceFill(['id' => 9]);
+
+        $context = new EventContext('api', new ClientContext(null, null), $principal, $principal, $tenant);
+
+        $principal->forceFill(['id' => 10, 'type' => 'service']);
         $tenant->forceFill(['id' => 4]);
 
+        self::assertSame('9', $context->identityId);
+        self::assertSame('9', $context->principalId);
+        self::assertSame('staff', $context->principalCategory);
         self::assertSame('3', $context->tenantId);
+        self::assertSame(10, $context->principal?->getPrincipalIdentifier());
         self::assertSame(4, $context->tenant?->getTenantIdentifier());
     }
 
     /**
-     * The context serialises its models as Laravel does, and its snapshots and
-     * other values survive a round trip unchanged.
+     * `toArray()` is the snapshot as scalars, with no model: the time as an ISO
+     * 8601 UTC string to the microsecond whatever the clock's timezone, and the
+     * client as its IP address and user agent. It encodes as JSON.
+     *
+     * @return void
+     */
+    public function testToArrayIsTheSnapshotAsScalars(): void
+    {
+        $timezone = date_default_timezone_get();
+
+        date_default_timezone_set('Europe/Paris');
+
+        try {
+            CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-06 14:00:00.123456'));
+
+            $context = self::fullContext();
+        } finally {
+            date_default_timezone_set($timezone);
+        }
+
+        self::assertInstanceOf(Arrayable::class, $context);
+        self::assertSame([
+            'occurred_at'           => '2026-04-06T12:00:00.123456Z',
+            'guard'                 => 'api',
+            'method'                => 'password',
+            'ip'                    => '203.0.113.7',
+            'user_agent'            => 'agent',
+            'identity_morph_class'  => PlainIdentityFixture::class,
+            'identity_id'           => '7',
+            'principal_morph_class' => $context->principal === null ? null : $context->principal::class,
+            'principal_id'          => '5',
+            'principal_category'    => 'staff',
+            'tenant_morph_class'    => PlainTenantFixture::class,
+            'tenant_id'             => '3',
+            'device_id'             => 'device-1',
+            'credential_id'         => 'key-1',
+            'scopes'                => ['read'],
+        ], $context->toArray());
+        self::assertSame('14', $context->occurredAt->format('H'));
+        self::assertJson(json_encode($context->toArray(), JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * The snapshot and the other values survive a round trip unchanged, the
+     * time to the microsecond; a part that is not an Eloquent model does not
+     * cross and comes back `null`.
      *
      * @return void
      */
     public function testSurvivesASerialiseRoundTrip(): void
     {
-        self::assertContains(SerializesModels::class, class_uses(EventContext::class));
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-06 12:00:00.654321', 'UTC'));
 
-        $client    = new ClientContext('203.0.113.7', 'agent');
-        $identity  = new PlainIdentityFixture(7);
-        $principal = new PlainPrincipalFixture('p-1');
-        $context   = new EventContext('api', $client, $identity, $principal, method: 'password', deviceId: 'named', credentialId: 'key-1', scopes: ['a', 'b']);
+        $client  = new ClientContext('203.0.113.7', 'agent');
+        $context = new EventContext(
+            'api',
+            $client,
+            new PlainIdentityFixture(7),
+            new PlainPrincipalFixture('p-1'),
+            new PlainTenantFixture(3),
+            new PlainDeviceFixture('loaded'),
+            'password',
+            credentialId: 'key-1',
+            scopes: ['a', 'b'],
+        );
 
         $copy = unserialize(serialize($context));
 
         self::assertInstanceOf(EventContext::class, $copy);
-        self::assertSame('api', $copy->guard);
-        self::assertSame('203.0.113.7', $copy->client->ip);
-        self::assertSame('agent', $copy->client->userAgent);
-        self::assertSame('password', $copy->method);
-        self::assertSame('7', $copy->identityId);
-        self::assertSame(PlainPrincipalFixture::class, $copy->principalType);
-        self::assertSame('p-1', $copy->principalId);
-        self::assertNull($copy->tenantId);
-        self::assertSame('named', $copy->deviceId);
-        self::assertSame('key-1', $copy->credentialId);
-        self::assertSame(['a', 'b'], $copy->scopes);
-        self::assertSame(7, $copy->identity?->getAuthIdentifier());
+        self::assertSame($context->toArray(), $copy->toArray());
+        self::assertTrue($context->occurredAt->equalTo($copy->occurredAt));
+        self::assertEquals($client, $copy->client);
+        self::assertNull($copy->identity);
+        self::assertNull($copy->principal);
+        self::assertNull($copy->tenant);
+        self::assertNull($copy->device);
     }
 
     /**
-     * An unsaved tenant model with the given key.
+     * A context with every part established.
+     *
+     * @return \SineMacula\Laravel\Authentication\Events\EventContext
+     */
+    private static function fullContext(): EventContext
+    {
+        return new EventContext(
+            'api',
+            new ClientContext('203.0.113.7', 'agent'),
+            new PlainIdentityFixture(7),
+            self::typedPrincipal('staff'),
+            new PlainTenantFixture(3),
+            new PlainDeviceFixture('device-1'),
+            'password',
+            credentialId: 'key-1',
+            scopes: ['read'],
+        );
+    }
+
+    /**
+     * An unsaved tenant model with the given key and, when given, type.
      *
      * @param  int  $id
+     * @param  ?string  $type
      * @return \Tests\Unit\Stubs\StubTenant
      */
-    private static function tenant(int $id): StubTenant
+    private static function tenant(int $id, ?string $type = null): StubTenant
     {
         $tenant = new StubTenant;
 
-        $tenant->forceFill(['id' => $id]);
+        $tenant->forceFill($type === null ? ['id' => $id] : ['id' => $id, 'type' => $type]);
 
         return $tenant;
+    }
+
+    /**
+     * An unsaved principal model that reports the given type.
+     *
+     * @param  string  $type
+     * @return \SineMacula\Laravel\Authentication\Contracts\HasType&\Tests\Unit\Stubs\StubPrincipal
+     */
+    private static function typedPrincipal(string $type): HasType&StubPrincipal
+    {
+        $principal = new class extends StubPrincipal implements HasType {
+            use ProvidesType;
+        };
+
+        $principal->forceFill(['id' => 5, 'type' => $type]);
+
+        return $principal;
     }
 }

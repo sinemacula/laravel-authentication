@@ -141,7 +141,9 @@ seam has a default that works alone.
 ### Audit (`laravel-audit-log`)
 
 - Every package event implements `Contracts\AuthenticationEvent` and carries one `Events\EventContext`, so one listener
-  records them all: the guard, the client, snapshots of the identity, principal, tenant and device identifiers, the
-  method, and the credential and its scopes, never a secret (see [Events](events.md#events)).
+  records them all from its snapshot (`toArray()`): when, the guard, the client, the identity, principal and tenant by
+  morph class and identifier, the principal's categorical type, the device's identifier, the method, and the credential
+  and its scopes, never a secret. The snapshot survives a queue whatever was deleted meanwhile, so a queued audit
+  listener can take the event as it is (see [Events](events.md#events)).
 - Events that report a write are dispatched once it commits on the written row's connection, and never for a rolled-back
   one, so a queued audit listener records only what happened.

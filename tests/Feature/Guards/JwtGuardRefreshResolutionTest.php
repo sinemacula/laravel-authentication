@@ -593,16 +593,16 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A successful refresh is a sign-in: `Attempting`, `Validated`, `Login` and
-     * the bind events, then the package `Refreshed` and `SignedIn` (a refresh,
-     * on the device it continued), yielding the full ordered success sequence.
+     * A successful refresh is a sign-in: `Attempting`, the package `Refreshed`
+     * and `SignedIn` (a refresh, on the device it continued), reported before
+     * the bind, then `Validated`, `Login` and the bind events.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testRefreshDispatchesSuccessfulLifecycleEventsBeforeRefreshed(): void
+    public function testRefreshDispatchesRefreshedAndSignedInBeforeTheBind(): void
     {
         $plainRotationId = 'stored-rotation-id';
 
@@ -655,17 +655,17 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         self::assertInstanceOf(RefreshResult::class, $guard->refresh($token));
         self::assertSame([
             Attempting::class,
+            Refreshed::class,
+            SignedIn::class,
             Validated::class,
             Login::class,
             Authenticated::class,
             PrincipalAssigned::class,
             DeviceAuthenticated::class,
-            Refreshed::class,
-            SignedIn::class,
         ], array_map(static fn (object $event): string => $event::class, $dispatched));
 
-        $refreshed = $dispatched[6];
-        $signedIn  = $dispatched[7];
+        $refreshed = $dispatched[1];
+        $signedIn  = $dispatched[2];
 
         self::assertInstanceOf(Refreshed::class, $refreshed);
         self::assertInstanceOf(SignedIn::class, $signedIn);

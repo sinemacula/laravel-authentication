@@ -69,19 +69,25 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   fails for its reason, a replay (`rotation_reuse`) revoking the device as a first judgement does. There is never a
   second swap.
 - `PrincipalChoiceRequired` and `PrincipalSwitched` are dispatched through `AfterCommit` on the device model's
-  connection. `PrincipalSwitched` carries the device's recorded previous type and identifier and the previous
+  connection. `PrincipalSwitched` carries the device's recorded previous morph class and identifier and the previous
   principal only when the hinted path still returns that very principal (same type and identifier).
 
 ## Success Path
 
 1. `signIn()` verifies the identity, finds no principal, and offers the choice: the pending row is written,
    `PrincipalChoiceRequired` follows the commit, and the result `requiresPrincipal()`.
-2. `choice($token)` lists the eligible principals; `choose($token, $principal)` starts the session as it (`Login`,
-   `DeviceCreated`, `SignedIn`), and the slots are given back after the commit.
+2. `choice($token)` lists the eligible principals; `choose($token, $principal)` starts the session as it, scheduling
+   `DeviceCreated` and `SignedIn` for the device's commit before it binds the guard (`Validated`, `Login` and the bind
+   events), and the slots are given back after the commit. With no transaction open on the device's connection that is
+   `DeviceCreated`, `SignedIn`, then `Login`; inside a caller's transaction the bind events come first, and the pair
+   follows its commit or is dropped on a rollback.
 3. Later, `switchPrincipalFromRequest($other)` (or `switchPrincipal($refreshToken, $other)` with a token read by the
-   caller) rotates the device to the other principal, binds the guard to it
-   (`Authenticated`, `PrincipalAssigned`, `DeviceAuthenticated`), and dispatches `PrincipalSwitched` after the commit.
-   The previous principal's access tokens fail on the bearer path as `device_principal_mismatch` from then on.
+   caller) rotates the device to the other principal and schedules `PrincipalSwitched` for the commit on the device's
+   connection before it binds the guard to it (`Authenticated`, `PrincipalAssigned`, `DeviceAuthenticated`), so a bind
+   listener that throws cannot withhold the report. With no transaction open there `PrincipalSwitched` is dispatched at
+   once, before the bind events; inside a caller's transaction the bind events come first, and it follows the commit or
+   is dropped on a rollback. The previous principal's access tokens fail on the bearer path as
+   `device_principal_mismatch` from then on.
 
 ## Failure / Edge Cases
 
@@ -116,8 +122,10 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
 ## Authoritative Tests
 
 - `tests/Feature/Sessions/ChoosesPrincipalsTest.php` (the choice over HTTP and through the service, choose then factor
-  then complete, discard, the token purposes, the proven device, the slots, no choice for an unverified identifier,
-  the listing with an identifier type, and a choice under Eloquent strict mode)
+  then complete, discard, the token purposes, the proven device, the slots, no choice for an unverified identifier, the
+  listing with an identifier type, a choice under Eloquent strict mode, a choice or switch whose bind listener throws,
+  reported at once or on the caller's commit and withdrawn by its rollback, and a tenant an enforced morph map leaves
+  out)
 - `tests/Feature/Sessions/PrincipalSwitchTest.php` (the switch over HTTP, the old access token refused at once,
   A -> B -> A, the old refresh token inside and after the grace window, the lost response retried, every refusal, a
   switch read from the request and the transport's refusals, and a switch screen's listing)

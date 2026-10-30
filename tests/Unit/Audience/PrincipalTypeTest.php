@@ -103,6 +103,31 @@ final class PrincipalTypeTest extends TestCase
     }
 
     /**
+     * The type from what is loaded is the principal's own when it reports one,
+     * else that of the tenant given, else none, and it never loads the
+     * principal's tenant itself.
+     *
+     * @return void
+     */
+    public function testTheLoadedTypeIsTheOwnElseTheGivenTenantsWithoutLoading(): void
+    {
+        $typed = \Mockery::mock(Principal::class, HasType::class);
+        $typed->shouldReceive('getType')->andReturn('client_admin');
+        $typed->shouldNotReceive('getTenant');
+
+        $untyped = \Mockery::mock(Principal::class, HasType::class);
+        $untyped->shouldReceive('getType')->andReturn('');
+        $untyped->shouldNotReceive('getTenant');
+
+        self::assertSame('client_admin', PrincipalType::loaded($typed, $this->tenantOfType('staff')));
+        self::assertSame('staff', PrincipalType::loaded($untyped, $this->tenantOfType('staff')));
+        self::assertSame('staff', PrincipalType::loaded(new PlainPrincipalFixture(1), $this->tenantOfType('staff')));
+        self::assertNull(PrincipalType::loaded($untyped, null));
+        self::assertNull(PrincipalType::loaded($untyped, $this->tenantOfType('')));
+        self::assertNull(PrincipalType::loaded(new PlainPrincipalFixture(1, tenant: $this->tenantOfType('staff')), \Mockery::mock(Tenant::class)));
+    }
+
+    /**
      * `PrincipalType` is a static utility; instantiation is disallowed via the
      * private constructor. Reflection invokes the private constructor so the
      * line is covered while still documenting the access modifier.

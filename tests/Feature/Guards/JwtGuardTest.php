@@ -15,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -420,6 +421,64 @@ final class JwtGuardTest extends JwtGuardTestCase
         self::assertFalse($dispatched[7]->deviceCreated);
         self::assertSame($guard->device(), $dispatched[7]->context->device);
         self::assertTrue($guard->hasUser());
+    }
+
+    /**
+     * Rows of `[bind event]`: each event a refresh's bind dispatches.
+     *
+     * @return iterable<string, array{0: class-string}>
+     */
+    public static function provideBindEvents(): iterable
+    {
+        yield from [
+            'Validated'           => [Validated::class],
+            'Login'               => [Login::class],
+            'Authenticated'       => [Authenticated::class],
+            'PrincipalAssigned'   => [PrincipalAssigned::class],
+            'DeviceAuthenticated' => [DeviceAuthenticated::class],
+        ];
+    }
+
+    /**
+     * A listener that throws on any bind event fails the refresh after its
+     * rotation was written, but `Refreshed` and `SignedIn` were dispatched
+     * before the bind began, and the listener's exception reaches the caller.
+     *
+     * @param  class-string  $bindEvent
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideBindEvents')]
+    public function testARefreshWhoseBindListenerThrowsIsStillReported(string $bindEvent): void
+    {
+        /** @var \ArrayObject<int, object> $dispatched */
+        $dispatched = new \ArrayObject;
+
+        $this->events->shouldReceive('dispatch')->andReturnUsing(static function (object $event) use ($dispatched, $bindEvent): void {
+
+            $dispatched[] = $event;
+
+            if ($event instanceof $bindEvent) {
+                throw new \RuntimeException('listener failed');
+            }
+        });
+
+        $guard = $this->makeGuard(Request::create('/'));
+        $token = $this->liveRefreshToken('rotation');
+
+        try {
+            $guard->refresh($token);
+            self::fail('Expected the listener to throw.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('listener failed', $exception->getMessage());
+        }
+
+        $classes = self::classesOf($dispatched);
+
+        self::assertSame([Attempting::class, Refreshed::class, SignedIn::class], array_slice($classes, 0, 3));
+        self::assertSame([$bindEvent], array_slice($classes, -1));
     }
 
     /**

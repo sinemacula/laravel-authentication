@@ -66,9 +66,11 @@ successful ones are not. Once either count is full, a refresh dispatches `Failed
 429 with `Retry-After`.
 
 A failure before the stored rotation commits, such as an error while signing the new pair, leaves the presented refresh
-token valid for a retry. After the commit, the refresh binds the new context and dispatches `Refreshed` once the
-rotation is committed on the device's connection; an exception from a listener on those events loses the new pair, but a
-retry with the presented token inside the grace window still gets the current credential (see [Refresh token
+token valid for a retry. Once the rotation is written, the refresh schedules `Refreshed` for its commit on the device's
+connection (dispatched at once outside a transaction, after your transaction commits inside one, and never when it is
+rolled back) before it binds the new context, so a listener that throws on a bind event cannot keep `Refreshed` from
+being reported; an exception from a listener on any of those events still loses the new pair, but a retry with the
+presented token inside the grace window still gets the current credential (see [Refresh token
 replay](#refresh-token-replay)). Keep those listeners from throwing or queue them, so a retry is never needed.
 
 ## Refresh token cookie
