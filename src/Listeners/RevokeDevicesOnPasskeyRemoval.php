@@ -4,7 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Listeners;
 
-use Illuminate\Contracts\Container\Container;
+use Illuminate\Container\Container;
 use SineMacula\Laravel\Authentication\Events\PasskeyRemoved;
 
 /**
@@ -21,6 +21,10 @@ use SineMacula\Laravel\Authentication\Events\PasskeyRemoved;
  * `Auth::sessions()->factorRemoved($identity, Auth::device())` itself instead
  * of registering the listener.
  *
+ * The session service comes from the application now serving, not from the
+ * container that built the listener, which under Octane is the application the
+ * worker booted rather than the request's sandbox.
+ *
  * @api
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -28,17 +32,6 @@ use SineMacula\Laravel\Authentication\Events\PasskeyRemoved;
  */
 final readonly class RevokeDevicesOnPasskeyRemoval
 {
-    /**
-     * Constructor.
-     *
-     * @param  \Illuminate\Contracts\Container\Container  $container
-     */
-    public function __construct(
-
-        /** Container the auth manager is resolved from when the listener runs. */
-        private Container $container,
-    ) {}
-
     /**
      * End the sessions of the identity that removed the passkey.
      *
@@ -59,7 +52,7 @@ final readonly class RevokeDevicesOnPasskeyRemoval
         }
 
         /** @var \SineMacula\Laravel\Authentication\AuthManager $auth */
-        $auth = $this->container->make('auth');
+        $auth = Container::getInstance()->make('auth');
 
         $auth->sessions($event->context->guard)->factorRemoved($identity);
     }

@@ -4,7 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Listeners\Concerns;
 
-use Illuminate\Contracts\Container\Container;
+use Illuminate\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -22,6 +22,11 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  * driver (which makes that driver's guard the default through `shouldUse()`)
  * still revokes.
  *
+ * The session service, the configuration and the transactions manager come from
+ * the application now serving, not from the container the listener was built
+ * with: the event dispatcher builds its listeners, and under Octane its
+ * container is the application the worker booted, not the request's sandbox.
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -32,13 +37,9 @@ trait RevokesOnceCommitted
     /**
      * Constructor.
      *
-     * @param  \Illuminate\Contracts\Container\Container  $container
      * @param  ?string  $guard
      */
     public function __construct(
-
-        /** Container the session service and the transactions manager are resolved from. */
-        private readonly Container $container,
 
         /** Name of the jwt guard whose session service acts, or `null` to find one when the listener runs. */
         private readonly ?string $guard = null,
@@ -66,7 +67,7 @@ trait RevokesOnceCommitted
             return;
         }
 
-        $container = $this->container;
+        $container = Container::getInstance();
 
         (new AfterCommit(static fn (): mixed => $container->bound('db.transactions') ? $container->make('db.transactions') : null))->run($subject, $run);
     }
@@ -82,10 +83,10 @@ trait RevokesOnceCommitted
     private function sessions(): SessionService
     {
         /** @var \SineMacula\Laravel\Authentication\AuthManager $auth */
-        $auth = $this->container->make('auth');
+        $auth = Container::getInstance()->make('auth');
 
         /** @var \Illuminate\Contracts\Config\Repository $config */
-        $config = $this->container->make('config');
+        $config = Container::getInstance()->make('config');
         $guards = $config->get('auth.guards');
 
         return $auth->sessions($this->guard ?? self::jwtGuardName($auth->getDefaultDriver(), is_array($guards) ? $guards : []));

@@ -34,6 +34,30 @@ final class BenchOutcome
     }
 
     /**
+     * The fixture at the index of a pool whose fixtures are each used up once,
+     * throwing once the pool is exhausted, so a run with more revolutions than
+     * the pool holds fails instead of timing the refusal of a fixture already
+     * used in place of the path.
+     *
+     * @template TFixture
+     *
+     * @param  string  $path
+     * @param  list<TFixture>  $pool
+     * @param  int  $index
+     * @return TFixture
+     *
+     * @throws \LogicException
+     */
+    public static function take(string $path, array $pool, int $index): mixed
+    {
+        if (!array_key_exists($index, $pool)) {
+            throw new \LogicException(sprintf('The %s benchmark has used up its %d fixtures; give it a larger pool or fewer revolutions.', $path, count($pool)));
+        }
+
+        return $pool[$index];
+    }
+
+    /**
      * Run the callback with the connection's query log on, and return the SQL
      * it ran.
      *

@@ -26,6 +26,13 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - A guard follows later container rebinds of the `events` dispatcher (and, without a guard-local override, of the
   `PrincipalResolver`), and passes each rebind on to its refresh exchange, so an `Event::fake()` made after the guard
   resolved receives the exchange's `DeviceRevoked` as well as the guard's own events.
+- Under Octane each request runs in a sandbox of the booted application, and Octane's `FlushAuthenticationState` hands
+  the shared auth manager that sandbox and forgets its guards, so each request resolves the package guards again from
+  its own request, configuration and dispatcher. The services the manager returns, the sign-in methods (even when the
+  manager was resolved at boot) and the revoking listeners (which the event dispatcher builds with the booted
+  application) all act on the application now serving, never the booted one. A package service the booted
+  application resolved itself (one added to `octane.warm`, say) is shared by every sandbox and keeps the booted
+  configuration.
 - Request-local memoization is always on: `user()` resolves a request at most once, whether it succeeds or fails, so a
   rejected token fires its `AuthenticationFailed` once. `setRequest()` starts over, an explicit `login()`, `attempt()`,
   or `setUser()` still binds after a failed resolution, and after `logout()` the guard stays signed out for the rest of
@@ -218,6 +225,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `tests/Feature/Guards/AbstractGuardLifecycleTest.php`
   `testSetRequestClearsBoundContextualState`
 - `tests/Integration/Process/RequestSequenceTest.php`
+- `tests/Integration/Octane/JwtGuardRequestsTest.php`, `tests/Integration/Octane/MachineCredentialRequestsTest.php`,
+  `tests/Integration/Octane/ManagerServicesRequestsTest.php`, `tests/Integration/Octane/ScopedStateRequestsTest.php`,
+  `tests/Integration/Octane/WriteConnectionRequestsTest.php`
 - `tests/Integration/Process/QueueWorkerGuardStateTest.php`
   `testWithoutTheResetOneJobsIdentityLeaksIntoTheNext`, `testEachJobStartsSignedOut`
 - `tests/Integration/Process/ForgetGuardStateBeforeJobTest.php`
@@ -303,5 +313,7 @@ Update this note when any of the following change:
 - what `setUser()` binds
 - the listener or persistence behavior attached to `DeviceAuthenticated`
 - how dispatcher and resolver rebinds reach the guard and its refresh exchange
+- which application (the one serving, or the one a collaborator was built with) the guards, the manager's services,
+  the sign-in methods and the revoking listeners resolve from
 - the rule that prior contextual state is cleared before rebinding
 - the rule that bearer and refresh resolution read live state from the write connection with no cross-request cache

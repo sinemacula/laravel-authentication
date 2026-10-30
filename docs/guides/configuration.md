@@ -5,7 +5,8 @@ the ones marked per guard in its own `config/auth.php` entry, in a block named a
 `audience`, `rate_limits`, `refresh_token`, `passkeys` for the relying party, and `sign_in` for the password
 identifier), where a key it sets wins. A value that is malformed or out of range fails closed, naming the key (and the
 guard), when it is first used, and `php artisan authentication:check` reports it before a deploy (see
-[Checking the configuration](operations.md#checking-the-configuration)).
+[Checking the configuration](operations.md#checking-the-configuration)). Most settings are read each time they are used;
+a guard's JWT settings are read once and kept (see [Configuration lifetimes](operations.md#configuration-lifetimes)).
 
 | Key                                                 | Default                                                                      | Env                                                               | Per guard | See                                                                   |
 |-----------------------------------------------------|------------------------------------------------------------------------------|-------------------------------------------------------------------|-----------|-----------------------------------------------------------------------|
@@ -174,6 +175,10 @@ overrides). `algorithm` must be a string, and `issuer` and `audience` a string o
 `null` or `''` turns that claim check off even when the package value sets one. A value of any other type, in the
 guard's block or the package block, fails closed with an `InvalidJwtConfigurationException` naming the key and the
 guard, rather than being ignored.
+
+A guard's token service is built from these settings once, when the guard or `Auth::jwt()` first needs it, and kept for
+the life of the token service factory, so a change made at runtime does not reach it (see
+[Configuration lifetimes](operations.md#configuration-lifetimes)).
 
 ## Token and session lifetimes
 

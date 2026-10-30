@@ -10,6 +10,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Auth\UserProvider;
 use Illuminate\Contracts\Routing\UrlGenerator;
 use Illuminate\Http\Request;
+use SineMacula\Laravel\Authentication\Config\IntegerSetting;
 use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
@@ -275,10 +276,9 @@ final readonly class VerificationLinks
      */
     private function ttl(?int $ttlMinutes): int
     {
-        $ttl = $ttlMinutes ?? $this->config->get('authentication.verification.link_ttl_minutes');
-        $ttl = is_string($ttl) && (string) (int) $ttl === $ttl ? (int) $ttl : $ttl;
+        $ttl = $ttlMinutes ?? IntegerSetting::parse($this->config->get('authentication.verification.link_ttl_minutes'));
 
-        if (!is_int($ttl) || $ttl < 1 || $ttl > self::MAX_TTL_MINUTES) {
+        if ($ttl === null || $ttl < 1 || $ttl > self::MAX_TTL_MINUTES) {
             $message = 'The verification link lifetime, `authentication.verification.link_ttl_minutes` or the one given,'
                 . ' must be an integer from 1 to ' . self::MAX_TTL_MINUTES . ' minutes.';
 
