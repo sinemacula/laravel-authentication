@@ -44,25 +44,48 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
 class AuthManager extends IlluminateAuthManager
 {
     /**
-     * Adopt the guard-driver and user-provider-driver registrations from
-     * another `Illuminate\Auth\AuthManager` instance so that any
-     * `Auth::extend(...)` / `Auth::provider(...)` calls made before this
-     * provider booted survive the container swap.
+     * Take over the state of the framework manager this one replaces in the
+     * `auth` binding, so what the application or another package set on it
+     * before the package booted keeps working: its guard creators
+     * (`Auth::extend()`, `Auth::viaRequest()`), its user provider creators
+     * (`Auth::provider()`), its user resolver (`resolveUsersUsing()`), and the
+     * guards it has already resolved, which stay the same instances.
      *
-     * @param  \Illuminate\Auth\AuthManager  $existing
+     * An anonymous closure bound to the replaced manager (`viaRequest()` binds
+     * its creator, Laravel 13 binds each anonymous `extend()` closure, and the
+     * default user resolver is the manager's own) is bound to this one instead,
+     * so the guards and user providers it reaches are this manager's; any other
+     * closure is taken as it is.
+     *
+     * The replaced manager's own behaviour is not carried: the methods and
+     * properties a subclass of Laravel's manager adds are lost, and so is
+     * anything its closures rely on them for. The package owns the `auth`
+     * binding: a manager of the application's extends this one, and the
+     * provider then keeps it.
+     *
+     * @param  \Illuminate\Auth\AuthManager  $replaced
      * @return void
+     *
+     * @internal
      */
-    public function inheritDriversFrom(IlluminateAuthManager $existing): void
+    public function inheritStateFrom(IlluminateAuthManager $replaced): void
     {
-        if ($existing->customCreators !== []) {
-            $this->customCreators = $existing->customCreators;
+        /** @var array<string, \Closure(): mixed> $creators */
+        $creators = $replaced->customCreators;
+
+        foreach ($creators as $driver => $creator) {
+            $this->customCreators[$driver] = $this->rebindFrom($replaced, $creator);
         }
 
-        if ($existing->customProviderCreators === []) {
-            return;
+        /** @var array<string, \Closure(): mixed> $providerCreators */
+        $providerCreators = $replaced->customProviderCreators;
+
+        foreach ($providerCreators as $driver => $creator) {
+            $this->customProviderCreators[$driver] = $this->rebindFrom($replaced, $creator);
         }
 
-        $this->customProviderCreators = $existing->customProviderCreators;
+        $this->guards       = $replaced->guards;
+        $this->userResolver = $this->rebindFrom($replaced, $replaced->userResolver);
     }
 
     /**
@@ -352,5 +375,29 @@ class AuthManager extends IlluminateAuthManager
         }
 
         return $resolved;
+    }
+
+    /**
+     * The closure, bound to this manager when it is an anonymous one bound to
+     * the replaced manager; any other is returned as it is (a first-class
+     * callable keeps the object whose method it is).
+     *
+     * @param  \Illuminate\Auth\AuthManager  $replaced
+     * @param  \Closure(): mixed  $closure
+     * @return \Closure(): mixed
+     */
+    private function rebindFrom(IlluminateAuthManager $replaced, \Closure $closure): \Closure
+    {
+        $reflector = new \ReflectionFunction($closure);
+
+        if (!$reflector->isAnonymous() || $reflector->getClosureThis() !== $replaced) {
+            return $closure;
+        }
+
+        $rebound = $closure->bindTo($this);
+
+        assert($rebound instanceof \Closure);
+
+        return $rebound;
     }
 }

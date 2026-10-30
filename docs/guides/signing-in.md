@@ -274,7 +274,10 @@ allow it.
 use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 
-$this->app->make(SignInMethodManager::class)->extend('whatsapp_code', fn ($app) => $app->make(CodeSignIn::class, ['type' => 'whatsapp']));
+// In a service provider's register():
+$this->callAfterResolving(SignInMethodManager::class, static function (SignInMethodManager $methods): void {
+    $methods->extend('whatsapp_code', fn ($app) => $app->make(CodeSignIn::class, ['type' => 'whatsapp']));
+});
 ```
 
 ## Using passkeys
@@ -486,12 +489,16 @@ whose accounts have used up their attempts, to test the `invalid_credentials` an
 Register the method under a lower-case name of its own (a letter, then letters, digits or underscores; `extend()`
 refuses anything else, the package's own `password`, `phone_code`, `email_code` and `passkey`, and the machine
 credential kinds `api_key` and `client_credentials`; see [Extensibility](extending.md#extensibility)), from a service
-provider, and allow that exact name in each guard's audience:
+provider once the registry resolves (see [Binding order](extending.md#binding-order)), and allow that exact name in each
+guard's audience:
 
 ```php
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 
-$this->app->make(SignInMethodManager::class)->extend('badge', fn ($app) => $app->make(BadgeSignIn::class));
+// In a service provider's register():
+$this->callAfterResolving(SignInMethodManager::class, static function (SignInMethodManager $methods): void {
+    $methods->extend('badge', fn ($app) => $app->make(BadgeSignIn::class));
+});
 ```
 
 ```php

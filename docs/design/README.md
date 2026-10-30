@@ -48,6 +48,9 @@ The current note set is:
   carried, never interpreted, and held to an optional registry when a credential is issued.
 - `identifier-changes.md`: how an identity's email address or phone number is replaced once the new one is proven,
   after a recent authentication, unique on its normalised value under a race, invalidating the proofs it outdates.
+- `provider-composition.md`: why every binding the provider makes is a default another provider's binding is never
+  replaced by, in either order, and why the package owns the `auth` binding and what it takes over from the manager it
+  replaces.
 - `testing-helpers.md`: how a test acts as an identity, principal or device's session on a package guard, how that
   survives the requests it sends and ends on a sign-out, what the bound-context assertions compare, and the fakes.
 
