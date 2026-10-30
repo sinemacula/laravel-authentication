@@ -19,6 +19,8 @@ The current note set is:
   successful event order for `attempt()`, direct `login()`, bearer auth, and refresh.
 - `event-model.md`: the context every package event carries, what survives a queue, when an event that reports a write
   is dispatched, and the one failure event.
+- `outcomes.md`: how the package's services answer: refusals as values, what `null` and `bool` may mean, the shape of a
+  result, throttling as an outcome, and the named exceptions.
 - `refresh-rotation-and-replay.md`: why refresh is stateful, how per-device rotation works, the grace window for the
   previous rotation id, and when a replayed refresh token revokes the device (`rotation_reuse`).
 - `refresh-token-transport.md`: where a guard reads the refresh token from, why a request may carry it in only one
