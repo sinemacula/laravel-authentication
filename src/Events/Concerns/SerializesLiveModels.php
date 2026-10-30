@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Events\Concerns;
 
 use Illuminate\Contracts\Database\ModelIdentifier;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -90,13 +91,18 @@ trait SerializesLiveModels
      * The model an identifier names, read from the writer with its relations,
      * or `null` when its row no longer exists.
      *
+     * The identifier names its model by class, or by morph alias where the
+     * framework is told to serialise models through the morph map; the alias is
+     * resolved here, since `ModelIdentifier::getClass()` is missing from the
+     * earliest framework versions supported.
+     *
      * @param  \Illuminate\Contracts\Database\ModelIdentifier  $identifier
      * @return ?\Illuminate\Database\Eloquent\Model
      */
     private static function restore(ModelIdentifier $identifier): ?Model
     {
         /** @var class-string<\Illuminate\Database\Eloquent\Model> $class */
-        $class = $identifier->getClass();
+        $class = Relation::getMorphedModel($identifier->class) ?? $identifier->class;
 
         return (new $class)->setConnection($identifier->connection)
             ->newQueryForRestoration($identifier->id)

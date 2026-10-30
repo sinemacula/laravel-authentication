@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Events\Concerns;
 
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -66,7 +67,7 @@ final class SerializesLiveModelsTest extends TestCase
     }
 
     /**
-     * Drop the tables.
+     * Drop the tables and release the morph map.
      *
      * @return void
      */
@@ -74,6 +75,8 @@ final class SerializesLiveModelsTest extends TestCase
     protected function tearDown(): void
     {
         $this->dropSessionTables();
+
+        Relation::morphMap([], false);
 
         parent::tearDown();
     }
@@ -134,6 +137,30 @@ final class SerializesLiveModelsTest extends TestCase
         self::assertSame($context->toArray(), $copy->toArray());
         self::assertSame(ActivatableTenantMember::class, $copy->identityMorphClass);
         self::assertSame((string) $this->member->getKey(), $copy->identityId); // @phpstan-ignore cast.string
+    }
+
+    /**
+     * A queued model named by its morph alias, as the framework names it when
+     * told to serialise models through the morph map, is restored as the model
+     * the map names.
+     *
+     * @return void
+     */
+    public function testALiveModelNamedByItsMorphAliasIsRestored(): void
+    {
+        Relation::morphMap(['member' => ActivatableTenantMember::class]);
+
+        $class  = ActivatableTenantMember::class;
+        $queued = str_replace('s:' . strlen($class) . ':"' . $class . '"', 's:6:"member"', serialize($this->context()), $aliased);
+
+        self::assertSame(1, $aliased);
+
+        $copy = unserialize($queued);
+
+        self::assertInstanceOf(EventContext::class, $copy);
+        self::assertInstanceOf(ActivatableTenantMember::class, $copy->identity);
+        self::assertTrue($this->member->is($copy->identity));
+        self::assertSame('member', $copy->identityMorphClass);
     }
 
     /**
