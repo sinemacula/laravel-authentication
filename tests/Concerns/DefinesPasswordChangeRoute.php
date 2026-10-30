@@ -19,10 +19,10 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 
 /**
- * The password change route README.md documents, through a guard: a slot of the
- * guard's `sign_in` limits taken before the transaction, the current password
- * checked under the identity's row lock and the new one set while it is held,
- * and the slot given back once the current password was right.
+ * The documented password change route, through a guard: a slot of the guard's
+ * `sign_in` limits taken before the transaction, the current password checked
+ * under the identity's row lock and the new one set while it is held, and the
+ * slot given back once the current password was right.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

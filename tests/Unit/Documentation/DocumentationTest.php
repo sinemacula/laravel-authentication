@@ -17,13 +17,13 @@ use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 
 /**
- * A drift guard for the README: every failure reason, flow and revocation
- * reason, every package event, every configuration key and every method of the
- * package's auth manager is documented, and every `Auth::` call the README
- * shows exists.
+ * A drift guard for the README and the guides in docs/guides: every failure
+ * reason, flow and revocation reason, every package event, every configuration
+ * key and every method of the package's auth manager is documented, and every
+ * `Auth::` call they show exists.
  *
- * It catches an omission or a rename, not wrong prose: what the README says
- * about each of them is held to the code by review.
+ * It catches an omission or a rename, not wrong prose: what the documentation
+ * says about each of them is held to the code by review.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -31,13 +31,13 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
  * @internal
  */
 #[CoversNothing]
-final class ReadmeTest extends TestCase
+final class DocumentationTest extends TestCase
 {
     /** @var list<string> Configuration maps whose keys are data the application names (kids, identifier types), documented as the map. */
     private const array DATA_MAPS = ['jwt.keys', 'identifiers.normalisers'];
 
-    /** @var ?string The README, read once. */
-    private static ?string $readme = null;
+    /** @var ?string The README and the guides, read once. */
+    private static ?string $documentation = null;
 
     /**
      * Rows of `[enum value, enum]`: every failure reason, authentication flow
@@ -55,8 +55,8 @@ final class ReadmeTest extends TestCase
     }
 
     /**
-     * Every failure reason, flow and revocation reason is named in the README,
-     * in code type.
+     * Every failure reason, flow and revocation reason is named in the
+     * documentation, in code type.
      *
      * @param  string  $value
      * @param  string  $enum
@@ -65,7 +65,7 @@ final class ReadmeTest extends TestCase
     #[DataProvider('provideEnumValues')]
     public function testEveryEnumValueIsDocumented(string $value, string $enum): void
     {
-        self::assertTrue(str_contains(self::readme(), '`' . $value . '`'), sprintf('The README does not name the %s value `%s`.', $enum, $value));
+        self::assertTrue(str_contains(self::documentation(), '`' . $value . '`'), sprintf('The documentation does not name the %s value `%s`.', $enum, $value));
     }
 
     /**
@@ -88,8 +88,7 @@ final class ReadmeTest extends TestCase
     }
 
     /**
-     * Every event the package dispatches has a row in the README's events
-     * table.
+     * Every event the package dispatches has a row in the events guide's table.
      *
      * @param  class-string  $class
      * @return void
@@ -99,7 +98,7 @@ final class ReadmeTest extends TestCase
     {
         $name = (new \ReflectionClass($class))->getShortName();
 
-        self::assertSame(1, preg_match('/^\| `SineMacula\\\\\.\.\.\\\Events\\\\' . $name . '`/m', self::readme()), sprintf('The README events table has no row for %s.', $name));
+        self::assertSame(1, preg_match('/^\| `SineMacula\\\\\.\.\.\\\Events\\\\' . $name . '`/m', self::documentation()), sprintf('The events table has no row for %s.', $name));
     }
 
     /**
@@ -118,7 +117,7 @@ final class ReadmeTest extends TestCase
     }
 
     /**
-     * Every configuration key is named by its full path in the README.
+     * Every configuration key is named by its full path in the documentation.
      *
      * @param  string  $key
      * @return void
@@ -126,7 +125,7 @@ final class ReadmeTest extends TestCase
     #[DataProvider('provideConfigurationKeys')]
     public function testEveryConfigurationKeyIsDocumented(string $key): void
     {
-        self::assertTrue(str_contains(self::readme(), '`' . $key . '`'), sprintf('The README does not name the configuration key `%s`.', $key));
+        self::assertTrue(str_contains(self::documentation(), '`' . $key . '`'), sprintf('The documentation does not name the configuration key `%s`.', $key));
     }
 
     /**
@@ -156,18 +155,18 @@ final class ReadmeTest extends TestCase
     #[DataProvider('provideManagerMethods')]
     public function testEveryManagerMethodIsDocumented(string $method): void
     {
-        self::assertSame(1, preg_match('/(::|->|`)' . $method . '\(/', self::readme()), sprintf('The README does not show %s().', $method));
+        self::assertSame(1, preg_match('/(::|->|`)' . $method . '\(/', self::documentation()), sprintf('The documentation does not show %s().', $method));
     }
 
     /**
-     * Every `Auth::name(` the README calls is a method of the package's auth
-     * manager or facade, or of the guard the facade forwards the rest to.
+     * Every `Auth::name(` the documentation calls is a method of the package's
+     * auth manager or facade, or of the guard the facade forwards the rest to.
      *
      * @return void
      */
-    public function testEveryAuthCallTheReadmeShowsExists(): void
+    public function testEveryAuthCallTheDocumentationShowsExists(): void
     {
-        preg_match_all('/\bAuth::(\w+)\(/', self::readme(), $matches);
+        preg_match_all('/\bAuth::(\w+)\(/', self::documentation(), $matches);
 
         $unknown = [];
 
@@ -185,7 +184,7 @@ final class ReadmeTest extends TestCase
             $unknown[] = $method;
         }
 
-        self::assertSame([], $unknown, 'The README calls Auth methods that do not exist.');
+        self::assertSame([], $unknown, 'The documentation calls Auth methods that do not exist.');
     }
 
     /**
@@ -219,12 +218,15 @@ final class ReadmeTest extends TestCase
     }
 
     /**
-     * The README's text.
+     * The text of the README and every guide.
      *
      * @return string
      */
-    private static function readme(): string
+    private static function documentation(): string
     {
-        return self::$readme ??= (string) file_get_contents(dirname(__DIR__, 3) . '/README.md');
+        $root  = dirname(__DIR__, 3);
+        $files = [$root . '/README.md', ...(glob($root . '/docs/guides/*.md') ?: [])];
+
+        return self::$documentation ??= implode("\n", array_map(static fn (string $file): string => (string) file_get_contents($file), $files));
     }
 }

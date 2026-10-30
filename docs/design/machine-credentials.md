@@ -71,7 +71,7 @@ authorization package decides what they allow.
 - `rotate()` ends the replaced key at `now + overlap` or its own expiry, whichever comes first, with an explicit `CASE`
   (never `LEAST()` over a nullable column), and inserts the replacement with the same binding and scopes but only the
   expiry the call names: none by default (settled design 6.3), so rotating a key that expires without `expiresAt`
-  issues one that never does, as README states.
+  issues one that never does, as the machine credentials guide states.
 - An application issues a credential with scopes; the scopes are normalised and the registry is asked which of them
   the principal may not be granted on the guard (`AcceptAnyScope`, the default, rejects none).
 - A request authenticated by the credential binds its identity and principal with the credential's scopes;

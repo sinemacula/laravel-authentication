@@ -30,7 +30,7 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests of the README's sign-in and further-factor routes, registered
+ * Feature tests of the documented sign-in and further-factor routes, registered
  * as an application would and driven over HTTP: `Auth::sessions('api')` signs
  * in, a pending sign-in is looked up, discarded on a wrong code and completed
  * on the right one, and the access tokens the routes return authenticate
@@ -51,8 +51,8 @@ final class SessionRoutesTest extends TestCase
     private const string CODE = '246810';
 
     /**
-     * Create the tables and register the README's routes, with a verifier that
-     * accepts one code, and a route behind `auth:api`.
+     * Create the tables and register the documented routes, with a verifier
+     * that accepts one code, and a route behind `auth:api`.
      *
      * @return void
      */
@@ -262,7 +262,7 @@ final class SessionRoutesTest extends TestCase
     }
 
     /**
-     * The README's sign-in route: validate, sign in through the session
+     * The documented sign-in route: validate, sign in through the session
      * service, answer a throttled sign-in 429 with the wait and any other
      * failure 401, and hand out the pending token or the token pair.
      *
@@ -312,8 +312,8 @@ final class SessionRoutesTest extends TestCase
     }
 
     /**
-     * The README's further-factor route: validate, look the pending sign-in up,
-     * verify the code for its identity and principal, discard it on a wrong
+     * The documented further-factor route: validate, look the pending sign-in
+     * up, verify the code for its identity and principal, discard it on a wrong
      * code, and complete it on the right one.
      *
      * @param  \Illuminate\Http\Request  $request

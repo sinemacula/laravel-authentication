@@ -26,7 +26,7 @@ use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
  * normalises a credential for the attribute the same way before it queries, so
  * lookups match on every database whatever its collation. Reading returns the
  * stored value unchanged: rows written before the cast was added keep their
- * form until they are normalised (see the README on uniqueness).
+ * form until they are normalised (see docs/guides/identity-models.md).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
