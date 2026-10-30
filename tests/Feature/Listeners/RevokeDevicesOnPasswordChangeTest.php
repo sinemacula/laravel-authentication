@@ -12,6 +12,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -26,6 +27,7 @@ use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordChange;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Integration\Fixtures\AttributeObservedIdentity;
 use Tests\Integration\Fixtures\EloquentIdentityProvider;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
@@ -346,6 +348,48 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
 
         self::assertNotSame(self::OUTDATED_HASH, $identity->fresh()?->getAuthPassword());
         self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+    }
+
+    /**
+     * An observer registered through `#[ObservedBy]` is registered only when
+     * its model first boots, which for a request's first attempt is inside the
+     * guard's lookup, after `Attempting`: the guard's rehash still revokes
+     * nothing, and a change of password once the attempt has ended does.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testLaravelsRehashRevokesNothingForAnObserverRegisteredByAttribute(): void
+    {
+        $this->seedIdentity();
+
+        config()->set('auth.providers.identities.model', AttributeObservedIdentity::class);
+        config()->set('auth.providers.users.model', AttributeObservedIdentity::class);
+
+        Auth::forgetGuards();
+
+        $this->signIn();
+
+        DB::table('integration_identities')->update(['password' => self::OUTDATED_HASH]);
+
+        AttributeObservedIdentity::flushEventListeners();
+        AttributeObservedIdentity::clearBootedModels();
+
+        $observed = 'eloquent.updated: ' . AttributeObservedIdentity::class;
+
+        self::assertFalse(Event::hasListeners($observed));
+        self::assertTrue($this->webGuard()->attempt(self::credentials()));
+        self::assertTrue(Event::hasListeners($observed));
+
+        $identity = AttributeObservedIdentity::query()->firstOrFail();
+
+        self::assertNotSame(self::OUTDATED_HASH, $identity->getAuthPassword());
+        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+
+        $identity->forceFill(['password' => app(Hasher::class)->make('a new password')])->save();
+
+        self::assertSame('password_changed', DB::table('devices')->value('revoked_reason'));
     }
 
     /**
