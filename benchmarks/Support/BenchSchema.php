@@ -119,6 +119,7 @@ final class BenchSchema
         $blueprint->dateTime('principal_switched_at', 0)->nullable();
         $blueprint->string('guard')->nullable();
         $blueprint->string('sign_in_method')->nullable();
+        $blueprint->string('sign_in_identifier_type')->nullable();
         $blueprint->string('client_name')->nullable();
         $blueprint->string('platform')->nullable();
         $blueprint->string('created_ip', 45)->nullable();
@@ -141,6 +142,109 @@ final class BenchSchema
         $blueprint->index('idle_expires_at');
         $blueprint->index('absolute_expires_at');
         $blueprint->index('revoked_at');
+    }
+
+    /**
+     * Create the machine client table: a non-human identity that acts as its
+     * own principal.
+     *
+     * @return void
+     */
+    public static function ensureMachineClientTable(): void
+    {
+        self::ensureTable('machine_clients', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('email')->unique();
+            $blueprint->string('password')->nullable();
+            $blueprint->boolean('is_active')->default(true);
+            $blueprint->timestamps();
+        });
+    }
+
+    /**
+     * Create the table of identities that sign in by a one-time code sent to
+     * their phone number or email address.
+     *
+     * @return void
+     */
+    public static function ensureCodeIdentityTable(): void
+    {
+        self::ensureTable('code_identities', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('phone')->nullable()->unique();
+            $blueprint->dateTime('phone_verified_at', 0)->nullable();
+            $blueprint->string('email')->nullable()->unique();
+            $blueprint->dateTime('email_verified_at', 0)->nullable();
+            $blueprint->string('password')->nullable();
+            $blueprint->boolean('is_active')->default(true);
+            $blueprint->datetimes(0);
+        });
+    }
+
+    /**
+     * Create the API keys table, as the shipped migration does.
+     *
+     * @return void
+     */
+    public static function ensureApiKeyTable(): void
+    {
+        self::ensureTable('api_keys', static function (Blueprint $blueprint): void {
+            $blueprint->uuid('id')->primary();
+            $blueprint->string('public_id', 64)->unique();
+            $blueprint->char('secret_hash', 64);
+            $blueprint->string('guard');
+            $blueprint->string('name')->nullable();
+            $blueprint->string('authenticatable_type');
+            $blueprint->string('authenticatable_id');
+            $blueprint->string('principal_type');
+            $blueprint->string('principal_id');
+            $blueprint->string('tenant_type')->nullable();
+            $blueprint->string('tenant_id')->nullable();
+            $blueprint->text('scopes');
+            $blueprint->dateTime('expires_at', 0)->nullable();
+            $blueprint->dateTime('last_used_at', 0)->nullable();
+            $blueprint->dateTime('rotated_at', 0)->nullable();
+            $blueprint->uuid('replaced_by')->nullable();
+            $blueprint->dateTime('revoked_at', 0)->nullable();
+            $blueprint->datetimes(0);
+            $blueprint->index(['authenticatable_type', 'authenticatable_id']);
+            $blueprint->index(['principal_type', 'principal_id']);
+        });
+    }
+
+    /**
+     * Create the attempt limiter's counters table, as the shipped migration
+     * does.
+     *
+     * @return void
+     */
+    public static function ensureRateLimitTable(): void
+    {
+        self::ensureTable('rate_limits', static function (Blueprint $blueprint): void {
+            $blueprint->char('key', 64)->primary();
+            $blueprint->unsignedInteger('hits');
+            $blueprint->dateTime('window_ends_at', 0)->index();
+        });
+    }
+
+    /**
+     * Create the one-time codes table, as the shipped migration does.
+     *
+     * @return void
+     */
+    public static function ensureOneTimeCodeTable(): void
+    {
+        self::ensureTable('one_time_codes', static function (Blueprint $blueprint): void {
+            $blueprint->char('id', 64)->primary();
+            $blueprint->string('purpose', 32);
+            $blueprint->string('guard');
+            $blueprint->uuid('issue_id');
+            $blueprint->char('code_hash', 64);
+            $blueprint->unsignedSmallInteger('attempts');
+            $blueprint->dateTime('issued_at', 0);
+            $blueprint->dateTime('expires_at', 0)->index();
+            $blueprint->dateTime('consumed_at', 0)->nullable();
+        });
     }
 
     /**

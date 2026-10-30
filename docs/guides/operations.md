@@ -42,22 +42,43 @@ $principal = WriteConnection::during($identity, fn () => $this->lookUpPrincipal(
 ## Long-running processes
 
 One application can serve many requests (Octane) or run many queued jobs (a queue worker), so nothing one of them binds
-may reach the next. Each request rebinds Laravel's `request`, which resets every package guard already resolved: the
-identity, principal and device it bound, and whether it has resolved the request, so the next request authenticates from
-its own token or not at all. A queue worker forgets only scoped instances between jobs, so the package resets its guards
-when each job a worker runs starts (on `JobProcessing`, through `AuthManager::forgetGuardState()`): a guard a job signs
-in with `login()` or `setUser()` is signed out again for the next job. Only jobs a worker runs are reset: a job on the
-`sync` connection (the `sync` driver, or `dispatchSync()` whatever the default connection) runs inside the request that
-dispatched it and leaves its guards as they are, so a session the request just started stays bound and a request that
-signed out stays signed out. A dispatcher or principal resolver swapped in after a guard resolved (`Event::fake()`, a
-rebinding of `PrincipalResolver`) reaches the guard, its refresh exchange and its session service (and, through it, a
-switch of principal and the revocations), which read the guard's collaborators each time they run. The package's
-singletons hold configuration only: the token service factory memoises each guard's signing configuration, not any
-identity's data, and the mark the password-change listener reads during an automatic rehash is scoped, so it starts
-empty for each request and each job a worker runs. No package class keeps a request, an identity or a token in a static
-property. The sign-in methods you register are kept for the life of the process as well, so they must hold no state
-between calls (see [Writing a sign-in method](signing-in.md#writing-a-sign-in-method)), and so must a factor or audience
-policy you bind as a singleton.
+may reach the next.
+
+Octane serves each request in a sandbox: a copy of the application the worker booted, with a configuration of its own
+and the request bound, and it forgets the booted application's scoped instances once each request ends, so a scoped
+instance is resolved afresh for every request but one the application resolved at boot, which serves the first. Its
+`FlushAuthenticationState` listener hands the auth manager the sandbox and forgets the guards, so each request resolves
+the package guards again and authenticates from its own token or API key, or not at all: the identity, principal,
+device, tenant and scopes one request bound, a refusal and a logout are gone for the next. `Auth::sessions()`,
+`Auth::jwt()`, `Auth::codes()`, `Auth::apiKeys()`, `Auth::clientCredentials()` and the other services act on the
+sandbox: its request (the client their events and devices record), its configuration (a value one request changes
+applies to that request alone) and the dispatcher bound in it. The sign-in methods are built with the sandbox too, a
+method registered at boot included, and so are the revoking listeners' session services, though the event dispatcher
+builds those listeners with the booted application. Keep Octane's default listeners (`FlushAuthenticationState` and
+`FlushTemporaryContainerInstances` among them), and leave the package's services out of `octane.warm`: a service warmed
+at boot keeps the booted configuration, so a request that changes its own would not reach it. The package is tested
+through Octane's own worker, sandbox and listeners (without a server), across sequences of requests.
+
+Outside Octane, each request rebinds Laravel's `request`, which resets every package guard already resolved: the
+identity, principal and device it bound, and whether it has resolved the request. A queue worker forgets only scoped
+instances between jobs, so the package resets its guards when each job a worker runs starts (on `JobProcessing`,
+through `AuthManager::forgetGuardState()`): a guard a job signs in with `login()` or `setUser()` is signed out again
+for the next job. Only jobs a worker runs are reset: a job on the `sync` connection (the `sync` driver, or
+`dispatchSync()` whatever the default connection) runs inside the request that dispatched it and leaves its guards as
+they are, so a session the request just started stays bound and a request that signed out stays signed out. A
+dispatcher or principal resolver swapped in after a guard resolved (`Event::fake()`, a rebinding of
+`PrincipalResolver`) reaches the guard, its refresh exchange and its session service (and, through it, a switch of
+principal and the revocations), which read the guard's collaborators each time they run.
+
+The package's singletons hold configuration only: the token service factory memoises each guard's signing configuration,
+not any identity's data, and the mark the password-change listener reads during an automatic rehash is scoped, so it
+starts empty for each request and each job a worker runs (under Octane, every request after the first when the
+application resolved it at boot). `WriteConnection::during()` swaps Eloquent's process-wide connection resolver while
+its callback runs and restores it, and each connection's read mode, when the callback returns or throws, so the next
+request reads as configured. No package class keeps a request, an identity or a token in a static property. The sign-in
+methods you register are kept as long as the application serving them, so they must hold no state between calls (see
+[Writing a sign-in method](signing-in.md#writing-a-sign-in-method)), and so must a factor or audience policy you bind as
+a singleton.
 
 ## Key Rotation
 

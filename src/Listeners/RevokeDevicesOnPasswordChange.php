@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Listeners;
 
+use Illuminate\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Listeners\Concerns\RevokesOnceCommitted;
@@ -54,7 +55,7 @@ final readonly class RevokeDevicesOnPasswordChange
             return;
         }
 
-        $this->container->make(Rehashing::class)->unlessRehash($model, $model->getOriginal($model->getAuthPasswordName()), function () use ($model): void {
+        Container::getInstance()->make(Rehashing::class)->unlessRehash($model, $model->getOriginal($model->getAuthPasswordName()), function () use ($model): void {
             $this->revokeOnceCommitted($model, static fn (SessionService $sessions): int => $sessions->passwordChanged($model));
         });
     }
