@@ -2,11 +2,11 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Feature\Sessions;
+namespace Tests\Feature\RateLimiting;
 
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
+use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\VerifiableIdentity;
 use Tests\Integration\Fixtures\VerifiableStaffIdentity;

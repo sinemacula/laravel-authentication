@@ -2,13 +2,11 @@
 
 declare(strict_types = 1);
 
-namespace SineMacula\Laravel\Authentication\Sessions;
+namespace SineMacula\Laravel\Authentication\RateLimiting;
 
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
-use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 

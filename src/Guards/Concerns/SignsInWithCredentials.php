@@ -15,9 +15,9 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
-use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Admission\SignInAdmission;
@@ -123,7 +123,7 @@ trait SignsInWithCredentials
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn  $password
      * @param  array<string, mixed>  $credentials
-     * @param  \SineMacula\Laravel\Authentication\Sessions\AccountAttempts  $accounts
+     * @param  \SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts  $accounts
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      *
      * @throws \InvalidArgumentException
@@ -148,7 +148,7 @@ trait SignsInWithCredentials
      * the account they found had no attempts left, as refused by the account's
      * own limit with its wait, which only the failure events report.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\AccountAttempts  $accounts
+     * @param  \SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts  $accounts
      * @return \SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
      */
     private static function refuseCredentials(AccountAttempts $accounts): RefusedSignIn

@@ -35,6 +35,7 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
@@ -417,7 +418,7 @@ final readonly class SessionService
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\SignInMethod  $driver
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
-     * @param  \SineMacula\Laravel\Authentication\Sessions\AccountAttempts  $accounts
+     * @param  \SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts  $accounts
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  ?string  $identifierType
      * @param  \Illuminate\Support\Timebox  $timebox
