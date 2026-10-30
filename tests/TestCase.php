@@ -26,6 +26,36 @@ use SineMacula\Laravel\Authentication\Models\Device;
  */
 abstract class TestCase extends OrchestraTestCase
 {
+    /** @var array<string, true> Worker databases this process has created. */
+    private static array $workerDatabases = [];
+
+    /**
+     * Destroy the application, then close its database connections.
+     *
+     * The application's objects reference each other, so a destroyed
+     * application's PDO is only closed once the cycles are collected. Without
+     * this, a long run against a persistent database holds dozens of
+     * connections at once, and parallel workers exhaust the server's limit. It
+     * runs after every teardown callback, migration rollbacks included, so none
+     * of them finds its connection gone.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function tearDown(): void
+    {
+        /** @var ?\Illuminate\Database\DatabaseManager $database */
+        $database = $this->app?->make('db');
+
+        parent::tearDown();
+
+        foreach ($database?->getConnections() ?? [] as $connection) {
+            $connection->disconnect();
+        }
+
+        gc_collect_cycles();
+    }
+
     /**
      * Register the package service provider.
      *
@@ -125,7 +155,7 @@ abstract class TestCase extends OrchestraTestCase
             ];
         }
 
-        return [
+        $connection = [
             'driver'    => $driver,
             'host'      => getenv('DB_HOST') ?: '127.0.0.1',
             'port'      => getenv('DB_PORT') ?: $this->defaultPort($driver),
@@ -136,6 +166,49 @@ abstract class TestCase extends OrchestraTestCase
             'charset'   => $driver === 'pgsql' ? 'utf8' : 'utf8mb4',
             'collation' => $driver === 'pgsql' ? null : 'utf8mb4_unicode_ci',
         ];
+
+        $connection['database'] = $this->workerDatabase($connection);
+
+        return $connection;
+    }
+
+    /**
+     * Return the database this process tests against.
+     *
+     * Every test class migrates and drops the same tables, so paratest workers
+     * sharing one database would collide. Under paratest each worker gets its
+     * own database, named after its `TEST_TOKEN` and created afresh on first
+     * use from a connection to the configured one, so nothing an interrupted
+     * run left behind reaches the next.
+     *
+     * @param  array{driver: string, host: string, port: string, database: string, username: string, password: string}  $connection
+     * @return string
+     */
+    private function workerDatabase(array $connection): string
+    {
+        $token = getenv('TEST_TOKEN');
+
+        if ($token === false || $token === '') {
+            return $connection['database'];
+        }
+
+        $database = $connection['database'] . '_' . $token;
+
+        if (isset(self::$workerDatabases[$database])) {
+            return $database;
+        }
+
+        $dsn = sprintf('%s:host=%s;port=%s;dbname=%s', $connection['driver'], $connection['host'], $connection['port'], $connection['database']);
+        $pdo = new \PDO($dsn, $connection['username'], $connection['password']);
+
+        $quoted = $connection['driver'] === 'pgsql' ? '"' . $database . '"' : '`' . $database . '`';
+
+        $pdo->exec('DROP DATABASE IF EXISTS ' . $quoted . ($connection['driver'] === 'pgsql' ? ' WITH (FORCE)' : ''));
+        $pdo->exec('CREATE DATABASE ' . $quoted);
+
+        self::$workerDatabases[$database] = true;
+
+        return $database;
     }
 
     /**
