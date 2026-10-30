@@ -91,6 +91,18 @@ final class RefreshTokenHasherTest extends TestCase
     }
 
     /**
+     * An empty rotation id is refused even against the digest of the empty
+     * string, so a device row holding that digest cannot be matched by a token
+     * that carries no rotation id.
+     *
+     * @return void
+     */
+    public function testVerifyRejectsAnEmptyRotationIdAgainstItsOwnDigest(): void
+    {
+        self::assertFalse(RefreshTokenHasher::verify('', RefreshTokenHasher::hash('')));
+    }
+
+    /**
      * `successor()` derives the next rotation id deterministically: the same id
      * always has the same successor, which is shaped like a generated id (43
      * URL-safe characters) and differs from the id and from its digest.

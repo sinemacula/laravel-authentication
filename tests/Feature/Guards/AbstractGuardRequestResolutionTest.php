@@ -192,6 +192,38 @@ final class AbstractGuardRequestResolutionTest extends AbstractGuardTestCase
     }
 
     /**
+     * A second `login()` on the guard clears the first sign-in before it fires
+     * `Login`: a listener that reads the guard mid-bind sees none of the first
+     * sign-in's identity, principal or device.
+     *
+     * @return void
+     */
+    public function testASecondLoginClearsTheFirstBeforeListenersReadTheGuard(): void
+    {
+        $guard = $this->makeResolvingGuard(null);
+        $seen  = [];
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use ($guard, &$seen): void {
+
+                if (!$event instanceof Login) {
+                    return;
+                }
+
+                $seen[] = [$guard->user(), $guard->principal(), $guard->device()];
+            });
+
+        $guard->login($this->mockIdentity(), $this->mockPrincipal(), $this->mockDevice());
+
+        $identity = $this->mockIdentity();
+
+        $guard->login($identity, $this->mockPrincipal());
+
+        self::assertSame([[null, null, null], [null, null, null]], $seen);
+        self::assertSame($identity, $guard->user());
+    }
+
+    /**
      * After an explicit `login()` and `logout()`, the request's own credential
      * is not resolved either: the guard stays signed out.
      *

@@ -90,4 +90,26 @@ final class AccountAttemptsAccountTest extends TestCase
 
         self::assertCount(5, array_unique([$tenantA, $tenantB, $prefixed, $elsewhere, $table]));
     }
+
+    /**
+     * The table is the one the database holds, the connection's prefix joined
+     * to the model's table name, so a table reached once through a prefix and
+     * once through a full table name is one account.
+     *
+     * @return void
+     */
+    public function testATablePrefixAndTableNameNameTheTableTheyJoinTo(): void
+    {
+        config()->set('database.connections.tenant', ['driver' => 'mysql', 'host' => '127.0.0.1', 'database' => 'tenant_a', 'prefix' => '']);
+
+        $unprefixed = AccountAttempts::account((new IntegrationIdentity)->setConnection('tenant')->forceFill(['id' => 5]));
+
+        DB::purge('tenant');
+
+        config()->set('database.connections.tenant.prefix', 'integration_');
+
+        $prefixed = AccountAttempts::account((new IntegrationIdentity)->setTable('identities')->setConnection('tenant')->forceFill(['id' => 5]));
+
+        self::assertSame($unprefixed, $prefixed);
+    }
 }

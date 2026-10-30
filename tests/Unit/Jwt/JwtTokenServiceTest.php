@@ -59,6 +59,20 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
+     * Parsed claims are keyed by name, so a claim whose name is numeric, which
+     * decodes to an integer key, is left out of them.
+     *
+     * @return void
+     */
+    public function testAClaimWithANumericNameIsLeftOut(): void
+    {
+        $claims = $this->completeClaims(TokenType::ACCESS);
+        $token  = JWT::encode([...$claims, 7 => 'numeric'], self::SECRET, self::ALGORITHM, self::KID);
+
+        self::assertSame($claims, $this->makeService()->parse($token, TokenType::ACCESS));
+    }
+
+    /**
      * Rows of `[type, claim]` for every claim each type requires.
      *
      * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType, 1: \SineMacula\Laravel\Authentication\Jwt\Enums\Claims}>

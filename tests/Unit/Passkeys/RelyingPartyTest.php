@@ -23,6 +23,11 @@ use SineMacula\Laravel\Authentication\Passkeys\RelyingParty;
 #[CoversClass(RelyingParty::class)]
 final class RelyingPartyTest extends TestCase
 {
+    /** @var string The message for origins that are not exact secure origins on the id. */
+    private const string ORIGINS_MESSAGE = 'Passkey relying party `origins` for guard [web] must be a non-empty list of exact lower-case origins, each'
+        . ' `https://host[:port]` (or `http://localhost[:port]`) on the relying party id or a subdomain of it:'
+        . ' set `authentication.passkeys.relying_party.origins` or the guard\'s `passkeys.origins` override.';
+
     /**
      * The package's relying party applies to a guard that sets none, with the
      * application's name when it names none.
@@ -181,6 +186,38 @@ final class RelyingPartyTest extends TestCase
     }
 
     /**
+     * Rows of `[origin]`: secure origins under the relying party id whose host
+     * is not a valid host name.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideOriginsWithInvalidHosts(): iterable
+    {
+        yield from [
+            'an empty label'             => ['https://app..example.test'],
+            'an underscore in the host'  => ['https://my_app.example.test'],
+            'a hyphen ending a label'    => ['https://app-.example.test'],
+            'a label over 63 characters' => ['https://' . str_repeat('a', 64) . '.example.test'],
+        ];
+    }
+
+    /**
+     * An origin under the relying party id fails closed when its host is not a
+     * valid host name, though it ends in the id.
+     *
+     * @param  string  $origin
+     * @return void
+     */
+    #[DataProvider('provideOriginsWithInvalidHosts')]
+    public function testAnOriginWithAnInvalidHostFailsClosed(string $origin): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage(self::ORIGINS_MESSAGE);
+
+        RelyingParty::forGuard('web', self::config(['id' => 'example.test', 'name' => 'App', 'origins' => [$origin]]));
+    }
+
+    /**
      * Rows of `[origins]`: origin lists that are not exact, secure origins on
      * the relying party id.
      *
@@ -212,9 +249,6 @@ final class RelyingPartyTest extends TestCase
             'a port with a leading zero'    => [['https://example.test:0443']],
             'an empty port'                 => [['https://example.test:']],
             'one bad among good'            => [['https://example.test', 'https://evil.test']],
-            'an empty label'                => [['https://app..example.test']],
-            'an underscore in the host'     => [['https://my_app.example.test']],
-            'a hyphen ending a label'       => [['https://app-.example.test']],
         ];
     }
 
@@ -229,9 +263,7 @@ final class RelyingPartyTest extends TestCase
     public function testInvalidOriginsFailClosed(mixed $origins): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Passkey relying party `origins` for guard [web] must be a non-empty list of exact lower-case origins, each'
-            . ' `https://host[:port]` (or `http://localhost[:port]`) on the relying party id or a subdomain of it:'
-            . ' set `authentication.passkeys.relying_party.origins` or the guard\'s `passkeys.origins` override.');
+        $this->expectExceptionMessage(self::ORIGINS_MESSAGE);
 
         RelyingParty::forGuard('web', self::config(['id' => 'example.test', 'name' => 'App', 'origins' => $origins]));
     }

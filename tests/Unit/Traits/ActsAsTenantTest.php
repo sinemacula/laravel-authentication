@@ -9,6 +9,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsTenant;
 use Tests\Unit\Stubs\StubTenant;
 use Tests\Unit\Stubs\StubTenantWithCustomIdentifier;
+use Tests\Unit\Stubs\StubTenantWithPrefixedIdentifier;
 
 /**
  * Unit tests for the package ActsAsTenant trait.
@@ -49,5 +50,19 @@ final class ActsAsTenantTest extends TestCase
         $tenant->setRawAttributes(['tenant_uuid' => 'tenant-from-override']);
 
         self::assertSame('tenant-from-override', $tenant->getTenantIdentifier());
+    }
+
+    /**
+     * Asserts a subclass can build its identifier column on the trait's
+     * default, and the identifier is read from the column it builds.
+     *
+     * @return void
+     */
+    public function testGetTenantIdentifierHonoursAnOverrideBuiltOnTheDefault(): void
+    {
+        $tenant = new StubTenantWithPrefixedIdentifier;
+        $tenant->setRawAttributes(['id' => 1, 'tenant_id' => 'tenant-from-prefixed-column']);
+
+        self::assertSame('tenant-from-prefixed-column', $tenant->getTenantIdentifier());
     }
 }

@@ -18,8 +18,9 @@ use Tests\Unit\Stubs\StubCredentialGuard;
  * that implement a new guard type.
  *
  * Drives `bindAuthenticationLifecycle()`, `setIdentity()`,
- * `fireValidatedEvent()`, and `timeboxMicroseconds()` from a subclass so the
- * extension surface stays callable and behaves as documented.
+ * `fireValidatedEvent()`, `resolvePrincipal()`, and `timeboxMicroseconds()`
+ * from a subclass so the extension surface stays callable and behaves as
+ * documented.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -100,6 +101,29 @@ final class AbstractGuardExtensionTest extends AbstractGuardTestCase
                 && $event->user  === $identity));
 
         $guard->announceValidated($identity);
+    }
+
+    /**
+     * A subclass resolves an identity's principal through the guard's resolver:
+     * its default principal without a hint, the hinted one with.
+     *
+     * @return void
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    public function testSubclassResolvesPrincipalsThroughTheResolver(): void
+    {
+        $identity = $this->mockIdentity();
+        $default  = $this->mockPrincipal();
+        $hinted   = $this->mockPrincipal();
+
+        $this->resolver->shouldReceive('resolve')->once()->with($identity)->andReturn($default);
+        $this->resolver->shouldReceive('resolve')->once()->with($identity, 'membership-2')->andReturn($hinted);
+
+        $guard = $this->makeCredentialGuard();
+
+        self::assertSame($default, $guard->principalFor($identity));
+        self::assertSame($hinted, $guard->principalFor($identity, 'membership-2'));
     }
 
     /**

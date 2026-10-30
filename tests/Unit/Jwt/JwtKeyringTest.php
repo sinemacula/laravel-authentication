@@ -63,7 +63,8 @@ final class JwtKeyringTest extends TestCase
     public function testFromKeyMapRejectsUnknownActiveKid(): void
     {
         $this->expectException(InvalidJwtConfigurationException::class);
-        $this->expectExceptionMessage('JWT active kid \'missing-kid\' is not present');
+        $this->expectExceptionMessage('JWT active kid \'missing-kid\' is not present in the configured key map.'
+            . ' Set `authentication.jwt.active_kid` to a kid that exists in `authentication.jwt.keys`.');
 
         JwtKeyring::fromKeyMap(
             [self::NEW_KID => self::SECRET],
@@ -100,7 +101,8 @@ final class JwtKeyringTest extends TestCase
     public function testFromKeyMapRejectsEmptyKidInsideKeyMap(): void
     {
         $this->expectException(InvalidJwtConfigurationException::class);
-        $this->expectExceptionMessage('JWT key map contains an empty kid');
+        $this->expectExceptionMessage('JWT key map contains an empty kid. Every entry under `authentication.jwt.keys`'
+            . ' must be keyed by a non-empty string.');
 
         JwtKeyring::fromKeyMap(
             [
@@ -121,7 +123,10 @@ final class JwtKeyringTest extends TestCase
     public function testFromKeyMapRejectsEmptyKeyMaterial(): void
     {
         $this->expectException(InvalidJwtConfigurationException::class);
-        $this->expectExceptionMessage(sprintf('JWT key \'%s\' has empty material', self::NEW_KID));
+        $this->expectExceptionMessage(sprintf(
+            'JWT key \'%s\' has empty material. Every kid in `authentication.jwt.keys` must map to a non-empty secret.',
+            self::NEW_KID,
+        ));
 
         JwtKeyring::fromKeyMap(
             [self::NEW_KID => ''],

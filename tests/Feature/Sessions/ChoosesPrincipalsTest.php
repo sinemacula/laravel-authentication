@@ -48,6 +48,8 @@ use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ChoosingMember;
 use Tests\Integration\Fixtures\ChoosingMembership;
+use Tests\Integration\Fixtures\MemberRole;
+use Tests\Integration\Fixtures\RoleMember;
 use Tests\Integration\Fixtures\VerifiableChoosingMember;
 use Tests\TestCase;
 
@@ -74,6 +76,9 @@ final class ChoosesPrincipalsTest extends TestCase
 
     /** @var string Guard over `ChoosingMember`. */
     private const string GUARD = 'choosers';
+
+    /** @var string Guard over `RoleMember`. */
+    private const string ROLES_GUARD = 'roles';
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -131,6 +136,8 @@ final class ChoosesPrincipalsTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
+        Schema::dropIfExists('member_roles');
+
         $this->dropSessionTables();
 
         Carbon::setTestNow();
@@ -319,6 +326,38 @@ final class ChoosesPrincipalsTest extends TestCase
         self::assertTrue($result->isFailed());
         self::assertSame(FailureReason::PRINCIPAL_UNRESOLVED, $result->reason);
         self::assertSame(0, DB::table('pending_sign_ins')->count());
+    }
+
+    /**
+     * A row the identity's `principals()` yields that is not a principal (an
+     * invitation kept beside its memberships, say) is passed over, and the
+     * memberships after it are still offered.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARoleThatIsNotAPrincipalIsPassedOver(): void
+    {
+        Schema::create('member_roles', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->unsignedInteger('identity_id');
+            $blueprint->string('kind');
+            $blueprint->timestamps();
+        });
+
+        $member = RoleMember::query()->create(['email' => 'roles@example.test', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
+
+        MemberRole::query()->create(['identity_id' => $member->getKey(), 'kind' => 'invitation']);
+
+        $first  = MemberRole::query()->create(['identity_id' => $member->getKey(), 'kind' => 'membership']);
+        $second = MemberRole::query()->create(['identity_id' => $member->getKey(), 'kind' => 'membership']);
+
+        $result = $this->sessions(self::ROLES_GUARD)->signIn('password', self::credentials('roles@example.test'));
+
+        self::assertTrue($result->requiresPrincipal());
+        self::assertNotNull($result->choice);
+        self::assertSame([$first->getKey(), $second->getKey()], self::keys($result->choice->principals));
     }
 
     /**
@@ -910,6 +949,8 @@ final class ChoosesPrincipalsTest extends TestCase
 
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
         $config->set('auth.guards.' . self::GUARD, ['driver' => 'jwt', 'provider' => 'choosers', 'audience' => ['methods' => ['password', 'sso']]]);
+        $config->set('auth.providers.roles', ['driver' => 'model', 'model' => RoleMember::class]);
+        $config->set('auth.guards.' . self::ROLES_GUARD, ['driver' => 'jwt', 'provider' => 'roles', 'audience' => ['methods' => ['password']]]);
         $config->set('auth.providers.verifiable_choosers', ['driver' => 'model', 'model' => VerifiableChoosingMember::class]);
         $config->set('auth.guards.verified', [
             'driver'   => 'jwt',
