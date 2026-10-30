@@ -50,17 +50,17 @@ outdates, and why the change stands when the notice to the old identifier fails.
   that is not the current one in canonical form, and a slot of `rate_limits.identifier_change` for the new identifier,
   the identity's account and the IP address, given back only by a refusal under the lock. It never looks for another
   holder of the new identifier, so its answer cannot tell whether one exists.
-- A confirmation runs in one transaction on the identity's connection, which must be the device model's (the codes' and
-  the pending changes'), checked by `Database\SharedConnection`, the rule password resets share, before anything is
+- A confirmation runs in one transaction on the identity's connection, which must be the storage connection (the codes'
+  and the pending changes'), checked by `Database\SharedConnection`, the rule password resets share, before anything is
   counted or written. It locks the identity's row first (`Database\IdentityLock`, the lock order every transaction that
   writes an identity with its proofs follows, so a password write, a reset, a request or a cancellation racing it waits
   rather than deadlocks), refuses an identity no longer stored (`invalid_credentials`) or not active as its row reads
   under the lock (`identity_inactive`), whatever the instance given says, with nothing counted, reads the change (this
-  guard's, live), checks the proof, deletes the change while it still names its request, looks
-  for another holder through the guard's provider, invalidates the outdated proofs and replaces the identifier
-  conditionally on `previous` (`HasChangeableIdentifiers::replaceIdentifier()`, which records the new one as verified).
-  A refused proof commits, so a code's attempt count is durable; any refusal after the proof is accepted throws inside
-  the transaction, so it rolls back whole and the proof is not spent.
+  guard's, live), checks the proof, deletes the change while it still names its request, looks for another holder
+  through the guard's provider, invalidates the outdated proofs and replaces the identifier conditionally on `previous`
+  (`HasChangeableIdentifiers::replaceIdentifier()`, which records the new one as verified). A refused proof commits, so
+  a code's attempt count is durable; any refusal after the proof is accepted throws inside the transaction, so it rolls
+  back whole and the proof is not spent.
 - A change invalidates, in one statement, for every `jwt` guard whose provider can return the identity
   (`JwtGuards::namesFor()`: its configured model reads the identity's table on the identity's connection, or it names no
   model) and for both the canonical previous identifier and the new one: the sign-in, password reset and password reset
@@ -124,16 +124,16 @@ outdates, and why the change stands when the notice to the old identifier fails.
   new identifier to a verified one.
 - Sessions are not revoked by a change; the application may sign the identity out everywhere if it wants that.
 - Every bulk revocation of an identity's sessions deletes every pending change of the identity, of each type with a
-  registered normaliser and through any guard, in one `DELETE` by key inside the revocation's transaction on the device
-  model's connection (`PendingChanges::forget()`, from `Sessions\DeviceRevocations` for the scope
+  registered normaliser and through any guard, in one `DELETE` by key inside the revocation's transaction on the storage
+  connection (`PendingChanges::forget()`, from `Sessions\DeviceRevocations` for the scope
   `SessionService::revokeDevices()` builds): `signOutEverywhere()`, `revokeDevices()`, `passwordChanged()`,
-  `passwordReset()`, `factorRemoved()`, `identityDeactivated()`, and so `PasswordService::set()` for a change or a reset,
-  a reset by link or code, and the listeners. A link needs no session, so a change requested from a session that ended
-  (an attacker's) would otherwise still move the account to the requester's address once its owner had signed it out,
-  reset its password or had it suspended, whether or not the identity has a password at all. The change's code needs
-  nothing: it is checked only against its pending change's binding, so without the row it confirms nothing until it is
-  pruned. Revoking one device, ending a principal's sessions and a registration leave the identity's other sessions,
-  and so its pending changes. A deactivation that only clears the identity's active flag, without
+  `passwordReset()`, `factorRemoved()`, `identityDeactivated()`, and so `PasswordService::set()` for a change or a
+  reset, a reset by link or code, and the listeners. A link needs no session, so a change requested from a session that
+  ended (an attacker's) would otherwise still move the account to the requester's address once its owner had signed it
+  out, reset its password or had it suspended, whether or not the identity has a password at all. The change's code
+  needs nothing: it is checked only against its pending change's binding, so without the row it confirms nothing until
+  it is pruned. Revoking one device, ending a principal's sessions and a registration leave the identity's other
+  sessions, and so its pending changes. A deactivation that only clears the identity's active flag, without
   `identityDeactivated()`, keeps them, and the change can be confirmed once the identity is active again.
 
 ## Implementation Anchors

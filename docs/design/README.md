@@ -24,6 +24,8 @@ The current note set is:
 - `refresh-token-transport.md`: where a guard reads the refresh token from, why a request may carry it in only one
   place, the cookie's cross-site checks, and the cookie that carries a browser's refresh token.
 - `fail-closed-pid-did.md`: why `pid` and `did` are treated as commitments rather than advisory hints.
+- `storage.md`: where the package's tables live, why the device-backed ones share one connection, and how the models
+  and the published migrations choose the same one.
 - `access-only-mode.md`: the supported bearer-only, no-devices migration path.
 - `guard-bound-tokens.md`: the `grd` claim that ties every token to its issuing guard, and the provider-scoped owner
   reload on refresh.

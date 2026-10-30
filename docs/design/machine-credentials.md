@@ -46,6 +46,10 @@ authorization package decides what they allow.
   read by primary key on the writer, must be the token's guard's, not revoked and not expired, the subject a machine,
   and `CredentialBinding` must hold for the loaded identity, principal and tenant. Revoking the key, or the end of a
   rotation's overlap, ends its tokens at the next request.
+- Keys live on the storage connection (`Database\StorageConnection`), like every other package table, not on a
+  connection the device model decides: an `api_key` guard never reads the device model, so an application whose only
+  guards are `api_key` guards needs none configured. The guard fails when it is built on a storage connection setting
+  that is not a connection name.
 - Every write to a key is one conditional statement on its own connection (rotation: a conditional update of the
   replaced key, then the insert of its replacement, in one transaction), and its event is dispatched once committed
   there.
@@ -135,7 +139,9 @@ authorization package decides what they allow.
 - `src/ClientCredentials/ClientCredentialsExchange.php`, `ClientCredentialsRequest.php`, `ClientCredentialsResult.php`;
   `src/Jwt/MachineTokens.php`, `JwtTokenService::issueClientAccessToken()`, `src/Guards/BearerAuthentication.php`
   (`admitForKey()`), `src/Guards/AuthenticatedBearer.php`.
-- `src/Guards/ApiKeyGuard.php`, `src/Models/ApiKey.php`, `database/migrations/2026_04_06_000006_create_api_keys_table.php`.
+- `src/Guards/ApiKeyGuard.php`, `src/Models/ApiKey.php`,
+  `database/migrations/2026_04_06_000006_create_api_keys_table.php`, `src/Database/StorageConnection.php`;
+  `src/AuthenticationServiceProvider.php`: `createApiKeyGuard()`.
 
 ## Authoritative Tests
 
@@ -147,7 +153,8 @@ authorization package decides what they allow.
 - `tests/Integration/ApiKeys/ApiKeyServiceTest.php`, `tests/Integration/ApiKeys/ConcurrentApiKeyRotationTest.php`
 - `tests/Feature/ClientCredentials/ClientCredentialsExchangeTest.php`,
   `tests/Feature/Guards/ClientTokenBearerAuthenticationTest.php`, `tests/Performance/ClientCredentialsQueryBudgetTest.php`
-- `tests/Feature/Guards/ApiKeyGuardTest.php`, `tests/Performance/ApiKeyGuardQueryBudgetTest.php`
+- `tests/Feature/Guards/ApiKeyGuardTest.php`, `tests/Performance/ApiKeyGuardQueryBudgetTest.php`,
+  `tests/Integration/ApiKeys/StorageConnectionApiKeysTest.php`
 
 ## Change Triggers
 
