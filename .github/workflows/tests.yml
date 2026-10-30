@@ -121,6 +121,7 @@ jobs:
                         db_port: 3306
                         db_username: root
                         db_password: password
+                        data_dir: /var/lib/mysql
                         health_cmd: mysqladmin ping -h 127.0.0.1
                     -   database: pgsql
                         image: postgres:17
@@ -128,6 +129,7 @@ jobs:
                         db_port: 5432
                         db_username: postgres
                         db_password: password
+                        data_dir: /var/lib/postgresql/data
                         health_cmd: pg_isready -h 127.0.0.1 -U postgres -d laravel_authentication_test
 
         # One service per leg. Declaring both starts both on every leg, so each
@@ -136,6 +138,8 @@ jobs:
         # probes go over the loopback address rather than a socket, since an
         # engine that initialises behind a temporary local server answers a
         # socket probe before the server the tests will actually reach is up.
+        # The data directory is held in memory: the database is thrown away
+        # with the job, so syncing every write to disk only slows the tests.
         services:
             database:
                 image: ${{ matrix.image }}
@@ -148,6 +152,7 @@ jobs:
                 ports:
                     - ${{ matrix.db_port }}:${{ matrix.db_port }}
                 options: >-
+                    --tmpfs ${{ matrix.data_dir }}
                     --health-cmd="${{ matrix.health_cmd }}"
                     --health-interval=10s
                     --health-timeout=5s
@@ -167,9 +172,9 @@ jobs:
                     php-version: 8.3
                     extensions: pdo_mysql, pdo_pgsql
 
-            # Every test class migrates and drops the package's tables, so each
-            # paratest worker runs against a database of its own, which the test
-            # case creates from its TEST_TOKEN. The performance suite times its
+            # Tests create, empty and drop the same tables, so each paratest
+            # worker runs against a database of its own, which the test case
+            # creates from its TEST_TOKEN. The performance suite times its
             # timeboxes, so it runs on its own, serially, as it does locally.
             -   name: Database Tests
                 env:
