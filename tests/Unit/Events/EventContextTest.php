@@ -6,6 +6,7 @@ namespace Tests\Unit\Events;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Support\Arrayable;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesType;
@@ -16,6 +17,8 @@ use Tests\Unit\Stubs\PlainDeviceFixture;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
 use Tests\Unit\Stubs\PlainTenantFixture;
+use Tests\Unit\Stubs\Stub3dPrincipal;
+use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubPrincipal;
 use Tests\Unit\Stubs\StubTenant;
 
@@ -32,7 +35,7 @@ use Tests\Unit\Stubs\StubTenant;
 final class EventContextTest extends TestCase
 {
     /**
-     * Release the clock.
+     * Release the clock and the morph map.
      *
      * @return void
      */
@@ -40,6 +43,8 @@ final class EventContextTest extends TestCase
     protected function tearDown(): void
     {
         CarbonImmutable::setTestNow();
+        Relation::requireMorphMap(false);
+        Relation::morphMap([], false);
 
         parent::tearDown();
     }
@@ -177,6 +182,32 @@ final class EventContextTest extends TestCase
         self::assertSame('9', $context->principalId);
         self::assertSame('workspace', $context->tenantMorphClass);
         self::assertSame('4', $context->tenantId);
+    }
+
+    /**
+     * Under an enforced morph map, an identity, principal or tenant the map
+     * leaves out is recorded by its class name rather than failing the flow the
+     * event reports, and one the map names by its alias.
+     *
+     * @return void
+     */
+    public function testAModelAnEnforcedMorphMapLeavesOutIsRecordedByItsClassName(): void
+    {
+        Relation::enforceMorphMap(['member' => StubPrincipal::class]);
+
+        $member = (new StubPrincipal)->forceFill(['id' => 9]);
+
+        $unmapped = new EventContext('api', new ClientContext(null, null), (new StubIdentity)->forceFill(['id' => 7]), new Stub3dPrincipal(['id' => 8]), self::tenant(4));
+        $mapped   = new EventContext('api', new ClientContext(null, null), $member, $member);
+
+        self::assertSame(StubIdentity::class, $unmapped->identityMorphClass);
+        self::assertSame('7', $unmapped->identityId);
+        self::assertSame(Stub3dPrincipal::class, $unmapped->principalMorphClass);
+        self::assertSame('8', $unmapped->principalId);
+        self::assertSame(StubTenant::class, $unmapped->tenantMorphClass);
+        self::assertSame('4', $unmapped->tenantId);
+        self::assertSame('member', $mapped->identityMorphClass);
+        self::assertSame('member', $mapped->principalMorphClass);
     }
 
     /**

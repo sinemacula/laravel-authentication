@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Events;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Support\Arrayable;
+use Illuminate\Database\ClassMorphViolationException;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Audience\PrincipalType;
 use SineMacula\Laravel\Authentication\Contracts\Device;
@@ -39,18 +40,19 @@ use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
  * Everything but the four models is the snapshot, fixed when the context is
  * built: when (`occurredAt`), the guard, the client, the method, the
  * credential's id and scopes, the morph class (an Eloquent model's morph class,
- * else the class name) and identifier of the identity, the principal and the
- * tenant, the principal's categorical type (`principalCategory`, as
- * `Auth::type()` reports it), and the device's identifier. It is the record an
- * audit sink keeps, and `toArray()` gives it as scalars. The models are a
- * convenience: a synchronous listener gets the instances the package holds, and
- * after a queue each Eloquent model is fetched again in its state then (with
- * the relations it had loaded), or is `null` once its row is gone; a part that
- * is not an Eloquent model does not cross a queue and is `null` after one. A
- * queued model is current state, not evidence of what was authorised. `scopes`
- * is `null` for a human identity's session, which no credential limits, and the
- * list the credential grants otherwise (`[]` grants none). Never carries a
- * token, a key, a digest, a password or any other secret.
+ * else the class name, which also stands for a model an enforced morph map
+ * leaves out) and identifier of the identity, the principal and the tenant, the
+ * principal's categorical type (`principalCategory`, as `Auth::type()` reports
+ * it), and the device's identifier. It is the record an audit sink keeps, and
+ * `toArray()` gives it as scalars. The models are a convenience: a synchronous
+ * listener gets the instances the package holds, and after a queue each
+ * Eloquent model is fetched again in its state then (with the relations it had
+ * loaded), or is `null` once its row is gone; a part that is not an Eloquent
+ * model does not cross a queue and is `null` after one. A queued model is
+ * current state, not evidence of what was authorised. `scopes` is `null` for a
+ * human identity's session, which no credential limits, and the list the
+ * credential grants otherwise (`[]` grants none). Never carries a token, a key,
+ * a digest, a password or any other secret.
  *
  * @api
  *
@@ -147,7 +149,7 @@ final readonly class EventContext implements Arrayable
         $this->occurredAt          = CarbonImmutable::now();
         $this->identityMorphClass  = $identity  === null ? self::recordedOn($recorded, 'ownerType') : self::morphClassOf($identity);
         $this->identityId          = $identity  === null ? self::recordedOn($recorded, 'owner') : IdentifierCoercion::stringify($identity->getAuthIdentifier());
-        $this->principalMorphClass = $principal === null ? self::recordedOn($recorded, 'type') : PrincipalReference::type($principal);
+        $this->principalMorphClass = $principal === null ? self::recordedOn($recorded, 'type') : self::morphClassOf($principal);
         $this->principalId         = $principal === null ? self::recordedOn($recorded, 'id') : PrincipalReference::id($principal);
         $this->principalCategory   = self::categoryOf($principal, $tenant);
         $this->tenantMorphClass    = $tenant === null ? null : self::morphClassOf($tenant);
@@ -204,15 +206,24 @@ final readonly class EventContext implements Arrayable
     }
 
     /**
-     * The morph class an identity or tenant is recorded by: an Eloquent model's
-     * morph class, any other object's class name.
+     * The morph class an identity, principal or tenant is recorded by: an
+     * Eloquent model's morph class, any other object's class name.
+     *
+     * A model the morph map leaves out under `Relation::enforceMorphMap()` is
+     * recorded by its class name: a tenant reached through a plain relation
+     * never needed an alias, and the snapshot must not fail the flow it
+     * reports.
      *
      * @param  object  $subject
      * @return string
      */
     private static function morphClassOf(object $subject): string
     {
-        return $subject instanceof Model ? $subject->getMorphClass() : $subject::class;
+        try {
+            return $subject instanceof Model ? $subject->getMorphClass() : $subject::class;
+        } catch (ClassMorphViolationException) {
+            return $subject::class;
+        }
     }
 
     /**

@@ -69,15 +69,15 @@ a passkey) in `credentialId` with the scopes it grants in `scopes` (`null` for a
 credential limits); what was not established is `null`. It also snapshots, when the event is built, when it happened
 (`occurredAt`), the identity, the principal and the tenant each by morph class and identifier (`identityMorphClass` and
 `identityId`, `principalMorphClass` and `principalId`, `tenantMorphClass` and `tenantId`; the morph class is an Eloquent
-model's `getMorphClass()`, else its class name), the principal's categorical type as `Auth::type()` reports it
-(`principalCategory`: its own type, else its tenant's), and the device's identifier (`deviceId`, which keeps the device
-id a token named even when no device was found). An event about a device row itself (every `DeviceRevoked`, and a
-refresh or switch refused on the row's own state before its owner was read, such as a revoked or ended device or a
-replay) names the owner and principal the row records in `identityMorphClass`, `identityId`, `principalMorphClass` and
-`principalId` when the flow did not load them; a device records no tenant, so a revocation's `tenantId` is known only
-when the tenant's deactivation or the request's own session is why. Other events name only what they hold, even when
-they carry a device: an identity's `SignedOutEverywhere`, `PrincipalChoiceRequired` and a switch refused for its target
-have no principal.
+model's `getMorphClass()`, else its class name, as it is for a model an enforced morph map leaves out), the principal's
+categorical type as `Auth::type()` reports it (`principalCategory`: its own type, else its tenant's), and the device's
+identifier (`deviceId`, which keeps the device id a token named even when no device was found). An event about a device
+row itself (every `DeviceRevoked`, and a refresh or switch refused on the row's own state before its owner was read,
+such as a revoked or ended device or a replay) names the owner and principal the row records in `identityMorphClass`,
+`identityId`, `principalMorphClass` and `principalId` when the flow did not load them; a device records no tenant, so a
+revocation's `tenantId` is known only when the tenant's deactivation or the request's own session is why. Other events
+name only what they hold, even when they carry a device: an identity's `SignedOutEverywhere`, `PrincipalChoiceRequired`
+and a switch refused for its target have no principal.
 
 Everything but the four models is the snapshot, fixed when the event is built: record it, not the models. `toArray()`
 gives it as scalars, with `occurred_at` as an ISO 8601 UTC string to the microsecond, ready to store or to queue on its
