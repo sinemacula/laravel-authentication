@@ -47,7 +47,7 @@ are caught on the server.
 - **Per-guard audiences**: which methods and principal types a guard admits, and lifetimes per principal type.
 - **Database rate limits**, enumeration-resistant responses, and read-replica and Octane safety.
 - **Events** for every sign-in, refresh, revocation and failure, with one shared context and never a secret.
-- **Seams** for a further-factor, authorization, SSO or audit package, each with a default that works alone.
+- **Extension points** for MFA, authorization, SSO and audit packages, each with a default that works without them.
 
 ## Installation
 
@@ -67,13 +67,20 @@ php artisan migrate
 echo "AUTHENTICATION_JWT_KEY=$(openssl rand -base64 48)" >> .env
 ```
 
-Register a `jwt` guard in `config/auth.php`:
+Register a `jwt` guard and a `model` provider in `config/auth.php`:
 
 ```php
 'guards' => [
     'api' => [
         'driver'   => 'jwt',
         'provider' => 'users',
+    ],
+],
+
+'providers' => [
+    'users' => [
+        'driver' => 'model',
+        'model'  => App\Models\AppUser::class,
     ],
 ],
 ```
@@ -86,6 +93,8 @@ for every option.
 Give your user model the contracts and traits:
 
 ```php
+namespace App\Models;
+
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Foundation\Auth\User;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;

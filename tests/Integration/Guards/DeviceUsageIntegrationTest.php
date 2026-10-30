@@ -245,8 +245,8 @@ final class DeviceUsageIntegrationTest extends TestCase
     }
 
     /**
-     * A device created as the guides show records the guard, the principal,
-     * and the client it was created from, with the client's IP address and user
+     * A device created as the guides show records the guard, the principal, and
+     * the client it was created from, with the client's IP address and user
      * agent cleaned by `ClientContext` so a crafted header is stored rather
      * than failing the insert, and the tokens issued for it then work on the
      * bearer path and on refresh.

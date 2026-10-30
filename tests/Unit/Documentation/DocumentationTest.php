@@ -88,8 +88,7 @@ final class DocumentationTest extends TestCase
     }
 
     /**
-     * Every event the package dispatches has a row in the events guide's
-     * table.
+     * Every event the package dispatches has a row in the events guide's table.
      *
      * @param  class-string  $class
      * @return void
