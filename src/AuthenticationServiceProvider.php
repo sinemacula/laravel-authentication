@@ -130,7 +130,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        $this->wrapAuthManager();
+        $this->ownAuthManager();
         $this->registerProviderDriver();
         $this->registerGuardDrivers();
         $this->registerListeners();
@@ -299,21 +299,33 @@ final class AuthenticationServiceProvider extends ServiceProvider
     }
 
     /**
-     * Replace the framework's `auth` container binding with the package
-     * `AuthManager` subclass.
+     * Make the `auth` binding the package's `AuthManager`: the package owns it,
+     * and its guards, its accessors and the facade rely on it.
      *
-     * Deferred to `boot()` so this extend wraps any extends registered during
-     * other providers' `register()` phase, guaranteeing the package manager is
-     * the outermost decorator and previously registered drivers are captured
-     * via `inheritDriversFrom()`.
+     * A manager that is already the package's, or a subclass of it (how an
+     * application customises the manager, bound in a `register()`), is kept.
+     * Any other is replaced by the package's, which takes over its guard and
+     * provider creators, its user resolver and its resolved guards
+     * (`AuthManager::inheritStateFrom()`); a subclass's own behaviour is lost.
+     * Applied when `auth` resolves, or at once when it already has; a binding
+     * of `auth` made after the package boots is not supported. The facades'
+     * cached manager is forgotten, so a facade used before the swap reaches the
+     * package's.
      *
      * @return void
      */
-    protected function wrapAuthManager(): void
+    protected function ownAuthManager(): void
     {
         $this->app->extend('auth', static function (IlluminateAuthManager $existing, Application $app): AuthManager {
+
+            IlluminateAuth::clearResolvedInstance('auth');
+
+            if ($existing instanceof AuthManager) {
+                return $existing;
+            }
+
             $manager = new AuthManager($app);
-            $manager->inheritDriversFrom($existing);
+            $manager->inheritStateFrom($existing);
 
             return $manager;
         });

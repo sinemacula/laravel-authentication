@@ -74,7 +74,7 @@ final class AuthFacadeTest extends TestCase
     /**
      * `Auth::manager()` returns the package `AuthManager` instance resolved
      * from the container, type-narrowed to the package subclass so consumers
-     * can call `inheritDriversFrom()` and the contextual accessors directly.
+     * can call its contextual accessors directly.
      *
      * @return void
      */

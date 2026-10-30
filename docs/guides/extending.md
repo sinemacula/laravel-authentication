@@ -15,6 +15,7 @@ inheritance:
 | Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                                                             |
 | Custom `auth` middleware          | Subclass `Http\Middleware\Authenticate` (non-final)                                                              |
 | Guard and provider drivers        | Register them with `Auth::extend()` / `Auth::provider()` as usual: the package's manager inherits them           |
+| Custom auth manager               | Extend `AuthManager` and bind it to `auth` in a `register()`; the package keeps it                               |
 | Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                                                                |
 | Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` under a name the package does not use |
 | Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy` in the container; call `factorRemoved()` when a factor is removed         |
@@ -51,11 +52,6 @@ reserves the account twice), and each is given back.
 
 `AbstractGuard` is not final and may be extended for entirely new guard types.
 
-The package replaces Laravel's `auth` manager with its own subclass when it boots, after every service provider has
-registered, and carries over the guard and provider drivers registered on the manager it replaces
-(`AuthManager::inheritDriversFrom()`), so `Auth::extend()` and `Auth::provider()` calls made in your providers'
-`register()` keep working.
-
 ### Binding order
 
 Every default the package binds is bound only when nothing is bound yet: `PrincipalResolver`, `AudiencePolicy`,
@@ -80,6 +76,20 @@ $this->callAfterResolving(SignInMethodManager::class, static function (SignInMet
 An identifier normaliser is configuration: a package that adds one sets `authentication.identifiers.normalisers.<type>`
 in `boot()`. Laravel merges a package's configuration one level deep, so a value set under `authentication.identifiers`
 while providers register, before the application has published the configuration, replaces the package's normalisers.
+
+### The auth manager
+
+The package owns Laravel's `auth` binding: its guards, the contextual accessors and the `Auth` facade rely on its
+`AuthManager`. When it boots it replaces any other manager there with its own, which takes over what was registered on
+the one it replaces (`AuthManager::inheritStateFrom()`): the drivers from `Auth::extend()`, `Auth::viaRequest()` and
+`Auth::provider()`, the user resolver from `Auth::resolveUsersUsing()`, and the guards already resolved, which stay the
+same instances. Those calls keep working from any provider's `register()` or `boot()`, and `Auth::` reaches the
+package's manager even when it was used before the package booted.
+
+What a subclass of Laravel's manager adds itself, its methods and overrides, is not kept: the replacement is not a
+decorator. To customise the manager, extend the package's `AuthManager` and bind it to `auth` in a `register()`; the
+package keeps it and registers its drivers on it. Bind `auth` only there: a manager bound to it after the package boots
+is not supported, and an object that captured the manager before the swap keeps the one it had.
 
 ## Suite integration
 
