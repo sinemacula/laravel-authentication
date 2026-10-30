@@ -26,13 +26,7 @@ final class InvalidDeviceModelConfigurationException extends \RuntimeException
      */
     public static function validate(string $class): void
     {
-        if (
-            $class === ''
-            || !class_exists($class)
-            || !is_subclass_of($class, Model::class)
-            || !is_subclass_of($class, EloquentDevice::class)
-        ) {
-
+        if (!is_subclass_of($class, Model::class) || !is_subclass_of($class, EloquentDevice::class)) {
             throw self::unsupported($class);
         }
     }
