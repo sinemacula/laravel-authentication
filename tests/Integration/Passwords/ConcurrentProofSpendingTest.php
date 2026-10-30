@@ -431,9 +431,10 @@ final class ConcurrentProofSpendingTest extends TestCase
      * Requests for two identities made inside transactions of their callers,
      * none of whose counters exist yet, the first held right after its first
      * limiter statement, both go through once the counters live on a connection
-     * of their own, as README.md tells callers on MySQL to do: on the callers'
-     * connection, the counters' missing keys would keep their gaps locked until
-     * each caller commits. The second finishes while the first is still held.
+     * of their own, as the passwords guide tells callers on MySQL to do: on the
+     * callers' connection, the counters' missing keys would keep their gaps
+     * locked until each caller commits. The second finishes while the first is
+     * still held.
      *
      * @return void
      *
@@ -552,10 +553,10 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * The password change README.md documents, made over HTTP with the old
-     * password while a reset is held after it wrote the owner's new one, waits
-     * for the reset on the identity's row before it checks the current
-     * password, which is then wrong: the reset's password stays.
+     * The documented password change, made over HTTP with the old password
+     * while a reset is held after it wrote the owner's new one, waits for the
+     * reset on the identity's row before it checks the current password, which
+     * is then wrong: the reset's password stays.
      *
      * @return void
      *
@@ -642,8 +643,8 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * Sign in through the `web` guard with the password, define the password
-     * change route README.md documents, and return the access token.
+     * Sign in through the `web` guard with the password, define the documented
+     * password change route, and return the access token.
      *
      * @return string
      *

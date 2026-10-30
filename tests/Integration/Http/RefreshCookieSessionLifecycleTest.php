@@ -39,7 +39,7 @@ use Tests\TestCase;
  * cookie, through the rest of its session: a switch of principal proven by the
  * cookie, held to the cookie's cross-site checks and answered with the rotated
  * cookie, and a sign-out from a route outside the cookie's path that revokes
- * the device and clears the cookie, as the README's routes do.
+ * the device and clears the cookie, as the documented routes do.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

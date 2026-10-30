@@ -16,7 +16,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
 
 /**
  * 2D identity whose devices are a real `morphMany` relation, the shape the
- * README documents, rather than a hand-built query.
+ * guides document, rather than a hand-built query.
  *
  * Keyed by UUID so the polymorphic `authenticatable_id` string column compares
  * against a string key on every database driver.
