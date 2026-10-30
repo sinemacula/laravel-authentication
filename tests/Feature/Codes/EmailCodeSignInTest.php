@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Codes\CodeService;
 use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodeRequestStatus;
+use SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
@@ -26,7 +27,6 @@ use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
-use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use Tests\Concerns\InteractsWithCodeIdentities;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Integration\Fixtures\CodeIdentity;
@@ -284,7 +284,7 @@ final class EmailCodeSignInTest extends TestCase
 
         self::assertSame(self::CODE, $code);
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->signIn($code)->reason);
-        self::assertSame(IdentifierVerification::VERIFIED, $this->codeService()->verify($identity, 'email', $code));
+        self::assertSame(VerificationOutcome::VERIFIED, $this->codeService()->verify($identity, 'email', $code));
 
         $this->sender->forget();
 

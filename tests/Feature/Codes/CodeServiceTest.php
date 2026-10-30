@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Codes\CodeRequest;
 use SineMacula\Laravel\Authentication\Codes\CodeService;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodeRequestStatus;
+use SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome;
 use SineMacula\Laravel\Authentication\Codes\SendOneTimeCode;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
@@ -26,7 +27,6 @@ use SineMacula\Laravel\Authentication\Events\IdentifierVerified;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Device;
-use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use Tests\Concerns\InteractsWithCodeIdentities;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -379,45 +379,55 @@ final class CodeServiceTest extends TestCase
         $client = new ClientContext('198.51.100.4', 'Phone/2.0');
         $result = $this->codeService()->verify($identity, 'phone', self::CODE, $client);
 
-        self::assertSame(IdentifierVerification::VERIFIED, $result);
+        self::assertSame(VerificationOutcome::VERIFIED, $result);
         self::assertTrue($identity->fresh()?->hasVerifiedIdentifier('phone'));
         self::assertSame('198.51.100.4', $this->recordedEvent(IdentifierVerified::class)->context->client->ip);
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->codeService()->verify($identity, 'phone', self::CODE));
+        self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', self::CODE));
         self::assertFalse(Auth::guard('mobile')->check());
         self::assertSame(0, Device::query()->count());
     }
 
     /**
-     * Rows of `[what happens before the check, code, reason]`.
+     * Rows of `[what happens before the check, code, outcome, reason]`.
      *
-     * @return iterable<string, array{0: string, 1: string, 2: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return iterable<string, array{0: string, 1: string, 2: \SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome, 3: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      */
     public static function provideRefusedVerifications(): iterable
     {
         yield from [
-            'a wrong code'      => ['nothing', '000000', FailureReason::INVALID_CREDENTIALS],
-            'a malformed code'  => ['nothing', '1357', FailureReason::INVALID_CREDENTIALS],
-            'an expired code'   => ['expire', self::CODE, FailureReason::CODE_EXPIRED],
-            'an exhausted code' => ['exhaust', self::CODE, FailureReason::CODE_EXHAUSTED],
-            'a changed number'  => ['change', self::CODE, FailureReason::INVALID_CREDENTIALS],
-            'a removed number'  => ['remove', self::CODE, FailureReason::INVALID_CREDENTIALS],
+            'a wrong code'      => ['nothing', '000000', VerificationOutcome::INVALID, FailureReason::INVALID_CREDENTIALS],
+            'a malformed code'  => ['nothing', '1357', VerificationOutcome::INVALID, FailureReason::INVALID_CREDENTIALS],
+            'an expired code'   => ['expire', self::CODE, VerificationOutcome::EXPIRED, FailureReason::CODE_EXPIRED],
+            'an exhausted code' => ['exhaust', self::CODE, VerificationOutcome::EXHAUSTED, FailureReason::CODE_EXHAUSTED],
+            'a changed number'  => ['change', self::CODE, VerificationOutcome::INVALID, FailureReason::INVALID_CREDENTIALS],
+            'a removed number'  => ['remove', self::CODE, VerificationOutcome::INVALID, FailureReason::INVALID_CREDENTIALS],
         ];
     }
 
     /**
      * A verification code that is wrong, malformed, expired or exhausted, or
      * was sent to a number the identity no longer has, verifies nothing: the
-     * reason is returned, not concealed, and reported for the identity.
+     * outcome says why, not concealed, and the reason is reported for the
+     * identity.
      *
      * @param  string  $before
      * @param  string  $code
+     * @param  \SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome  $outcome
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @return void
      *
      * @throws \Throwable
      */
     #[DataProvider('provideRefusedVerifications')]
-    public function testARefusedVerificationReportsWhy(string $before, string $code, FailureReason $reason): void
+    public function testARefusedVerificationReportsWhy(string $before, string $code, VerificationOutcome $outcome, FailureReason $reason): void
     {
         config()->set('authentication.codes.max_attempts', 1);
 
@@ -435,7 +445,7 @@ final class CodeServiceTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class, IdentifierVerified::class]);
 
-        self::assertSame($reason, $this->codeService()->verify($identity, 'phone', $code));
+        self::assertSame($outcome, $this->codeService()->verify($identity, 'phone', $code));
 
         $failed = $this->recordedEvent(AuthenticationFailed::class);
 
@@ -477,12 +487,12 @@ final class CodeServiceTest extends TestCase
 
         $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
 
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->codeService()->verify($identity, 'phone', self::CODE));
+        self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', self::CODE));
 
         $this->codeService()->sendVerification($other, 'phone');
 
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->codeService()->verify($identity, 'phone', '246802'));
-        self::assertSame(IdentifierVerification::VERIFIED, $this->codeService()->verify($other, 'phone', '246802'));
+        self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', '246802'));
+        self::assertSame(VerificationOutcome::VERIFIED, $this->codeService()->verify($other, 'phone', '246802'));
     }
 
     /**
@@ -499,7 +509,7 @@ final class CodeServiceTest extends TestCase
 
         $this->codeService()->sendVerification($identity, 'phone');
 
-        self::assertSame(IdentifierVerification::ALREADY_VERIFIED, $this->codeService()->verify($identity, 'phone', self::CODE));
+        self::assertSame(VerificationOutcome::ALREADY_VERIFIED, $this->codeService()->verify($identity, 'phone', self::CODE));
         self::assertNotNull(DB::table('one_time_codes')->value('consumed_at'));
     }
 
@@ -522,11 +532,11 @@ final class CodeServiceTest extends TestCase
 
         $this->recordEvents([IdentifierVerified::class, AuthenticationFailed::class]);
 
-        self::assertSame(IdentifierVerification::MISMATCH, $this->codeService()->verify($identity, 'phone', self::CODE));
+        self::assertSame(VerificationOutcome::MISMATCH, $this->codeService()->verify($identity, 'phone', self::CODE));
         self::assertSame([], $this->recorded);
         self::assertNotNull(DB::table('one_time_codes')->value('consumed_at'));
         self::assertNull(DB::table('code_identities')->where('id', $identity->getKey())->value('phone_verified_at'));
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->codeService()->verify($identity, 'phone', self::CODE));
+        self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', self::CODE));
     }
 
     /**

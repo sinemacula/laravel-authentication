@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\Codes;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Container\Container;
+use SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -140,26 +141,27 @@ final readonly class CodeService
 
     /**
      * Check a verification code for the identity's current identifier of the
-     * type, and record the identifier verified when it is accepted: the
-     * verifier's outcome, as `IdentifierVerifier::verify()` gives it. Otherwise
-     * why not (`invalid_credentials`, `code_expired` or `code_exhausted`; not
-     * concealed, since the caller already holds the identity), reported by
-     * `AuthenticationFailed`. A code sent before the identifier changed is
-     * bound to the old one, so it verifies nothing; one whose identifier
-     * changed after the identity was loaded is used up and answers `mismatch`,
-     * with nothing recorded or reported, as the verifier gives it.
+     * type, and record the identifier verified when it is accepted: `verified`
+     * or `already_verified`, as `IdentifierVerifier::verify()` answers it.
+     * Otherwise why not (`invalid`, `expired` or `exhausted`; not concealed,
+     * since the caller already holds the identity), reported by
+     * `AuthenticationFailed` as `invalid_credentials`, `code_expired` or
+     * `code_exhausted`. A code sent before the identifier changed is bound to
+     * the old one, so it verifies nothing; one whose identifier changed after
+     * the identity was loaded is used up and answers `mismatch`, with nothing
+     * recorded or reported, as the verifier gives it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
      * @param  string  $code
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification
+     * @return \SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public function verify(Identity $identity, string $type, #[\SensitiveParameter] string $code, ?ClientContext $client = null): FailureReason|IdentifierVerification
+    public function verify(Identity $identity, string $type, #[\SensitiveParameter] string $code, ?ClientContext $client = null): VerificationOutcome
     {
         $binding = $this->verificationBinding($identity, $type);
         $context = new EventContext($this->guard->getName(), $client ?? $this->servedClient(), $identity);
@@ -172,7 +174,7 @@ final readonly class CodeService
         $failure = $codes->check($binding, $code, CarbonImmutable::now()->startOfSecond())->failure();
 
         return $failure === null
-            ? $this->collaborator(IdentifierVerifier::class)->verify($this->guard->getName(), $identity, $type, $binding->identifier, $context->client)
+            ? self::verifierOutcome($this->collaborator(IdentifierVerifier::class)->verify($this->guard->getName(), $identity, $type, $binding->identifier, $context->client))
             : $this->refuseVerification($context, $failure);
     }
 
@@ -261,17 +263,37 @@ final readonly class CodeService
     }
 
     /**
-     * Report a refused verification with `AuthenticationFailed` and answer it.
+     * Report a refused verification with `AuthenticationFailed` and answer it
+     * with the outcome the reason names.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
-     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     * @return \SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome
      */
-    private function refuseVerification(EventContext $context, FailureReason $reason): FailureReason
+    private function refuseVerification(EventContext $context, FailureReason $reason): VerificationOutcome
     {
         $this->report($context, AuthenticationFlow::IDENTIFIER_VERIFICATION, $reason, null, null);
 
-        return $reason;
+        return match ($reason) {
+            FailureReason::CODE_EXPIRED   => VerificationOutcome::EXPIRED,
+            FailureReason::CODE_EXHAUSTED => VerificationOutcome::EXHAUSTED,
+            default                       => VerificationOutcome::INVALID,
+        };
+    }
+
+    /**
+     * The outcome of an accepted code, as the verifier answered it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification  $verification
+     * @return \SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome
+     */
+    private static function verifierOutcome(IdentifierVerification $verification): VerificationOutcome
+    {
+        return match ($verification) {
+            IdentifierVerification::VERIFIED         => VerificationOutcome::VERIFIED,
+            IdentifierVerification::ALREADY_VERIFIED => VerificationOutcome::ALREADY_VERIFIED,
+            IdentifierVerification::MISMATCH         => VerificationOutcome::MISMATCH,
+        };
     }
 
     /**

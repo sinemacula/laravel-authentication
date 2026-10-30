@@ -13,11 +13,11 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Codes\CodeService;
 use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
+use SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome;
 use SineMacula\Laravel\Authentication\Codes\IssuedCode;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Codes\SendOneTimeCode;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
-use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use Tests\Concerns\InteractsWithCodeIdentities;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Integration\Fixtures\CodeIdentity;
@@ -201,7 +201,7 @@ final class ReplicaOneTimeCodesTest extends TestCase
         (new SendOneTimeCode($binding, new IssuedCode(self::CODE, $issueId, CarbonImmutable::now()->addSeconds(600)), $this->identity))->handle(app());
 
         self::assertSame(self::CODE, $this->sender->lastCodeFor(self::CHANGED_PHONE));
-        self::assertSame(IdentifierVerification::VERIFIED, $this->codeService()->verify($identity, 'phone', self::CODE));
+        self::assertSame(VerificationOutcome::VERIFIED, $this->codeService()->verify($identity, 'phone', self::CODE));
     }
 
     /**
