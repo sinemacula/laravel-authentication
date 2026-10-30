@@ -28,7 +28,7 @@ use Tests\Concerns\ChangesIdentifiers;
 use Tests\TestCase;
 
 /**
- * Feature tests of the README's identifier change routes, registered as an
+ * Feature tests of the documented identifier change routes, registered as an
  * application would and driven over HTTP with a bearer token from a real
  * sign-in: change the signed-in identity's email address by a code sent to the
  * new one, proven by the session's recent sign-in, or by a link, proven by the
@@ -206,7 +206,7 @@ final class IdentifierChangeRoutesTest extends TestCase
     }
 
     /**
-     * The README's route that starts a change proven by code: the password,
+     * The documented route that starts a change proven by code: the password,
      * when one is sent, or else the session's recent sign-in is the proof, and
      * the code goes to the new address.
      *
@@ -237,7 +237,7 @@ final class IdentifierChangeRoutesTest extends TestCase
     }
 
     /**
-     * The README's route that starts a change proven by link: the current
+     * The documented route that starts a change proven by link: the current
      * password is the proof, and the link is mailed to the new address, never
      * returned.
      *
@@ -263,7 +263,7 @@ final class IdentifierChangeRoutesTest extends TestCase
     }
 
     /**
-     * The README's route that confirms a change with the code.
+     * The documented route that confirms a change with the code.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
@@ -281,7 +281,7 @@ final class IdentifierChangeRoutesTest extends TestCase
     }
 
     /**
-     * The README's route the change link points at: it only shows the
+     * The documented route the change link points at: it only shows the
      * confirmation, a form that posts back to the same signed address.
      *
      * @param  \Illuminate\Http\Request  $request
@@ -293,7 +293,7 @@ final class IdentifierChangeRoutesTest extends TestCase
     }
 
     /**
-     * The README's route the confirmation page posts to, which makes the
+     * The documented route the confirmation page posts to, which makes the
      * change.
      *
      * @param  \Illuminate\Http\Request  $request
@@ -307,7 +307,7 @@ final class IdentifierChangeRoutesTest extends TestCase
     }
 
     /**
-     * Answer a change request as the README does.
+     * Answer a change request as the guide does.
      *
      * @param  \SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeRequest  $result
      * @return \Illuminate\Http\JsonResponse
@@ -324,7 +324,7 @@ final class IdentifierChangeRoutesTest extends TestCase
     }
 
     /**
-     * Answer a confirmation as the README does.
+     * Answer a confirmation as the guide does.
      *
      * @param  \SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome  $outcome
      * @return \Illuminate\Http\Response

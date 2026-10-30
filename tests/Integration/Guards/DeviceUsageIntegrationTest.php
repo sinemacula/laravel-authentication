@@ -245,8 +245,8 @@ final class DeviceUsageIntegrationTest extends TestCase
     }
 
     /**
-     * A device created as the README shows records the guard, the principal,
-     * and the client it was created from, with the client's IP address and user
+     * A device created as the guides show records the guard, the principal, and
+     * the client it was created from, with the client's IP address and user
      * agent cleaned by `ClientContext` so a crafted header is stored rather
      * than failing the insert, and the tokens issued for it then work on the
      * bearer path and on refresh.
@@ -305,7 +305,7 @@ final class DeviceUsageIntegrationTest extends TestCase
     }
 
     /**
-     * The README's sign-in validates the client name and platform before
+     * The documented sign-in validates the client name and platform before
      * storing them, so a client sending one that cannot be stored gets a
      * validation error instead of a server error, and no device is created.
      *
@@ -419,7 +419,7 @@ final class DeviceUsageIntegrationTest extends TestCase
 
     /**
      * Register a `/sign-in` route that creates a device for the identity and
-     * issues its tokens exactly as the README shows.
+     * issues its tokens exactly as the guides show.
      *
      * @param  \Tests\Unit\Stubs\StubPrincipal  $identity
      * @return void

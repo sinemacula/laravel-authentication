@@ -24,7 +24,7 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests of the README's passkey routes, registered as an application
+ * Feature tests of the documented passkey routes, registered as an application
  * would and driven over HTTP with the virtual authenticator as the browser: a
  * signed-in identity registers a passkey, lists and removes it, and signs in
  * with it usernameless; the access token that sign-in returns authenticates

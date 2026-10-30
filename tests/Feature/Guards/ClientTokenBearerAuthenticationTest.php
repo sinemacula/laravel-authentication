@@ -123,7 +123,7 @@ final class ClientTokenBearerAuthenticationTest extends TestCase
      * A key with the longest list of scopes a key may have is exchanged for a
      * token that grants every one of them, in order. That token is longer than
      * the 8 KB a request header line may take under nginx's and Apache's
-     * defaults, as the README warns, so a proxy with those defaults refuses it.
+     * defaults, as the guide warns, so a proxy with those defaults refuses it.
      *
      * @return void
      *

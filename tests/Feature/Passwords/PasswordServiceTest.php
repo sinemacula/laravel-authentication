@@ -384,9 +384,9 @@ final class PasswordServiceTest extends TestCase
 
     /**
      * An update the database refuses (here for a column the table lost) throws
-     * Laravel's own `QueryException`, which carries the new hash, as README.md
-     * says, in its bindings and its message; the password itself is in no frame
-     * of the trace.
+     * Laravel's own `QueryException`, which carries the new hash, as the
+     * passwords guide says, in its bindings and its message; the password
+     * itself is in no frame of the trace.
      *
      * @return void
      *
@@ -740,13 +740,13 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * The password change route README.md documents, over HTTP: a wrong current
-     * password sets nothing and keeps its sign-in slots, taken before the
-     * transaction; a right one sets the new password, ends the identity's other
-     * session, keeps the request's device and gives the slots back. The
-     * identity's row is locked as the transaction starts, the current password
-     * is checked against it without looking the identity up by its address, and
-     * no counter is written inside the transaction.
+     * The documented password change route, over HTTP: a wrong current password
+     * sets nothing and keeps its sign-in slots, taken before the transaction; a
+     * right one sets the new password, ends the identity's other session, keeps
+     * the request's device and gives the slots back. The identity's row is
+     * locked as the transaction starts, the current password is checked against
+     * it without looking the identity up by its address, and no counter is
+     * written inside the transaction.
      *
      * @return void
      *

@@ -243,7 +243,7 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
 - `tests/Integration/Passwords/ReplicaPasswordResetsTest.php` (a link delivered and spent behind a lagging replica),
   `tests/Integration/Passwords/ConcurrentResetSubmissionsTest.php`,
   `tests/Integration/Passwords/ConcurrentProofSpendingTest.php` (a password write racing a reset, a confirmation and an
-  identifier change request, a bulk revocation racing a confirmation and a request, and README.md's password change
+  identifier change request, a bulk revocation racing a confirmation and a request, and the documented password change
   racing a reset either way, on PostgreSQL and MySQL), `tests/Integration/Database/IdentityLockTest.php`,
   `tests/Integration/Passwords/SeparateConnectionResetSubmissionsTest.php`,
   `tests/Feature/Database/SharedConnectionTest.php`
