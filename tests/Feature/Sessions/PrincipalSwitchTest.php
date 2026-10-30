@@ -267,7 +267,7 @@ final class PrincipalSwitchTest extends TestCase
         self::assertFalse($result->session->deviceCreated);
         self::assertSame('password', $result->session->method);
 
-        self::assertSame([Authenticated::class, PrincipalAssigned::class, DeviceAuthenticated::class, PrincipalSwitched::class], $this->recordedClasses());
+        self::assertSame([PrincipalSwitched::class, Authenticated::class, PrincipalAssigned::class, DeviceAuthenticated::class], $this->recordedClasses());
 
         $event = $this->recordedEvent(PrincipalSwitched::class);
 

@@ -15,6 +15,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -29,7 +30,9 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\PrincipalChoiceRequired;
+use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
@@ -270,7 +273,7 @@ final class ChoosesPrincipalsTest extends TestCase
         self::assertTrue($result->session->principal->is($first)); // @phpstan-ignore method.notFound
         self::assertSame('password', $result->session->method);
         self::assertTrue($result->session->deviceCreated);
-        self::assertSame([Login::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame([SignedIn::class, Login::class], $this->recordedClasses());
 
         $device = DB::table('devices')->sole();
 
@@ -889,6 +892,86 @@ final class ChoosesPrincipalsTest extends TestCase
     }
 
     /**
+     * A bind listener that throws fails the choice after its session was
+     * written, but cannot withhold what the session's commit reports:
+     * `SignedIn` was dispatched and the sign-in's slots given back before the
+     * bind, and the listener's exception reaches the caller.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChoiceWhoseBindListenerThrowsIsStillReported(): void
+    {
+        [, $first] = $this->seedChooser();
+
+        $limiter = new RecordingAttemptLimiter;
+
+        app()->instance(AttemptLimiter::class, $limiter);
+
+        $token = $this->offer();
+
+        $this->recordEvents([SignedIn::class]);
+
+        Event::listen(Login::class, static function (): never {
+            throw new \RuntimeException('listener failed');
+        });
+
+        try {
+            $this->sessions(self::GUARD)->choose($token, $first);
+            self::fail('Expected the listener to throw.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('listener failed', $exception->getMessage());
+        }
+
+        self::assertSame([SignedIn::class], $this->recordedClasses());
+        self::assertSame(1, DB::table('devices')->count());
+        self::assertCount(2, $limiter->released);
+    }
+
+    /**
+     * A bind listener that throws fails a switch after it was written, but
+     * `PrincipalSwitched` was dispatched before the bind, so the switch is
+     * reported; inside a caller's transaction it waits for the commit, and a
+     * rollback withdraws it and leaves the device as it was.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchWhoseBindListenerThrowsIsStillReported(): void
+    {
+        [, $first, $second] = $this->seedChooser();
+
+        $session = $this->sessions(self::GUARD)->choose($this->offer(), $first)->session;
+
+        self::assertNotNull($session);
+
+        $before = (array) DB::table('devices')->sole();
+
+        Event::listen(PrincipalAssigned::class, static function (): never {
+            throw new \RuntimeException('listener failed');
+        });
+
+        $this->recordEvents([PrincipalSwitched::class]);
+
+        DB::beginTransaction();
+
+        self::assertSame('listener failed', $this->failedSwitch($session->tokens->refreshToken, $second));
+        self::assertSame([], $this->recordedClasses());
+
+        DB::rollBack();
+
+        self::assertSame([], $this->recordedClasses());
+        self::assertEquals($before, (array) DB::table('devices')->sole());
+
+        self::assertSame('listener failed', $this->failedSwitch($session->tokens->refreshToken, $second));
+        self::assertSame([PrincipalSwitched::class], $this->recordedClasses());
+        self::assertTrue($this->recordedEvent(PrincipalSwitched::class)->context->principal?->is($second)); // @phpstan-ignore method.notFound
+        self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify(DB::table('devices')->value('principal_id')));
+    }
+
+    /**
      * A choice whose identity no longer resolves through the guard's provider
      * is no choice: it cannot be looked up or made.
      *
@@ -1006,6 +1089,27 @@ final class ChoosesPrincipalsTest extends TestCase
         self::assertNotNull($result->choice);
 
         return $result->choice->token;
+    }
+
+    /**
+     * Switch the session to the principal, expecting a bind listener to throw,
+     * and return the exception's message.
+     *
+     * @param  string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return string
+     *
+     * @throws \Throwable
+     */
+    private function failedSwitch(#[\SensitiveParameter] string $refreshToken, Principal $principal): string
+    {
+        try {
+            $this->sessions(self::GUARD)->switchPrincipal($refreshToken, $principal);
+        } catch (\RuntimeException $exception) {
+            return $exception->getMessage();
+        }
+
+        self::fail('Expected the listener to throw.');
     }
 
     /**

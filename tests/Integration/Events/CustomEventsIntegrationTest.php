@@ -319,7 +319,7 @@ final class CustomEventsIntegrationTest extends TestCase
     /**
      * One listener registered for the `AuthenticationEvent` contract receives
      * every package event of a flow, and only those: a failed attempt reports
-     * its failure, a successful refresh its binds and its rotation.
+     * its failure, a successful refresh its rotation and then its binds.
      *
      * @return void
      *
@@ -357,10 +357,10 @@ final class CustomEventsIntegrationTest extends TestCase
 
         self::assertSame([
             'AuthenticationFailed:api',
-            'PrincipalAssigned:api',
-            'DeviceAuthenticated:api',
             'Refreshed:api',
             'SignedIn:api',
+            'PrincipalAssigned:api',
+            'DeviceAuthenticated:api',
         ], $captured);
     }
 

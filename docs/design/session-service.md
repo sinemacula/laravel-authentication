@@ -64,16 +64,19 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   use and the client's description when given; it keeps the guard, owner, principal and creation details. A swap that
   misses reconsiders the sign-in without the device, factor policy included: it creates a device, or issues a pending
   sign-in when the factor policy now asks for one; it never retries.
-- The guard is bound after the session's transaction, with the usual immediate bind events; `DeviceCreated` (new
-  devices only) and `SignedIn` follow the commit on the device's connection and never fire for a rolled-back session.
+- After the session's transaction, `DeviceCreated` (new devices only) and `SignedIn` are scheduled on the commit of the
+  device's connection, and a completion's or a choice's slot give-back on the pending row's, and only then is the guard
+  bound, with the usual immediate bind events: a bind listener that throws cannot withhold them, and they never fire for
+  a rolled-back session.
 - The service holds no per-sign-in state, and reads the guard's provider, resolver, dispatcher and request, and the
   sign-in method manager and policies from the container, each time it needs them.
 
 ## Success Path
 
-- A new device: `Attempting`, `Validated`, `Login`, `Authenticated`, `PrincipalAssigned`, `DeviceAuthenticated`, then,
-  once committed, `DeviceCreated` and `SignedIn` (`deviceCreated: true`). The device's last use is the sign-in, so the
-  shipped last-use listener writes nothing more.
+- A new device: `Attempting`, then, once committed (at once with no transaction open on the device's connection),
+  `DeviceCreated` and `SignedIn` (`deviceCreated: true`), then `Validated`, `Login`, `Authenticated`,
+  `PrincipalAssigned`, `DeviceAuthenticated`. Inside a caller's transaction the bind events come first and the pair
+  follows its commit. The device's last use is the sign-in, so the shipped last-use listener writes nothing more.
 - A continued device: the same, without `DeviceCreated`, and `SignedIn` with `deviceCreated: false`.
 - `start()`: the same without `Attempting`.
 - A sign-in held for a further factor: `Attempting` (not from `start()`), then, once the pending sign-in is committed
@@ -110,8 +113,11 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - Inside a caller's transaction the service's transaction is a savepoint: the guard is bound at once, the lifecycle
   events wait for the caller's commit, and a rollback withdraws them with the device while the guard stays bound. Do not
   roll back around a sign-in.
-- A listener that throws on a bind event propagates after the session committed: the device exists, the pair is lost,
-  and the lifecycle events are not dispatched.
+- A listener that throws on a bind event propagates after the session committed: the device exists and the pair is lost,
+  but `DeviceCreated` and `SignedIn` were already dispatched (or, inside a caller's transaction, wait for its commit)
+  and a completion's slots are given back. A listener that throws on `DeviceCreated` or `SignedIn` with no transaction
+  open propagates before the bind: the session stands, the guard is not bound, and `SignedIn` is not dispatched after a
+  throwing `DeviceCreated`.
 - A device continued by a sign-in makes the earlier refresh tokens of the device replays (see
   `refresh-rotation-and-replay.md`).
 - A crafted client name or platform is stored cleaned (`SignInContext`), so it cannot fail the insert.

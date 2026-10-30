@@ -175,15 +175,8 @@ trait ChoosesPrincipals
         }
 
         $proven = PendingSignIns::provenDevice($pending, $identity, $admitted->principal);
-        $result = $this->establish($admitted, $proven, $method, $pending->identifier_type, $context, $now, $pending->attempt_windows, PendingSignIns::origin($pending));
 
-        if ($result->isSignedIn()) {
-            $this->afterCommit->run($pending, function () use ($pending): void {
-                $this->giveBack($pending);
-            });
-        }
-
-        return $result;
+        return $this->establish($admitted, $proven, $method, $pending->identifier_type, $context, $now, $pending->attempt_windows, $pending);
     }
 
     /**
@@ -447,8 +440,10 @@ trait ChoosesPrincipals
     }
 
     /**
-     * Bind the guard to the switched session, report the switch once committed
-     * when the principal changed, and answer it.
+     * Report the switch once committed when the principal changed, then bind
+     * the guard to the switched session, and answer it. The report is scheduled
+     * before the bind, so a bind listener that throws cannot withhold it from
+     * the switch it already wrote.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal  $switched
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -459,8 +454,6 @@ trait ChoosesPrincipals
     private function switched(SwitchedPrincipal $switched, ClientContext $client): SwitchResult
     {
         $session = $switched->session;
-
-        $this->guard->authenticateAs($session->identity, $session->principal, $session->device);
 
         if ($switched->switched) {
 
@@ -473,6 +466,8 @@ trait ChoosesPrincipals
 
             $this->afterCommit->run($session->device, fn () => $this->dispatch($event));
         }
+
+        $this->guard->authenticateAs($session->identity, $session->principal, $session->device);
 
         return SwitchResult::switched(new SignedInSession($session->identity, $session->principal, $session->device, $session->tokens, (string) $session->method, false));
     }

@@ -164,13 +164,14 @@ A session starts on a new device that records the identity, the principal, the g
 platform (from the context, cleaned as the user agent is), the client's IP address and user agent at creation and as its
 last use, the digest of the first rotation id, and both deadlines from the guard's lifetimes for the principal. The
 device is written and the pair issued in one transaction on the device's connection, so a failure while issuing leaves
-no device behind. The guard is then bound (`Validated`, `Login`, `Authenticated`, `PrincipalAssigned` and
-`DeviceAuthenticated` fire at once), and `DeviceCreated` and `SignedIn` are dispatched once the device is committed on
-its own connection: at once outside a transaction, after your transaction commits inside one, and never when it is
-rolled back. Do not roll back around a sign-in: the guard stays bound, and unless `rate_limits.connection` names a
-connection of its own the sign-in's attempt counts are rolled back too, so it goes uncounted (see
-[Rate limits](configuration.md#rate-limits)). A listener that throws on a bind event fails the
-call after the device was committed, so the pair is lost; keep those listeners from throwing or queue them.
+no device behind. `DeviceCreated` and `SignedIn` are then dispatched once the device is committed on its own connection:
+at once outside a transaction, after your transaction commits inside one, and never when it is rolled back. Only then is
+the guard bound (`Validated`, `Login`, `Authenticated`, `PrincipalAssigned` and `DeviceAuthenticated` fire at once), so
+outside a transaction `SignedIn` comes first: a listener on it reads the event's context, not the guard. Do not roll
+back around a sign-in: the guard stays bound, and unless `rate_limits.connection` names a connection of its own the
+sign-in's attempt counts are rolled back too, so it goes uncounted (see [Rate limits](configuration.md#rate-limits)). A
+listener that throws on a bind event fails the call after the device was committed, so the pair is lost, though
+`SignedIn` has already reported the session; keep those listeners from throwing or queue them.
 
 A client that signs in again with its current refresh token in the context continues on the same device instead of
 creating another: the token proves the client holds that session, even when it has expired. It counts only when it is

@@ -62,17 +62,23 @@ to these events, so the shape and the timing are a contract.
 
 ## Success Path
 
-- Sign-in: the session service builds one context for a written session (guard, client, identity, principal, the
-  tenant admission loaded, device, method) and dispatches `DeviceCreated` (new devices) and `SignedIn` with it after
-  the device's connection commits. A sign-in held for a factor dispatches `AdditionalFactorRequired` with the proven
-  device, after the pending sign-in commits, and one held for a choice of principal `PrincipalChoiceRequired`, with
-  the identity, the method and the proven device but no principal or tenant.
-- Switch of principal: the guard binds the switched session, then `PrincipalSwitched` carries the new principal and
-  tenant in its context and the previous principal's recorded type and identifier as snapshots of its own, after the
-  switch commits on the device's connection.
-- Refresh: the guard binds the exchanged session, then dispatches `Refreshed` with the session's context, including the
-  tenant the exchange's activity check loaded and the method the device records, after the rotation commits on the
-  device's connection.
+- Sign-in: the session service builds one context for a written session (guard, client, identity, principal, the tenant
+  admission loaded, device, method) and dispatches `DeviceCreated` (new devices) and `SignedIn` with it after the
+  device's connection commits, scheduling them before it binds the guard. A sign-in held for a factor dispatches
+  `AdditionalFactorRequired` with the proven device, after the pending sign-in commits, and one held for a choice of
+  principal `PrincipalChoiceRequired`, with the identity, the method and the proven device but no principal or tenant.
+- Switch of principal: `PrincipalSwitched` carries the new principal and tenant in its context and the previous
+  principal's recorded type and identifier as snapshots of its own, after the switch commits on the device's
+  connection; it is scheduled before the guard binds the switched session.
+- Refresh: the guard dispatches `Refreshed` and `SignedIn` with the session's context, including the tenant the
+  exchange's activity check loaded and the method the device records, after the rotation commits on the device's
+  connection, scheduling them before it binds the exchanged session.
+- A write is reported before the guard binds to it, so a bind listener that throws (on `Validated`, `Login`,
+  `Authenticated`, `PrincipalAssigned` or `DeviceAuthenticated`) cannot withhold the report: its exception still reaches
+  the caller, and the events still never fire for a rolled-back write. With no transaction open they are dispatched
+  before the bind events, so a listener on them reads the context, not the guard; inside a transaction they follow its
+  commit. A listener that throws on a lifecycle event propagates as any listener does and stops what follows it, so
+  independence from bind listeners is the guarantee, not delivery to every subscriber.
 - Revocation: each `DeviceRevoked` carries the revoked device, the device's own guard and the method its session
   records, with the identity, principal and tenant the revocation knew, and the snapshots of the owner and principal
   the row records for those it did not; a bulk revocation then dispatches one `SignedOutEverywhere` per scope with the
@@ -147,7 +153,17 @@ to these events, so the shape and the timing are a contract.
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
   `testAFailureIsReturnedNotDispatched`
 - `tests/Feature/Sessions/SessionServiceTest.php`
-  `testAMethodThatRefusesWithAServiceReasonIsAMisconfiguration`
+  `testAMethodThatRefusesWithAServiceReasonIsAMisconfiguration`, `testASignInWhoseBindListenerThrowsIsStillReported`,
+  `testACompletionWhoseBindListenerThrowsIsStillReportedAndGivesItsSlotsBack`,
+  `testALifecycleListenerThatThrowsStopsTheBind`
+- `tests/Feature/Sessions/ChoosesPrincipalsTest.php`
+  `testAChoiceWhoseBindListenerThrowsIsStillReported`, `testASwitchWhoseBindListenerThrowsIsStillReported`
+- `tests/Feature/Guards/JwtGuardTest.php`
+  `testARefreshWhoseBindListenerThrowsIsStillReported`
+- `tests/Integration/Sessions/SessionServiceTest.php`
+  `testAThrowingBindListenerStillLetsTheSessionBeReported`,
+  `testAThrowingBindListenerInsideTheCallersTransactionFollowsItsOutcome`,
+  `testAThrowingBindListenerOnARefreshFollowsTheCallersTransaction`
 
 ## Change Triggers
 
@@ -155,6 +171,6 @@ Update this note when any of the following change:
 
 - the parts of `EventContext` or what it snapshots
 - an event that stops implementing `AuthenticationEvent`, or a new package event
-- the commit-bound dispatch of an event that reports a write
+- the commit-bound dispatch of an event that reports a write, or its place before the bind
 - the failure event, its flows or its reasons
 - which side dispatches the refresh exchange's failure

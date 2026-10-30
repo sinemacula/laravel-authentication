@@ -160,7 +160,7 @@ final class PendingFactorSessionServiceTest extends TestCase
         $result = $guard->sessions()->complete($pending->token);
 
         self::assertTrue($result->isSignedIn());
-        self::assertSame([Validated::class, Login::class, DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame([DeviceCreated::class, SignedIn::class, Validated::class, Login::class], $this->recordedClasses());
         self::assertSame('password', $this->recordedEvent(SignedIn::class)->context->method);
         self::assertSame(self::COMPLETION_IP, $this->recordedEvent(SignedIn::class)->context->client->ip);
         self::assertSame(self::COMPLETION_IP, $this->recordedEvent(DeviceCreated::class)->context->client->ip);

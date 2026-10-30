@@ -332,14 +332,14 @@ final class JwtGuard extends AbstractGuard
             return $result->reason;
         }
 
-        // Validated then the full bind, so a refresh fires the same event
-        // sequence as attempt(); Refreshed follows once the rotation commits so
-        // consumers can tell a rotation from a sign-in.
+        // The rotation is reported before the bind, so a bind listener that
+        // throws cannot withhold Refreshed from a rotation already written;
+        // the bind then fires the same sequence as attempt().
+        $this->reportRefresh($result, $client);
+
         $this->fireValidatedEvent($result->identity);
 
         $this->bindVerifiedContext($result->identity, $result->principal, $result->device, $result->tenant, $result->method, true);
-
-        $this->reportRefresh($result, $client);
 
         return $result->tokens;
     }

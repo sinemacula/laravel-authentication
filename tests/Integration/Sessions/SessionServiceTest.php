@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\DeviceCreated;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
+use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
@@ -472,32 +473,103 @@ final class SessionServiceTest extends TestCase
 
     /**
      * A listener that throws on a bind event fails the sign-in after the
-     * session committed: the device exists, but its pair is lost and the
-     * lifecycle events are not dispatched.
+     * session committed, but the session is reported: `DeviceCreated` and
+     * `SignedIn` were dispatched before the bind.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAThrowingBindListenerLosesThePairButNotTheDevice(): void
+    public function testAThrowingBindListenerStillLetsTheSessionBeReported(): void
     {
         $this->seedIdentity();
 
-        Event::listen(Login::class, static function (): never {
-            throw new \RuntimeException('listener failed');
-        });
+        $this->throwOnLogin();
 
         $this->recordEvents([DeviceCreated::class, SignedIn::class]);
 
-        try {
-            $this->sessions()->signIn('password', self::credentials());
-            self::fail('Expected the listener to throw.');
-        } catch (\RuntimeException $exception) {
-            self::assertSame('listener failed', $exception->getMessage());
-        }
-
+        self::assertSame('listener failed', $this->failedSignIn());
         self::assertSame(1, Device::query()->count());
+        self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+    }
+
+    /**
+     * Inside a caller's transaction that catches a throwing bind listener and
+     * commits, the session's events follow the commit; one that rolls back
+     * withdraws them with the device.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAThrowingBindListenerInsideTheCallersTransactionFollowsItsOutcome(): void
+    {
+        $this->seedIdentity();
+
+        $this->throwOnLogin();
+
+        $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+
+        DB::beginTransaction();
+
+        self::assertSame('listener failed', $this->failedSignIn());
         self::assertSame([], $this->recordedClasses());
+
+        DB::commit();
+
+        self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame(1, Device::query()->count());
+
+        $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+
+        DB::beginTransaction();
+
+        self::assertSame('listener failed', $this->failedSignIn());
+
+        DB::rollBack();
+
+        self::assertSame([], $this->recordedClasses());
+        self::assertSame(1, Device::query()->count());
+    }
+
+    /**
+     * A refresh whose bind listener throws is reported once its rotation
+     * commits, and not at all when the caller rolls it back, which leaves the
+     * device's rotation as it was.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAThrowingBindListenerOnARefreshFollowsTheCallersTransaction(): void
+    {
+        $this->seedIdentity();
+
+        $session = $this->signIn();
+        $before  = Device::query()->whereKey($session->device->getKey())->firstOrFail()->getRefreshKey();
+
+        $this->throwOnLogin();
+
+        $this->recordEvents([Refreshed::class, SignedIn::class]);
+
+        DB::beginTransaction();
+
+        self::assertSame('listener failed', $this->failedRefresh($session->tokens->refreshToken));
+        self::assertSame([], $this->recordedClasses());
+
+        DB::rollBack();
+
+        self::assertSame([], $this->recordedClasses());
+        self::assertSame($before, Device::query()->whereKey($session->device->getKey())->firstOrFail()->getRefreshKey());
+
+        DB::beginTransaction();
+
+        self::assertSame('listener failed', $this->failedRefresh($session->tokens->refreshToken));
+
+        DB::commit();
+
+        self::assertSame([Refreshed::class, SignedIn::class], $this->recordedClasses());
+        self::assertNotSame($before, Device::query()->whereKey($session->device->getKey())->firstOrFail()->getRefreshKey());
     }
 
     /**
@@ -597,6 +669,55 @@ final class SessionServiceTest extends TestCase
         self::assertNotNull($result->session, 'Expected the sign-in to start a session; it failed with ' . $result->reason?->value);
 
         return $result->session;
+    }
+
+    /**
+     * Make every `Login` listener call throw.
+     *
+     * @return void
+     */
+    private function throwOnLogin(): void
+    {
+        Event::listen(Login::class, static function (): never {
+            throw new \RuntimeException('listener failed');
+        });
+    }
+
+    /**
+     * Sign in, expecting a listener to throw, and return its message.
+     *
+     * @return string
+     *
+     * @throws \Throwable
+     */
+    private function failedSignIn(): string
+    {
+        try {
+            $this->sessions()->signIn('password', self::credentials());
+        } catch (\RuntimeException $exception) {
+            return $exception->getMessage();
+        }
+
+        self::fail('Expected the listener to throw.');
+    }
+
+    /**
+     * Refresh, expecting a listener to throw, and return its message.
+     *
+     * @param  string  $refreshToken
+     * @return string
+     *
+     * @throws \Throwable
+     */
+    private function failedRefresh(#[\SensitiveParameter] string $refreshToken): string
+    {
+        try {
+            $this->freshGuard()->refresh($refreshToken);
+        } catch (\RuntimeException $exception) {
+            return $exception->getMessage();
+        }
+
+        self::fail('Expected the listener to throw.');
     }
 
     /**

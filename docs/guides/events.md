@@ -107,7 +107,11 @@ after `attempt()` reports the sign-in once. `DeviceCreated` precedes `SignedIn` 
 it `AuthenticationFailed` with `additional_factor_failed`. A sign-in that waits for a choice of principal dispatches
 `PrincipalChoiceRequired` the same way; choosing starts the session (or a pending factor) as above, and discarding the
 choice dispatches `AuthenticationFailed` with `principal_choice_abandoned`. A switch of principal is no sign-in: it
-dispatches `PrincipalSwitched`, and no `Login` or `SignedIn`.
+dispatches `PrincipalSwitched`, and no `Login` or `SignedIn`. The event that reports a session's write (`DeviceCreated`,
+`SignedIn`, `Refreshed` or `PrincipalSwitched`) is scheduled before the guard is bound to the session, so a listener
+that throws on `Validated`, `Login`, `Authenticated`, `PrincipalAssigned` or `DeviceAuthenticated` cannot keep it from
+being reported (its exception still reaches the caller). Outside a transaction it is therefore dispatched before those
+bind events: read the event's context in its listener, not the guard, which may not be bound to the new session yet.
 
 `AuthenticationFailed` reports every failed sign-in, refresh, switch of principal, bearer token, API key, client
 credentials exchange, request for a one-time code, verification by code, password reset request or submission, and

@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Timebox;
@@ -186,15 +187,15 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A successful sign-in announces itself in a fixed order: `Attempting`, the
-     * bind events, then `DeviceCreated` and `SignedIn`, each carrying the
-     * sign-in's context.
+     * A successful sign-in announces itself in a fixed order: `Attempting`,
+     * then `DeviceCreated` and `SignedIn`, reported before the bind, then the
+     * bind events, each lifecycle event carrying the sign-in's context.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testSignInDispatchesTheBindEventsThenDeviceCreatedThenSignedIn(): void
+    public function testSignInDispatchesDeviceCreatedAndSignedInThenTheBindEvents(): void
     {
         $this->seedIdentity();
 
@@ -214,7 +215,7 @@ final class SessionServiceTest extends TestCase
         $result = $this->sessions()->signIn('password', self::credentials());
 
         self::assertSame(
-            [Attempting::class, Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class, DeviceAuthenticated::class, DeviceCreated::class, SignedIn::class],
+            [Attempting::class, DeviceCreated::class, SignedIn::class, Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class, DeviceAuthenticated::class],
             $this->recordedClasses(),
         );
 
@@ -845,7 +846,7 @@ final class SessionServiceTest extends TestCase
         self::assertNotSame($stale, $session->identity);
         self::assertSameModel($identity, $session->identity);
         self::assertSame('sso', $session->device->getSignInMethod());
-        self::assertSame([Validated::class, DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame([DeviceCreated::class, SignedIn::class, Validated::class], $this->recordedClasses());
         self::assertSame('sso', $this->recordedEvent(SignedIn::class)->context->method);
     }
 
@@ -1076,6 +1077,134 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
+     * Rows of `[bind event]`: each event a sign-in's bind dispatches.
+     *
+     * @return iterable<string, array{0: class-string}>
+     */
+    public static function provideBindEvents(): iterable
+    {
+        yield from [
+            'Validated'           => [Validated::class],
+            'Login'               => [Login::class],
+            'Authenticated'       => [Authenticated::class],
+            'PrincipalAssigned'   => [PrincipalAssigned::class],
+            'DeviceAuthenticated' => [DeviceAuthenticated::class],
+        ];
+    }
+
+    /**
+     * A listener that throws on any bind event fails the sign-in after its
+     * session committed, but cannot withhold the session's report:
+     * `DeviceCreated` and `SignedIn` were dispatched, once, before the bind,
+     * and the listener's exception reaches the caller.
+     *
+     * @param  class-string  $bindEvent
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideBindEvents')]
+    public function testASignInWhoseBindListenerThrowsIsStillReported(string $bindEvent): void
+    {
+        $this->seedIdentity();
+
+        $this->recordEvents([DeviceCreated::class, SignedIn::class, $bindEvent]);
+
+        Event::listen($bindEvent, static function (): never {
+            throw new \RuntimeException('listener failed');
+        });
+
+        self::assertSame('listener failed', self::failureOf(fn (): SignInResult => $this->sessions()->signIn('password', self::credentials())));
+        self::assertSame([DeviceCreated::class, SignedIn::class, $bindEvent], $this->recordedClasses());
+        self::assertSame(1, Device::query()->count());
+    }
+
+    /**
+     * A session `start()` began is reported the same way when a bind listener
+     * throws.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAStartedSessionWhoseBindListenerThrowsIsStillReported(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+
+        Event::listen(Login::class, static function (): never {
+            throw new \RuntimeException('listener failed');
+        });
+
+        self::assertSame('listener failed', self::failureOf(fn (): SignInResult => $this->sessions()->start($identity, null, 'sso')));
+        self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame('sso', $this->recordedEvent(SignedIn::class)->context->method);
+    }
+
+    /**
+     * A completion whose bind listener throws is reported, and still gives the
+     * slots its sign-in took back: both were scheduled before the bind.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACompletionWhoseBindListenerThrowsIsStillReportedAndGivesItsSlotsBack(): void
+    {
+        $identity = $this->seedIdentity();
+        $pending  = (new PendingSignIns(app(ConfigRepository::class)))->issue(
+            'api',
+            new AdmittedSignIn($identity, $identity, null),
+            'password',
+            'email',
+            new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT)),
+            CarbonImmutable::now()->startOfSecond(),
+            [['identifier' => 'window'], ['account' => 'window']],
+        );
+
+        $limiter = $this->bindMock(AttemptLimiter::class);
+        $limiter->shouldReceive('release')->twice();
+
+        $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+
+        Event::listen(Authenticated::class, static function (): never {
+            throw new \RuntimeException('listener failed');
+        });
+
+        self::assertSame('listener failed', self::failureOf(fn (): SignInResult => $this->sessions()->complete($pending->token)));
+        self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame(0, PendingSignIn::query()->count());
+    }
+
+    /**
+     * A lifecycle listener that throws propagates as any listener does: with no
+     * transaction open it runs before the bind, so the session stands but the
+     * guard is not bound to it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALifecycleListenerThatThrowsStopsTheBind(): void
+    {
+        $this->seedIdentity();
+
+        $this->recordEvents([Login::class]);
+
+        Event::listen(SignedIn::class, static function (): never {
+            throw new \RuntimeException('listener failed');
+        });
+
+        $guard = $this->freshGuard();
+
+        self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => $guard->sessions()->signIn('password', self::credentials())));
+        self::assertSame([], $this->recordedClasses());
+        self::assertFalse($guard->hasUser());
+        self::assertSame(1, Device::query()->count());
+    }
+
+    /**
      * Configure the guards, and a guard over identities without devices.
      *
      * @param  mixed  $app
@@ -1193,6 +1322,24 @@ final class SessionServiceTest extends TestCase
             ->andReturnUsing(static fn (string $guard): TokenLifetimes => app(JwtTokenServiceFactory::class)->forGuard($guard)->lifetimes());
 
         return $audience;
+    }
+
+    /**
+     * Run the sign-in, expecting a listener to throw, and return the
+     * exception's message.
+     *
+     * @param  \Closure(): \SineMacula\Laravel\Authentication\Sessions\SignInResult  $signIn
+     * @return string
+     */
+    private static function failureOf(\Closure $signIn): string
+    {
+        try {
+            $signIn();
+        } catch (\RuntimeException $exception) {
+            return $exception->getMessage();
+        }
+
+        self::fail('Expected the listener to throw.');
     }
 
     /**
