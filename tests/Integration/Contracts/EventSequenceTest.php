@@ -433,8 +433,7 @@ final class EventSequenceTest extends TestCase
 
     /**
      * Hold a sign-in of the seeded identity for a further factor, and return
-     * the token that completes it; the factor policy asks no more of later
-     * sign-ins.
+     * the token that completes it.
      *
      * @return string
      */
