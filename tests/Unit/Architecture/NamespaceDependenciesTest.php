@@ -148,9 +148,10 @@ final class NamespaceDependenciesTest extends TestCase
 
     /**
      * The scanner finds a package name however a class names it: imported
-     * alone, aliased, grouped, as a function, through an alias or relative to
-     * its namespace, fully qualified in code or in a docblock; and nothing for
-     * an unqualified name, a closure's `use`, or a name outside the package.
+     * alone, aliased, grouped, as a function or a constant (alone or within a
+     * group), through an alias or relative to its namespace, fully qualified in
+     * code or in a docblock; and nothing for an unqualified name, a closure's
+     * `use`, or a name outside the package.
      *
      * @return void
      */
@@ -166,6 +167,7 @@ final class NamespaceDependenciesTest extends TestCase
             use SineMacula\Laravel\Authentication\Guards as Guarding;
             use SineMacula\Laravel\Authentication\Events\{AuthenticationFailed, Enums\FailureReason as Reason};
             use function SineMacula\Laravel\Authentication\Support\helper;
+            use SineMacula\Laravel\Authentication\{function Jwt\issue, const Guards\FLAG};
 
             /**
              * @see \SineMacula\Laravel\Authentication\Http\ClientContext
@@ -203,13 +205,65 @@ final class NamespaceDependenciesTest extends TestCase
             'Events\AuthenticationFailed',
             'Events\Enums\FailureReason',
             'Guards',
+            'Guards\FLAG',
             'Guards\JwtGuard',
             'Http\ClientContext',
             'Jwt\TokenLifetimes',
+            'Jwt\issue',
             'Models\Device',
             'Sessions\Concerns\ManagesDevices',
             'Sessions\SessionWriter',
             'Support\helper',
+        ], $names);
+    }
+
+    /**
+     * The scanner reads the imports of a bracketed namespace as imports, gives
+     * each namespace its own aliases, reads a closure's `use` at the top of a
+     * namespace as code, and resolves names in the global namespace from its
+     * root.
+     *
+     * @return void
+     */
+    public function testTheScannerReadsEachBracketedNamespaceOnItsOwn(): void
+    {
+        $source = <<<'PHP'
+            <?php
+
+            namespace SineMacula\Laravel\Authentication\Models {
+
+                use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+                use SineMacula\Laravel\Authentication\Guards as Guarding;
+
+                $resolve = static function () use ($container): void {
+                    new \SineMacula\Laravel\Authentication\Sessions\SessionService;
+                };
+
+                final class Example
+                {
+                    use Concerns\HasDevices;
+                }
+            }
+
+            namespace {
+
+                new Guarding\JwtGuard;
+                new SineMacula\Laravel\Authentication\Database\AfterCommit;
+                new namespace\SineMacula\Laravel\Authentication\Config\IntegerSetting;
+            }
+            PHP;
+
+        $names = self::namesIn($source);
+
+        sort($names);
+
+        self::assertSame([
+            'Config\IntegerSetting',
+            'Database\AfterCommit',
+            'Guards',
+            'Jwt\TokenLifetimes',
+            'Models\Concerns\HasDevices',
+            'Sessions\SessionService',
         ], $names);
     }
 
@@ -251,8 +305,9 @@ final class NamespaceDependenciesTest extends TestCase
      * The distinct package names the source names, relative to the package.
      *
      * An import is read as one statement, so its names are not read again as
-     * names in code; a `use` inside braces is a trait's or a closure's, whose
-     * names are read as names in code.
+     * names in code; each namespace's body, whether it ends at the next
+     * `namespace` or at its closing brace, has its own aliases. The names of a
+     * trait's or a closure's `use` are read as names in code.
      *
      * @param  string  $source
      * @return list<string>
@@ -262,6 +317,7 @@ final class NamespaceDependenciesTest extends TestCase
         $tokens    = self::tokens($source);
         $depths    = self::depths($tokens);
         $namespace = '';
+        $body      = 0;
         $aliases   = [];
         $names     = [];
 
@@ -270,8 +326,10 @@ final class NamespaceDependenciesTest extends TestCase
             [$id, $text] = is_array($tokens[$index]) ? $tokens[$index] : [null, $tokens[$index]];
 
             if ($id === T_NAMESPACE) {
-                $namespace = self::text($tokens[++$index]);
-            } elseif ($id === T_USE && $depths[$index] === 0) {
+                [$namespace, $body, $index] = self::declared($tokens, $depths, $index);
+
+                $aliases = [];
+            } elseif ($id === T_USE && self::isImport($tokens, $depths, $index, $body)) {
                 [$statement, $index] = self::statement($tokens, $index + 1);
 
                 array_push($names, ...self::imports($statement, $aliases));
@@ -285,6 +343,39 @@ final class NamespaceDependenciesTest extends TestCase
         $package = array_filter($names, static fn (?string $name): bool => $name !== null && str_starts_with($name, self::PACKAGE));
 
         return array_values(array_unique(array_map(static fn (string $name): string => substr($name, strlen(self::PACKAGE)), $package)));
+    }
+
+    /**
+     * The namespace declared at the index, the depth of the braces its imports
+     * sit in, and the index of its last token before its body.
+     *
+     * @param  list<array{0: int, 1: string, 2: int}|string>  $tokens
+     * @param  list<int>  $depths
+     * @param  int  $index
+     * @return array{0: string, 1: int, 2: int}
+     */
+    private static function declared(array $tokens, array $depths, int $index): array
+    {
+        $namespace = is_array($tokens[$index + 1]) ? self::text($tokens[++$index]) : '';
+        $body      = ($tokens[$index + 1] ?? null) === '{' ? $depths[$index] + 1 : $depths[$index];
+
+        return [$namespace, $body, $index];
+    }
+
+    /**
+     * Whether the `use` at the index is an import: one directly in the
+     * namespace's body, not a trait's in a class or a closure's after its
+     * parameters.
+     *
+     * @param  list<array{0: int, 1: string, 2: int}|string>  $tokens
+     * @param  list<int>  $depths
+     * @param  int  $index
+     * @param  int  $body
+     * @return bool
+     */
+    private static function isImport(array $tokens, array $depths, int $index, int $body): bool
+    {
+        return $depths[$index] === $body && $tokens[$index - 1] !== ')';
     }
 
     /**
@@ -373,7 +464,7 @@ final class NamespaceDependenciesTest extends TestCase
      */
     private static function imports(string $statement, array &$aliases): array
     {
-        $statement = (string) preg_replace('/^(function|const) /', '', $statement);
+        $statement = self::withoutKind($statement);
         $prefix    = '';
 
         if (preg_match('/^(.*)\\\\\{(.*)\}$/', $statement, $group) === 1) {
@@ -386,7 +477,7 @@ final class NamespaceDependenciesTest extends TestCase
 
         foreach (explode(',', $statement) as $import) {
 
-            $parts = explode(' as ', $import);
+            $parts = explode(' as ', self::withoutKind($import));
             $name  = ltrim($prefix . $parts[0], '\\');
             $alias = $parts[1] ?? substr((string) strrchr('\\' . $name, '\\'), 1);
 
@@ -395,6 +486,18 @@ final class NamespaceDependenciesTest extends TestCase
         }
 
         return $names;
+    }
+
+    /**
+     * The import without the `function` or `const` that may start it: a whole
+     * statement's, or one member's of a group.
+     *
+     * @param  string  $import
+     * @return string
+     */
+    private static function withoutKind(string $import): string
+    {
+        return (string) preg_replace('/^(function|const) /', '', $import);
     }
 
     /**
@@ -415,7 +518,7 @@ final class NamespaceDependenciesTest extends TestCase
         }
 
         if ($id === T_NAME_RELATIVE) {
-            return $namespace . substr($text, strlen('namespace'));
+            return ltrim($namespace . substr($text, strlen('namespace')), '\\');
         }
 
         if ($id !== T_NAME_QUALIFIED) {
@@ -424,7 +527,7 @@ final class NamespaceDependenciesTest extends TestCase
 
         [$first, $rest] = explode('\\', $text, 2);
 
-        return isset($aliases[$first]) ? $aliases[$first] . '\\' . $rest : $namespace . '\\' . $text;
+        return isset($aliases[$first]) ? $aliases[$first] . '\\' . $rest : ltrim($namespace . '\\' . $text, '\\');
     }
 
     /**
