@@ -44,7 +44,8 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
   `refresh_idle_ttl_minutes`, `refresh_absolute_ttl_minutes`, each falling back to the guard's own); the grace window
   and leeway stay the guard's, because a refresh judges them before it knows the principal. A guard without the map
   never reads a principal's type for its lifetimes. Malformed entries fail closed with an
-  `InvalidJwtConfigurationException` when the guard's token service is built.
+  `InvalidJwtConfigurationException` when the guard's token service is built. Unlike the audience block, the map is read
+  only then: the token service factory keeps the service, so a later change reaches it only once the process restarts.
 - An access token carries the principal's type in `pty` when it has one, read when the token is issued; a refresh
   token never does. Nothing checks `pty` on a bearer request: eligibility is enforced when a session is issued and
   each time it refreshes, and `Auth::type()` reads the bound principal live.
