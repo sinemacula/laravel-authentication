@@ -19,7 +19,6 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\ClientText;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose;
-use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationFailure;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
@@ -122,15 +121,16 @@ final readonly class PasskeyService
      * `response_invalid` when the response is malformed or does not verify
      * (origin, relying party, user presence and verification, challenge,
      * algorithm, attestation statement), and `already_registered` when the
-     * credential is registered already. A passkey registered dispatches
-     * `PasskeyAdded` once its row is committed.
+     * credential is registered already. A passkey registered is `registered`,
+     * with its summary, and dispatches `PasskeyAdded` once its row is
+     * committed.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $challenge
      * @param  array<array-key, mixed>|string  $credential
      * @param  ?string  $name
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return \SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationFailure|\SineMacula\Laravel\Authentication\Passkeys\PasskeySummary
+     * @return \SineMacula\Laravel\Authentication\Passkeys\PasskeyRegistration
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
@@ -143,7 +143,7 @@ final readonly class PasskeyService
         #[\SensitiveParameter] array|string $credential,
         ?string $name = null,
         ?ClientContext $client = null,
-    ): PasskeyRegistrationFailure|PasskeySummary {
+    ): PasskeyRegistration {
         $owner = PasskeyOwner::of($identity);
         $rp    = $this->relyingParty();
         $now   = CarbonImmutable::now()->startOfSecond();
@@ -151,7 +151,7 @@ final readonly class PasskeyService
         $options = $this->assertions()->challenges()->consume($challenge, ChallengePurpose::REGISTER, $rp, $owner, $now);
 
         if ($options === null) {
-            return PasskeyRegistrationFailure::CHALLENGE_INVALID;
+            return PasskeyRegistration::challengeInvalid();
         }
 
         $webauthn = $this->webauthn();
@@ -159,18 +159,18 @@ final readonly class PasskeyService
         $record   = $parsed === null ? null : $webauthn->register($rp, $options, $parsed);
 
         if ($record === null) {
-            return PasskeyRegistrationFailure::RESPONSE_INVALID;
+            return PasskeyRegistration::responseInvalid();
         }
 
         $passkey = PasskeyCredentials::register($rp, $owner, $record, ClientText::clean($name, self::NAME_MAX_LENGTH), $now);
 
         if ($passkey === null) {
-            return PasskeyRegistrationFailure::ALREADY_REGISTERED;
+            return PasskeyRegistration::alreadyRegistered();
         }
 
         $this->dispatchOnceCommitted($passkey, new PasskeyAdded(PasskeyAssertions::context($rp, $this->client($client), $owner, $passkey->id)));
 
-        return PasskeySummary::of($passkey);
+        return PasskeyRegistration::registered(PasskeySummary::of($passkey));
     }
 
     /**
@@ -228,9 +228,9 @@ final readonly class PasskeyService
 
     /**
      * Verify the identity's passkey as a further factor, in answer to its
-     * factor challenge: `null` when it verified, else why not
-     * (`passkey_challenge_invalid`; `invalid_credentials` for a malformed or
-     * unverified response or a passkey that is not the identity's;
+     * factor challenge: verified, with the passkey's summary, or failed with
+     * why (`passkey_challenge_invalid`; `invalid_credentials` for a malformed
+     * or unverified response or a passkey that is not the identity's;
      * `passkey_counter_regressed`). The same checks and sign counter rule as a
      * sign-in apply. A verified passkey records its use and dispatches
      * `PasskeyUsed`; nothing else is dispatched and nothing counted, since the
@@ -240,14 +240,14 @@ final readonly class PasskeyService
      * @param  string  $challenge
      * @param  array<array-key, mixed>|string  $credential
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     * @return \SineMacula\Laravel\Authentication\Passkeys\PasskeyFactorResult
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Symfony\Component\Serializer\Exception\ExceptionInterface
      */
-    public function verifyFactor(Identity $identity, string $challenge, #[\SensitiveParameter] array|string $credential, ?ClientContext $client = null): ?FailureReason
+    public function verifyFactor(Identity $identity, string $challenge, #[\SensitiveParameter] array|string $credential, ?ClientContext $client = null): PasskeyFactorResult
     {
         $owner      = PasskeyOwner::of($identity);
         $rp         = $this->relyingParty();
@@ -264,12 +264,12 @@ final readonly class PasskeyService
         );
 
         if ($verified instanceof FailureReason) {
-            return $verified;
+            return PasskeyFactorResult::failed($verified);
         }
 
         $assertions->used($rp, $this->client($client), $owner, $verified[1], $this->guard->getDispatcher());
 
-        return null;
+        return PasskeyFactorResult::verified(PasskeySummary::of($verified[1]));
     }
 
     /**

@@ -13,11 +13,10 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Models\Passkey;
-use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationFailure;
+use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyAssertions;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyChallenges;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyCredentials;
-use SineMacula\Laravel\Authentication\Passkeys\PasskeySummary;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Passkeys\VirtualAuthenticator;
@@ -135,8 +134,8 @@ final class ConcurrentPasskeyTest extends TestCase
         $response = $this->authenticator()->get($options->options);
 
         [$first, $second] = $this->race(
-            static fn (): ?string => Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $response)?->value,
-            static fn (): ?string => Auth::passkeys('api')->verifyFactor(IntegrationIdentity::query()->findOrFail($identity->id), $options->challengeId, $response)?->value,
+            static fn (): ?string => Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $response)->reason?->value,
+            static fn (): ?string => Auth::passkeys('api')->verifyFactor(IntegrationIdentity::query()->findOrFail($identity->id), $options->challengeId, $response)->reason?->value,
             commitFirst: true,
         );
 
@@ -164,8 +163,8 @@ final class ConcurrentPasskeyTest extends TestCase
         $response = $this->authenticator()->get($options->options);
 
         [$first, $second] = $this->race(
-            static fn (): ?string => Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $response)?->value,
-            static fn (): ?string => Auth::passkeys('api')->verifyFactor(IntegrationIdentity::query()->findOrFail($identity->id), $options->challengeId, $response)?->value,
+            static fn (): ?string => Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $response)->reason?->value,
+            static fn (): ?string => Auth::passkeys('api')->verifyFactor(IntegrationIdentity::query()->findOrFail($identity->id), $options->challengeId, $response)->reason?->value,
             commitFirst: false,
         );
 
@@ -197,9 +196,9 @@ final class ConcurrentPasskeyTest extends TestCase
         $secondAnswer  = $this->authenticator()->get($secondOptions->options);
 
         [$first, $second] = $this->race(
-            static fn (): ?string => Auth::passkeys('api')->verifyFactor($identity, $firstOptions->challengeId, $firstAnswer)?->value,
+            static fn (): ?string => Auth::passkeys('api')->verifyFactor($identity, $firstOptions->challengeId, $firstAnswer)->reason?->value,
             static fn (): ?string => Auth::passkeys('api')->verifyFactor(IntegrationIdentity::query()->findOrFail($identity->id), $secondOptions->challengeId, $secondAnswer)
-                ?->value,
+                ->reason?->value,
             commitFirst: true,
         );
 
@@ -231,13 +230,13 @@ final class ConcurrentPasskeyTest extends TestCase
         $theirAnswer = (new VirtualAuthenticator(self::ORIGIN))->create($theirs->options, id: $rawId);
 
         [$first, $second] = $this->race(
-            static fn (): ?string => self::registered(Auth::passkeys('api')->register($identity, $mine->challengeId, $myAnswer)),
-            static fn (): ?string => self::registered(Auth::passkeys('api')->register(IntegrationIdentity::query()->findOrFail($other->id), $theirs->challengeId, $theirAnswer)),
+            static fn (): string => Auth::passkeys('api')->register($identity, $mine->challengeId, $myAnswer)->status->value,
+            static fn (): string => Auth::passkeys('api')->register(IntegrationIdentity::query()->findOrFail($other->id), $theirs->challengeId, $theirAnswer)->status->value,
             commitFirst: true,
         );
 
-        self::assertNull($first);
-        self::assertSame(PasskeyRegistrationFailure::ALREADY_REGISTERED->value, $second['outcome']);
+        self::assertSame(PasskeyRegistrationStatus::REGISTERED->value, $first);
+        self::assertSame(PasskeyRegistrationStatus::ALREADY_REGISTERED->value, $second['outcome']);
         self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
         self::assertSame([(string) $identity->id], Passkey::query()->pluck('authenticatable_id')->all());
     }
@@ -261,18 +260,6 @@ final class ConcurrentPasskeyTest extends TestCase
 
         self::configureSessionGuards($config);
         self::configurePasskeys($config);
-    }
-
-    /**
-     * `null` for a registration that stored its passkey, else the failure's
-     * value.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationFailure|\SineMacula\Laravel\Authentication\Passkeys\PasskeySummary  $outcome
-     * @return ?string
-     */
-    private static function registered(PasskeyRegistrationFailure|PasskeySummary $outcome): ?string
-    {
-        return $outcome instanceof PasskeySummary ? null : $outcome->value;
     }
 
     /**

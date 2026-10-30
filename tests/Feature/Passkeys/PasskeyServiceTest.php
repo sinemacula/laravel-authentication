@@ -25,7 +25,7 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
-use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationFailure;
+use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyAssertions;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyChallenges;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyCredentials;
@@ -199,9 +199,9 @@ final class PasskeyServiceTest extends TestCase
     /**
      * A registered passkey is stored for the identity and the relying party,
      * with its credential id (found by its digest), public key, user handle,
-     * count, transports, backup state and name, and summarised without any of
-     * the key material; `PasskeyAdded` reports it with the passkey's id and the
-     * request's client.
+     * count, transports, backup state and name, and answered as `registered`
+     * with a summary that holds none of the key material; `PasskeyAdded`
+     * reports it with the passkey's id and the request's client.
      *
      * @return void
      *
@@ -215,8 +215,11 @@ final class PasskeyServiceTest extends TestCase
         $this->recordEvents([PasskeyAdded::class]);
 
         $options = Auth::passkeys('api')->registrationOptions($identity, self::USER_NAME);
-        $summary = Auth::passkeys('api')->register($identity, $options->challengeId, $this->authenticator()->create($options->options), 'Work laptop');
+        $result  = Auth::passkeys('api')->register($identity, $options->challengeId, $this->authenticator()->create($options->options), 'Work laptop');
+        $summary = $result->passkey;
 
+        self::assertTrue($result->isRegistered());
+        self::assertSame(PasskeyRegistrationStatus::REGISTERED, $result->status);
         self::assertInstanceOf(PasskeySummary::class, $summary);
         self::assertSame(['Work laptop', ['internal', 'hybrid'], null], [$summary->name, $summary->transports, $summary->aaguid]);
         self::assertSame([true, true, null], [$summary->backupEligible, $summary->backedUp, $summary->lastUsedAt]);
@@ -278,7 +281,7 @@ final class PasskeyServiceTest extends TestCase
 
         $answer = (string) json_encode($this->authenticator()->create($options->options));
 
-        self::assertInstanceOf(PasskeySummary::class, Auth::passkeys('api')->register($identity, $options->challengeId, $answer));
+        self::assertTrue(Auth::passkeys('api')->register($identity, $options->challengeId, $answer)->isRegistered());
     }
 
     /**
@@ -313,7 +316,7 @@ final class PasskeyServiceTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $options  = Auth::passkeys('api')->registrationOptions($identity, self::USER_NAME);
-        $summary  = Auth::passkeys('api')->register($identity, $options->challengeId, $this->authenticator()->create($options->options), $name);
+        $summary  = Auth::passkeys('api')->register($identity, $options->challengeId, $this->authenticator()->create($options->options), $name)->passkey;
 
         self::assertInstanceOf(PasskeySummary::class, $summary);
         self::assertSame($stored, $summary->name);
@@ -400,7 +403,7 @@ final class PasskeyServiceTest extends TestCase
             $factor = Auth::passkeys('api')->factorOptions($identity);
 
             self::assertTrue($result->isSignedIn());
-            self::assertNull(Auth::passkeys('api')->verifyFactor($identity, $factor->challengeId, $authenticator->get($factor->options)));
+            self::assertTrue(Auth::passkeys('api')->verifyFactor($identity, $factor->challengeId, $authenticator->get($factor->options))->isVerified());
         }
     }
 
@@ -444,7 +447,7 @@ final class PasskeyServiceTest extends TestCase
 
         $answer = $this->authenticator()->create($options->options);
 
-        self::assertSame(PasskeyRegistrationFailure::CHALLENGE_INVALID, Auth::passkeys('api')->register($identity, $id, $answer));
+        self::assertSame(PasskeyRegistrationStatus::CHALLENGE_INVALID, Auth::passkeys('api')->register($identity, $id, $answer)->status);
         self::assertSame(0, Passkey::query()->count());
         self::assertSame($before, PasskeyChallenge::query()->count());
         self::assertSame([], $this->recorded);
@@ -463,10 +466,10 @@ final class PasskeyServiceTest extends TestCase
         $identity = $this->seedIdentity();
         $options  = Auth::passkeys('api')->registrationOptions($identity, self::USER_NAME);
 
-        self::assertInstanceOf(PasskeySummary::class, Auth::passkeys('api')->register($identity, $options->challengeId, $this->authenticator()->create($options->options)));
+        self::assertTrue(Auth::passkeys('api')->register($identity, $options->challengeId, $this->authenticator()->create($options->options))->isRegistered());
         $answer = $this->authenticator()->create($options->options);
 
-        self::assertSame(PasskeyRegistrationFailure::CHALLENGE_INVALID, Auth::passkeys('api')->register($identity, $options->challengeId, $answer));
+        self::assertSame(PasskeyRegistrationStatus::CHALLENGE_INVALID, Auth::passkeys('api')->register($identity, $options->challengeId, $answer)->status);
         self::assertSame(1, Passkey::query()->count());
     }
 
@@ -486,13 +489,13 @@ final class PasskeyServiceTest extends TestCase
 
         self::freezeAt($this->now->addSeconds(299));
 
-        self::assertInstanceOf(PasskeySummary::class, Auth::passkeys('api')->register($identity, $live->challengeId, $this->authenticator()->create($live->options)));
+        self::assertTrue(Auth::passkeys('api')->register($identity, $live->challengeId, $this->authenticator()->create($live->options))->isRegistered());
 
         self::freezeAt($this->now->addSeconds(300));
 
         $answer = $this->authenticator()->create($expired->options);
 
-        self::assertSame(PasskeyRegistrationFailure::CHALLENGE_INVALID, Auth::passkeys('api')->register($identity, $expired->challengeId, $answer));
+        self::assertSame(PasskeyRegistrationStatus::CHALLENGE_INVALID, Auth::passkeys('api')->register($identity, $expired->challengeId, $answer)->status);
     }
 
     /**
@@ -512,7 +515,7 @@ final class PasskeyServiceTest extends TestCase
 
         $answer = $this->authenticator()->create($options->options);
 
-        self::assertSame(PasskeyRegistrationFailure::CHALLENGE_INVALID, Auth::passkeys('api')->register($identity, $options->challengeId, $answer));
+        self::assertSame(PasskeyRegistrationStatus::CHALLENGE_INVALID, Auth::passkeys('api')->register($identity, $options->challengeId, $answer)->status);
     }
 
     /**
@@ -536,9 +539,11 @@ final class PasskeyServiceTest extends TestCase
         $wrongOrigin         = new VirtualAuthenticator('https://evil.test');
         $assertionCredential = $this->authenticator()->get($this->signInOptions()->options);
 
-        self::assertSame(PasskeyRegistrationFailure::RESPONSE_INVALID, Auth::passkeys('api')->register($identity, $malformed->challengeId, '{'));
-        self::assertSame(PasskeyRegistrationFailure::RESPONSE_INVALID, Auth::passkeys('api')->register($identity, $foreign->challengeId, $wrongOrigin->create($foreign->options)));
-        self::assertSame(PasskeyRegistrationFailure::RESPONSE_INVALID, Auth::passkeys('api')->register($identity, $assertion->challengeId, $assertionCredential));
+        self::assertSame(PasskeyRegistrationStatus::RESPONSE_INVALID, Auth::passkeys('api')->register($identity, $malformed->challengeId, '{')->status);
+        $foreignAnswer = $wrongOrigin->create($foreign->options);
+
+        self::assertSame(PasskeyRegistrationStatus::RESPONSE_INVALID, Auth::passkeys('api')->register($identity, $foreign->challengeId, $foreignAnswer)->status);
+        self::assertSame(PasskeyRegistrationStatus::RESPONSE_INVALID, Auth::passkeys('api')->register($identity, $assertion->challengeId, $assertionCredential)->status);
         self::assertSame(1, Passkey::query()->count());
         self::assertSame(0, PasskeyChallenge::query()->where('purpose', 'register')->count());
     }
@@ -567,7 +572,7 @@ final class PasskeyServiceTest extends TestCase
 
             $answer = $this->authenticator()->create($options->options, id: $rawId);
 
-            self::assertSame(PasskeyRegistrationFailure::ALREADY_REGISTERED, Auth::passkeys('api')->register($registrant, $options->challengeId, $answer));
+            self::assertSame(PasskeyRegistrationStatus::ALREADY_REGISTERED, Auth::passkeys('api')->register($registrant, $options->challengeId, $answer)->status);
         }
 
         self::assertSame(1, Passkey::query()->count());
@@ -849,9 +854,10 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * The identity's passkey verifies as a factor: `null`, its count and use
-     * recorded, `PasskeyUsed` reported with the client given, and no failure
-     * reported or attempt counted.
+     * The identity's passkey verifies as a factor: verified, with the summary
+     * of the passkey as its use left it, its count and use recorded,
+     * `PasskeyUsed` reported with the client given, and no failure reported or
+     * attempt counted.
      *
      * @return void
      *
@@ -861,14 +867,25 @@ final class PasskeyServiceTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $passkey  = $this->registerPasskey($identity);
-        $options  = Auth::passkeys('api')->factorOptions($identity);
+
+        self::freezeAt($this->now->addSeconds(60));
+
+        $options = Auth::passkeys('api')->factorOptions($identity);
 
         $this->recordEvents([PasskeyUsed::class, AuthenticationFailed::class]);
 
         $answer  = $this->authenticator()->get($options->options);
         $outcome = Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $answer, new ClientContext('198.51.100.9', 'Factor/1'));
 
-        self::assertNull($outcome);
+        self::assertTrue($outcome->isVerified());
+        self::assertNull($outcome->reason);
+
+        $summary = $outcome->passkey;
+
+        self::assertInstanceOf(PasskeySummary::class, $summary);
+        self::assertSame([$passkey->id, 'Laptop'], [$summary->id, $summary->name]);
+        self::assertTrue($summary->createdAt->equalTo($this->now));
+        self::assertTrue($summary->lastUsedAt?->equalTo($this->now->addSeconds(60)));
         self::assertSame([PasskeyUsed::class], $this->recordedClasses());
 
         $used = $this->recordedEvent(PasskeyUsed::class);
@@ -898,7 +915,7 @@ final class PasskeyServiceTest extends TestCase
 
         unset($response['response']['userHandle']);
 
-        self::assertNull(Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, (string) json_encode($response)));
+        self::assertTrue(Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, (string) json_encode($response))->isVerified());
     }
 
     /**
@@ -922,7 +939,7 @@ final class PasskeyServiceTest extends TestCase
 
         $answer = $this->authenticator()->get(['allowCredentials' => []] + $options->options);
 
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $answer));
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $answer)->reason);
         self::assertSame(0, Passkey::query()->sole()->sign_count);
         self::assertSame([], $this->recorded);
     }
@@ -947,11 +964,11 @@ final class PasskeyServiceTest extends TestCase
         $response = $this->authenticator()->get($own->options);
 
         foreach ([Auth::passkeys('api')->factorOptions($other)->challengeId, $this->signInOptions()->challengeId, '0192f6b2-0000-7000-8000-000000000001'] as $challenge) {
-            self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, Auth::passkeys('api')->verifyFactor($identity, $challenge, $response));
+            self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, Auth::passkeys('api')->verifyFactor($identity, $challenge, $response)->reason);
         }
 
-        self::assertNull(Auth::passkeys('api')->verifyFactor($identity, $own->challengeId, $response));
-        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, Auth::passkeys('api')->verifyFactor($identity, $own->challengeId, $response));
+        self::assertTrue(Auth::passkeys('api')->verifyFactor($identity, $own->challengeId, $response)->isVerified());
+        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, Auth::passkeys('api')->verifyFactor($identity, $own->challengeId, $response)->reason);
     }
 
     /**
@@ -969,7 +986,7 @@ final class PasskeyServiceTest extends TestCase
 
         $malformed = Auth::passkeys('api')->factorOptions($identity);
 
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, Auth::passkeys('api')->verifyFactor($identity, $malformed->challengeId, '{}'));
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, Auth::passkeys('api')->verifyFactor($identity, $malformed->challengeId, '{}')->reason);
 
         $this->authenticator()->userVerified = false;
 
@@ -977,7 +994,7 @@ final class PasskeyServiceTest extends TestCase
 
         $answer = $this->authenticator()->get($unverified->options);
 
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, Auth::passkeys('api')->verifyFactor($identity, $unverified->challengeId, $answer));
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, Auth::passkeys('api')->verifyFactor($identity, $unverified->challengeId, $answer)->reason);
         self::assertSame(0, Passkey::query()->sole()->sign_count);
     }
 
@@ -997,7 +1014,7 @@ final class PasskeyServiceTest extends TestCase
 
         $first = Auth::passkeys('api')->factorOptions($identity);
 
-        self::assertNull(Auth::passkeys('api')->verifyFactor($identity, $first->challengeId, $this->authenticator()->get($first->options)));
+        self::assertTrue(Auth::passkeys('api')->verifyFactor($identity, $first->challengeId, $this->authenticator()->get($first->options))->isVerified());
 
         $this->authenticator()->setCounter($this->authenticator()->lastCredentialId(), 0);
 
@@ -1005,7 +1022,7 @@ final class PasskeyServiceTest extends TestCase
 
         $answer = $this->authenticator()->get($again->options);
 
-        self::assertSame(FailureReason::PASSKEY_COUNTER_REGRESSED, Auth::passkeys('api')->verifyFactor($identity, $again->challengeId, $answer));
+        self::assertSame(FailureReason::PASSKEY_COUNTER_REGRESSED, Auth::passkeys('api')->verifyFactor($identity, $again->challengeId, $answer)->reason);
         self::assertSame(1, Passkey::query()->sole()->sign_count);
     }
 
@@ -1028,7 +1045,7 @@ final class PasskeyServiceTest extends TestCase
 
         $options = Auth::passkeys('api')->factorOptions($identity);
 
-        self::assertNull(Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $this->authenticator()->get($options->options)));
+        self::assertTrue(Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $this->authenticator()->get($options->options))->isVerified());
         self::assertSame([], $this->recorded);
 
         DB::rollBack();

@@ -85,7 +85,8 @@ final class LargePasskeyOptionsTest extends TestCase
         self::assertCount(self::PASSKEYS, (array) $options->options['excludeCredentials']);
         self::assertGreaterThan(self::TEXT_BYTES, $this->storedBytes($options->challengeId));
 
-        $summary = Auth::passkeys('api')->register($identity, $options->challengeId, $this->authenticator()->create($options->options, self::LONGEST_CREDENTIAL_ID), 'Laptop');
+        $answer  = $this->authenticator()->create($options->options, self::LONGEST_CREDENTIAL_ID);
+        $summary = Auth::passkeys('api')->register($identity, $options->challengeId, $answer, 'Laptop')->passkey;
 
         self::assertInstanceOf(PasskeySummary::class, $summary);
         self::assertCount(self::PASSKEYS + 1, Auth::passkeys('api')->passkeys($identity));
@@ -107,7 +108,7 @@ final class LargePasskeyOptionsTest extends TestCase
 
         self::assertCount(self::PASSKEYS, (array) $options->options['allowCredentials']);
         self::assertGreaterThan(self::TEXT_BYTES, $this->storedBytes($options->challengeId));
-        self::assertNull(Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $this->authenticator()->get($options->options)));
+        self::assertTrue(Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $this->authenticator()->get($options->options))->isVerified());
         self::assertSame(0, DB::table('passkey_challenges')->count());
     }
 
@@ -146,7 +147,7 @@ final class LargePasskeyOptionsTest extends TestCase
             $options  = $passkeys->registrationOptions($identity, self::USER_NAME);
             $response = $this->authenticator()->create($options->options, self::LONGEST_CREDENTIAL_ID);
 
-            self::assertInstanceOf(PasskeySummary::class, $passkeys->register($identity, $options->challengeId, $response, 'Laptop'));
+            self::assertTrue($passkeys->register($identity, $options->challengeId, $response, 'Laptop')->isRegistered());
         }
 
         return $identity;
