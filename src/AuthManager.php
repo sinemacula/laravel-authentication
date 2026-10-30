@@ -77,9 +77,15 @@ class AuthManager extends IlluminateAuthManager
             $this->customCreators[$driver] = $this->rebindFrom($replaced, $creator);
         }
 
-        $this->customProviderCreators = $replaced->customProviderCreators;
-        $this->guards                 = $replaced->guards;
-        $this->userResolver           = $this->rebindFrom($replaced, $replaced->userResolver);
+        /** @var array<string, \Closure(): mixed> $providerCreators */
+        $providerCreators = $replaced->customProviderCreators;
+
+        foreach ($providerCreators as $driver => $creator) {
+            $this->customProviderCreators[$driver] = $this->rebindFrom($replaced, $creator);
+        }
+
+        $this->guards       = $replaced->guards;
+        $this->userResolver = $this->rebindFrom($replaced, $replaced->userResolver);
     }
 
     /**

@@ -306,6 +306,37 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
+     * A user provider creator bound to the replaced manager is bound to the
+     * package's manager too: one that builds its provider from another of the
+     * manager's providers reaches a driver registered only after the swap.
+     *
+     * @return void
+     *
+     * @throws \ReflectionException
+     */
+    public function testInheritStateFromBindsTheReplacedManagersProviderCreatorsToTheNewManager(): void
+    {
+        $donor     = new IlluminateAuthManager(app());
+        $delegates = \Closure::bind(fn (): ?UserProvider => $this->createUserProvider('late'), $donor, IlluminateAuthManager::class);
+
+        self::assertNotNull($delegates);
+
+        $donor->provider('delegating', $delegates);
+
+        $receiver = new AuthManager(app());
+        $receiver->inheritStateFrom($donor);
+
+        $provider = \Mockery::mock(UserProvider::class);
+
+        $receiver->provider('registered-after', static fn (): UserProvider => $provider);
+
+        config()->set('auth.providers.late', ['driver' => 'registered-after']);
+        config()->set('auth.providers.delegating-instance', ['driver' => 'delegating']);
+
+        self::assertSame($provider, $receiver->createUserProvider('delegating-instance'));
+    }
+
+    /**
      * A closure bound to anything but the replaced manager is taken as it is,
      * and so is a first-class callable of the replaced manager's own method,
      * which keeps the object whose method it is.
