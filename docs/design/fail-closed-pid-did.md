@@ -78,19 +78,20 @@ specific principal or device and the runtime cannot prove that claim, authentica
 ## Implementation Anchors
 
 - `src/Guards/BearerAuthentication.php`: `authenticate()`, `admitAs()` (the exact `pid` match), `onDevice()` and
-  `principalRefusal()`; `src/Guards/OwnedDevice.php`: `refusal()`, `actsAs()` and `isIssuedSinceSwitch()`, shared with
+  `principalRefusal()`; `src/Devices/OwnedDevice.php`: `refusal()`, `actsAs()` and `isIssuedSinceSwitch()`, shared with
   the `attempt()` device pin.
-- `src/Sessions/IdentityDevices.php`: `find()`, the identity-scoped device lookup behind a bearer `did`, a device pinned
+- `src/Devices/IdentityDevices.php`: `find()`, the identity-scoped device lookup behind a bearer `did`, a device pinned
   on `attempt()` and the session service's `revokeDevice()`.
 - `src/Guards/Concerns/VerifiesPinnedContext.php`: `resolvePinnedPrincipal()`, `resolvePinnedDevice()` and
   `resolveDeviceFromHint()`, the pinned-context checks in `attempt()`.
 - `src/Jwt/RefreshTokenExchange.php`: `extractRefreshClaims()`; `src/Jwt/RefreshJudgement.php`: `classify()`;
-  `src/Jwt/RefreshAdmission.php`: `principal()`; the device is found by `src/Jwt/DeviceLookup.php`'s `find()`.
+  `src/Jwt/RefreshAdmission.php`: `principal()`; the device is found by `src/Devices/DeviceLookup.php`'s `find()`.
 - `src/Support/IdentifierCoercion.php`: `stringify()` and `matches()`, the exact-match rule behind the bearer and
   refresh `pid` checks.
 - `src/Jwt/Enums/TokenType.php`: `requiredClaims()`, enforced by `JwtTokenService::parse()`.
-- `src/Jwt/DeviceKeyShape.php`: `matches()`, the `did` shape check shared by the bearer and refresh paths.
-- `src/Jwt/TokenLifetimes.php`: `hasEnded()`, the one deadline rule the bearer path, pins, refresh, and issuance share.
+- `src/Devices/DeviceKeyShape.php`: `matches()`, the `did` shape check shared by the bearer and refresh paths.
+- `src/Devices/DeviceDeadlines.php`: `hasEnded()`, the one deadline rule the bearer path, pins, refresh, and issuance
+  share.
 - `src/Database/WriteConnection.php`: `query()` and `during()`, which pin the identity, principal, tenant, and device
   reads to the write connection; `src/Database/PinningConnectionResolver.php` carries the pin to every connection a
   model resolves inside `during()`.

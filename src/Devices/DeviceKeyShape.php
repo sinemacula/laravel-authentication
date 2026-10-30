@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace SineMacula\Laravel\Authentication\Jwt;
+namespace SineMacula\Laravel\Authentication\Devices;
 
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;

@@ -14,6 +14,7 @@ use SineMacula\Laravel\Authentication\Contracts\HasChangeableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Devices\IdentityDevices;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
@@ -23,7 +24,6 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
 use SineMacula\Laravel\Authentication\Sessions\ActiveDevices;
 use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
-use SineMacula\Laravel\Authentication\Sessions\IdentityDevices;
 use SineMacula\Laravel\Authentication\Sessions\RevocationScope;
 
 /**

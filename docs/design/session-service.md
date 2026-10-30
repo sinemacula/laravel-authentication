@@ -128,7 +128,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - `src/Sessions/SignInRequest.php` (`reserveAccountAttempt()`) and `src/RateLimiting/AccountAttempts.php`: the slots a
   sign-in's method takes on the accounts it checks, held with the sign-in's own.
 - `src/Sessions/SessionWriter.php`: `create()`, `continueOn()` and the compare-and-swap.
-- `src/Sessions/DeviceProof.php`, `src/Jwt/JwtTokenService.php` (`parseRefreshProof()`), `src/Jwt/DeviceLookup.php`.
+- `src/Sessions/DeviceProof.php`, `src/Jwt/JwtTokenService.php` (`parseRefreshProof()`), `src/Devices/DeviceLookup.php`.
 - `src/Sessions/PendingSignIns.php` and `src/Models/PendingSignIn.php`: issuing, finding and consuming pending sign-ins.
 - `src/Sessions/SessionPreconditions.php`: the `HasDevices` refusal, and `start()`'s one-principal rule and
   reloaded-identity check.

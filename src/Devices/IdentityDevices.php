@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace SineMacula\Laravel\Authentication\Sessions;
+namespace SineMacula\Laravel\Authentication\Devices;
 
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -10,7 +10,6 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
-use SineMacula\Laravel\Authentication\Jwt\DeviceKeyShape;
 
 /**
  * An identity's devices as the package reads them, for the session service and

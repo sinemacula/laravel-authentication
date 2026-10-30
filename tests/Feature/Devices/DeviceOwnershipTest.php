@@ -2,13 +2,13 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Feature\Jwt;
+namespace Tests\Feature\Devices;
 
 use Illuminate\Database\Eloquent\Relations\Relation;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Jwt\DeviceOwnership;
+use SineMacula\Laravel\Authentication\Devices\DeviceOwnership;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\MachineClient;

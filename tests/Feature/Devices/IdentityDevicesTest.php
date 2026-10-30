@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Feature\Sessions;
+namespace Tests\Feature\Devices;
 
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Events\QueryExecuted;
@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Sessions\IdentityDevices;
+use SineMacula\Laravel\Authentication\Devices\IdentityDevices;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubIdentity;

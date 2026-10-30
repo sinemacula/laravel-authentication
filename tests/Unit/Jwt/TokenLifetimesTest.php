@@ -5,12 +5,9 @@ declare(strict_types = 1);
 namespace Tests\Unit\Jwt;
 
 use Carbon\CarbonImmutable;
-use Carbon\CarbonInterface;
-use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 
 /**
@@ -24,8 +21,6 @@ use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 #[CoversClass(TokenLifetimes::class)]
 final class TokenLifetimesTest extends TestCase
 {
-    use MockeryPHPUnitIntegration;
-
     /** @var int Access token lifetime used by the tests, in minutes. */
     private const int ACCESS = 5;
 
@@ -260,60 +255,6 @@ final class TokenLifetimesTest extends TestCase
     }
 
     /**
-     * Rows of `[seconds from now to the idle deadline or null, seconds from
-     * now to the absolute deadline or null, whether the session has ended]`.
-     *
-     * @return iterable<string, array{0: ?int, 1: ?int, 2: bool}>
-     */
-    public static function provideSessions(): iterable
-    {
-        yield from [
-            'both ahead'                   => [60, 120, false],
-            'idle one second ahead'        => [1, 120, false],
-            'idle reached this second'     => [0, 120, true],
-            'idle passed'                  => [-1, 120, true],
-            'absolute one second ahead'    => [60, 1, false],
-            'absolute reached this second' => [60, 0, true],
-            'absolute passed'              => [60, -1, true],
-            'no idle deadline'             => [null, 120, true],
-            'no absolute deadline'         => [60, null, true],
-            'no deadlines'                 => [null, null, true],
-        ];
-    }
-
-    /**
-     * A session has ended from the second either deadline names, or when it has
-     * no deadline at all; fractions of a second do not count.
-     *
-     * @param  ?int  $idleIn
-     * @param  ?int  $absoluteIn
-     * @param  bool  $ended
-     * @return void
-     */
-    #[DataProvider('provideSessions')]
-    public function testHasEndedAtEitherDeadlineOrWithoutOne(?int $idleIn, ?int $absoluteIn, bool $ended): void
-    {
-        $now    = $this->now->startOfSecond();
-        $device = $this->device($idleIn === null ? null : $now->addSeconds($idleIn), $absoluteIn === null ? null : $now->addSeconds($absoluteIn), 2);
-
-        self::assertSame($ended, TokenLifetimes::hasEnded($device, $this->now));
-        self::assertSame($ended, TokenLifetimes::liveDeadlines($device, $this->now) === null);
-    }
-
-    /**
-     * A live session's deadlines are returned as the device reported them.
-     *
-     * @return void
-     */
-    public function testLiveDeadlinesReturnsBothDeadlinesOfALiveSession(): void
-    {
-        $idle     = $this->now->addHour();
-        $absolute = $this->now->addDay();
-
-        self::assertSame([$idle, $absolute], TokenLifetimes::liveDeadlines($this->device($idle, $absolute), $this->now));
-    }
-
-    /**
      * Build lifetimes of 5 minutes access, 1 hour idle, and 10 hours absolute.
      *
      * @return \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes
@@ -321,23 +262,5 @@ final class TokenLifetimesTest extends TestCase
     private function lifetimes(): TokenLifetimes
     {
         return new TokenLifetimes(self::ACCESS, self::IDLE, self::ABSOLUTE, 30);
-    }
-
-    /**
-     * Build a device with the given deadlines, expecting each to be read once
-     * per check.
-     *
-     * @param  ?\Carbon\CarbonInterface  $idle
-     * @param  ?\Carbon\CarbonInterface  $absolute
-     * @param  int  $checks
-     * @return \SineMacula\Laravel\Authentication\Contracts\Device
-     */
-    private function device(?CarbonInterface $idle, ?CarbonInterface $absolute, int $checks = 1): Device
-    {
-        $device = \Mockery::mock(Device::class);
-        $device->shouldReceive('getIdleExpiresAt')->times($checks)->andReturn($idle);
-        $device->shouldReceive('getAbsoluteExpiresAt')->times($checks)->andReturn($absolute);
-
-        return $device;
     }
 }

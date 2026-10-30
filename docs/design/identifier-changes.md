@@ -37,7 +37,7 @@ outdates, and why the change stands when the notice to the old identifier fails.
   write connection; the limiter never counts inside the transaction that follows, where a counter's row would stay
   locked until the commit and MySQL deadlocks two transactions that each create a counter in one gap of the index. Then,
   in one transaction on the identity's connection, it locks the identity's row (`Database\IdentityLock`), and, for a
-  device proof, the device's row (`Jwt\DeviceLookup::lock()`), and checks again that the proof stands
+  device proof, the device's row (`Devices\DeviceLookup::lock()`), and checks again that the proof stands
   (`RecentAuthentication::stands()`: the device as locked; for a password, the locked row's hash is the one read before
   the password was checked) and that the new identifier is not the current one. A password write takes the identity's
   lock with its `UPDATE`, and a standalone bulk revocation updates the device's row before it deletes the pending
@@ -143,8 +143,8 @@ outdates, and why the change stands when the notice to the old identifier fails.
   `PresentedChangeLink.php`, `IdentifierChangeSettings.php`, `IdentifierChangeRequest.php`,
   `PendingIdentifierChange.php`, `IdentifierChangeNotice.php`, `Enums/*`.
 - `src/IdentifierChanges/SendIdentifierChangeCode.php`, `SendIdentifierChangeNotice.php`.
-- `src/Sessions/Reauthentication.php`, `src/Sessions/RecentAuthentication.php`, `src/Jwt/DeviceLookup.php` (`lock()`),
-  `src/Database/IdentityLock.php`.
+- `src/Sessions/Reauthentication.php`, `src/Sessions/RecentAuthentication.php`, `src/Devices/DeviceLookup.php`
+  (`lock()`), `src/Database/IdentityLock.php`.
 - `src/Contracts/HasChangeableIdentifiers.php`, `src/Concerns/ProvidesIdentifierChanges.php`
   (`replaceIdentifier()`), `src/Contracts/IdentifierChangeNotifier.php`, `src/Testing/FakeIdentifierChangeNotifier.php`.
 - `src/Models/IdentifierChange.php`, `database/migrations/2026_04_06_000007_create_identifier_changes_table.php`.
@@ -171,7 +171,7 @@ outdates, and why the change stands when the notice to the old identifier fails.
   bulk revocation, a cancellation and a replacing request; a request proven by the password racing a password change,
   either way and between its check and its lock, one proven by its device racing a bulk revocation the same ways, and
   requests for two identities creating their counters, codes and pending changes, neither deadlocking nor waiting;
-  `tests/Integration/Jwt/DeviceLookupLockTest.php`.
+  `tests/Integration/Devices/DeviceLookupLockTest.php`.
 - `tests/Integration/IdentifierChanges/ReplicaIdentifierChangesTest.php`: `pending()`, the code's delivery and a
   device's reauthentication read what only the primary holds yet, behind a lagging replica.
 - `tests/Integration/IdentifierChanges/ReplaceIdentifierTest.php`, `IdentifierChangeDeliveryTest.php`,

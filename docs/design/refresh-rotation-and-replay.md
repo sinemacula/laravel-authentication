@@ -22,13 +22,13 @@ other rotated token as a replay that revokes the device.
   every device timestamp is stored at). Every check, every value written, and both issued tokens' `iat` use it, so a
   request that later waits on a row lock is still judged at the moment it started. Application servers are expected to
   keep synchronised clocks.
-- A device is a session with an idle and an absolute deadline, both required. A session has ended from the second
-  either deadline names, or when either is missing (`TokenLifetimes::hasEnded()`, the one rule shared by refresh, the
-  bearer path, sign-in pins, and issuance). A rotation moves the idle deadline to `idleDeadline($now, absolute)`, the
-  idle lifetime from `$now` capped at the absolute deadline, and never writes the absolute deadline, so it is kept
-  across rotations. A refresh token expires at the earlier of the two deadlines, and an access token after the access
-  lifetime but never after the earlier of the two deadlines, from which the bearer path rejects it, so no token outlives
-  its session even when the idle lifetime is shorter than the access lifetime.
+- A device is a session with an idle and an absolute deadline, both required. A session has ended from the second either
+  deadline names, or when either is missing (`DeviceDeadlines::hasEnded()`, the one rule shared by refresh, the bearer
+  path, sign-in pins, and issuance). A rotation moves the idle deadline to `idleDeadline($now, absolute)`, the idle
+  lifetime from `$now` capped at the absolute deadline, and never writes the absolute deadline, so it is kept across
+  rotations. A refresh token expires at the earlier of the two deadlines, and an access token after the access lifetime
+  but never after the earlier of the two deadlines, from which the bearer path rejects it, so no token outlives its
+  session even when the idle lifetime is shorter than the access lifetime.
 - The rotation is a single compare-and-swap `UPDATE` on the device's own connection that applies only while the row
   still holds the presented id as current, is not revoked, and has both deadlines exactly as they were loaded (equality
   on the raw stored values, exact because the columns are whole-second). It records the presented digest as previous,
@@ -223,17 +223,17 @@ other rotated token as a replay that revokes the device.
 - `src/Jwt/RefreshRotationStore.php`: `rotate()` (the compare-and-swap), `switchPrincipal()` (the switch's
   compare-and-swap), `revoke()` (the guarded revocation), and `reload()` (the locking re-read on the writer).
 - `src/Database/AfterCommit.php`: defers `DeviceRevoked` to the commit of the device's own connection.
-- `src/Jwt/DeviceLookup.php`: `find()`, the device lookup on the writer.
+- `src/Devices/DeviceLookup.php`: `find()`, the device lookup on the writer.
 - `src/Contracts/AudiencePolicy.php` and `src/Contracts/AttemptLimiter.php`: the policy and the limiter each exchange
   resolves from the container.
 - `src/Jwt/RefreshTokenHasher.php`: `generate()`, `successor()`, `hash()`, and constant-time `verify()`.
-- `src/Jwt/TokenLifetimes.php`: `hasEnded()`, `liveDeadlines()`, `idleDeadline()`, `accessExpiry()`, and
-  `isWithinGrace()`; the factory resolves `refresh_grace_seconds` with the lifetimes in
-  `src/Jwt/JwtTokenServiceFactory.php`.
+- `src/Devices/DeviceDeadlines.php`: `hasEnded()` and `liveDeadlines()`.
+- `src/Jwt/TokenLifetimes.php`: `idleDeadline()`, `accessExpiry()`, and `isWithinGrace()`; the factory resolves
+  `refresh_grace_seconds` with the lifetimes in `src/Jwt/JwtTokenServiceFactory.php`.
 - `src/Jwt/JwtTokenService.php`: `issueRefreshToken()` and `issueAccessToken()`, each with `$issuedAt`.
 - `src/Jwt/Enums/RotationMatch.php`: the CURRENT and PREVIOUS verdicts.
-- `src/Jwt/DeviceKeyShape.php` and `src/Contracts/ValidatesDeviceKey.php`: the `did` shape check run before the device
-  lookup.
+- `src/Devices/DeviceKeyShape.php` and `src/Contracts/ValidatesDeviceKey.php`: the `did` shape check run before the
+  device lookup.
 - `src/Database/WriteConnection.php`: pins the device and owner reads to the write connection (the principal and tenant
   reads are pinned by the resolver and by `ActivationPolicy`).
 - `src/Guards/ActivationPolicy.php`: the opt-in identity, principal, and tenant activity checks.
@@ -242,7 +242,7 @@ other rotated token as a replay that revokes the device.
 - `src/Guards/JwtGuard.php`: `refresh()` and `refreshFromRequest()` go through `exchangeRefresh()`, which runs the live
   refresh exchange with the request's client, and `refuseRefresh()` reports a refusal and turns a `rate_limited` one
   into the 429.
-- `src/Guards/OwnedDevice.php`: `refusal()`, which refuses a device of another guard on the bearer path
+- `src/Devices/OwnedDevice.php`: `refusal()`, which refuses a device of another guard on the bearer path
   (`device_guard_mismatch`) and for sign-in pins (`resolveDeviceFromHint()` in
   `src/Guards/Concerns/VerifiesPinnedContext.php`).
 - `src/Concerns/ReadsDeviceAttributes.php`: `toDeviceTimestamp()` and `earliestInstantOf()`, which read a device time

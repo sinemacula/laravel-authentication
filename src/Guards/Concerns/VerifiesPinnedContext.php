@@ -8,9 +8,9 @@ use Illuminate\Support\Carbon;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Guards\OwnedDevice;
+use SineMacula\Laravel\Authentication\Devices\IdentityDevices;
+use SineMacula\Laravel\Authentication\Devices\OwnedDevice;
 use SineMacula\Laravel\Authentication\Guards\PinnedPrincipal;
-use SineMacula\Laravel\Authentication\Sessions\IdentityDevices;
 
 /**
  * Proves that a principal or device pinned on `attempt()` belongs to the

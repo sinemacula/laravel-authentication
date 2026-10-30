@@ -10,9 +10,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Devices\DeviceDeadlines;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
-use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use Symfony\Component\HttpFoundation\Cookie;
 
 /**
@@ -166,7 +166,7 @@ final readonly class RefreshTokenTransport
      */
     private static function sessionEnd(Device $device): CarbonImmutable
     {
-        [$idle, $absolute] = WriteConnection::during($device, static fn (): ?array => TokenLifetimes::liveDeadlines($device, Carbon::now()))
+        [$idle, $absolute] = WriteConnection::during($device, static fn (): ?array => DeviceDeadlines::liveDeadlines($device, Carbon::now()))
             ?? throw new \InvalidArgumentException('Cannot set a refresh cookie for a device whose session has ended or that has no idle and absolute deadlines.');
 
         return CarbonImmutable::createFromTimestamp(min($idle->getTimestamp(), $absolute->getTimestamp()));

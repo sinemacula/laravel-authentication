@@ -18,6 +18,8 @@ use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Devices\IdentityDevices;
+use SineMacula\Laravel\Authentication\Devices\OwnedDevice;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -30,7 +32,6 @@ use SineMacula\Laravel\Authentication\Jwt\MachineTokens;
 use SineMacula\Laravel\Authentication\Models\ApiKey;
 use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
-use SineMacula\Laravel\Authentication\Sessions\IdentityDevices;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**

@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace SineMacula\Laravel\Authentication\Guards;
+namespace SineMacula\Laravel\Authentication\Devices;
 
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
@@ -11,7 +11,6 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
@@ -57,7 +56,7 @@ final class OwnedDevice
         return WriteConnection::during($device, static function () use ($device, $guard, $now): ?FailureReason {
 
             $revoked = $device->getRevokedAt() !== null;
-            $ended   = TokenLifetimes::hasEnded($device, $now);
+            $ended   = DeviceDeadlines::hasEnded($device, $now);
 
             return match (true) {
                 $device->getGuard() !== $guard => FailureReason::DEVICE_GUARD_MISMATCH,

@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Unit\Jwt;
+namespace Tests\Unit\Devices;
 
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -11,7 +11,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\ValidatesDeviceKey;
-use SineMacula\Laravel\Authentication\Jwt\DeviceKeyShape;
+use SineMacula\Laravel\Authentication\Devices\DeviceKeyShape;
 use SineMacula\Laravel\Authentication\Models\Device;
 
 /**

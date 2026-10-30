@@ -2,14 +2,14 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Feature\Jwt;
+namespace Tests\Feature\Devices;
 
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Devices\DeviceLookup;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
-use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Concerns\InteractsWithLaggingReplica;

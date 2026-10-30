@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Feature\Guards;
+namespace Tests\Feature\Devices;
 
 use Illuminate\Support\Carbon;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
@@ -11,8 +11,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Devices\OwnedDevice;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Guards\OwnedDevice;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
 use Tests\Unit\Stubs\StubDevice;

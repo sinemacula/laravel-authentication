@@ -44,7 +44,7 @@ can verify its signature, and the `sub` is then looked up in the wrong guard's p
 - `src/Jwt/JwtTokenService.php`: the guard constructor argument, `baseClaims()`, `firstClaimMismatch()`.
 - `src/Jwt/JwtTokenServiceFactory.php`: `buildForGuard()` passes the guard name.
 - `src/Jwt/RefreshAdmission.php`: `owner()`.
-- `src/Jwt/DeviceOwnership.php`: `ownerKey()` and `isOwner()`.
+- `src/Devices/DeviceOwnership.php`: `ownerKey()` and `isOwner()`.
 - `src/AuthenticationServiceProvider.php`: `createJwtGuard()` gives the exchange the guard's provider.
 
 ## Authoritative Tests
@@ -63,7 +63,7 @@ can verify its signature, and the `sub` is then looked up in the wrong guard's p
   `testParseRejectsATokenWithoutAGuardClaim`
 - `tests/Feature/Guards/JwtGuardRefreshResolutionTest.php`
   `testRefreshRejectsAProviderAnswerThatIsNotTheDeviceOwner`
-- `tests/Feature/Jwt/DeviceOwnershipTest.php`
+- `tests/Feature/Devices/DeviceOwnershipTest.php`
   `testIsOwnerAcceptsOnlyTheExactOwner`
 
 ## Change Triggers
