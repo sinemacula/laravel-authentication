@@ -19,10 +19,11 @@ use PHPUnit\Framework\TestCase;
  *
  * A class names another through an import (`use`, grouped or aliased), a
  * qualified or fully qualified name in its code, or a fully qualified type in a
- * docblock. The source is tokenised, not parsed, so a name built at run time (a
- * class name in a string, say) and an unqualified name of a class in the same
- * namespace are not seen: the test is a backstop for the rules, not a proof of
- * them.
+ * docblock. Names resolve as PHP resolves them, without regard to case, and a
+ * qualified name only through a class or namespace import. The source is
+ * tokenised, not parsed, so a name built at run time (a class name in a string,
+ * say) and an unqualified name of a class in the same namespace are not seen:
+ * the test is a backstop for the rules, not a proof of them.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -36,7 +37,7 @@ final class NamespaceDependenciesTest extends TestCase
     private const string PACKAGE = 'SineMacula\Laravel\Authentication\\';
 
     /** @var string A fully qualified package name in a docblock. */
-    private const string DOCBLOCK_NAME = '/\\\(SineMacula\\\Laravel\\\Authentication\\\[A-Za-z0-9_\\\]+)/';
+    private const string DOCBLOCK_NAME = '/\\\(SineMacula\\\Laravel\\\Authentication\\\[A-Za-z0-9_\\\]+)/i';
 
     /** @var array<string, array{from: non-empty-list<string>, except: list<string>, forbids: non-empty-list<string>, allows: list<string>}> The rules, by what each holds. */
     private const array RULES = [
@@ -105,25 +106,7 @@ final class NamespaceDependenciesTest extends TestCase
     #[DataProvider('provideRules')]
     public function testNoClassNamesWhatItsRuleForbids(array $from, array $except, array $forbids, array $allows): void
     {
-        $violations = [];
-
-        foreach (self::names() as $class => $names) {
-
-            if (!self::isWithin($class, $from) || self::isWithin($class, $except)) {
-                continue;
-            }
-
-            foreach ($names as $name) {
-
-                if (!self::isWithin($name, $forbids) || self::isWithin($name, $allows)) {
-                    continue;
-                }
-
-                $violations[] = "{$class} names {$name}";
-            }
-        }
-
-        self::assertSame([], $violations);
+        self::assertSame([], self::violations(self::names(), $from, $except, $forbids, $allows));
     }
 
     /**
@@ -268,6 +251,105 @@ final class NamespaceDependenciesTest extends TestCase
     }
 
     /**
+     * A qualified name resolves through the class or namespace import its first
+     * segment names, whatever its case, and not through a function's or a
+     * constant's import of the same name, alone or within a group; a rule
+     * catches a forbidden name whatever its case, fully qualified in code or in
+     * a docblock.
+     *
+     * @return void
+     */
+    public function testTheScannerResolvesAQualifiedNameAsPhpDoes(): void
+    {
+        $source = <<<'PHP'
+            <?php
+
+            namespace SineMacula\Laravel\Authentication\Models;
+
+            use SineMacula\Laravel\Authentication as Auth;
+            use SineMacula\Laravel\Authentication\Guards as Guarding;
+            use SineMacula\Laravel\Authentication\Jwt as Tokens;
+            use function Other\Auth;
+            use CONST Other\Guarding;
+            use Other\{FUNCTION tokenise as Tokens, const Auth};
+
+            /**
+             * @see \sinemacula\laravel\authentication\sessions\SessionService
+             */
+            final class Example
+            {
+                public function run(): void
+                {
+                    new Auth\Jwt\TokenLifetimes;
+                    new auth\Sessions\DeviceProof;
+                    new GUARDING\JwtGuard;
+                    new tokens\JwtKeyring;
+                    new \sinemacula\laravel\authentication\jwt\MachineTokens;
+                }
+            }
+            PHP;
+
+        $names = self::namesIn($source);
+
+        sort($names);
+
+        self::assertSame([
+            'Guards',
+            'Guards\JwtGuard',
+            'Jwt',
+            'Jwt\JwtKeyring',
+            'Jwt\TokenLifetimes',
+            'Sessions\DeviceProof',
+            'jwt\MachineTokens',
+            'sessions\SessionService',
+        ], $names);
+
+        self::assertSame([
+            'Models\Example names Guards',
+            'Models\Example names Guards\JwtGuard',
+            'Models\Example names Jwt',
+            'Models\Example names Jwt\JwtKeyring',
+            'Models\Example names Jwt\TokenLifetimes',
+            'Models\Example names Sessions\DeviceProof',
+            'Models\Example names jwt\MachineTokens',
+            'Models\Example names sessions\SessionService',
+        ], self::violations(['Models\Example' => $names], ['models'], [], ['JWT', 'Sessions', 'Guards'], []));
+    }
+
+    /**
+     * What each class a rule applies to names that the rule forbids.
+     *
+     * @param  array<string, list<string>>  $classes
+     * @param  list<string>  $from
+     * @param  list<string>  $except
+     * @param  list<string>  $forbids
+     * @param  list<string>  $allows
+     * @return list<string>
+     */
+    private static function violations(array $classes, array $from, array $except, array $forbids, array $allows): array
+    {
+        $violations = [];
+
+        foreach ($classes as $class => $names) {
+
+            if (!self::isWithin($class, $from) || self::isWithin($class, $except)) {
+                continue;
+            }
+
+            foreach ($names as $name) {
+
+                if (!self::isWithin($name, $forbids) || self::isWithin($name, $allows)) {
+                    continue;
+                }
+
+                $violations[] = "{$class} names {$name}";
+            }
+        }
+
+        return $violations;
+    }
+
+    /**
      * Every class of the package and the package names it names, relative to
      * the package, read once.
      *
@@ -340,7 +422,7 @@ final class NamespaceDependenciesTest extends TestCase
             }
         }
 
-        $package = array_filter($names, static fn (?string $name): bool => $name !== null && str_starts_with($name, self::PACKAGE));
+        $package = array_filter($names, static fn (?string $name): bool => $name !== null && strncasecmp($name, self::PACKAGE, strlen(self::PACKAGE)) === 0);
 
         return array_values(array_unique(array_map(static fn (string $name): string => substr($name, strlen(self::PACKAGE)), $package)));
     }
@@ -456,7 +538,10 @@ final class NamespaceDependenciesTest extends TestCase
     }
 
     /**
-     * The names an import statement imports, recording each alias it gives.
+     * The names an import statement imports, recording the alias each class or
+     * namespace import gives by its lower case. A qualified name resolves only
+     * through those, without regard to case: a function's or a constant's
+     * import of the same name is kept apart from them.
      *
      * @param  string  $statement
      * @param  array<string, string>  $aliases
@@ -464,8 +549,9 @@ final class NamespaceDependenciesTest extends TestCase
      */
     private static function imports(string $statement, array &$aliases): array
     {
-        $statement = self::withoutKind($statement);
-        $prefix    = '';
+        [$kind, $statement] = self::kind($statement, '');
+
+        $prefix = '';
 
         if (preg_match('/^(.*)\\\\\{(.*)\}$/', $statement, $group) === 1) {
             [, $prefix, $statement] = $group;
@@ -477,33 +563,45 @@ final class NamespaceDependenciesTest extends TestCase
 
         foreach (explode(',', $statement) as $import) {
 
-            $parts = explode(' as ', self::withoutKind($import));
+            [$member, $import] = self::kind($import, $kind);
+
+            $parts = explode(' as ', $import);
             $name  = ltrim($prefix . $parts[0], '\\');
             $alias = $parts[1] ?? substr((string) strrchr('\\' . $name, '\\'), 1);
 
-            $aliases[$alias] = $name;
-            $names[]         = $name;
+            if ($member === '') {
+                $aliases[strtolower($alias)] = $name;
+            }
+
+            $names[] = $name;
         }
 
         return $names;
     }
 
     /**
-     * The import without the `function` or `const` that may start it: a whole
-     * statement's, or one member's of a group.
+     * What the import imports, `function`, `const` or `''` for a class or a
+     * namespace, and the import without the word that gives it: a whole
+     * statement's, or one member's of a group, which imports what its statement
+     * does unless it gives its own.
      *
      * @param  string  $import
-     * @return string
+     * @param  string  $kind
+     * @return array{0: string, 1: string}
      */
-    private static function withoutKind(string $import): string
+    private static function kind(string $import, string $kind): array
     {
-        return (string) preg_replace('/^(function|const) /', '', $import);
+        if (preg_match('/^(function|const) (.*)$/i', $import, $match) === 1) {
+            return [strtolower($match[1]), $match[2]];
+        }
+
+        return [$kind, $import];
     }
 
     /**
      * The fully qualified name a name token stands for: a qualified name
-     * through the alias its first segment names, or else relative to the
-     * namespace; `null` for any other token.
+     * through the alias its first segment names, whatever its case, or else
+     * relative to the namespace; `null` for any other token.
      *
      * @param  int  $id
      * @param  string  $text
@@ -527,7 +625,9 @@ final class NamespaceDependenciesTest extends TestCase
 
         [$first, $rest] = explode('\\', $text, 2);
 
-        return isset($aliases[$first]) ? $aliases[$first] . '\\' . $rest : ltrim($namespace . '\\' . $text, '\\');
+        $alias = strtolower($first);
+
+        return isset($aliases[$alias]) ? $aliases[$alias] . '\\' . $rest : ltrim($namespace . '\\' . $text, '\\');
     }
 
     /**
@@ -545,7 +645,7 @@ final class NamespaceDependenciesTest extends TestCase
 
     /**
      * Whether the name is one of the namespaces or classes, or inside one of
-     * them; `*` stands for the whole package.
+     * them, without regard to case; `*` stands for the whole package.
      *
      * @param  string  $name
      * @param  list<string>  $scopes
@@ -553,7 +653,9 @@ final class NamespaceDependenciesTest extends TestCase
      */
     private static function isWithin(string $name, array $scopes): bool
     {
-        foreach ($scopes as $scope) {
+        $name = strtolower($name);
+
+        foreach (array_map(strtolower(...), $scopes) as $scope) {
             if ($scope === '*' || $name === $scope || str_starts_with($name, $scope . '\\')) {
                 return true;
             }
