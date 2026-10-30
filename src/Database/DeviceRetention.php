@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Database;
 
 use Illuminate\Support\Facades\Config;
+use SineMacula\Laravel\Authentication\Config\IntegerSetting;
 
 /**
  * How long a device is kept once its session ended, before pruning deletes it:
@@ -18,6 +19,9 @@ use Illuminate\Support\Facades\Config;
  */
 final class DeviceRetention
 {
+    /** @var string Configuration key of the retention. */
+    private const string KEY = 'authentication.device.prune_after_days';
+
     /**
      * Disallow instantiation; utility container only.
      */
@@ -33,16 +37,6 @@ final class DeviceRetention
      */
     public static function days(): int
     {
-        $days = Config::get('authentication.device.prune_after_days', 30);
-
-        if (is_string($days) && preg_match('/^(0|[1-9]\d{0,3})$/D', $days) === 1) {
-            $days = (int) $days;
-        }
-
-        if (!is_int($days) || $days < 0 || $days > 3650) {
-            throw new \InvalidArgumentException('`authentication.device.prune_after_days` must be an integer from 0 to 3650 days.');
-        }
-
-        return $days;
+        return IntegerSetting::from(self::KEY, Config::get(self::KEY, 30), 0, 3650);
     }
 }

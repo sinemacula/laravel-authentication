@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+use SineMacula\Laravel\Authentication\Config\IntegerSetting;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
@@ -156,17 +157,7 @@ final readonly class PasskeyChallenges
      */
     public function ttlSeconds(): int
     {
-        $ttl = $this->config->get(self::TTL_KEY, self::DEFAULT_TTL_SECONDS);
-
-        if (is_string($ttl) && preg_match('/^[1-9][0-9]{0,5}$/D', $ttl) === 1) {
-            $ttl = (int) $ttl;
-        }
-
-        if (!is_int($ttl) || $ttl < self::MIN_TTL_SECONDS || $ttl > self::MAX_TTL_SECONDS) {
-            throw new \InvalidArgumentException(sprintf('%s must be an integer from %d to %d seconds.', self::TTL_KEY, self::MIN_TTL_SECONDS, self::MAX_TTL_SECONDS));
-        }
-
-        return $ttl;
+        return IntegerSetting::read($this->config, self::TTL_KEY, self::DEFAULT_TTL_SECONDS, self::MIN_TTL_SECONDS, self::MAX_TTL_SECONDS);
     }
 
     /**

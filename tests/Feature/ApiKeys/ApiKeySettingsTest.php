@@ -89,10 +89,10 @@ final class ApiKeySettingsTest extends TestCase
      */
     public static function provideInvalidValues(): iterable
     {
-        $overlap  = '`authentication.api_keys.rotation_overlap_seconds` must be an integer from 0 to `max_rotation_overlap_seconds` (604800) seconds.';
-        $max      = '`authentication.api_keys.max_rotation_overlap_seconds` must be an integer from 0 to 2592000 seconds.';
-        $throttle = '`authentication.api_keys.last_used_throttle_seconds` must be an integer from 0 to 86400 seconds.';
-        $prune    = '`authentication.api_keys.prune_after_days` must be an integer from 0 to 3650 days.';
+        $overlap  = 'authentication.api_keys.rotation_overlap_seconds must be an integer from 0 to authentication.api_keys.max_rotation_overlap_seconds (604800).';
+        $max      = 'authentication.api_keys.max_rotation_overlap_seconds must be an integer from 0 to 2592000.';
+        $throttle = 'authentication.api_keys.last_used_throttle_seconds must be an integer from 0 to 86400.';
+        $prune    = 'authentication.api_keys.prune_after_days must be an integer from 0 to 3650.';
 
         yield from [
             'overlap above the maximum' => ['rotation_overlap_seconds', 604801, $overlap],
@@ -158,7 +158,7 @@ final class ApiKeySettingsTest extends TestCase
         config()->set('authentication.api_keys.rotation_overlap_seconds', 61);
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('`authentication.api_keys.rotation_overlap_seconds` must be an integer from 0 to `max_rotation_overlap_seconds` (60) seconds.');
+        $this->expectExceptionMessage('authentication.api_keys.rotation_overlap_seconds must be an integer from 0 to authentication.api_keys.max_rotation_overlap_seconds (60).');
 
         ApiKeySettings::rotationOverlapSeconds();
     }
@@ -204,7 +204,7 @@ final class ApiKeySettingsTest extends TestCase
         }
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('`authentication.api_keys.prefix` must be a lower-case letter followed by up to 15 lower-case letters or digits.');
+        $this->expectExceptionMessage('authentication.api_keys.prefix must be a lower-case letter followed by up to 15 lower-case letters or digits.');
 
         ApiKeySettings::prefix();
     }

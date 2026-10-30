@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\ApiKeys;
 
 use Illuminate\Support\Facades\Config;
+use SineMacula\Laravel\Authentication\Config\IntegerSetting;
 
 /**
  * The `authentication.api_keys` settings, read when they are needed, so the
@@ -22,6 +23,9 @@ final class ApiKeySettings
 {
     /** @var int Longest rotation overlap that may be configured, in seconds: 30 days. */
     public const int MAX_ROTATION_OVERLAP_SECONDS = 2592000;
+
+    /** @var string Prefix of every API key setting's key. */
+    private const string PREFIX = 'authentication.api_keys.';
 
     /** @var string Pattern the key prefix must match. */
     private const string PREFIX_PATTERN = '/^[a-z][a-z0-9]{0,15}$/D';
@@ -41,10 +45,10 @@ final class ApiKeySettings
      */
     public static function prefix(): string
     {
-        $prefix = Config::get('authentication.api_keys.prefix', 'ak');
+        $prefix = Config::get(self::PREFIX . 'prefix', 'ak');
 
         if (!is_string($prefix) || preg_match(self::PREFIX_PATTERN, $prefix) !== 1) {
-            throw new \InvalidArgumentException('`authentication.api_keys.prefix` must be a lower-case letter followed by up to 15 lower-case letters or digits.');
+            throw new \InvalidArgumentException(self::PREFIX . 'prefix must be a lower-case letter followed by up to 15 lower-case letters or digits.');
         }
 
         return $prefix;
@@ -60,9 +64,17 @@ final class ApiKeySettings
      */
     public static function rotationOverlapSeconds(): int
     {
-        $max = self::maxRotationOverlapSeconds();
+        $max     = self::maxRotationOverlapSeconds();
+        $overlap = IntegerSetting::parse(Config::get(self::PREFIX . 'rotation_overlap_seconds', 86400));
 
-        return self::integer('rotation_overlap_seconds', 86400, 0, $max, "an integer from 0 to `max_rotation_overlap_seconds` ({$max}) seconds");
+        if ($overlap === null || $overlap < 0 || $overlap > $max) {
+            $message = self::PREFIX . 'rotation_overlap_seconds must be an integer from 0 to '
+                . self::PREFIX . "max_rotation_overlap_seconds ({$max}).";
+
+            throw new \InvalidArgumentException($message);
+        }
+
+        return $overlap;
     }
 
     /**
@@ -75,9 +87,7 @@ final class ApiKeySettings
      */
     public static function maxRotationOverlapSeconds(): int
     {
-        $max = self::MAX_ROTATION_OVERLAP_SECONDS;
-
-        return self::integer('max_rotation_overlap_seconds', 604800, 0, $max, "an integer from 0 to {$max} seconds");
+        return self::integer('max_rotation_overlap_seconds', 604800, 0, self::MAX_ROTATION_OVERLAP_SECONDS);
     }
 
     /**
@@ -90,7 +100,7 @@ final class ApiKeySettings
      */
     public static function lastUsedThrottleSeconds(): int
     {
-        return self::integer('last_used_throttle_seconds', 60, 0, 86400, 'an integer from 0 to 86400 seconds');
+        return self::integer('last_used_throttle_seconds', 60, 0, 86400);
     }
 
     /**
@@ -103,34 +113,22 @@ final class ApiKeySettings
      */
     public static function pruneAfterDays(): int
     {
-        return self::integer('prune_after_days', 30, 0, 3650, 'an integer from 0 to 3650 days');
+        return self::integer('prune_after_days', 30, 0, 3650);
     }
 
     /**
-     * Read a setting that is an integer, or the digit string of one, within the
-     * range.
+     * Read a numeric setting within its range (see `IntegerSetting`).
      *
      * @param  string  $key
      * @param  int  $default
-     * @param  int  $min
-     * @param  int  $max
-     * @param  string  $expected
+     * @param  int  $least
+     * @param  int  $most
      * @return int
      *
      * @throws \InvalidArgumentException
      */
-    private static function integer(string $key, int $default, int $min, int $max, string $expected): int
+    private static function integer(string $key, int $default, int $least, int $most): int
     {
-        $value = Config::get("authentication.api_keys.{$key}", $default);
-
-        if (is_string($value) && preg_match('/^(0|[1-9]\d{0,9})$/D', $value) === 1) {
-            $value = (int) $value;
-        }
-
-        if (!is_int($value) || $value < $min || $value > $max) {
-            throw new \InvalidArgumentException("`authentication.api_keys.{$key}` must be {$expected}.");
-        }
-
-        return $value;
+        return IntegerSetting::from(self::PREFIX . $key, Config::get(self::PREFIX . $key, $default), $least, $most);
     }
 }

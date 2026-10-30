@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\RateLimiting;
 
 use Illuminate\Config\Repository as ConfigRepository;
+use SineMacula\Laravel\Authentication\Config\IntegerSetting;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 
 /**
@@ -122,8 +123,8 @@ final readonly class AttemptLimits
      */
     private static function fromValue(string $guard, AttemptFlow $flow, string $scope, mixed $value): AttemptLimit
     {
-        $max   = is_array($value) && count($value) === 2 ? self::toInteger($value['max'] ?? null) : null;
-        $decay = is_array($value) ? self::toInteger($value['decay_seconds'] ?? null) : null;
+        $max   = is_array($value) && count($value) === 2 ? IntegerSetting::parse($value['max'] ?? null) : null;
+        $decay = is_array($value) ? IntegerSetting::parse($value['decay_seconds'] ?? null) : null;
 
         if ($max === null || $decay === null) {
             throw new \InvalidArgumentException(self::message($guard, $flow, $scope));
@@ -245,21 +246,6 @@ final readonly class AttemptLimits
                 throw new \InvalidArgumentException("Rate limits for guard [{$guard}]: {$name} has an unknown key `{$key}`.");
             }
         }
-    }
-
-    /**
-     * Read an integer, or the canonical string form of one, as an integer.
-     *
-     * @param  mixed  $value
-     * @return ?int
-     */
-    private static function toInteger(mixed $value): ?int
-    {
-        if (is_int($value)) {
-            return $value;
-        }
-
-        return is_string($value) && (string) (int) $value === $value ? (int) $value : null;
     }
 
     /**
