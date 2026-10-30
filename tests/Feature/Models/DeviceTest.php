@@ -16,6 +16,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Integration\Fixtures\SeparateConnectionDevice;
 
 /**
  * Feature tests for the shipped Device Eloquent model.
@@ -79,6 +80,30 @@ final class DeviceTest extends TestCase
         $device = new Device;
 
         self::assertSame('custom_devices', $device->getTable());
+    }
+
+    /**
+     * The model takes the storage connection, read on each instantiation,
+     * unless its class names a connection of its own; a storage connection that
+     * is not a name fails closed rather than falling back to the default.
+     *
+     * @return void
+     */
+    public function testTakesTheStorageConnectionUnlessTheClassNamesItsOwn(): void
+    {
+        self::assertNull((new Device)->getConnectionName());
+
+        config()->set('authentication.storage.connection', 'package_store');
+
+        self::assertSame('package_store', (new Device)->getConnectionName());
+        self::assertSame(SeparateConnectionDevice::CONNECTION, (new SeparateConnectionDevice)->getConnectionName());
+
+        config()->set('authentication.storage.connection', true);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('`authentication.storage.connection` must be a connection name');
+
+        new Device;
     }
 
     /**

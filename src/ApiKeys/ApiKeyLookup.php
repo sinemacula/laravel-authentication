@@ -41,7 +41,7 @@ final class ApiKeyLookup
      * @param  string  $public
      * @return ?\SineMacula\Laravel\Authentication\Models\ApiKey
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      */
     public static function find(string $public): ?ApiKey
     {
@@ -56,7 +56,7 @@ final class ApiKeyLookup
      * @param  string  $id
      * @return ?\SineMacula\Laravel\Authentication\Models\ApiKey
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      */
     public static function findById(string $id): ?ApiKey
     {

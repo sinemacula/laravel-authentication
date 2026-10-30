@@ -24,6 +24,8 @@ The current note set is:
 - `refresh-token-transport.md`: where a guard reads the refresh token from, why a request may carry it in only one
   place, the cookie's cross-site checks, and the cookie that carries a browser's refresh token.
 - `fail-closed-pid-did.md`: why `pid` and `did` are treated as commitments rather than advisory hints.
+- `storage.md`: where the package's tables live, why the device-backed ones share one connection, and how the models
+  and the published migrations choose the same one.
 - `access-only-mode.md`: the supported bearer-only, no-devices migration path.
 - `guard-bound-tokens.md`: the `grd` claim that ties every token to its issuing guard, and the provider-scoped owner
   reload on refresh.
@@ -48,6 +50,9 @@ The current note set is:
   carried, never interpreted, and held to an optional registry when a credential is issued.
 - `identifier-changes.md`: how an identity's email address or phone number is replaced once the new one is proven,
   after a recent authentication, unique on its normalised value under a race, invalidating the proofs it outdates.
+- `provider-composition.md`: why every binding the provider makes is a default another provider's binding is never
+  replaced by, in either order, and why the package owns the `auth` binding and what it takes over from the manager it
+  replaces.
 - `testing-helpers.md`: how a test acts as an identity, principal or device's session on a package guard, how that
   survives the requests it sends and ends on a sign-out, what the bound-context assertions compare, and the fakes.
 

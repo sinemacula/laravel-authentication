@@ -81,8 +81,8 @@ final readonly class PasskeyAssertions
      * @formatter:on
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
      * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      * @throws \Symfony\Component\Serializer\Exception\ExceptionInterface
      */
     public function verify(
@@ -185,7 +185,7 @@ final readonly class PasskeyAssertions
      * @return ?array{0: \Webauthn\PublicKeyCredential, 1: \SineMacula\Laravel\Authentication\Models\Passkey}
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      */
     private function find(RelyingParty $rp, #[\SensitiveParameter] mixed $credential): ?array
     {

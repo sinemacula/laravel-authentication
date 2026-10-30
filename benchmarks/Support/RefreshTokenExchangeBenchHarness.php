@@ -31,6 +31,7 @@ use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use Tests\Fixtures\Sessions\PermissiveAudiencePolicy;
 use Tests\Fixtures\Sessions\UnlimitedAttemptLimiter;
@@ -337,7 +338,8 @@ final class RefreshTokenExchangeBenchHarness
     }
 
     /**
-     * Pre-issue a pool of refresh tokens, each bound to its own device row.
+     * Pre-issue a pool of refresh tokens, each bound to its own device row,
+     * which records the principal the token acts as, as a sign-in records it.
      *
      * @param  string  $prefix
      * @param  class-string  $ownerClass
@@ -359,6 +361,8 @@ final class RefreshTokenExchangeBenchHarness
                 ...BenchSchema::signedIn('api'),
                 'authenticatable_type' => $ownerClass,
                 'authenticatable_id'   => $ownerId,
+                'principal_type'       => PrincipalReference::type($principal),
+                'principal_id'         => PrincipalReference::id($principal),
                 'client_name'          => $prefix . $index,
                 'refresh_key'          => RefreshTokenHasher::hash($rotationId),
                 'last_used_at'         => Carbon::now(),
@@ -488,6 +492,8 @@ final class RefreshTokenExchangeBenchHarness
             ...BenchSchema::signedIn('api'),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => PrincipalReference::type($identity),
+            'principal_id'         => PrincipalReference::id($identity),
             'client_name'          => $clientName,
             'refresh_key'          => RefreshTokenHasher::hash('stored-rotation-id'),
         ])->save();

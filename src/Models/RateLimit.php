@@ -9,15 +9,17 @@ use Illuminate\Database\Eloquent\MassPrunable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
+use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
  * One attempt counter: how many attempts a key (a keyed digest of what it
  * counts, see `RateLimiting\CounterKeys`) has made in the window that ends at
  * `window_ends_at`.
  *
- * The table and connection come from `authentication.rate_limits`. The limiter
- * writes the counters with single statements of its own; the model exists so
- * `model:prune` can delete counters whose window has ended.
+ * The table comes from `authentication.rate_limits.table`, the connection from
+ * `Database\StorageConnection::forRateLimits()`. The limiter writes the
+ * counters with single statements of its own; the model exists so `model:prune`
+ * can delete counters whose window has ended.
  *
  * Only the class name is public, for applications to schedule that pruning
  * with; its columns and behaviour belong to the attempt limiter.
@@ -55,9 +57,9 @@ final class RateLimit extends Model
      * each instantiation so runtime config changes take effect at once. The
      * table and connection have to be applied before Eloquent reads them, so
      * this is construction rather than model behaviour. A connection that is
-     * neither a name nor `null` or empty (for the default) is refused, rather
-     * than counting on the default connection, inside the transactions the
-     * separate connection was configured to stay out of.
+     * neither a name nor `null` or empty (for the storage connection) is
+     * refused, rather than counting on another connection, inside the
+     * transactions the separate connection was configured to stay out of.
      *
      * @param  array<string, mixed>  $attributes
      *
@@ -67,14 +69,8 @@ final class RateLimit extends Model
      */
     public function __construct(array $attributes = [])
     {
-        $connection = Config::get('authentication.rate_limits.connection');
-
-        if ($connection !== null && !is_string($connection)) {
-            throw new \InvalidArgumentException('`authentication.rate_limits.connection` must be a connection name, or null or empty for the default connection.');
-        }
-
         $this->setTable(Config::string('authentication.rate_limits.table', 'rate_limits'));
-        $this->setConnection($connection === '' ? null : $connection);
+        $this->setConnection(StorageConnection::forRateLimits());
 
         parent::__construct($attributes);
     }

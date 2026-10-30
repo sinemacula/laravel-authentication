@@ -267,8 +267,8 @@ used before, a code for another guard, purpose or number, and the right code for
 identity whose number is not verified is `identifier_unverified` (the code proved the number is held, so this tells a
 guesser nothing). Then the session service does the rest, as for a password: activity, the principal, the audience
 policy, a further factor and the device, which records `phone_code`. The code's attempts are counted on its row, on the
-device model's connection, so a transaction you open there and roll back around a sign-in gives the attempt back; the
-sign-in limits on `rate_limits.connection` still count it.
+storage connection, so a transaction you open there and roll back around a sign-in gives the attempt back; the sign-in
+limits on `rate_limits.connection` still count it.
 
 Another identifier type signs in by code once it has a normaliser and a column: register a code method for it, and
 allow it.
@@ -277,7 +277,10 @@ allow it.
 use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 
-$this->app->make(SignInMethodManager::class)->extend('whatsapp_code', fn ($app) => $app->make(CodeSignIn::class, ['type' => 'whatsapp']));
+// In a service provider's register():
+$this->callAfterResolving(SignInMethodManager::class, static function (SignInMethodManager $methods): void {
+    $methods->extend('whatsapp_code', fn ($app) => $app->make(CodeSignIn::class, ['type' => 'whatsapp']));
+});
 ```
 
 ## Using passkeys
@@ -463,11 +466,11 @@ identifier (as a one-time code does), and `code_expired`, `code_exhausted`, `pas
 `passkey_counter_regressed`; `code_expired`, `code_exhausted` and `passkey_counter_regressed` reach the event only, and
 the sign-in's result says `invalid_credentials`. Every other reason is the session service's to give, and a method that
 returns one throws a `LogicException` (see [Events](events.md#events)). A method must not bind a guard, issue tokens or
-write session state, and must hold no state between calls, since the manager keeps one instance per name for the life of
-the process. The credential timebox pads every refused sign-in, the method's own work included, to
-`timebox.credentials_microseconds`, so a method may answer an unknown identifier at once, as the example does; keep the
-method's worst case under that budget, and only a method whose work can take longer needs to do the same work whether or
-not the identifier exists.
+write session state, and must hold no state between calls, since the manager keeps one instance per name for as long as
+the same application serves: the life of the process, or under Octane the request, whose sandbox builds its own. The
+credential timebox pads every refused sign-in, the method's own work included, to `timebox.credentials_microseconds`, so
+a method may answer an unknown identifier at once, as the example does; keep the method's worst case under that budget,
+and only a method whose work can take longer needs to do the same work whether or not the identifier exists.
 
 A method that looks an identity up and then checks a secret calls `$request->reserveAccountAttempt($identity)` before
 checking it, and answers `invalid_credentials` without checking when that returns `false` (the account has used up its
@@ -489,12 +492,16 @@ whose accounts have used up their attempts, to test the `invalid_credentials` an
 Register the method under a lower-case name of its own (a letter, then letters, digits or underscores; `extend()`
 refuses anything else, the package's own `password`, `phone_code`, `email_code` and `passkey`, and the machine
 credential kinds `api_key` and `client_credentials`; see [Extensibility](extending.md#extensibility)), from a service
-provider, and allow that exact name in each guard's audience:
+provider once the registry resolves (see [Binding order](extending.md#binding-order)), and allow that exact name in each
+guard's audience:
 
 ```php
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 
-$this->app->make(SignInMethodManager::class)->extend('badge', fn ($app) => $app->make(BadgeSignIn::class));
+// In a service provider's register():
+$this->callAfterResolving(SignInMethodManager::class, static function (SignInMethodManager $methods): void {
+    $methods->extend('badge', fn ($app) => $app->make(BadgeSignIn::class));
+});
 ```
 
 ```php

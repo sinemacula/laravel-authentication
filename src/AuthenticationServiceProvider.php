@@ -35,8 +35,8 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
+use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
-use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
@@ -45,6 +45,7 @@ use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Http\UnauthenticatedResponse;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
+use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
@@ -86,6 +87,12 @@ final class AuthenticationServiceProvider extends ServiceProvider
     /**
      * Register container bindings.
      *
+     * Every binding is a default: one that the application or another package
+     * made before this provider registers is kept, so a sibling's policy is
+     * never replaced by the package's (an additional-factor policy by
+     * `NeverRequireAdditionalFactor`, a scope registry by `AcceptAnyScope`),
+     * and one made after replaces the default, as any later binding does.
+     *
      * @return void
      */
     #[\Override]
@@ -96,19 +103,19 @@ final class AuthenticationServiceProvider extends ServiceProvider
             'authentication',
         );
 
-        $this->app->singleton(PrincipalResolver::class, DefaultPrincipalResolver::class);
-        $this->app->singleton(AudiencePolicy::class, GuardAudiencePolicy::class);
-        $this->app->singleton(IdentifierNormalisers::class);
-        $this->app->singleton(AttemptLimiter::class, DatabaseAttemptLimiter::class);
-        $this->app->singleton(SignInMethodManager::class);
-        $this->app->scoped(Rehashing::class);
-        $this->app->singleton(AdditionalFactorPolicy::class, NeverRequireAdditionalFactor::class);
-        $this->app->singleton(WebAuthn::class);
-        $this->app->singleton(ScopeRegistry::class, AcceptAnyScope::class);
-        $this->app->singleton(BreachedPasswordChecker::class, NoBreachedPasswordCheck::class);
-        $this->app->singleton(PasswordResetLinkSender::class, NotifyingResetLinkSender::class);
-        $this->app->bind(IlluminateAuthenticate::class, Authenticate::class);
-        $this->app->singleton(
+        $this->app->singletonIf(PrincipalResolver::class, DefaultPrincipalResolver::class);
+        $this->app->singletonIf(AudiencePolicy::class, GuardAudiencePolicy::class);
+        $this->app->singletonIf(IdentifierNormalisers::class);
+        $this->app->singletonIf(AttemptLimiter::class, DatabaseAttemptLimiter::class);
+        $this->app->singletonIf(SignInMethodManager::class);
+        $this->app->scopedIf(Rehashing::class);
+        $this->app->singletonIf(AdditionalFactorPolicy::class, NeverRequireAdditionalFactor::class);
+        $this->app->singletonIf(WebAuthn::class);
+        $this->app->singletonIf(ScopeRegistry::class, AcceptAnyScope::class);
+        $this->app->singletonIf(BreachedPasswordChecker::class, NoBreachedPasswordCheck::class);
+        $this->app->singletonIf(PasswordResetLinkSender::class, NotifyingResetLinkSender::class);
+        $this->app->bindIf(IlluminateAuthenticate::class, Authenticate::class);
+        $this->app->singletonIf(
             JwtTokenServiceFactory::class,
             static fn (Application $app): JwtTokenServiceFactory => new JwtTokenServiceFactory(
                 $app,
@@ -124,7 +131,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        $this->wrapAuthManager();
+        $this->ownAuthManager();
         $this->registerProviderDriver();
         $this->registerGuardDrivers();
         $this->registerListeners();
@@ -135,7 +142,8 @@ final class AuthenticationServiceProvider extends ServiceProvider
 
     /**
      * Construct a `JwtGuard` from the supplied container, guard name, and
-     * Laravel guard config block.
+     * Laravel guard config block. A device model that is misconfigured, or not
+     * on the storage connection, fails here rather than on the first request.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  string  $name
@@ -143,6 +151,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
     public static function createJwtGuard(Application $app, string $name, array $config): JwtGuard
@@ -156,9 +165,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $resolver  = $selection['resolver'];
         $events    = $app->make(Dispatcher::class);
 
-        InvalidDeviceModelConfigurationException::validate(
-            $app->make(ConfigRepository::class)->string('authentication.device.model', ''),
-        );
+        DeviceLookup::model();
 
         /** @var \SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory $tokenFactory */
         $tokenFactory = $app->make(JwtTokenServiceFactory::class);
@@ -201,7 +208,9 @@ final class AuthenticationServiceProvider extends ServiceProvider
 
     /**
      * Construct an `ApiKeyGuard` from the supplied container, guard name, and
-     * Laravel guard config block.
+     * Laravel guard config block. A malformed storage connection, where the
+     * guard's keys live, fails here rather than on the first request; the
+     * device model is not read, since keys have no device sessions.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  string  $name
@@ -209,7 +218,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
      * @return \SineMacula\Laravel\Authentication\Guards\ApiKeyGuard
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      */
     public static function createApiKeyGuard(Application $app, string $name, array $config): ApiKeyGuard
     {
@@ -220,9 +229,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
 
         $selection = self::resolveGuardPrincipalResolver($app, $name, $config);
 
-        InvalidDeviceModelConfigurationException::validate(
-            $app->make(ConfigRepository::class)->string('authentication.device.model', ''),
-        );
+        StorageConnection::name();
 
         $guard = new ApiKeyGuard(
             $name,
@@ -293,21 +300,33 @@ final class AuthenticationServiceProvider extends ServiceProvider
     }
 
     /**
-     * Replace the framework's `auth` container binding with the package
-     * `AuthManager` subclass.
+     * Make the `auth` binding the package's `AuthManager`: the package owns it,
+     * and its guards, its accessors and the facade rely on it.
      *
-     * Deferred to `boot()` so this extend wraps any extends registered during
-     * other providers' `register()` phase, guaranteeing the package manager is
-     * the outermost decorator and previously registered drivers are captured
-     * via `inheritDriversFrom()`.
+     * A manager that is already the package's, or a subclass of it (how an
+     * application customises the manager, bound in a `register()`), is kept.
+     * Any other is replaced by the package's, which takes over its guard and
+     * provider creators, its user resolver and its resolved guards
+     * (`AuthManager::inheritStateFrom()`); a subclass's own behaviour is lost.
+     * Applied when `auth` resolves, or at once when it already has; a binding
+     * of `auth` made after the package boots is not supported. The facades'
+     * cached manager is forgotten, so a facade used before the swap reaches the
+     * package's.
      *
      * @return void
      */
-    protected function wrapAuthManager(): void
+    protected function ownAuthManager(): void
     {
         $this->app->extend('auth', static function (IlluminateAuthManager $existing, Application $app): AuthManager {
+
+            IlluminateAuth::clearResolvedInstance('auth');
+
+            if ($existing instanceof AuthManager) {
+                return $existing;
+            }
+
             $manager = new AuthManager($app);
-            $manager->inheritDriversFrom($existing);
+            $manager->inheritStateFrom($existing);
 
             return $manager;
         });

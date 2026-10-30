@@ -29,11 +29,12 @@ use Tests\TestCase;
 
 /**
  * Integration tests of a password reset for identities on the default
- * connection while the devices, and so the codes, live on a connection of their
- * own: the proof, the password and the revocation cannot be one transaction, so
- * a request and a reset are refused as a misconfiguration before anything is
- * counted when the provider's configuration names its model, and a reset once
- * its proof is accepted for the identity found when it does not.
+ * connection while the package's tables, the devices and the codes, live on a
+ * storage connection of their own: the proof, the password and the revocation
+ * cannot be one transaction, so a request and a reset are refused as a
+ * misconfiguration before anything is counted when the provider's configuration
+ * names its model, and a reset once its proof is accepted for the identity
+ * found when it does not.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -49,11 +50,14 @@ final class SeparateConnectionResetSubmissionsTest extends TestCase
 
     /** @var string The refusal every reset here throws. */
     private const string REFUSAL = 'A password reset spends its proof with its change to the identity in one transaction, so '
-        . SeparateConnectionCutoffIdentity::class . ' must be on the device model\'s connection: the identity is on [testing], the devices on [device_store].';
+        . SeparateConnectionCutoffIdentity::class . ' must be on the storage connection (`authentication.storage.connection`): the identity is on [testing],'
+        . ' the package\'s tables on [device_store].';
 
     /**
-     * Create the identity table on the default connection and the device, code
-     * and limit tables on the device connection.
+     * Create the identity table on the default connection and the device and
+     * code tables on the device connection, which is made the storage
+     * connection once the shipped migrations have run on the default one, while
+     * the counters stay there.
      *
      * @return void
      */
@@ -61,6 +65,9 @@ final class SeparateConnectionResetSubmissionsTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        config()->set('authentication.storage.connection', SeparateConnectionDevice::CONNECTION);
+        config()->set('authentication.rate_limits.connection', 'testing');
 
         Schema::create('cutoff_identities', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');

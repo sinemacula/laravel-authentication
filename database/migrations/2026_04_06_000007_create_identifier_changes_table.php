@@ -7,6 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
 use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
+use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
  * Create the identifier changes table: the pending change of each identity's
@@ -28,9 +29,11 @@ return new class extends Migration {
     {
         $table = Config::string('authentication.identifier_changes.table', 'identifier_changes');
 
-        (new MigrationCollisionGuard(Schema::getConnection()->getSchemaBuilder()))->ensureNotExists($table, 'identifier_changes.table');
+        $schema = Schema::connection($this->getConnection());
 
-        Schema::create($table, static function (Blueprint $blueprint): void {
+        (new MigrationCollisionGuard($schema))->ensureNotExists($table, 'identifier_changes.table');
+
+        $schema->create($table, static function (Blueprint $blueprint): void {
             // SHA-256 hex digest of the identity's row and the identifier type,
             // so an identity has one pending change per type and a new request
             // replaces the one before.
@@ -61,6 +64,20 @@ return new class extends Migration {
      */
     public function down(): void
     {
-        Schema::dropIfExists(Config::string('authentication.identifier_changes.table', 'identifier_changes'));
+        Schema::connection($this->getConnection())->dropIfExists(Config::string('authentication.identifier_changes.table', 'identifier_changes'));
+    }
+
+    /**
+     * The connection the package's tables live on (see `StorageConnection`),
+     * the one the model reads and writes the table on.
+     *
+     * @return ?string
+     *
+     * @throws \InvalidArgumentException
+     */
+    #[Override]
+    public function getConnection(): ?string
+    {
+        return StorageConnection::name();
     }
 };

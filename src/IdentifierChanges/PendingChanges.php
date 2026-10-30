@@ -59,7 +59,7 @@ final class PendingChanges
      * @param  string  $type
      * @return ?\SineMacula\Laravel\Authentication\Models\IdentifierChange
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      */
     public static function find(Identity $identity, string $type): ?IdentifierChange
     {
@@ -78,7 +78,7 @@ final class PendingChanges
      * @param  \Carbon\CarbonImmutable  $now
      * @return ?\SineMacula\Laravel\Authentication\Models\IdentifierChange
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      */
     public static function live(Identity $identity, string $type, string $guard, CarbonImmutable $now): ?IdentifierChange
     {
@@ -115,7 +115,7 @@ final class PendingChanges
      * @param  \SineMacula\Laravel\Authentication\IdentifierChanges\RequestedChange  $change
      * @return ?\SineMacula\Laravel\Authentication\Models\IdentifierChange
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      *
      * @imperative
      */
@@ -151,7 +151,7 @@ final class PendingChanges
      * @param  \SineMacula\Laravel\Authentication\Models\IdentifierChange  $change
      * @return bool
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      *
      * @imperative
      */
@@ -170,7 +170,7 @@ final class PendingChanges
      * @param  non-empty-list<string>  $keys
      * @return void
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      *
      * @imperative
      */
@@ -198,7 +198,7 @@ final class PendingChanges
      *
      * @return \Illuminate\Database\Query\Builder
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      */
     private static function table(): Builder
     {

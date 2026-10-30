@@ -49,8 +49,9 @@ principal auth without device tracking or refresh rotation.
   methods, `principalDeactivated()`, `revokePrincipalDevices()`) only moves the scope's "tokens valid after" cutoff and
   reports it; it reads no `devices` row and deletes no `pending_sign_ins` row, since no session of such an identity can
   hold either, so neither table needs to exist.
-- Guard construction still validates the configured device model class. The package tolerates a missing table on this
-  path because bearer auth with `did = null` never tries to query it.
+- Guard construction still validates the configured device model: its class, and that it lives on the storage
+  connection. The package tolerates a missing table on this path because bearer auth with `did = null` never tries to
+  query it.
 - Access-token `jti` values are not consulted on the bearer path. Revocation behavior therefore comes from identity and
   principal rehydration, not from a server-side access-token store.
 
@@ -63,8 +64,8 @@ principal auth without device tracking or refresh rotation.
   identity without `HasDevices`, but for the `identifier_changes` rows an identity's scope cancels when the identity
   implements `HasChangeableIdentifiers` (so such an identity needs that migration).
 - `src/Guards/AbstractGuard.php`: `bindAuthenticationLifecycle()`.
-- `src/AuthenticationServiceProvider.php`: `createJwtGuard()`; `src/Exceptions/InvalidDeviceModelConfigurationException.php`:
-  `validate()`.
+- `src/AuthenticationServiceProvider.php`: `createJwtGuard()`; `src/Jwt/DeviceLookup.php`: `model()`;
+  `src/Exceptions/InvalidDeviceModelConfigurationException.php`: `validate()`, `offStorage()`.
 
 ## Authoritative Tests
 

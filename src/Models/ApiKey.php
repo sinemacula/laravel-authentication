@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeySettings;
-use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
+use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
  * An API key: its public part, the digest of its secret, the one guard it
@@ -18,9 +18,9 @@ use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
  * acts as and that principal's tenant, its scopes, and when it was last used,
  * rotated, revoked or expires.
  *
- * Kept on the device model's connection, in the table named by
- * `authentication.api_keys.table`. Keys revoked or expired more than
- * `authentication.api_keys.prune_after_days` ago are pruned by Laravel's
+ * Kept on the storage connection (see `Database\StorageConnection`), in the
+ * table named by `authentication.api_keys.table`. Keys revoked or expired more
+ * than `authentication.api_keys.prune_after_days` ago are pruned by Laravel's
  * `model:prune --model` with this class.
  *
  * Only the class name is public, for applications to schedule that pruning
@@ -68,20 +68,20 @@ final class ApiKey extends Model
     protected $hidden = ['secret_hash'];
 
     /**
-     * Create a key on the device model's connection, in the configured table.
-     * Both are applied here, before Eloquent reads them, so this is
-     * construction rather than model behaviour.
+     * Create a key on the storage connection, in the configured table. Both are
+     * applied here, before Eloquent reads them, so this is construction rather
+     * than model behaviour.
      *
      * @param  array<string, mixed>  $attributes
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      *
      * @phpstan-ignore sineMaculaLaravel.modelBehaviour
      */
     public function __construct(array $attributes = [])
     {
         $this->setTable(Config::string('authentication.api_keys.table', 'api_keys'));
-        $this->setConnection(DeviceLookup::model()->getConnectionName());
+        $this->setConnection(StorageConnection::name());
 
         parent::__construct($attributes);
     }

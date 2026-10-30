@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\MassPrunable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
-use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
+use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
  * The pending change of one identity's identifier of one type: the guard it was
@@ -18,11 +18,12 @@ use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
  * expires. One row per identity and type, stored under a digest of the two, so
  * a new request replaces the one before.
  *
- * Kept on the device model's connection, so confirming a change, using its code
- * and invalidating the proofs it outdates are one transaction, in the table
- * named by `authentication.identifier_changes.table`. The identifier change
- * service writes the rows with single statements of its own; the model exists
- * so `model:prune --model` with this class can delete expired changes.
+ * Kept on the storage connection (see `Database\StorageConnection`), so
+ * confirming a change, using its code and invalidating the proofs it outdates
+ * are one transaction, in the table named by
+ * `authentication.identifier_changes.table`. The identifier change service
+ * writes the rows with single statements of its own; the model exists so
+ * `model:prune --model` with this class can delete expired changes.
  *
  * Only the class name is public, for applications to schedule that pruning
  * with; its columns and behaviour belong to the identifier change service.
@@ -62,20 +63,20 @@ final class IdentifierChange extends Model
     protected $hidden = ['id', 'previous', 'identifier', 'request_id'];
 
     /**
-     * Create a pending change on the device model's connection, in the
-     * configured table. Both are applied here, before Eloquent reads them, so
-     * this is construction rather than model behaviour.
+     * Create a pending change on the storage connection, in the configured
+     * table. Both are applied here, before Eloquent reads them, so this is
+     * construction rather than model behaviour.
      *
      * @param  array<string, mixed>  $attributes
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      *
      * @phpstan-ignore sineMaculaLaravel.modelBehaviour
      */
     public function __construct(array $attributes = [])
     {
         $this->setTable(Config::string('authentication.identifier_changes.table', 'identifier_changes'));
-        $this->setConnection(DeviceLookup::model()->getConnectionName());
+        $this->setConnection(StorageConnection::name());
 
         parent::__construct($attributes);
     }

@@ -9,7 +9,8 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 
 /**
  * Thrown when the configured device model does not satisfy the explicit
- * Eloquent-backed persistence boundary required by refresh and last-use flows.
+ * Eloquent-backed persistence boundary required by refresh and last-use flows,
+ * or does not live on the storage connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -29,6 +30,24 @@ final class InvalidDeviceModelConfigurationException extends \RuntimeException
         if (!is_subclass_of($class, Model::class) || !is_subclass_of($class, EloquentDevice::class)) {
             throw self::unsupported($class);
         }
+    }
+
+    /**
+     * Build an exception for a device model that does not live on the storage
+     * connection, naming both connections.
+     *
+     * @param  string  $configured
+     * @param  string  $device
+     * @param  string  $storage
+     * @return self
+     */
+    public static function offStorage(string $configured, string $device, string $storage): self
+    {
+        $message = 'authentication.device.model [%s] must live on the storage connection (authentication.storage.connection),'
+            . ' where the package writes its sessions with its other rows in one transaction: the device model is on [%s],'
+            . ' the storage connection is [%s].';
+
+        return new self(sprintf($message, $configured, $device, $storage));
     }
 
     /**

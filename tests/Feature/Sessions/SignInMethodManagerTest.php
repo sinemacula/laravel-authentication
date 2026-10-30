@@ -4,7 +4,10 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Sessions;
 
+use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Foundation\Application as FoundationApplication;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
@@ -113,6 +116,130 @@ final class SignInMethodManagerTest extends TestCase
 
         self::assertSame($sso, $this->manager()->method('sso'));
         self::assertSame($this->app, $received);
+    }
+
+    /**
+     * A manager resolved by one application builds its methods with the one now
+     * serving, as an Octane sandbox is: the password method reads the sandbox's
+     * configuration rather than the booted application's, and the booted
+     * application, serving again, gets a method of its own once more.
+     *
+     * @return void
+     */
+    public function testBuildsThePackageMethodsWithTheApplicationNowServing(): void
+    {
+        $app     = $this->booted();
+        $manager = $this->manager();
+        $booted  = $manager->method('password');
+
+        $sandbox = $this->sandboxOf($app, ['authentication.sign_in.password_identifier' => 'username']);
+
+        try {
+            $served = $manager->method('password');
+
+            self::assertInstanceOf(PasswordSignIn::class, $served);
+            self::assertNotSame($booted, $served);
+            self::assertSame($served, $manager->method('password'));
+            self::assertSame('username', $served->identifierType('api'));
+            self::assertSame($sandbox, $manager->getContainer());
+        } finally {
+            Container::setInstance($app);
+        }
+
+        $again = $manager->method('password');
+
+        self::assertNotSame($served, $again);
+        self::assertSame('email', $again->identifierType('api'));
+        self::assertSame($app, $manager->getContainer());
+    }
+
+    /**
+     * A method registered on a manager resolved at boot stays registered for
+     * every application that serves later, and is built with that one.
+     *
+     * @return void
+     */
+    public function testBuildsARegisteredMethodWithTheApplicationNowServing(): void
+    {
+        $app      = $this->booted();
+        $received = [];
+
+        $this->manager()->extend('badge', function (Application $app) use (&$received): SignInMethod {
+            $received[] = $app;
+
+            return new PasswordSignIn($app->make('config'));
+        });
+
+        $this->manager()->method('badge');
+
+        $sandbox = $this->sandboxOf($app, []);
+
+        try {
+            $this->manager()->method('badge');
+            $this->manager()->method('badge');
+        } finally {
+            Container::setInstance($app);
+        }
+
+        self::assertSame([$app, $sandbox], $received);
+        self::assertContains('badge', $this->manager()->names());
+    }
+
+    /**
+     * A manager built with a container other than the application serving keeps
+     * building its methods with that container and its configuration, whichever
+     * application serves later.
+     *
+     * @return void
+     */
+    public function testAManagerBuiltWithItsOwnContainerKeepsIt(): void
+    {
+        $app     = $this->booted();
+        $own     = $this->copyOf($app, ['authentication.sign_in.password_identifier' => 'username']);
+        $manager = new SignInMethodManager($own);
+
+        $this->sandboxOf($app, ['authentication.sign_in.password_identifier' => 'login']);
+
+        try {
+            $password = $manager->method('password');
+        } finally {
+            Container::setInstance($app);
+        }
+
+        self::assertInstanceOf(PasswordSignIn::class, $password);
+        self::assertSame('username', $password->identifierType('api'));
+        self::assertSame($own, $manager->getContainer());
+    }
+
+    /**
+     * A manager given a container with `setContainer()` stops following the
+     * application serving: a method registered on it is built with the
+     * container given, not with the sandbox now serving.
+     *
+     * @return void
+     */
+    public function testAManagerGivenAContainerKeepsIt(): void
+    {
+        $app      = $this->booted();
+        $own      = $this->copyOf($app, []);
+        $received = [];
+
+        $manager = $this->manager()->setContainer($own)->extend('badge', function (Application $app) use (&$received): SignInMethod {
+            $received[] = $app;
+
+            return new PasswordSignIn($app->make('config'));
+        });
+
+        $this->sandboxOf($app, []);
+
+        try {
+            $manager->method('badge');
+        } finally {
+            Container::setInstance($app);
+        }
+
+        self::assertSame([$own], $received);
+        self::assertSame($own, $manager->getContainer());
     }
 
     /**
@@ -387,6 +514,57 @@ final class SignInMethodManagerTest extends TestCase
         $this->expectExceptionMessage('Sign-in methods have no default; name the method to use.');
 
         $this->manager()->driver();
+    }
+
+    /**
+     * The test's application, asserted to be the one serving.
+     *
+     * @return \Illuminate\Foundation\Application
+     */
+    private function booted(): FoundationApplication
+    {
+        $app = $this->app;
+
+        self::assertInstanceOf(FoundationApplication::class, $app);
+        self::assertSame($app, Container::getInstance());
+
+        return $app;
+    }
+
+    /**
+     * Make a copy of the application with a configuration of its own, the
+     * values given set on it, the one serving, as Octane does for a request.
+     *
+     * @param  \Illuminate\Foundation\Application  $app
+     * @param  array<string, mixed>  $values
+     * @return \Illuminate\Foundation\Application
+     */
+    private function sandboxOf(FoundationApplication $app, array $values): FoundationApplication
+    {
+        $sandbox = $this->copyOf($app, $values);
+
+        Container::setInstance($sandbox);
+
+        return $sandbox;
+    }
+
+    /**
+     * Make a copy of the application with a configuration of its own, the
+     * values given set on it.
+     *
+     * @param  \Illuminate\Foundation\Application  $app
+     * @param  array<string, mixed>  $values
+     * @return \Illuminate\Foundation\Application
+     */
+    private function copyOf(FoundationApplication $app, array $values): FoundationApplication
+    {
+        $copy   = clone $app;
+        $config = clone $app->make(ConfigRepository::class);
+
+        $config->set($values);
+        $copy->instance('config', $config);
+
+        return $copy;
     }
 
     /**

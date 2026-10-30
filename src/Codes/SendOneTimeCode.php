@@ -86,7 +86,6 @@ final class SendOneTimeCode implements ShouldBeEncrypted, ShouldQueue
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
     public function handle(Container $container): void
     {

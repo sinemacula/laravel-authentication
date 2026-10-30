@@ -5,6 +5,8 @@ declare(strict_types = 1);
 namespace Tests\Feature;
 
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
+use Illuminate\Auth\GenericUser;
+use Illuminate\Auth\RequestGuard;
 use Illuminate\Contracts\Auth\Guard;
 use Illuminate\Contracts\Auth\UserProvider;
 use Illuminate\Http\Request;
@@ -238,15 +240,15 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * `inheritDriversFrom()` copies the donor's custom guard and provider
-     * driver maps onto the receiver so guards and providers registered before
-     * the package boot survive the container swap. Verified observably: after
-     * inheritance, the receiver resolves the donor's `inherited-guard` and
-     * `inherited-provider` driver names to the donor-supplied factory closures.
+     * `inheritStateFrom()` takes over the replaced manager's guard and user
+     * provider creators, so guards and providers registered on it before the
+     * package booted resolve through the package's manager.
      *
      * @return void
+     *
+     * @throws \ReflectionException
      */
-    public function testInheritDriversFromCopiesCustomCreatorMaps(): void
+    public function testInheritStateFromTakesOverTheCreators(): void
     {
         $donor = new IlluminateAuthManager(app());
 
@@ -254,10 +256,10 @@ final class AuthManagerTest extends TestCase
         $providerInstance = \Mockery::mock(UserProvider::class);
 
         $donor->extend('inherited-guard', fn (): Guard => $guardInstance);
-        $donor->provider('inherited-provider', fn (): UserProvider => $providerInstance);
+        $donor->provider('inherited-provider', static fn (): UserProvider => $providerInstance);
 
         $receiver = new AuthManager(app());
-        $receiver->inheritDriversFrom($donor);
+        $receiver->inheritStateFrom($donor);
 
         config()->set('auth.guards.inherited-guard-instance', [
             'driver'   => 'inherited-guard',
@@ -269,6 +271,182 @@ final class AuthManagerTest extends TestCase
 
         self::assertSame($guardInstance, $receiver->guard('inherited-guard-instance'));
         self::assertSame($providerInstance, $receiver->createUserProvider('inherited-provider-instance'));
+    }
+
+    /**
+     * A creator bound to the replaced manager, as `viaRequest()` binds its own,
+     * is bound to the package's manager instead: the request guard it builds
+     * takes the user provider the package's manager creates, from a driver
+     * registered only after the swap.
+     *
+     * @return void
+     *
+     * @throws \ReflectionException
+     */
+    public function testInheritStateFromBindsTheReplacedManagersCreatorsToTheNewManager(): void
+    {
+        $donor = new IlluminateAuthManager(app());
+        $donor->viaRequest('donor-request', fn (): null => null);
+
+        $receiver = new AuthManager(app());
+        $receiver->inheritStateFrom($donor);
+
+        $provider = \Mockery::mock(UserProvider::class);
+
+        $receiver->provider('registered-after', static fn (): UserProvider => $provider);
+
+        config()->set('auth.providers.late', ['driver' => 'registered-after']);
+        config()->set('auth.defaults.provider', 'late');
+        config()->set('auth.guards.donor-request-guard', ['driver' => 'donor-request']);
+
+        $guard = $receiver->guard('donor-request-guard');
+
+        self::assertInstanceOf(RequestGuard::class, $guard);
+        self::assertSame($provider, $guard->getProvider());
+    }
+
+    /**
+     * A user provider creator bound to the replaced manager is bound to the
+     * package's manager too: one that builds its provider from another of the
+     * manager's providers reaches a driver registered only after the swap.
+     *
+     * @return void
+     *
+     * @throws \ReflectionException
+     */
+    public function testInheritStateFromBindsTheReplacedManagersProviderCreatorsToTheNewManager(): void
+    {
+        $donor     = new IlluminateAuthManager(app());
+        $delegates = \Closure::bind(fn (): ?UserProvider => $this->createUserProvider('late'), $donor, IlluminateAuthManager::class);
+
+        self::assertNotNull($delegates);
+
+        $donor->provider('delegating', $delegates);
+
+        $receiver = new AuthManager(app());
+        $receiver->inheritStateFrom($donor);
+
+        $provider = \Mockery::mock(UserProvider::class);
+
+        $receiver->provider('registered-after', static fn (): UserProvider => $provider);
+
+        config()->set('auth.providers.late', ['driver' => 'registered-after']);
+        config()->set('auth.providers.delegating-instance', ['driver' => 'delegating']);
+
+        self::assertSame($provider, $receiver->createUserProvider('delegating-instance'));
+    }
+
+    /**
+     * A closure bound to anything but the replaced manager is taken as it is,
+     * and so is a first-class callable of the replaced manager's own method,
+     * which keeps the object whose method it is.
+     *
+     * @return void
+     *
+     * @throws \ReflectionException
+     */
+    public function testInheritStateFromTakesOtherClosuresAsTheyAre(): void
+    {
+        $donor    = new IlluminateAuthManager(app());
+        $owner    = new \ArrayObject;
+        $resolver = (fn (): null => null)->bindTo($owner);
+
+        self::assertNotNull($resolver);
+
+        $donor->extend('method', $donor->createSessionDriver(...));
+        $donor->resolveUsersUsing($resolver);
+
+        $receiver = new AuthManager(app());
+        $receiver->inheritStateFrom($donor);
+
+        $creators = self::readProperty($receiver, 'customCreators');
+
+        self::assertIsArray($creators);
+        self::assertInstanceOf(\Closure::class, $creators['method']);
+        self::assertSame($donor, (new \ReflectionFunction($creators['method']))->getClosureThis());
+        self::assertSame($resolver, $receiver->userResolver());
+    }
+
+    /**
+     * The replaced manager's default user resolver, bound to it, is bound to
+     * the package's manager, so the user resolves through the package's guards;
+     * so is the one `shouldUse()` sets.
+     *
+     * @return void
+     *
+     * @throws \ReflectionException
+     */
+    public function testInheritStateFromBindsTheReplacedManagersUserResolverToTheNewManager(): void
+    {
+        $user = new GenericUser(['id' => 'resolved']);
+
+        foreach ([false, true] as $switched) {
+
+            $donor = new IlluminateAuthManager(app());
+
+            if ($switched) {
+                $donor->shouldUse('resolving');
+            }
+
+            $receiver = new AuthManager(app());
+            $receiver->inheritStateFrom($donor);
+
+            $guard = \Mockery::mock(Guard::class);
+            $guard->shouldReceive('user')->andReturn($user);
+
+            $receiver->extend('resolving', fn (): Guard => $guard);
+
+            config()->set('auth.guards.resolving', ['driver' => 'resolving']);
+            config()->set('auth.defaults.guard', 'resolving');
+
+            self::assertSame($user, ($receiver->userResolver())());
+        }
+    }
+
+    /**
+     * A user resolver set on the replaced manager with `resolveUsersUsing()`,
+     * here a static closure, bound to nothing, is the package manager's.
+     *
+     * @return void
+     */
+    public function testInheritStateFromTakesOverACustomUserResolver(): void
+    {
+        $resolver = static fn (): GenericUser => new GenericUser(['id' => 'custom']);
+
+        $donor = new IlluminateAuthManager(app());
+        $donor->resolveUsersUsing($resolver);
+
+        $receiver = new AuthManager(app());
+        $receiver->inheritStateFrom($donor);
+
+        self::assertSame($resolver, $receiver->userResolver());
+    }
+
+    /**
+     * The guards the replaced manager already resolved are the package
+     * manager's, the same instances.
+     *
+     * @return void
+     *
+     * @throws \ReflectionException
+     */
+    public function testInheritStateFromTakesOverTheResolvedGuards(): void
+    {
+        $guard = \Mockery::mock(Guard::class);
+
+        $donor = new IlluminateAuthManager(app());
+        $donor->extend('resolved', fn (): Guard => $guard);
+
+        config()->set('auth.guards.resolved', ['driver' => 'resolved']);
+
+        $donor->guard('resolved');
+
+        $receiver = new AuthManager(app());
+        $receiver->extend('resolved', fn (): Guard => \Mockery::mock(Guard::class));
+        $receiver->inheritStateFrom($donor);
+
+        self::assertTrue($receiver->hasResolvedGuards());
+        self::assertSame($guard, $receiver->guard('resolved'));
     }
 
     /**
@@ -291,25 +469,21 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * `inheritDriversFrom()` does not throw and leaves the receiver driver-less
-     * when the donor has no custom creators registered. Pins the empty-array
-     * short-circuit in `inheritDriversFrom()`: a freshly bound provider that
-     * points at an unregistered custom driver still raises
-     * `InvalidArgumentException`, proving the empty donor did not silently leak
-     * driver registrations.
+     * A replaced manager with nothing registered leaves the package's manager
+     * with nothing: a provider of an unregistered driver is still unknown.
      *
      * @return void
      */
-    public function testInheritDriversFromIsNoOpWhenDonorIsEmpty(): void
+    public function testInheritStateFromAnEmptyManagerTakesOverNothing(): void
     {
-        $emptyDonor = new IlluminateAuthManager(app());
-
         $receiver = new AuthManager(app());
-        $receiver->inheritDriversFrom($emptyDonor);
+        $receiver->inheritStateFrom(new IlluminateAuthManager(app()));
 
         config()->set('auth.providers.unknown-after-empty-inherit', [
             'driver' => 'no-such-driver',
         ]);
+
+        self::assertFalse($receiver->hasResolvedGuards());
 
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('no-such-driver');
@@ -348,5 +522,21 @@ final class AuthManagerTest extends TestCase
         config()->set('authentication.jwt.keys', ['default' => 'test-secret-key-with-at-least-32-bytes!']);
         config()->set('authentication.jwt.active_kid', 'default');
         config()->set('authentication.jwt.algorithm', 'HS256');
+    }
+
+    /**
+     * Read a protected property off the manager.
+     *
+     * @param  object  $target
+     * @param  string  $property
+     * @return mixed
+     *
+     * @throws \ReflectionException
+     *
+     * @SuppressWarnings("php:S3011")
+     */
+    private static function readProperty(object $target, string $property): mixed
+    {
+        return (new \ReflectionProperty($target, $property))->getValue($target);
     }
 }

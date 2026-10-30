@@ -15,6 +15,7 @@ use Illuminate\Auth\Events\Validated;
 use Illuminate\Auth\Middleware\Authenticate as IlluminateAuthenticate;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Console\Application as ConsoleApplication;
+use Illuminate\Contracts\Auth\Guard;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Database\DatabaseTransactionsManager;
 use Illuminate\Events\Dispatcher;
@@ -63,6 +64,7 @@ use SineMacula\Laravel\Authentication\Scopes\AcceptAnyScope;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use Symfony\Component\HttpFoundation\Response;
+use Tests\Integration\Fixtures\SeparateConnectionDevice;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 use Tests\Unit\Stubs\StubGuardScopedPrincipalResolver;
 use Tests\Unit\Stubs\StubReplacementPrincipalResolver;
@@ -165,17 +167,47 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * An `api_key` guard fails fast when the device model, whose connection its
-     * keys live on, is misconfigured.
+     * A `jwt` guard fails fast when the device model names a connection other
+     * than the storage connection, where its sessions are written with the
+     * package's other rows.
      *
      * @return void
      */
-    public function testApiKeyGuardRejectsAMisconfiguredDeviceModel(): void
+    public function testJwtGuardRejectsADeviceModelOffTheStorageConnection(): void
+    {
+        config()->set('authentication.device.model', SeparateConnectionDevice::class);
+
+        $this->expectException(InvalidDeviceModelConfigurationException::class);
+        $this->expectExceptionMessage('must live on the storage connection');
+
+        app('auth')->guard('api');
+    }
+
+    /**
+     * An `api_key` guard does not read the device model, since keys have no
+     * device sessions: it is built whatever the device model is.
+     *
+     * @return void
+     */
+    public function testApiKeyGuardIgnoresTheDeviceModel(): void
     {
         config()->set('authentication.device.model', '');
 
-        $this->expectException(InvalidDeviceModelConfigurationException::class);
-        $this->expectExceptionMessage('authentication.device.model');
+        self::assertInstanceOf(ApiKeyGuard::class, app('auth')->guard('keys'));
+    }
+
+    /**
+     * An `api_key` guard fails fast when the storage connection, where its keys
+     * live, is not a connection name.
+     *
+     * @return void
+     */
+    public function testApiKeyGuardRejectsAMalformedStorageConnection(): void
+    {
+        config()->set('authentication.storage.connection', ['keys']);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('`authentication.storage.connection` must be a connection name, or null or empty for the default connection.');
 
         app('auth')->guard('keys');
     }
@@ -674,15 +706,54 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The guard-scoped JWT service factory is bound into the container so
-     * guards and the public `Auth::jwt()` surface resolve through the same
-     * internal construction path.
+     * The guard-scoped JWT service factory is bound into the container as a
+     * singleton, so guards and the public `Auth::jwt()` surface resolve through
+     * the same factory and the token services it keeps per guard.
      *
      * @return void
      */
     public function testJwtTokenServiceFactoryIsBound(): void
     {
-        self::assertInstanceOf(JwtTokenServiceFactory::class, app(JwtTokenServiceFactory::class));
+        $factory = app(JwtTokenServiceFactory::class);
+
+        self::assertInstanceOf(JwtTokenServiceFactory::class, $factory);
+        self::assertSame($factory, app(JwtTokenServiceFactory::class));
+    }
+
+    /**
+     * Booting over a Laravel manager that `auth` already resolved to replaces
+     * it at once with the package's, which builds the guards of the drivers
+     * registered on it, and Laravel's facade, which had cached the replaced
+     * manager, reaches the package's.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testBootingReplacesAResolvedLaravelManagerAndItsFacadeRoot(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        $guard    = \Mockery::mock(Guard::class);
+        $replaced = new IlluminateAuthManager($app);
+        $replaced->extend('carried', fn (): Guard => $guard);
+
+        $app->instance('auth', $replaced);
+        IlluminateAuth::clearResolvedInstance('auth');
+
+        self::assertSame($replaced, IlluminateAuth::getFacadeRoot());
+
+        config()->set('auth.guards.carried', ['driver' => 'carried']);
+
+        (new AuthenticationServiceProvider($app))->boot();
+
+        $manager = $app->make('auth');
+
+        self::assertInstanceOf(AuthManager::class, $manager);
+        self::assertSame($manager, IlluminateAuth::getFacadeRoot());
+        self::assertSame($guard, $manager->guard('carried'));
     }
 
     /**

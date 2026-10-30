@@ -47,8 +47,14 @@ final class CheckConfigurationCommandTest extends TestCase
     /** @var string A signing secret long enough for HS256. */
     private const string SECRET = 'a-signing-secret-of-at-least-32-bytes!!';
 
-    /** @var list<string> What a run prints for the package-wide settings when none has a problem. */
-    private const array PACKAGE_OK = ['[device] OK', '[sign_in] OK', '[passwords] OK', '[codes] OK', '[delivery] OK', '[passkeys] OK', '[api_keys] OK', '[identifier_changes] OK'];
+    /** @var list<string> What a run prints for the package-wide settings but the device model when none has a problem. */
+    private const array DEVICELESS_OK = ['[storage] OK', ...self::SHARED_OK];
+
+    /** @var list<string> What a run prints for the package-wide settings when none has a problem and a `jwt` guard is configured. */
+    private const array PACKAGE_OK = ['[storage] OK', '[device] OK', ...self::SHARED_OK];
+
+    /** @var list<string> What a run prints for the package-wide settings after the storage and device checks. */
+    private const array SHARED_OK = ['[sign_in] OK', '[passwords] OK', '[codes] OK', '[delivery] OK', '[passkeys] OK', '[api_keys] OK', '[identifier_changes] OK'];
 
     /** @var list<string> What a run prints when nothing the default setup configures has a problem. */
     private const array EVERY_SUBJECT_OK = [...self::PACKAGE_OK, '[api] OK', '[admin] OK', '[machine] OK'];
@@ -147,17 +153,41 @@ final class CheckConfigurationCommandTest extends TestCase
             ['authentication.refresh_token.cookie.name' => "refresh_token\n"],
             '[api] Refresh token transport for guard [api]: `refresh_token.cookie.name` must be a header or cookie name without `.`.',
         ];
+        yield 'a storage connection that is not a name' => [
+            ['authentication.storage.connection' => ['testing']],
+            '[storage] `authentication.storage.connection` must be a connection name, or null or empty for the default connection.',
+        ];
+        yield 'a storage connection that is not configured' => [
+            ['authentication.storage.connection' => 'missing'],
+            '[storage] The connection [missing] the package\'s tables are to live on is not configured in `database.connections`.',
+        ];
+        yield 'a storage connection that is not configured beside counters of their own' => [
+            ['authentication.storage.connection' => 'missing', 'authentication.rate_limits.connection' => 'unreachable'],
+            '[storage] The connection [missing] the package\'s tables are to live on is not configured in `database.connections`.',
+        ];
+        yield 'a rate limits connection that is not a name' => [
+            ['authentication.rate_limits.connection' => 1],
+            '[storage] `authentication.rate_limits.connection` must be a connection name, or null or empty for the storage connection.',
+        ];
+        yield 'a rate limits connection that is not configured' => [
+            ['authentication.rate_limits.connection' => 'counters'],
+            '[storage] The connection [counters] the package\'s tables are to live on is not configured in `database.connections`.',
+        ];
+        yield 'a device model off the storage connection' => [
+            ['authentication.device.model' => SeparateConnectionDevice::class],
+            '[device] authentication.device.model [' . SeparateConnectionDevice::class . '] must live on the storage connection',
+        ];
         yield 'a device model that is not one' => [
             ['authentication.device.model' => \stdClass::class],
             '[device] authentication.device.model must be a non-empty class-string of an Eloquent model',
         ];
         yield 'a pruning retention out of range' => [
             ['authentication.device.prune_after_days' => 3651],
-            '[device] `authentication.device.prune_after_days` must be an integer from 0 to 3650 days.',
+            '[device] authentication.device.prune_after_days must be an integer from 0 to 3650.',
         ];
         yield 'a pending sign-in lifetime out of range' => [
             ['authentication.sign_in.pending_ttl_seconds' => 5],
-            '[sign_in] authentication.sign_in.pending_ttl_seconds must be an integer from 30 to 3600 seconds.',
+            '[sign_in] authentication.sign_in.pending_ttl_seconds must be an integer from 30 to 3600.',
         ];
         yield 'a password minimum below 8' => [
             ['authentication.passwords.min_length' => 7],
@@ -197,7 +227,7 @@ final class CheckConfigurationCommandTest extends TestCase
         ];
         yield 'a passkey challenge lifetime out of range' => [
             ['authentication.passkeys.challenge_ttl_seconds' => 601],
-            '[passkeys] authentication.passkeys.challenge_ttl_seconds must be an integer from 30 to 600 seconds.',
+            '[passkeys] authentication.passkeys.challenge_ttl_seconds must be an integer from 30 to 600.',
         ];
         yield 'a guard that allows passkeys without a relying party' => [
             ['auth.guards.api.audience' => ['methods' => ['password', 'passkey']]],
@@ -217,23 +247,23 @@ final class CheckConfigurationCommandTest extends TestCase
         ];
         yield 'an API key prefix out of form' => [
             ['authentication.api_keys.prefix' => 'Acme'],
-            '[api_keys] `authentication.api_keys.prefix` must be a lower-case letter',
+            '[api_keys] authentication.api_keys.prefix must be a lower-case letter',
         ];
         yield 'an API key rotation overlap beyond the maximum' => [
             ['authentication.api_keys.rotation_overlap_seconds' => 700000],
-            '[api_keys] `authentication.api_keys.rotation_overlap_seconds` must be an integer from 0 to',
+            '[api_keys] authentication.api_keys.rotation_overlap_seconds must be an integer from 0 to',
         ];
         yield 'an API key rotation overlap maximum out of range' => [
             ['authentication.api_keys.max_rotation_overlap_seconds' => 2592001],
-            '[api_keys] `authentication.api_keys.max_rotation_overlap_seconds` must be an integer from 0 to 2592000 seconds.',
+            '[api_keys] authentication.api_keys.max_rotation_overlap_seconds must be an integer from 0 to 2592000.',
         ];
         yield 'an API key last-use throttle out of range' => [
             ['authentication.api_keys.last_used_throttle_seconds' => -1],
-            '[api_keys] `authentication.api_keys.last_used_throttle_seconds` must be an integer from 0 to 86400 seconds.',
+            '[api_keys] authentication.api_keys.last_used_throttle_seconds must be an integer from 0 to 86400.',
         ];
         yield 'an API key pruning retention out of range' => [
             ['authentication.api_keys.prune_after_days' => 'month'],
-            '[api_keys] `authentication.api_keys.prune_after_days` must be an integer from 0 to 3650 days.',
+            '[api_keys] authentication.api_keys.prune_after_days must be an integer from 0 to 3650.',
         ];
         yield 'an api_key guard whose provider is not an identity provider' => [
             ['auth.guards.machine.provider' => 'missing'],
@@ -396,7 +426,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
         config()->set('auth.guards', ['machine' => config('auth.guards.machine')]);
 
-        self::assertSame([0, [...self::PACKAGE_OK, '[machine] OK']], $this->check());
+        self::assertSame([0, [...self::DEVICELESS_OK, '[machine] OK']], $this->check());
     }
 
     /**
@@ -448,6 +478,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
         self::assertSame(1, $code);
         self::assertSame([
+            '[storage] OK',
             '[device] OK',
             '[sign_in] OK',
             '[passwords] OK',
@@ -492,6 +523,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
         self::assertSame(1, $code);
         self::assertSame([
+            '[storage] OK',
             '[device] OK',
             '[sign_in] OK',
             '[passwords] OK',
@@ -507,8 +539,8 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * Without `jwt` guards there is nothing to check but the device model, and
-     * the command says so and passes.
+     * Without `jwt` guards there is nothing to check but the package-wide
+     * settings, the device model's aside, and the command says so and passes.
      *
      * @return void
      */
@@ -519,11 +551,34 @@ final class CheckConfigurationCommandTest extends TestCase
         [$code, $output] = $this->check();
 
         self::assertSame(0, $code);
-        self::assertSame(['No jwt or api_key guards are configured.', ...self::PACKAGE_OK], $output);
+        self::assertSame(['No jwt or api_key guards are configured.', ...self::DEVICELESS_OK], $output);
 
         config()->set('auth.guards', null);
 
-        self::assertSame([0, ['No jwt or api_key guards are configured.', ...self::PACKAGE_OK]], $this->check());
+        self::assertSame([0, ['No jwt or api_key guards are configured.', ...self::DEVICELESS_OK]], $this->check());
+    }
+
+    /**
+     * With only `api_key` guards, which keep no device sessions, the device
+     * model is not checked: a configuration the `api_key` guard accepts, with
+     * no device model at all, passes.
+     *
+     * @return void
+     */
+    public function testOnlyApiKeyGuardsLeaveTheDeviceModelUnchecked(): void
+    {
+        config()->set('auth.guards', ['machine' => config('auth.guards.machine')]);
+        config()->set('authentication.device.model', '');
+
+        self::assertSame([0, [...self::DEVICELESS_OK, '[machine] OK']], $this->check());
+
+        config()->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'users']);
+
+        [$code, $output] = $this->check(['--guard' => ['machine']]);
+
+        self::assertSame(1, $code);
+        self::assertContains('[machine] OK', $output);
+        self::assertNotEmpty(array_filter($output, static fn (string $line): bool => str_starts_with($line, '[device] authentication.device.model must be')));
     }
 
     /**
@@ -633,7 +688,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
     /**
      * A `jwt` guard whose identities live on another connection than the
-     * devices cannot run a password reset or an identifier change's
+     * storage connection cannot run a password reset or an identifier change's
      * confirmation: a warning for each such guard checked, naming both
      * connections, that leaves the exit code alone.
      *
@@ -642,11 +697,11 @@ final class CheckConfigurationCommandTest extends TestCase
     public function testResetsAcrossConnectionsAreAWarning(): void
     {
         config()->set('database.connections.device_store', ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
-        config()->set('authentication.device.model', SeparateConnectionDevice::class);
+        config()->set('authentication.storage.connection', SeparateConnectionDevice::CONNECTION);
 
         $warning = static fn (string $guard): string => "[{$guard}] Password resets and identifier changes spend their proof with their change to the identity "
             . 'in one transaction, so ' . IntegrationIdentity::class
-            . ' must be on the device model\'s connection: the identity is on [unreachable], the devices on [device_store].';
+            . ' must be on the storage connection (`authentication.storage.connection`): the identity is on [unreachable], the package\'s tables on [device_store].';
 
         [$code, $output] = $this->check();
 
@@ -685,8 +740,8 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * Settings a guard's own checks report raise no reset warning: a malformed
-     * password identifier, or a device model that is not one.
+     * Settings other checks report raise no reset warning: a malformed password
+     * identifier, or a storage connection that is not a name.
      *
      * @return void
      */
@@ -696,7 +751,8 @@ final class CheckConfigurationCommandTest extends TestCase
 
         self::assertSame([], array_values(array_filter($this->check()[1], static fn (string $line): bool => str_contains($line, 'Password reset'))));
 
-        config()->set('authentication.device.model', \stdClass::class);
+        config()->set('auth.guards.api.sign_in', []);
+        config()->set('authentication.storage.connection', ['testing']);
 
         [$code, $output] = $this->check();
 

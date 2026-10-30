@@ -14,8 +14,8 @@ use Tests\TestCase;
 
 /**
  * Feature tests for the connection rule of the helpers that spend a proof with
- * a change to an identity and its sessions: an identity must live on the device
- * model's connection, compared by name without opening one, and the provider's
+ * a change to an identity and its sessions: an identity must live on the
+ * storage connection, compared by name without opening one, and the provider's
  * model can be checked before any identity is found.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -27,18 +27,23 @@ use Tests\TestCase;
 final class SharedConnectionTest extends TestCase
 {
     /**
-     * An identity on the default connection shares it with the shipped device
-     * model, which names none either.
+     * An identity on the default connection shares it with the storage
+     * connection, which names none either, or names the default one; an
+     * identity on a named storage connection shares that.
      *
      * @return void
      */
-    public function testAnIdentityOnTheDevicesConnectionPasses(): void
+    public function testAnIdentityOnTheStorageConnectionPasses(): void
     {
         self::assertNull(SharedConnection::mismatch(new IntegrationIdentity, self::config()));
 
         SharedConnection::assert(new IntegrationIdentity, 'A password reset', self::config());
 
-        config()->set('authentication.device.model', SeparateConnectionDevice::class);
+        config()->set('authentication.storage.connection', 'testing');
+
+        self::assertNull(SharedConnection::mismatch(new IntegrationIdentity, self::config()));
+
+        config()->set('authentication.storage.connection', SeparateConnectionDevice::CONNECTION);
 
         $identity = (new IntegrationIdentity)->setConnection(SeparateConnectionDevice::CONNECTION);
 
@@ -47,15 +52,16 @@ final class SharedConnectionTest extends TestCase
 
     /**
      * An identity on another connection is refused, naming the flow, the model
-     * and both connections.
+     * and both connections, whatever connection the device model names.
      *
      * @return void
      */
     public function testAnIdentityOnAnotherConnectionIsRefused(): void
     {
-        config()->set('authentication.device.model', SeparateConnectionDevice::class);
+        config()->set('authentication.storage.connection', SeparateConnectionDevice::CONNECTION);
 
-        $expected = SeparateConnectionCutoffIdentity::class . ' must be on the device model\'s connection: the identity is on [testing], the devices on [device_store].';
+        $expected = SeparateConnectionCutoffIdentity::class . ' must be on the storage connection (`authentication.storage.connection`):'
+            . ' the identity is on [testing], the package\'s tables on [device_store].';
 
         self::assertSame($expected, SharedConnection::mismatch(new SeparateConnectionCutoffIdentity, self::config()));
 

@@ -135,7 +135,6 @@ final readonly class PasskeyService
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      * @throws \Symfony\Component\Serializer\Exception\ExceptionInterface
      */
     public function register(
@@ -246,7 +245,6 @@ final readonly class PasskeyService
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      * @throws \Symfony\Component\Serializer\Exception\ExceptionInterface
      */
     public function verifyFactor(Identity $identity, string $challenge, #[\SensitiveParameter] array|string $credential, ?ClientContext $client = null): ?FailureReason
@@ -284,7 +282,6 @@ final readonly class PasskeyService
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
     public function passkeys(Identity $identity): array
     {
@@ -306,7 +303,6 @@ final readonly class PasskeyService
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
     public function remove(Identity $identity, string $passkeyId, ?ClientContext $client = null): bool
     {

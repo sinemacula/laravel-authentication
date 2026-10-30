@@ -131,10 +131,9 @@ only duplicate them.
 1. The type: a link's is the guard's password identifier (`PasswordSignIn::identifierType()`); a code's is given and
    must have a registered normaliser (`InvalidArgumentException`), and a code needs a `OneTimeCodeSender` bound
    (`LogicException`). With `NotifyingResetLinkSender` bound, a link for a type other than `email` is an
-   `InvalidArgumentException`. The code settings, the code key, the delivery queue and the
-   link lifetime fail closed, and the provider's configured model must be on the device model's connection
-   (`SharedConnection::assertForGuard()`, a `LogicException`), since a reset could never spend what the request issues.
-   Nothing is counted yet.
+   `InvalidArgumentException`. The code settings, the code key, the delivery queue and the link lifetime fail closed,
+   and the provider's configured model must be on the storage connection (`SharedConnection::assertForGuard()`, a
+   `LogicException`), since a reset could never spend what the request issues. Nothing is counted yet.
 2. The audience must allow `password` (`method_not_allowed`); the identifier must canonicalise to a non-empty string
    (`identifier_invalid`, reported as `invalid_credentials`).
 3. `AttemptLimiter::acquire()` on `password_reset_request` for the identifier in normal form and the IP address, never
@@ -155,8 +154,8 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
 
 ## Reset submissions (`reset()`, `resetWithCode()`)
 
-1. Settings fail closed, and the provider's configured model must be on the device model's connection
-   (`SharedConnection`, the rule identifier changes share; `LogicException` naming both) before anything is counted.
+1. Settings fail closed, and the provider's configured model must be on the storage connection (`SharedConnection`, the
+   rule identifier changes share; `LogicException` naming both) before anything is counted.
 2. `acquire()` on `password_reset` for the identifier as given and the IP address (`rate_limited`), before any other
    work, released only by a reset that succeeds.
 3. Inside `JwtGuard::timeboxed()`: a missing or malformed identifier, token, code or password is `invalid`
@@ -165,14 +164,14 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
 4. One transaction on the codes' connection (the identity's, by the rule): the eligible identity found has its row
    locked first (`IdentityLock`, below) and is judged again, as the row reads under the lock
    (`ResetRecipient::eligible()`), so a deactivation committed since the lookup makes it ineligible; then the proof is
-   checked whatever the identity (`checkToken()`: no attempt
-   counted, conditional consume; `check()`: attempt counted, conditional consume). Refused: commit (the attempt stays
-   counted), `invalid` (`invalid_credentials`, `code_expired`, `code_exhausted` or `link_expired`). Accepted for no
-   eligible identity: roll back (the proof stays unspent), `invalid` (the recipient's reason). Accepted for a found
-   model on another connection than the devices (a provider whose configuration names no model, which step 1 cannot
-   check): roll back and throw the connection rule's `LogicException`, only now, so the refusal never tells someone
-   without a valid proof that the identifier is held. Accepted for an eligible one: `PasswordWriter::write($identity,
-   $password, RESET)` (a savepoint inside), then commit; the timebox ends early and the reservation is released.
+   checked whatever the identity (`checkToken()`: no attempt counted, conditional consume; `check()`: attempt counted,
+   conditional consume). Refused: commit (the attempt stays counted), `invalid` (`invalid_credentials`, `code_expired`,
+   `code_exhausted` or `link_expired`). Accepted for no eligible identity: roll back (the proof stays unspent),
+   `invalid` (the recipient's reason). Accepted for a found model on another connection than the storage connection (a
+   provider whose configuration names no model, which step 1 cannot check): roll back and throw the connection rule's
+   `LogicException`, only now, so the refusal never tells someone without a valid proof that the identifier is held.
+   Accepted for an eligible one: `PasswordWriter::write($identity, $password, RESET)` (a savepoint inside), then commit;
+   the timebox ends early and the reservation is released.
 5. The reset signs no one in and verifies no identifier.
 
 ## Failure / Edge Cases
@@ -182,9 +181,10 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
 - Row deleted between load and write: the `UPDATE` matches nothing, the `LogicException` rolls the transaction back, and
   no device is revoked.
 - Caller transaction rolled back: the hash, the cutoff and the revocations roll back with it and no event is dispatched.
-- Devices on another connection than the identity: the bulk revocation commits on the device connection inside the
-  identity's transaction; a failure after it (a throwing `DeviceRevoked` listener, say) rolls the password and the
-  cutoff back but leaves the devices revoked. More is ended, never less, and calling again finishes the job.
+- An identity on another connection than the devices (the storage connection): the bulk revocation commits on the
+  storage connection inside the identity's transaction; a failure after it (a throwing `DeviceRevoked` listener, say)
+  rolls the password and the cutoff back but leaves the devices revoked. More is ended, never less, and calling again
+  finishes the job.
 - Laravel's `Password` rule in a form accepts a breached password, and a bcrypt password over 72 bytes or holding a null
   character; `set()` refuses
   both.
@@ -201,9 +201,9 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
   nothing and the reset is `invalid`.
 - A failure after the proof is accepted (a revocation statement failing, say) or a caller's rollback: one transaction,
   so the proof, the password, the cutoff and the devices roll back together, and no event is dispatched.
-- An identity on another connection than the devices: refused with a `LogicException`, since the proof and the change
-  could not commit as one; `authentication:check` warns about such a guard, as it does about a non-`email` password
-  identifier while Laravel's notification is the sender.
+- An identity on another connection than the storage connection: refused with a `LogicException`, since the proof and
+  the change could not commit as one; `authentication:check` warns about such a guard, as it does about a non-`email`
+  password identifier while Laravel's notification is the sender.
 
 ## Implementation Anchors
 

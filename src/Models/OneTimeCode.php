@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\MassPrunable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
-use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
+use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
  * The live one-time code of one binding (a purpose, a guard, an identifier and,
@@ -18,10 +18,10 @@ use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
  * was used. The row is stored under a keyed digest of its binding, so neither
  * the code nor the identifier can be read back from the table.
  *
- * Kept on the device model's connection, in the table named by
- * `authentication.codes.table`. The code engine writes the rows with single
- * statements of its own; the model exists so `model:prune --model` with this
- * class can delete expired codes.
+ * Kept on the storage connection (see `Database\StorageConnection`), in the
+ * table named by `authentication.codes.table`. The code engine writes the rows
+ * with single statements of its own; the model exists so `model:prune --model`
+ * with this class can delete expired codes.
  *
  * Only the class name is public, for applications to schedule that pruning
  * with; its columns and behaviour belong to the code engine.
@@ -61,20 +61,20 @@ final class OneTimeCode extends Model
     protected $hidden = ['id', 'issue_id', 'code_hash'];
 
     /**
-     * Create a code on the device model's connection, in the configured table.
-     * Both are applied here, before Eloquent reads them, so this is
-     * construction rather than model behaviour.
+     * Create a code on the storage connection, in the configured table. Both
+     * are applied here, before Eloquent reads them, so this is construction
+     * rather than model behaviour.
      *
      * @param  array<string, mixed>  $attributes
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      *
      * @phpstan-ignore sineMaculaLaravel.modelBehaviour
      */
     public function __construct(array $attributes = [])
     {
         $this->setTable(Config::string('authentication.codes.table', 'one_time_codes'));
-        $this->setConnection(DeviceLookup::model()->getConnectionName());
+        $this->setConnection(StorageConnection::name());
 
         parent::__construct($attributes);
     }

@@ -17,12 +17,13 @@ use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Database\DeviceRetention;
+use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Delivery\DeliverySettings;
-use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuards;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenSettings;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeSettings;
+use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyChallenges;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeySignIn;
@@ -36,8 +37,8 @@ use Symfony\Component\Console\Attribute\AsCommand;
 
 /**
  * `authentication:check`: resolves every setting of each `jwt` and `api_key`
- * guard the way the guard would, and the device model, and exits non-zero on a
- * problem, for deploy pipelines and readiness probes.
+ * guard the way the guard would, and the package-wide settings, and exits
+ * non-zero on a problem, for deploy pipelines and readiness probes.
  *
  * Every check runs, so one run lists every problem, each as
  * `[<guard>] <message>`. For a `jwt` guard: the token service (keys, active
@@ -48,16 +49,19 @@ use Symfony\Component\Console\Attribute\AsCommand;
  * passkeys or configures one. For an `api_key` guard: the identity provider, a
  * principal resolver override, the package audience policy's settings and that
  * they allow `api_key`, and every flow's rate limits. The package-wide settings
- * are reported as `[device]` (the device model and the pruning retention),
- * `[sign_in]` (the pending sign-in lifetime), `[passwords]` (the password
- * policy settings), `[codes]` (the one-time code settings and key, and a sender
- * bound when a guard allows a code sign-in method, the package's or an
- * application's own `CodeSignIn`), `[delivery]` (the delivery queue, with a
- * warning, not a problem, when a `jwt` guard is configured and deliveries run
- * on a `sync` queue connection, or a `failover` one that can fall back to
- * `sync`), `[passkeys]` (the passkey challenge lifetime), `[api_keys]` (the key
- * prefix, the rotation overlaps, the last-use throttle and the pruning
- * retention) and `[identifier_changes]` (the pending change lifetime and the
+ * are reported as `[storage]` (the storage connection and the rate limits
+ * connection, each a connection name configured in `database.connections`, or
+ * none), `[device]` (while a `jwt` guard is configured: the device model, which
+ * must live on the storage connection, and the pruning retention), `[sign_in]`
+ * (the pending sign-in lifetime), `[passwords]` (the password policy settings),
+ * `[codes]` (the one-time code settings and key, and a sender bound when a
+ * guard allows a code sign-in method, the package's or an application's own
+ * `CodeSignIn`), `[delivery]` (the delivery queue, with a warning, not a
+ * problem, when a `jwt` guard is configured and deliveries run on a `sync`
+ * queue connection, or a `failover` one that can fall back to `sync`),
+ * `[passkeys]` (the passkey challenge lifetime), `[api_keys]` (the key prefix,
+ * the rotation overlaps, the last-use throttle and the pruning retention) and
+ * `[identifier_changes]` (the pending change lifetime and the
  * recent-authentication window). It also warns about a `jwt` guard whose
  * password resets and identifier changes would refuse to run (see
  * `PasswordChecks::warnings()`). The command reads configuration only: it opens
@@ -123,24 +127,33 @@ final class CheckConfigurationCommand extends Command
     }
 
     /**
-     * The package-wide checks, by what they check: the device model and how
-     * long pruning keeps a device, the lifetime of a pending sign-in (a further
-     * factor or a principal choice), the API key settings and the identifier
-     * change settings, each of which otherwise fails only when it is first
-     * used.
+     * The package-wide checks, by what they check: the connections the
+     * package's tables live on, the device model and how long pruning keeps a
+     * device (only while a `jwt` guard, which keeps device sessions, is
+     * configured), the lifetime of a pending sign-in (a further factor or a
+     * principal choice), the API key settings and the identifier change
+     * settings, each of which otherwise fails only when it is first used.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @return array<string, list<\Closure(): mixed>>
      */
     private function packageChecks(ConfigRepository $config): array
     {
-        return [
+        $device = JwtGuards::names($config) === [] ? [] : [
             'device' => [
-                static function () use ($config): void {
-                    InvalidDeviceModelConfigurationException::validate($config->string('authentication.device.model', ''));
+                static function (): void {
+                    DeviceLookup::model();
                 },
                 static fn (): int => DeviceRetention::days(),
             ],
+        ];
+
+        return [
+            'storage' => [
+                static fn (): ?string => self::configuredConnection($config, StorageConnection::name()),
+                static fn (): ?string => self::configuredConnection($config, StorageConnection::forRateLimits()),
+            ],
+            ...$device,
             'sign_in' => [
                 static fn (): int => (new PendingSignIns($config))->ttlSeconds(),
             ],
@@ -162,6 +175,25 @@ final class CheckConfigurationCommand extends Command
             ],
             'identifier_changes' => self::identifierChangeChecks($config),
         ];
+    }
+
+    /**
+     * The connection, once it is known to be configured in
+     * `database.connections`; `null`, the default connection, always is.
+     *
+     * @param  \Illuminate\Config\Repository  $config
+     * @param  ?string  $connection
+     * @return ?string
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function configuredConnection(ConfigRepository $config, ?string $connection): ?string
+    {
+        if ($connection !== null && !is_array($config->get("database.connections.{$connection}"))) {
+            throw new \InvalidArgumentException("The connection [{$connection}] the package's tables are to live on is not configured in `database.connections`.");
+        }
+
+        return $connection;
     }
 
     /**

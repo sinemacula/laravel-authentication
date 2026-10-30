@@ -55,7 +55,9 @@ final class SeparateConnectionDeviceRevocationsTest extends TestCase
     /**
      * Freeze the clock, create the identity table on the default connection and
      * the device and pending tables on the device connection, and record the
-     * revocation events.
+     * revocation events. The storage connection is set to the device connection
+     * once the shipped migrations have run on the default one, so the tests'
+     * own tables stand in for them there.
      *
      * @return void
      */
@@ -63,6 +65,8 @@ final class SeparateConnectionDeviceRevocationsTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        config()->set('authentication.storage.connection', SeparateConnectionDevice::CONNECTION);
 
         CarbonImmutable::setTestNow(CarbonImmutable::parse(self::NOW));
 

@@ -48,7 +48,9 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
 
     /**
      * Freeze the clock and create the identity table on the default connection
-     * and the device, pending and codes tables on the device connection.
+     * and the device, pending and codes tables on the device connection, which
+     * is made the storage connection once the shipped migrations have run on
+     * the default one.
      *
      * @return void
      */
@@ -56,6 +58,8 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        config()->set('authentication.storage.connection', SeparateConnectionDevice::CONNECTION);
 
         CarbonImmutable::setTestNow(CarbonImmutable::parse(self::NOW));
 

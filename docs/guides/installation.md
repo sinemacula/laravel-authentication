@@ -5,7 +5,9 @@ composer require sinemacula/laravel-authentication
 ```
 
 Publish the config and the migrations (the `devices`, `pending_sign_ins`, `rate_limits`, `one_time_codes`, `passkeys`,
-`passkey_challenges`, `api_keys` and `identifier_changes` tables), then migrate:
+`passkey_challenges`, `api_keys` and `identifier_changes` tables, created on the storage connection: the default
+connection unless `authentication.storage.connection` names another, see [Storage](configuration.md#storage)), then
+migrate:
 
 ```bash
 php artisan vendor:publish --tag=authentication-config
