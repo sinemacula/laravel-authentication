@@ -21,9 +21,10 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * `client_credentials`), which are not sign-in methods and never resolve to
  * one. Other methods register themselves with `extend()` under a lower-case
  * name (a letter, then letters, digits or underscores), for example from a
- * service provider:
+ * service provider's `register()` once the registry resolves, which holds
+ * whichever provider registers first:
  *
- * `$app->make(SignInMethodManager::class)->extend('sso', fn ($app) => $app->make(SsoSignIn::class));`
+ * `$this->callAfterResolving(SignInMethodManager::class, fn ($methods) => $methods->extend('sso', ...));`
  *
  * A singleton that keeps each method it builds for the life of the process,
  * which is why methods must be stateless. There is no default method: every

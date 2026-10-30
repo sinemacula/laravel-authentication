@@ -56,6 +56,31 @@ registered, and carries over the guard and provider drivers registered on the ma
 (`AuthManager::inheritDriversFrom()`), so `Auth::extend()` and `Auth::provider()` calls made in your providers'
 `register()` keep working.
 
+### Binding order
+
+Every default the package binds is bound only when nothing is bound yet: `PrincipalResolver`, `AudiencePolicy`,
+`AttemptLimiter`, `AdditionalFactorPolicy`, `ScopeRegistry`, `BreachedPasswordChecker`, `PasswordResetLinkSender`, and
+the `IdentifierNormalisers` and `SignInMethodManager` registries. Bind yours in a service provider's `register()`,
+before or after the package's provider: one bound before is kept, and one bound after replaces the default, so a factor
+policy is never replaced by `NeverRequireAdditionalFactor`, nor a scope registry by `AcceptAnyScope`. Resolve none of
+them while providers register: a default resolved then is the instance every later caller gets, even when a deferred
+provider binds its own.
+
+Register a sign-in method once the registry resolves, which works in either order (a registry made with `make()` before
+the package registers is not the one the package uses):
+
+```php
+use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
+
+$this->callAfterResolving(SignInMethodManager::class, static function (SignInMethodManager $methods): void {
+    $methods->extend('sso', fn ($app) => $app->make(SsoSignIn::class));
+});
+```
+
+An identifier normaliser is configuration: a package that adds one sets `authentication.identifiers.normalisers.<type>`
+in `boot()`. Laravel merges a package's configuration one level deep, so a value set under `authentication.identifiers`
+while providers register, before the application has published the configuration, replaces the package's normalisers.
+
 ## Suite integration
 
 The package authenticates; its siblings decide everything else, each through a seam here, and none is required. Every

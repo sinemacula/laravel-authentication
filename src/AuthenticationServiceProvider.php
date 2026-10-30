@@ -86,6 +86,12 @@ final class AuthenticationServiceProvider extends ServiceProvider
     /**
      * Register container bindings.
      *
+     * Every binding is a default: one that the application or another package
+     * made before this provider registers is kept, so a sibling's policy is
+     * never replaced by the package's (an additional-factor policy by
+     * `NeverRequireAdditionalFactor`, a scope registry by `AcceptAnyScope`),
+     * and one made after replaces the default, as any later binding does.
+     *
      * @return void
      */
     #[\Override]
@@ -96,19 +102,19 @@ final class AuthenticationServiceProvider extends ServiceProvider
             'authentication',
         );
 
-        $this->app->singleton(PrincipalResolver::class, DefaultPrincipalResolver::class);
-        $this->app->singleton(AudiencePolicy::class, GuardAudiencePolicy::class);
-        $this->app->singleton(IdentifierNormalisers::class);
-        $this->app->singleton(AttemptLimiter::class, DatabaseAttemptLimiter::class);
-        $this->app->singleton(SignInMethodManager::class);
-        $this->app->scoped(Rehashing::class);
-        $this->app->singleton(AdditionalFactorPolicy::class, NeverRequireAdditionalFactor::class);
-        $this->app->singleton(WebAuthn::class);
-        $this->app->singleton(ScopeRegistry::class, AcceptAnyScope::class);
-        $this->app->singleton(BreachedPasswordChecker::class, NoBreachedPasswordCheck::class);
-        $this->app->singleton(PasswordResetLinkSender::class, NotifyingResetLinkSender::class);
-        $this->app->bind(IlluminateAuthenticate::class, Authenticate::class);
-        $this->app->singleton(
+        $this->app->singletonIf(PrincipalResolver::class, DefaultPrincipalResolver::class);
+        $this->app->singletonIf(AudiencePolicy::class, GuardAudiencePolicy::class);
+        $this->app->singletonIf(IdentifierNormalisers::class);
+        $this->app->singletonIf(AttemptLimiter::class, DatabaseAttemptLimiter::class);
+        $this->app->singletonIf(SignInMethodManager::class);
+        $this->app->scopedIf(Rehashing::class);
+        $this->app->singletonIf(AdditionalFactorPolicy::class, NeverRequireAdditionalFactor::class);
+        $this->app->singletonIf(WebAuthn::class);
+        $this->app->singletonIf(ScopeRegistry::class, AcceptAnyScope::class);
+        $this->app->singletonIf(BreachedPasswordChecker::class, NoBreachedPasswordCheck::class);
+        $this->app->singletonIf(PasswordResetLinkSender::class, NotifyingResetLinkSender::class);
+        $this->app->bindIf(IlluminateAuthenticate::class, Authenticate::class);
+        $this->app->singletonIf(
             JwtTokenServiceFactory::class,
             static fn (Application $app): JwtTokenServiceFactory => new JwtTokenServiceFactory(
                 $app,
