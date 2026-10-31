@@ -95,10 +95,10 @@ text as a JSON key, the text Laravel itself uses for the same response. Add a li
 }
 ```
 
-| Key                  | Message of                                                                                |
-|----------------------|-------------------------------------------------------------------------------------------|
-| `Unauthenticated.`   | The package guards' `401` (above), whichever `auth` middleware raised it                  |
-| `Too Many Attempts.` | The `429` of `Auth::passkeys()->signInOptions()` past its limit, and of a refused refresh |
+| Key                  | Message of                                                               |
+|----------------------|--------------------------------------------------------------------------|
+| `Unauthenticated.`   | The package guards' `401` (above), whichever `auth` middleware raised it |
+| `Too Many Attempts.` | The `429` of `Auth::passkeys()->signInOptions()` past its limit          |
 
 Each is translated by the translator, and in the locale, of the application serving the request when it is raised (the
 `429`) or rendered (the `401`), so set the locale in a middleware that runs before `auth`; under Octane that is the
@@ -108,9 +108,11 @@ message's line too. The status and `Retry-After` are the same in every locale.
 
 Everything else the package answers with is a code for your application to word: failure reasons, the statuses and
 outcomes of results, password violations, passkey registration failures and the RFC 6749 errors of client credentials.
-The messages your own routes answer with, such as those in these guides, are yours to translate with `__()`. One-time
-codes and identifier change notices go out through the senders your application binds, and the default password reset
-link sender sends Laravel's `ResetPassword` notification, worded through Laravel's own translation keys.
+The messages your own routes answer with, such as those in these guides, are yours to translate with `__()`; that
+includes the `429` of a rate-limited sign-in, switch or refresh, which the session service returns rather than throws,
+and which the guides answer with `__('Too Many Attempts.')`. One-time codes and identifier change notices go out through
+the senders your application binds, and the default password reset link sender sends Laravel's `ResetPassword`
+notification, worded through Laravel's own translation keys.
 
 ## Access-only mode (no devices, no refresh)
 
