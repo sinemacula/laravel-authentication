@@ -9,8 +9,10 @@ use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Events\Dispatcher;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
@@ -147,6 +149,39 @@ final class PasskeySignInTest extends TestCase
         self::assertSame(1, $stored->sign_count);
         self::assertTrue($stored->last_used_at?->equalTo($this->now));
         self::assertSame(0, PasskeyChallenge::query()->count());
+    }
+
+    /**
+     * A sign-in's `PasskeyUsed` goes, once committed, to the dispatcher bound
+     * when the commit runs it, as its `SignedIn` does: one bound after the
+     * sign-in, before the caller commits, receives both, and the dispatcher
+     * bound when the sign-in was made receives neither.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAUseReachesTheDispatcherBoundAtTheCommit(): void
+    {
+        $this->registerPasskey($this->seedIdentity());
+
+        $rebound  = new Dispatcher(app());
+        $received = [];
+
+        $rebound->listen([PasskeyUsed::class, SignedIn::class], static function (object $event) use (&$received): void {
+            $received[] = $event::class;
+        });
+
+        $this->recordEvents([PasskeyUsed::class, SignedIn::class]);
+
+        DB::transaction(function () use ($rebound): void {
+            self::assertTrue($this->signInWithPasskey()->isSignedIn());
+
+            app()->instance('events', $rebound);
+        });
+
+        self::assertSame([], $this->recordedClasses());
+        self::assertSame([PasskeyUsed::class, SignedIn::class], $received);
     }
 
     /**

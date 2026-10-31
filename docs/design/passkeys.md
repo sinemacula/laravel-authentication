@@ -58,9 +58,11 @@ package's.
   id for a passkey found, listed or removed; for a challenge used up, its recorded ceremony, guard and relying party as
   well as the type and key), since a column's collation, such as MySQL's default `_ci`, can count distinct values like
   `alice` and `Alice`, or guards `api` and `API`, as equal.
-- Events report writes once committed on the passkey's connection (`AfterCommit`): `PasskeyAdded`, `PasskeyUsed`,
-  `PasskeyRemoved`, each a `ContextEvent` with the guard, the client, the owner, the method `passkey` and the passkey's
-  id in `credentialId`. No event, summary or exception carries a credential id, public key, user handle or count.
+- Events report writes once committed on the passkey's connection (`AfterCommit`), to the dispatcher bound when the
+  commit runs them (the guard's context's for the service, the container's for `PasskeySignIn`): `PasskeyAdded`,
+  `PasskeyUsed`, `PasskeyRemoved`, each a `ContextEvent` with the guard, the client, the owner, the method `passkey` and
+  the passkey's id in `credentialId`. No event, summary or exception carries a credential id, public key, user handle or
+  count.
 
 ## Success Path
 

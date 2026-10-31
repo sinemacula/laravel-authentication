@@ -1235,17 +1235,16 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * Each event goes, once committed, to the dispatcher the guard had when its
-     * write was made: a dispatcher swapped in between the writes receives only
-     * the events of the writes made after the swap, an addition, a use and a
-     * removal alike, and one swapped in after the last write, before the
-     * commit, receives none.
+     * Every event goes, once committed, to the dispatcher the guard has when
+     * the commit runs it: the addition, the use and the removal all reach the
+     * one swapped in after the last write, and neither the dispatcher of the
+     * addition nor the one swapped in between the writes receives any.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testEachEventKeepsTheDispatcherOfItsWrite(): void
+    public function testEveryEventReachesTheDispatcherBoundAtTheCommit(): void
     {
         $identity = $this->seedIdentity();
         $guard    = $this->freshGuard();
@@ -1280,9 +1279,9 @@ final class PasskeyServiceTest extends TestCase
             $guard->setDispatcher($last);
         });
 
-        self::assertSame([PasskeyAdded::class], $this->recordedClasses());
-        self::assertSame([PasskeyUsed::class, PasskeyRemoved::class], $received);
-        self::assertSame([], $late);
+        self::assertSame([], $this->recordedClasses());
+        self::assertSame([], $received);
+        self::assertSame([PasskeyAdded::class, PasskeyUsed::class, PasskeyRemoved::class], $late);
     }
 
     /**

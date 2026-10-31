@@ -183,13 +183,10 @@ final readonly class ChangeConfirmation
     private function report(Identity&Model $identity, IdentifierChange $change, EventContext $context, CarbonImmutable $now): void
     {
         $container = $this->container;
-        $events    = $this->context->events();
         $event     = new IdentifierChanged($context, $change->type, $change->previous, $change->identifier, $now);
 
         (new AfterCommit(static fn (): mixed => $container->bound('db.transactions') ? $container->make('db.transactions') : null))
-            ->run($identity, static function () use ($events, $event): void {
-                $events->dispatch($event);
-            });
+            ->run($identity, fn () => $this->context->dispatch($event));
 
         if ($change->previous === null) {
             return;

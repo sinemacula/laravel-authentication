@@ -156,16 +156,15 @@ final class PasswordWriterTest extends TestCase
     }
 
     /**
-     * `PasswordSet` goes to the dispatcher the guard had when the password was
-     * written, while the revocations' reports go to the one it has when the
-     * caller commits: a dispatcher swapped in between receives the revocations
-     * only.
+     * `PasswordSet` and the revocations' reports go to the dispatcher the guard
+     * has when the caller commits: one swapped in after the write receives them
+     * all, and the dispatcher of the write none.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testThePasswordSetKeepsTheDispatcherOfTheWriteAndTheRevocationsTakeTheOneAtTheCommit(): void
+    public function testThePasswordSetAndTheRevocationsReachTheDispatcherBoundAtTheCommit(): void
     {
         $identity = self::seedPasswordIdentity();
         $kept     = $this->signInWithPassword('web')->device;
@@ -190,8 +189,8 @@ final class PasswordWriterTest extends TestCase
             $guard->setDispatcher($swapped);
         });
 
-        self::assertSame([PasswordSet::class], $this->recordedClasses());
-        self::assertSame([DeviceRevoked::class, SignedOutEverywhere::class], $received);
+        self::assertSame([], $this->recordedClasses());
+        self::assertSame([DeviceRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $received);
     }
 
     /**
