@@ -10,6 +10,8 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
+use Illuminate\Translation\ArrayLoader;
+use Illuminate\Translation\Translator;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
@@ -211,6 +213,32 @@ final class LocalisedMessagesTest extends TestCase
         app()->setLocale('en');
 
         $this->getJson('/package')->assertExactJson(['message' => 'Unauthenticated.']);
+    }
+
+    /**
+     * The translator is resolved as each message is rendered, so one the
+     * application binds after the exception handler and its `401` responder
+     * were resolved words the messages from then on.
+     *
+     * @return void
+     */
+    public function testMessagesAreWordedByTheTranslatorBoundThen(): void
+    {
+        config()->set('authentication.rate_limits.passkey_options.per_ip', ['max' => 1, 'decay_seconds' => 60]);
+
+        $this->travelTo(CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0));
+        $this->getJson('/package')->assertExactJson(['message' => 'Unauthenticated.']);
+        $this->postJson('/sign-in/passkey/options')->assertOk();
+
+        $loader = new ArrayLoader;
+
+        $loader->addMessages('en', '*', ['Unauthenticated.' => 'Please sign in.', 'Too Many Attempts.' => 'Slow down.'], '*');
+
+        app()->instance('translator', new Translator($loader, 'en'));
+
+        $this->getJson('/package')->assertUnauthorized()->assertExactJson(['message' => 'Please sign in.']);
+        $this->getJson('/application')->assertUnauthorized()->assertExactJson(['message' => 'Please sign in.']);
+        $this->postJson('/sign-in/passkey/options')->assertTooManyRequests()->assertHeader('Retry-After', '60')->assertJsonPath('message', 'Slow down.');
     }
 
     /**

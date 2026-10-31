@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Http;
 
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Contracts\Auth\Factory as AuthFactory;
+use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Translation\Translator;
 use Illuminate\Http\JsonResponse;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
@@ -21,9 +22,10 @@ use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
  * keep Laravel's behaviour and render callbacks registered by the application
  * still take precedence.
  *
- * The body's message is translated as it is rendered, in the application's
- * locale then, so the `Unauthenticated.` Laravel's own `auth` middleware raises
- * is translated as well as the package's (see `ConsumerMessages`).
+ * The body's message is translated as it is rendered, by the translator the
+ * container holds then and in its locale, so the `Unauthenticated.` Laravel's
+ * own `auth` middleware raises is translated as well as the package's (see
+ * `ConsumerMessages`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -34,15 +36,15 @@ final readonly class UnauthenticatedResponse
      * Constructor.
      *
      * @param  \Illuminate\Contracts\Auth\Factory  $auth
-     * @param  \Illuminate\Contracts\Translation\Translator  $translator
+     * @param  \Illuminate\Contracts\Container\Container  $container
      */
     public function __construct(
 
         /** Auth factory used to resolve the guards an exception names. */
         private AuthFactory $auth,
 
-        /** Translator the body's message is translated through. */
-        private Translator $translator,
+        /** Container the translator is resolved from as each body is rendered. */
+        private Container $container,
     ) {}
 
     /**
@@ -61,7 +63,7 @@ final readonly class UnauthenticatedResponse
             return null;
         }
 
-        $message = ConsumerMessages::translate($this->translator, $exception->getMessage());
+        $message = ConsumerMessages::translate($this->container->make(Translator::class), $exception->getMessage());
 
         return new JsonResponse(['message' => $message], JsonResponse::HTTP_UNAUTHORIZED);
     }
