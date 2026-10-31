@@ -47,9 +47,10 @@ final class PackageBenchApplication
 
         $app    = new Application(dirname(__DIR__, 2));
         $config = new ConfigRepository([
-            'app'     => ['key' => 'base64:' . base64_encode('laravel-authentication bench key')],
-            'auth'    => ['guards' => $guards],
-            'hashing' => ['rehash_on_login' => false],
+            'app'      => ['key' => 'base64:' . base64_encode('laravel-authentication bench key')],
+            'auth'     => ['guards' => $guards],
+            'database' => ['default' => BenchDatabase::CONNECTION],
+            'hashing'  => ['rehash_on_login' => false],
         ]);
 
         $app->instance('config', $config);

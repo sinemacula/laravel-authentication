@@ -133,6 +133,7 @@ final class RefreshTokenExchangeBenchHarness
         JWT::$timestamp = $now->getTimestamp();
 
         $config = new ConfigRepository([
+            'database'       => ['default' => BenchDatabase::CONNECTION],
             'authentication' => [
                 'device' => [
                     'model'                      => Device::class,

@@ -23,6 +23,7 @@ final class JwtBenchSetup
     public static function config(): ConfigRepository
     {
         return new ConfigRepository([
+            'database'       => ['default' => BenchDatabase::CONNECTION],
             'authentication' => [
                 'device' => [
                     'model'                      => Device::class,
