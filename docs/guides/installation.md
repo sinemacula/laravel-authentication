@@ -73,14 +73,44 @@ Non-human identities authenticate with API keys on a guard of the `api_key` driv
 ## Unauthenticated requests
 
 A guest on a route that only package guards protect (`auth:api`, or `auth` when the default guard is a package guard)
-gets `401` with `{"message": "Unauthenticated."}`, whatever its `Accept` header. The guards are stateless, so there
-is no login page to redirect to, and an API without a `login` route no longer answers browser-style requests with a
-server error. Laravel's own guards keep their guest redirect, and so does a route that also accepts one of them
-(`auth:web,api`).
+gets `401` with `{"message": "Unauthenticated."}` in the application's locale (see [below](#localising-messages)),
+whatever its `Accept` header. The guards are stateless, so there is no login page to redirect to, and an API without a
+`login` route no longer answers browser-style requests with a server error. Laravel's own guards keep their guest
+redirect, and so does a route that also accepts one of them (`auth:web,api`).
 
 The package binds its `SineMacula\Laravel\Authentication\Http\Middleware\Authenticate` in place of Laravel's `auth`
 middleware and registers the `401` as an exception-handler render callback, after any your application registers for
 `AuthenticationException`. If your application aliases its own `auth` middleware, extend the package's class.
+
+## Localising messages
+
+The package answers a client in words in two places, and translates both through Laravel's translator with the English
+text as a JSON key, the text Laravel itself uses for the same response. Add a line to your application's
+`lang/{locale}.json` to word one for a locale; a locale without one gets the English text:
+
+```json
+{
+    "Unauthenticated.": "Non authentifié.",
+    "Too Many Attempts.": "Trop de tentatives."
+}
+```
+
+| Key                  | Message of                                                                                |
+|----------------------|-------------------------------------------------------------------------------------------|
+| `Unauthenticated.`   | The package guards' `401` (above), whichever `auth` middleware raised it                  |
+| `Too Many Attempts.` | The `429` of `Auth::passkeys()->signInOptions()` past its limit, and of a refused refresh |
+
+Each is translated by the translator, and in the locale, of the application serving the request when it is raised (the
+`429`) or rendered (the `401`), so set the locale in a middleware that runs before `auth`; under Octane that is the
+request's sandbox, so a translator bound for one request words only that request's messages. An
+`AuthenticationException` your application raises for a package guard with a message of its own is translated by that
+message's line too. The status and `Retry-After` are the same in every locale.
+
+Everything else the package answers with is a code for your application to word: failure reasons, the statuses and
+outcomes of results, password violations, passkey registration failures and the RFC 6749 errors of client credentials.
+The messages your own routes answer with, such as those in these guides, are yours to translate with `__()`. One-time
+codes and identifier change notices go out through the senders your application binds, and the default password reset
+link sender sends Laravel's `ResetPassword` notification, worded through Laravel's own translation keys.
 
 ## Access-only mode (no devices, no refresh)
 

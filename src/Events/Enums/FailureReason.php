@@ -170,9 +170,10 @@ enum FailureReason: string
     // the guard's provider, or refused by the application's unique index)
     case IDENTIFIER_TAKEN = 'identifier_taken';
 
-    // A password reset link's token, or an identifier change link, has expired:
-    // a reset answers it as invalid, so only the event says so, and an
-    // identifier change reports it as expired
+    // A password reset link's token, an identifier change link or a
+    // verification link has expired: a reset answers it as invalid, so only the
+    // event says so, and an identifier change or a verification reports it as
+    // expired
     case LINK_EXPIRED = 'link_expired';
 
     /**

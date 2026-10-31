@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Guards;
 
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Contracts\Translation\Translator;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
@@ -20,6 +21,7 @@ use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\ConsumerMessages;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh;
@@ -343,7 +345,9 @@ final class JwtGuard extends AbstractGuard
         $this->context->dispatch($failure);
 
         if ($failure->retryAfter !== null) {
-            throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $failure->retryAfter]);
+            $message = ConsumerMessages::translate(Container::getInstance()->make(Translator::class), ConsumerMessages::TOO_MANY_ATTEMPTS);
+
+            throw new ThrottleRequestsException($message, null, ['Retry-After' => $failure->retryAfter]);
         }
     }
 

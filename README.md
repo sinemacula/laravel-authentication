@@ -47,6 +47,8 @@ are caught on the server.
 - **Per-guard audiences**: which methods and principal types a guard admits, and lifetimes per principal type.
 - **Database rate limits**, enumeration-resistant responses, and read-replica and Octane safety.
 - **Events** for every sign-in, refresh, revocation and failure, with one shared context and never a secret.
+- **Localisable messages**: the `401` and `429` messages translate through your `lang/{locale}.json`, and every other
+  answer is a code your application words.
 - **Extension points** for MFA, authorization, SSO and audit packages, each with a default that works without them.
 
 ## Installation
@@ -146,7 +148,7 @@ Route::middleware('auth:api')->get('/me', fn () => Auth::identity());
 
 | Guide                                                     | Covers                                                                   |
 |-----------------------------------------------------------|--------------------------------------------------------------------------|
-| [Installation](docs/guides/installation.md)               | Keys, guards and providers, unauthenticated responses, access-only mode  |
+| [Installation](docs/guides/installation.md)               | Keys, guards and providers, the `401`, localisation, access-only mode    |
 | [Identity models](docs/guides/identity-models.md)         | 2D and 3D models, principal types, identifiers, verification, activity   |
 | [Signing in](docs/guides/signing-in.md)                   | The session service, one-time codes, passkeys, custom methods, factors   |
 | [Refreshing](docs/guides/refreshing.md)                   | Refresh, the refresh cookie and replay detection                         |

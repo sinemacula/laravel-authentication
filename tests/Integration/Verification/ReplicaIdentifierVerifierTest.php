@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
+use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 use Tests\Concerns\InteractsWithLaggingReplica;
@@ -153,7 +154,7 @@ final class ReplicaIdentifierVerifierTest extends TestCase
 
         DB::connection(self::REPLICA_CONNECTION)->table('verifiable_identities')->update(['email' => 'old@example.com']);
 
-        self::assertSame(IdentifierVerification::ALREADY_VERIFIED, $links->consume(Request::create($link)));
+        self::assertSame(VerificationLinkOutcome::ALREADY_VERIFIED, $links->consume(Request::create($link)));
     }
 
     /**
@@ -176,7 +177,7 @@ final class ReplicaIdentifierVerifierTest extends TestCase
         $links    = app(VerificationLinks::class);
         $link     = $links->create('querying', $identity, 'email', 'verify');
 
-        self::assertSame(IdentifierVerification::VERIFIED, $links->consume(Request::create($link)));
+        self::assertSame(VerificationLinkOutcome::VERIFIED, $links->consume(Request::create($link)));
         self::assertNotNull(DB::connection(self::PRIMARY_CONNECTION)->table('verifiable_identities')->value('email_verified_at'));
     }
 

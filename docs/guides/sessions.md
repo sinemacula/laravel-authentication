@@ -20,7 +20,7 @@ if ($result->isFailed()) {
     // AuthenticationFailed was dispatched (flow principal_switch); $result->reason says why.
     if ($result->reason === FailureReason::RATE_LIMITED) {
         // A 429 with Retry-After, as a refused refresh answers, so clients wait.
-        throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $result->retryAfter]);
+        throw new ThrottleRequestsException(__('Too Many Attempts.'), null, ['Retry-After' => $result->retryAfter]);
     }
 
     abort(401);

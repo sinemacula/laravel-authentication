@@ -5,7 +5,9 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Http;
 
 use Illuminate\Auth\AuthenticationException;
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Auth\Factory as AuthFactory;
+use Illuminate\Contracts\Translation\Translator;
 use Illuminate\Http\JsonResponse;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 
@@ -19,6 +21,12 @@ use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
  * returns `null` for every other `AuthenticationException`, so other guards
  * keep Laravel's behaviour and render callbacks registered by the application
  * still take precedence.
+ *
+ * The body's message is translated as it is rendered, by the translator of the
+ * application serving the request (under Octane, the request's sandbox, not the
+ * worker application that resolved the handler) and in its locale, so the
+ * `Unauthenticated.` Laravel's own `auth` middleware raises is translated as
+ * well as the package's (see `ConsumerMessages`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -37,8 +45,8 @@ final readonly class UnauthenticatedResponse
     ) {}
 
     /**
-     * Render the `401` response for an exception raised by package guards, or
-     * `null` to defer to Laravel.
+     * Render the `401` response for an exception raised by package guards, its
+     * message translated, or `null` to defer to Laravel.
      *
      * @param  \Illuminate\Auth\AuthenticationException  $exception
      * @return ?\Illuminate\Http\JsonResponse
@@ -52,7 +60,9 @@ final readonly class UnauthenticatedResponse
             return null;
         }
 
-        return new JsonResponse(['message' => $exception->getMessage()], JsonResponse::HTTP_UNAUTHORIZED);
+        $message = ConsumerMessages::translate(Container::getInstance()->make(Translator::class), $exception->getMessage());
+
+        return new JsonResponse(['message' => $message], JsonResponse::HTTP_UNAUTHORIZED);
     }
 
     /**

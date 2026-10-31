@@ -35,6 +35,7 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\SendIdentifierChangeNoti
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\OutdatedProofs;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
+use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 use Tests\Concerns\ChangesIdentifiers;
 use Tests\Concerns\InspectsTraces;
@@ -787,7 +788,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
         DB::table('changeable_identities')->update(['email_verified_at' => null]);
 
         self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::CODE));
-        self::assertNull(app(VerificationLinks::class)->consume(Request::create($link)));
+        self::assertSame(VerificationLinkOutcome::INVALID, app(VerificationLinks::class)->consume(Request::create($link)));
     }
 
     /**
