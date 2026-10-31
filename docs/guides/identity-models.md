@@ -299,16 +299,18 @@ delivery:
 
 ```php
 use Illuminate\Http\Request;
+use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 
 // Send it: a signed link to your route, valid for `verification.link_ttl_minutes` (60 by default).
 $url = app(VerificationLinks::class)->create('api', $user, 'email', 'verification.verify');
 
-// Your route: verified, already_verified, mismatch, or null for an invalid link.
+// Your route: verified, already_verified, mismatch, invalid or expired.
 Route::get('/verify-email', function (Request $request, VerificationLinks $links) {
-    return match ($links->consume($request)?->value) {
-        'verified', 'already_verified' => response()->noContent(),
-        default                        => abort(403),
+    return match ($links->consume($request)) {
+        VerificationLinkOutcome::VERIFIED, VerificationLinkOutcome::ALREADY_VERIFIED => response()->noContent(),
+        VerificationLinkOutcome::EXPIRED                                             => abort(410, 'Request a new link.'),
+        VerificationLinkOutcome::MISMATCH, VerificationLinkOutcome::INVALID          => abort(403),
     };
 })->name('verification.verify');
 ```
@@ -321,6 +323,46 @@ verify identifiers. `create()` takes the route's own parameters (but not the res
 lifetime in minutes (1 to 10080, a week, like the configured one). Consuming a link loads the identity through the
 guard's identity provider from the write connection and verifies the identifier; it never signs anyone in. Following it
 again reports `already_verified`.
+
+`consume()` answers a `VerificationLinkOutcome`. It checks the link's fields and purpose, then its signature, then its
+expiry, before it reads any identity: a link that was tampered with, signed for something else or carries no
+well-formed expiry is `invalid` (expired or not), and an authentic link past its lifetime is `expired`, whatever has
+become of its identity since. A link for a guard that is no longer a JWT guard, an identity that is gone or cannot
+verify identifiers, or an identifier that has changed or been removed is `invalid` too, so the answer says nothing
+about the account. Each refusal is reported by `AuthenticationFailed` on the `identifier_verification` flow, as
+`invalid_credentials` or `link_expired`; its context names the guard only once the signature is correct, and the
+identity only when it was loaded to check the digest. `verified` dispatches `IdentifierVerified` once the record
+commits. `mismatch` is the verifier's answer for an identifier that changed while the link was being checked: nothing
+is recorded or reported. Laravel's `signed` middleware, if you add it to the route, answers an expired link with its own
+403 before `consume()` runs, so the route never sees `expired` and nothing is reported; leave it off to tell the two
+apart.
+
+`consume()` used to answer the verifier's `IdentifierVerification`, or `null` for any refused link. A check written for
+that still runs, wrongly: a `null`, `!== null` or truthiness check is now always given an outcome, refusals included,
+and a `match` on the old enum's cases never matches. Match the one enum instead:
+
+```php
+// Before
+use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
+
+$verification = app(VerificationLinks::class)->consume($request);
+
+if ($verification === null) {
+    abort(403);   // a refused link: tampered with, expired, or no longer the identifier's
+}
+
+// After
+use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
+use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
+
+$outcome = app(VerificationLinks::class)->consume($request);
+
+return match ($outcome) {
+    VerificationLinkOutcome::VERIFIED, VerificationLinkOutcome::ALREADY_VERIFIED => response()->noContent(),
+    VerificationLinkOutcome::EXPIRED                                             => abort(410, 'Request a new link.'),
+    VerificationLinkOutcome::MISMATCH, VerificationLinkOutcome::INVALID          => abort(403),
+};
+```
 
 Verify by one-time code with `Auth::codes($guard)`: `sendVerification()` sends a code to the identity's current
 identifier of the type, and `verify()` checks it and records the verification:

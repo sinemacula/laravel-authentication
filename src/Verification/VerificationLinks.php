@@ -8,15 +8,22 @@ use Carbon\CarbonImmutable;
 use Illuminate\Auth\AuthManager;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Auth\UserProvider;
-use Illuminate\Contracts\Routing\UrlGenerator;
+use Illuminate\Contracts\Container\Container;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Request;
+use Illuminate\Routing\UrlGenerator;
 use SineMacula\Laravel\Authentication\Config\IntegerSetting;
 use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
+use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 
 /**
  * Verifies identifiers by signed link: `create()` signs a link to a route of
@@ -27,9 +34,11 @@ use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
  * identity, the identifier type, and the identifier itself through a SHA-256
  * digest of its canonical form, so it stops working when the identifier changes
  * and can be used for nothing else. It expires after
- * `authentication.verification.link_ttl_minutes`. Consuming a link never signs
- * anyone in, and consuming it again reports the identifier already verified.
- * The application owns the route, the message and its delivery.
+ * `authentication.verification.link_ttl_minutes`. Consuming a link answers a
+ * `VerificationLinkOutcome` and never signs anyone in, and consuming it again
+ * reports the identifier already verified. A refused link is reported by
+ * `AuthenticationFailed`. The application owns the route, the message and its
+ * delivery.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -48,10 +57,11 @@ final readonly class VerificationLinks
     /**
      * Constructor.
      *
-     * @param  \Illuminate\Contracts\Routing\UrlGenerator  $urls
+     * @param  \Illuminate\Routing\UrlGenerator  $urls
      * @param  \Illuminate\Auth\AuthManager  $auth
      * @param  \Illuminate\Config\Repository  $config
      * @param  \SineMacula\Laravel\Authentication\Verification\IdentifierVerifier  $verifier
+     * @param  \Illuminate\Contracts\Container\Container  $container
      */
     public function __construct(
 
@@ -66,6 +76,9 @@ final readonly class VerificationLinks
 
         /** Records the verification a link proves. */
         private IdentifierVerifier $verifier,
+
+        /** Container the event dispatcher is resolved from when a link is refused. */
+        private Container $container,
     ) {}
 
     /**
@@ -128,53 +141,93 @@ final readonly class VerificationLinks
 
     /**
      * Check a request to a verification link and verify the identifier it
-     * proves: `null` when the link is not a valid, unexpired verification link
-     * for the identity's current identifier, otherwise the outcome of the
-     * verification.
+     * proves. The link's fields, purpose, signature and expiry are checked
+     * before any identity is read: a link that is malformed, tampered with or
+     * signed for something else is `invalid`, and an authentic one whose time
+     * has passed `expired`. A link that names no JWT guard, no identity of it
+     * that can verify identifiers, or not the identity's current identifier, is
+     * `invalid` too, so a refusal says nothing about the account. Each refusal
+     * is reported by `AuthenticationFailed` on the `identifier_verification`
+     * flow, as `invalid_credentials` or `link_expired`. Otherwise the
+     * verifier's answer: `verified`, `already_verified`, or `mismatch` for an
+     * identifier that changed while it was being verified, with nothing
+     * recorded or reported.
      *
      * @param  \Illuminate\Http\Request  $request
-     * @return ?\SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification
+     * @return \SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public function consume(Request $request): ?IdentifierVerification
+    public function consume(Request $request): VerificationLinkOutcome
     {
-        $link = self::link($request);
+        $client = ClientContext::fromRequest($request);
+        $link   = self::link($request);
 
-        if ($link === null) {
-            return null;
+        if ($link === null || !$this->urls->hasCorrectSignature($request)) {
+            return $this->refuse(new EventContext(null, $client), FailureReason::INVALID_CREDENTIALS);
         }
 
-        [$guard, $type, $hash] = $link;
+        [$guard, $id, $type, $hash] = $link;
 
-        $identity   = $this->identity($guard, $request->query('identity'));
-        $identifier = $identity === null ? null : $this->provenIdentifier($identity, $type, $hash);
+        $provider = $this->provider($guard);
+        $context  = new EventContext($provider === null ? null : $guard, $client);
 
-        return $identity === null || $identifier === null
-            ? null
-            : $this->verifier->verify($guard, $identity, $type, $identifier, ClientContext::fromRequest($request));
+        if (!$this->urls->signatureHasNotExpired($request)) {
+            return $this->refuse($context, FailureReason::LINK_EXPIRED);
+        }
+
+        $identity = $provider === null ? null : $this->identity($provider, $id);
+
+        if ($identity === null) {
+            return $this->refuse($context, FailureReason::INVALID_CREDENTIALS);
+        }
+
+        $identifier = $this->provenIdentifier($identity, $type, $hash);
+
+        return $identifier === null
+            ? $this->refuse(new EventContext($guard, $client, $identity), FailureReason::INVALID_CREDENTIALS)
+            : self::verifierOutcome($this->verifier->verify($guard, $identity, $type, $identifier, $client));
     }
 
     /**
-     * The guard, identifier type and digest of a request that carries a validly
-     * signed, unexpired verification link, or `null`.
+     * The guard, identity, identifier type and digest a request's query
+     * carries, when each is a string, the type a valid identifier type, the
+     * purpose the verification purpose and the expiry a timestamp; otherwise
+     * `null`. The signature is checked apart.
      *
      * @param  \Illuminate\Http\Request  $request
-     * @return ?array{0: string, 1: string, 2: string}
+     * @return ?array{0: string, 1: string, 2: string, 3: string}
      */
     private static function link(Request $request): ?array
     {
-        $guard = $request->query('guard');
-        $type  = $request->query('type');
-        $hash  = $request->query('hash');
+        $guard    = $request->query('guard');
+        $identity = $request->query('identity');
+        $type     = $request->query('type');
+        $hash     = $request->query('hash');
 
-        // @phpstan-ignore staticMethod.dynamicCall
-        if (!$request->hasValidSignature() || $request->query('purpose') !== self::PURPOSE) {
+        if (!self::hasPurposeAndExpiry($request) || !is_string($guard) || !is_string($identity)) {
             return null;
         }
 
-        return is_string($guard) && is_string($type) && is_string($hash) && IdentifierType::isValid($type) ? [$guard, $type, $hash] : null;
+        return is_string($type) && is_string($hash) && IdentifierType::isValid($type) ? [$guard, $identity, $type, $hash] : null;
+    }
+
+    /**
+     * Whether the request's query names the verification purpose and an expiry
+     * in whole seconds, without a leading zero: Laravel's own check takes a
+     * signed link with no expiry, or with `0`, as one that never expires, and a
+     * verification link always expires.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return bool
+     */
+    private static function hasPurposeAndExpiry(Request $request): bool
+    {
+        $expires = $request->query('expires');
+
+        return $request->query('purpose') === self::PURPOSE && is_string($expires) && ctype_digit($expires) && !str_starts_with($expires, '0');
     }
 
     /**
@@ -211,24 +264,66 @@ final readonly class VerificationLinks
     }
 
     /**
-     * The identity a link names, loaded through its guard's identity provider
-     * on the write connection: `null` when the guard is not a JWT guard, the
-     * provider does not return it, or it cannot verify identifiers.
+     * The identity provider of the guard a link names, when it is a configured
+     * JWT guard with one; otherwise `null`.
      *
      * @param  string  $guard
-     * @param  mixed  $identifier
+     * @return ?string
+     */
+    private function provider(string $guard): ?string
+    {
+        $config = $this->config->get("auth.guards.{$guard}");
+
+        return is_array($config) && ($config['driver'] ?? null) === 'jwt' && is_string($config['provider'] ?? null) ? $config['provider'] : null;
+    }
+
+    /**
+     * The identity a link names, loaded through the identity provider on the
+     * write connection: `null` when the provider does not return it or it
+     * cannot verify identifiers.
+     *
+     * @param  string  $provider
+     * @param  string  $identifier
      * @return (\SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers&\SineMacula\Laravel\Authentication\Contracts\Identity)|null
      */
-    private function identity(string $guard, mixed $identifier): (HasVerifiableIdentifiers&Identity)|null
+    private function identity(string $provider, string $identifier): (HasVerifiableIdentifiers&Identity)|null
     {
-        $config   = $this->config->get("auth.guards.{$guard}");
-        $provider = is_array($config) && ($config['driver'] ?? null) === 'jwt' && is_string($config['provider'] ?? null)
-            ? $this->auth->createUserProvider($config['provider'])
-            : null;
-
-        $identity = $provider instanceof UserProvider && is_string($identifier) ? $provider->retrieveById($identifier) : null;
+        $users    = $this->auth->createUserProvider($provider);
+        $identity = $users instanceof UserProvider ? $users->retrieveById($identifier) : null;
 
         return $identity instanceof Identity && $identity instanceof HasVerifiableIdentifiers ? $identity : null;
+    }
+
+    /**
+     * Report a refused link with `AuthenticationFailed` and answer it with the
+     * outcome the reason names.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @return \SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    private function refuse(EventContext $context, FailureReason $reason): VerificationLinkOutcome
+    {
+        $this->container->make(Dispatcher::class)->dispatch(new AuthenticationFailed($context, AuthenticationFlow::IDENTIFIER_VERIFICATION, $reason));
+
+        return $reason === FailureReason::LINK_EXPIRED ? VerificationLinkOutcome::EXPIRED : VerificationLinkOutcome::INVALID;
+    }
+
+    /**
+     * The outcome of an accepted link, as the verifier answered it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification  $verification
+     * @return \SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome
+     */
+    private static function verifierOutcome(IdentifierVerification $verification): VerificationLinkOutcome
+    {
+        return match ($verification) {
+            IdentifierVerification::VERIFIED         => VerificationLinkOutcome::VERIFIED,
+            IdentifierVerification::ALREADY_VERIFIED => VerificationLinkOutcome::ALREADY_VERIFIED,
+            IdentifierVerification::MISMATCH         => VerificationLinkOutcome::MISMATCH,
+        };
     }
 
     /**
