@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\Http\Middleware;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Auth\Middleware\Authenticate as IlluminateAuthenticate;
 use Illuminate\Contracts\Auth\Factory as AuthFactory;
+use SineMacula\Laravel\Authentication\Http\ConsumerMessages;
 use SineMacula\Laravel\Authentication\Http\UnauthenticatedResponse;
 
 /**
@@ -63,7 +64,7 @@ class Authenticate extends IlluminateAuthenticate
     {
         /** @var array<int, ?string> $guards */
         if ($this->response->appliesTo($guards)) {
-            throw new AuthenticationException('Unauthenticated.', $guards);
+            throw new AuthenticationException(ConsumerMessages::UNAUTHENTICATED, $guards);
         }
 
         parent::unauthenticated($request, $guards);

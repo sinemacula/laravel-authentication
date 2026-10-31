@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\Passkeys;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Contracts\Translation\Translator;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
@@ -17,6 +18,7 @@ use SineMacula\Laravel\Authentication\Events\PasskeyRemoved;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\ClientText;
+use SineMacula\Laravel\Authentication\Http\ConsumerMessages;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
@@ -63,7 +65,7 @@ final readonly class PasskeyService
         /** The guard whose passkeys the service manages. */
         private JwtGuard $guard,
 
-        /** Container the configuration, the limiter and the library wrapper are resolved from on every call. */
+        /** Container the configuration, the limiter, the translator and the library wrapper are resolved from on every call. */
         private Container $container,
     ) {}
 
@@ -197,7 +199,7 @@ final readonly class PasskeyService
         $rp      = $this->relyingParty();
         $subject = new AttemptSubject($rp->guard, AttemptFlow::PASSKEY_OPTIONS, null, null, $this->client($client)->ip);
 
-        self::refuseWhenThrottled($this->container->make(AttemptLimiter::class)->acquire($subject));
+        $this->refuseWhenThrottled($this->container->make(AttemptLimiter::class)->acquire($subject));
 
         return $this->assertionOptions(ChallengePurpose::SIGN_IN, $rp, null, []);
     }
@@ -361,17 +363,19 @@ final readonly class PasskeyService
 
     /**
      * Answer a reservation the limiter refused with a 429 that says how long to
-     * wait.
+     * wait, its message translated.
      *
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation  $reservation
      * @return void
      *
      * @throws \Illuminate\Http\Exceptions\ThrottleRequestsException
      */
-    private static function refuseWhenThrottled(AttemptReservation $reservation): void
+    private function refuseWhenThrottled(AttemptReservation $reservation): void
     {
         if (!$reservation->granted()) {
-            throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $reservation->retryAfter]);
+            $message = ConsumerMessages::translate($this->container->make(Translator::class), ConsumerMessages::TOO_MANY_ATTEMPTS);
+
+            throw new ThrottleRequestsException($message, null, ['Retry-After' => $reservation->retryAfter]);
         }
     }
 

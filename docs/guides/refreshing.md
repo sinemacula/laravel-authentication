@@ -63,7 +63,7 @@ grace window is a replay, as any rotated token is. A refresh that loses its writ
 Failed refreshes are counted against the token's device and the request's IP address by the bound `AttemptLimiter`;
 successful ones are not. Once either count is full, a refresh dispatches `Failed` and `AuthenticationFailed`
 (`rate_limited`) without looking the device up, then throws Laravel's `ThrottleRequestsException`, which renders as a
-429 with `Retry-After`.
+429 with `Retry-After` and a [localisable](installation.md#localising-messages) message.
 
 A failure before the stored rotation commits, such as an error while signing the new pair, leaves the presented refresh
 token valid for a retry. Once the rotation is written, the refresh schedules `Refreshed` for its commit on the device's

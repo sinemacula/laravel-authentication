@@ -116,7 +116,8 @@ other rotated token as a replay that revokes the device.
 - Once the device's or the IP address's count is full, the exchange fails with `rate_limited` before the lookup,
   carrying the seconds until the full count's window ends (`retryAfter`), and that failure is not counted itself, so a
   blocked client costs one read. `refresh()` dispatches `Failed` and then throws Laravel's `ThrottleRequestsException`,
-  rendered as a 429 with `Retry-After`: `refresh()` returns only `?RefreshResult`, and a 401 would be wrong.
+  rendered as a 429 with `Retry-After` and its message, `Too Many Attempts.`, translated into the application's locale:
+  `refresh()` returns only `?RefreshResult`, and a 401 would be wrong.
 - A device of another guard, or of none, produces `device_guard_mismatch` without a write to the device, even for a
   token that would be a replay, and nothing is hydrated.
 - A device whose `sign_in_method` the guard no longer allows, or which records none, produces `method_not_allowed`; an
@@ -295,6 +296,8 @@ other rotated token as a replay that revokes the device.
   `testARotationMovesTheIdleDeadlineByThePrincipalsLifetimes`
 - `tests/Feature/Guards/JwtGuardTest.php`
   `testARateLimitedRefreshFiresFailedAndThrowsA429`
+- `tests/Feature/Http/LocalisedMessagesTest.php`
+  `testAThrottledRefreshIsInTheLocale`
 - `tests/Feature/Guards/VerifiesPinnedContextTest.php`
   `testPinnedDeviceOfAnotherGuardFailsTheAttempt`
 - `tests/Integration/Guards/RefreshAudienceIntegrationTest.php`
