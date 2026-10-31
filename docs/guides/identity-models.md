@@ -360,6 +360,9 @@ true, and a `match` on their cases never matches. Match the one enum instead:
 
 ```php
 // Before
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
 $result = Auth::codes('mobile')->verify($identity, 'phone', $code);
 
 if ($result instanceof FailureReason) {
@@ -367,6 +370,9 @@ if ($result instanceof FailureReason) {
 }
 
 // After
+use SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
 $outcome = Auth::codes('mobile')->verify($identity, 'phone', $code);
 
 return match ($outcome) {

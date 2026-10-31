@@ -400,6 +400,10 @@ result instead (see `docs/design/outcomes.md`):
 
 ```php
 // Before
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationFailure;
+use SineMacula\Laravel\Authentication\Passkeys\PasskeySummary;
+
 if (Auth::passkeys('api')->verifyFactor($identity, $challenge, $credential) !== null) { /* refused */ }
 if (Auth::passkeys('api')->verifyFactor($identity, $challenge, $credential)) { /* refused */ }
 
@@ -412,6 +416,9 @@ match ($outcome) {
 };
 
 // After
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
+
 if (Auth::passkeys('api')->verifyFactor($identity, $challenge, $credential)->isFailed()) { /* refused */ }
 
 $result  = Auth::passkeys('api')->register($identity, $challenge, $credential);
