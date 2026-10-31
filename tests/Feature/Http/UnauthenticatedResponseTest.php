@@ -38,6 +38,33 @@ final class UnauthenticatedResponseTest extends TestCase
     }
 
     /**
+     * The exception's message is translated by the application's JSON line for
+     * it in the current locale, and kept as it is without one.
+     *
+     * @return void
+     */
+    public function testTranslatesTheMessageInTheCurrentLocale(): void
+    {
+        app('translator')->addJsonPath(dirname(__DIR__, 2) . '/Fixtures/lang');
+
+        app()->setLocale('fr');
+
+        self::assertSame(['message' => 'Jeton expiré.'], $this->responder()(new AuthenticationException('Token expired.', ['api']))?->getData(true));
+        self::assertSame(['message' => 'Session ended.'], $this->responder()(new AuthenticationException('Session ended.', ['api']))?->getData(true));
+    }
+
+    /**
+     * A message naming one of Laravel's translation files is rendered as it is,
+     * not as the file's lines.
+     *
+     * @return void
+     */
+    public function testKeepsAMessageNamingATranslationFile(): void
+    {
+        self::assertSame(['message' => 'auth'], $this->responder()(new AuthenticationException('auth', ['api']))?->getData(true));
+    }
+
+    /**
      * An exception raised for any non-package guard, alone or alongside a
      * package guard, defers to Laravel.
      *

@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Http;
 
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Contracts\Auth\Factory as AuthFactory;
+use Illuminate\Contracts\Translation\Translator;
 use Illuminate\Http\JsonResponse;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 
@@ -20,6 +21,10 @@ use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
  * keep Laravel's behaviour and render callbacks registered by the application
  * still take precedence.
  *
+ * The body's message is translated as it is rendered, in the application's
+ * locale then, so the `Unauthenticated.` Laravel's own `auth` middleware raises
+ * is translated as well as the package's (see `ConsumerMessages`).
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
@@ -29,16 +34,20 @@ final readonly class UnauthenticatedResponse
      * Constructor.
      *
      * @param  \Illuminate\Contracts\Auth\Factory  $auth
+     * @param  \Illuminate\Contracts\Translation\Translator  $translator
      */
     public function __construct(
 
         /** Auth factory used to resolve the guards an exception names. */
         private AuthFactory $auth,
+
+        /** Translator the body's message is translated through. */
+        private Translator $translator,
     ) {}
 
     /**
-     * Render the `401` response for an exception raised by package guards, or
-     * `null` to defer to Laravel.
+     * Render the `401` response for an exception raised by package guards, its
+     * message translated, or `null` to defer to Laravel.
      *
      * @param  \Illuminate\Auth\AuthenticationException  $exception
      * @return ?\Illuminate\Http\JsonResponse
@@ -52,7 +61,9 @@ final readonly class UnauthenticatedResponse
             return null;
         }
 
-        return new JsonResponse(['message' => $exception->getMessage()], JsonResponse::HTTP_UNAUTHORIZED);
+        $message = ConsumerMessages::translate($this->translator, $exception->getMessage());
+
+        return new JsonResponse(['message' => $message], JsonResponse::HTTP_UNAUTHORIZED);
     }
 
     /**

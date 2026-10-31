@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Http\UnauthenticatedResponse;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\ServesRequestsThroughOctane;
+use Tests\Fixtures\Http\SetLocaleFromRequest;
 use Tests\TestCase;
 
 /**
@@ -85,6 +86,10 @@ final class JwtGuardRequestsTest extends TestCase
         });
 
         Route::middleware('auth:api')->get('/protected', static fn (): array => ['identity' => Auth::guard('api')->id()]);
+
+        Route::middleware([SetLocaleFromRequest::class, 'auth:api'])->get('/localised', static fn (): array => ['identity' => Auth::guard('api')->id()]);
+
+        app('translator')->addJsonPath(dirname(__DIR__, 2) . '/Fixtures/lang');
 
         $this->bootOctaneWorker();
     }
@@ -215,6 +220,21 @@ final class JwtGuardRequestsTest extends TestCase
         $this->serve(self::octaneRequest('GET', '/protected', bearer: $first))->assertOk()->assertExactJson(['identity' => $ada]);
         $this->serve(self::octaneRequest('GET', '/protected'))->assertUnauthorized()->assertExactJson(['message' => 'Unauthenticated.']);
         $this->serve(self::octaneRequest('GET', '/protected', bearer: $second))->assertOk()->assertExactJson(['identity' => $grace]);
+    }
+
+    /**
+     * The worker answers each guest's `401` in the locale its own request set,
+     * through the translator its booted application resolved: French where the
+     * application translates the message, and English for a locale it does not
+     * translate, after a French request and before another.
+     *
+     * @return void
+     */
+    public function testEachGuestIsRefusedInItsOwnRequestsLocale(): void
+    {
+        $this->serve(self::octaneRequest('GET', '/localised', ['locale' => 'fr']))->assertUnauthorized()->assertExactJson(['message' => 'Non authentifié.']);
+        $this->serve(self::octaneRequest('GET', '/localised', ['locale' => 'de']))->assertUnauthorized()->assertExactJson(['message' => 'Unauthenticated.']);
+        $this->serve(self::octaneRequest('GET', '/localised', ['locale' => 'fr']))->assertUnauthorized()->assertExactJson(['message' => 'Non authentifié.']);
     }
 
     /**
