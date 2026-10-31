@@ -122,7 +122,10 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   `tests/Integration/ApiKeys/ApiKeyServiceTest.php` `testEachReportKeepsTheDispatcherOfItsWrite`
 - `tests/Feature/ClientCredentials/ClientCredentialsExchangeTest.php` `testAnExchangeFollowsTheGuardsRebinds`
 - `tests/Integration/Codes/SendOneTimeCodeTest.php` `testASignInJobForAnotherDriversGuardThrows`,
-  `testASignInJobForAJwtDriverReplacedByAnotherGuardThrows`
+  `testASignInJobForAJwtDriverReplacedByAnotherGuardThrows`,
+  `testASignInJobForAJwtDriverReplacedByAnotherPackageGuardSendsThroughItsProvider`,
+  `testASignInJobNamingAnotherDriversJwtGuardThrows`,
+  `testACodeSentThroughAnotherDriversJwtGuardIsDeliveredThroughTheJwtGuard`
 - `tests/Integration/Octane/JwtGuardRequestsTest.php`, `tests/Integration/Process/QueueWorkerGuardStateTest.php`,
   `tests/Integration/Process/ForgetGuardStateBeforeJobTest.php`
 - `tests/Unit/Architecture/NamespaceDependenciesTest.php` `testOnlyTheGuardsRebindAGuardContext`

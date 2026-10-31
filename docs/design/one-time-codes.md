@@ -113,10 +113,10 @@ request for a code looks the same whether or not anyone has the identifier, and 
   unbound sender is a `BindingResolutionException`. A verification job whose identity was deleted is dropped, not
   failed. A sign-in job resolves its guard by name and finds the recipient through the provider of the guard's context:
   a guard that `auth.guards` does not configure with the `jwt` driver throws an `InvalidArgumentException`, and a `jwt`
-  guard whose driver the application replaced with a guard that is not built on `AbstractGuard` a `LogicException`. A
-  code names the guard of the context that issued it, and the package builds a `JwtGuard` only under the name of a guard
-  with the `jwt` driver, so a code sent through another driver that builds one names, and is delivered through, that
-  `jwt` guard.
+  guard whose driver the application replaced with a guard that has no context (`Contracts\HasGuardContext`, which the
+  package's guards and any guard built on `AbstractGuard` implement) a `LogicException`. A code names the guard of the
+  context that issued it, and the package builds a `JwtGuard` only under the name of a guard with the `jwt` driver, so a
+  code sent through another driver that builds one names, and is delivered through, that `jwt` guard.
 - On a `sync` connection with after-response dispatching turned off (`Bus::withoutDispatchingAfterResponses()`) Laravel
   runs the job during the call; this is the documented fallback, not the package's choice.
 - Malformed settings (`length` 6 to 10, `ttl_seconds` 60 to 3600, `max_attempts` 1 to 20, `resend_cooldown_seconds` 0
