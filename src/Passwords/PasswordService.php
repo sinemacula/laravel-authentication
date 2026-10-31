@@ -34,8 +34,8 @@ use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
  *
  * A non-human identity (`MachineIdentity`) has no password, so setting one is a
  * misconfiguration. The service keeps no state between calls: it reads the
- * guard and resolves the settings, checker, hasher and session service each
- * time.
+ * guard, resolves the settings, checker and hasher, and builds the session
+ * revocations each time.
  *
  * @api
  *
