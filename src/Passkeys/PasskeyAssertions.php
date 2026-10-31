@@ -7,7 +7,6 @@ namespace SineMacula\Laravel\Authentication\Passkeys;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Container\Container;
-use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
@@ -119,22 +118,21 @@ final readonly class PasskeyAssertions
 
     /**
      * Dispatch `PasskeyUsed` for the passkey once its use is committed on its
-     * connection.
+     * connection, through the caller's dispatch, which reads its dispatcher
+     * when the commit runs it.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
-     * @param  \Illuminate\Contracts\Events\Dispatcher  $events
+     * @param  \Closure(object): void  $dispatch
      * @return void
      */
-    public function used(RelyingParty $rp, ClientContext $client, Identity $identity, Passkey $passkey, Dispatcher $events): void
+    public function used(RelyingParty $rp, ClientContext $client, Identity $identity, Passkey $passkey, \Closure $dispatch): void
     {
         $event = new PasskeyUsed(self::context($rp, $client, $identity, $passkey->id));
 
-        $this->afterCommit()->run($passkey, static function () use ($events, $event): void {
-            $events->dispatch($event);
-        });
+        $this->afterCommit()->run($passkey, static fn () => $dispatch($event));
     }
 
     /**

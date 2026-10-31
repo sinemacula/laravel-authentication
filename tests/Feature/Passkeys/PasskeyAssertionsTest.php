@@ -269,7 +269,7 @@ final class PasskeyAssertionsTest extends TestCase
 
         DB::beginTransaction();
 
-        $this->assertions()->used(self::rp(), $client, $identity, $passkey, app(Dispatcher::class));
+        $this->assertions()->used(self::rp(), $client, $identity, $passkey, app(Dispatcher::class)->dispatch(...));
 
         self::assertSame([], $this->recorded);
 
@@ -278,7 +278,7 @@ final class PasskeyAssertionsTest extends TestCase
         self::assertSame([], $this->recorded);
 
         DB::transaction(function () use ($client, $identity, $passkey): void {
-            $this->assertions()->used(self::rp(), $client, $identity, $passkey, app(Dispatcher::class));
+            $this->assertions()->used(self::rp(), $client, $identity, $passkey, app(Dispatcher::class)->dispatch(...));
         });
 
         $used = $this->recordedEvent(PasskeyUsed::class);
@@ -309,7 +309,7 @@ final class PasskeyAssertionsTest extends TestCase
 
         app()->offsetUnset('db.transactions');
 
-        $this->assertions()->used(self::rp(), new ClientContext(null, null), $identity, $passkey, app(Dispatcher::class));
+        $this->assertions()->used(self::rp(), new ClientContext(null, null), $identity, $passkey, app(Dispatcher::class)->dispatch(...));
 
         self::assertSame([PasskeyUsed::class], $this->recordedClasses());
 

@@ -125,7 +125,9 @@ final readonly class PasskeySignIn implements SignInMethod
 
         [$identity, $passkey] = $verified;
 
-        $assertions->used($rp, $request->client, $identity, $passkey, $this->container->make(Dispatcher::class));
+        $assertions->used($rp, $request->client, $identity, $passkey, function (object $event): void {
+            $this->container->make(Dispatcher::class)->dispatch($event);
+        });
 
         return $identity;
     }

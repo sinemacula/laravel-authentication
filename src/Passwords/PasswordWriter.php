@@ -100,15 +100,14 @@ final readonly class PasswordWriter
         $hash      = new \SensitiveParameterValue($this->container->make(Hasher::class)->make($password));
         $container = $this->container;
         $client ??= $this->context->client();
-        $events = $this->context->events();
 
-        return $identity->getConnection()->transaction(function () use ($identity, $hash, $flow, $except, $container, $client, $events): int {
+        return $identity->getConnection()->transaction(function () use ($identity, $hash, $flow, $except, $container, $client): int {
 
             $this->store($identity, $hash->getValue(), $flow);
 
             (new OutdatedProofs($container))->invalidate($identity, $flow);
 
-            $context = new EventContext($this->context->name(), $client, $identity, device: $except);
+            $event = new PasswordSet(new EventContext($this->context->name(), $client, $identity, device: $except), $flow);
 
             $revoked = match ($flow) {
                 PasswordFlow::CHANGE       => $this->revocations->passwordChanged($identity, $except),
@@ -117,7 +116,7 @@ final readonly class PasswordWriter
             };
 
             (new AfterCommit(static fn (): mixed => $container->bound('db.transactions') ? $container->make('db.transactions') : null))
-                ->run($identity, static fn () => $events->dispatch(new PasswordSet($context, $flow)));
+                ->run($identity, fn () => $this->context->dispatch($event));
 
             return $revoked;
         });

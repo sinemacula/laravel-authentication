@@ -482,7 +482,7 @@ final readonly class ApiKeyService
 
     /**
      * Dispatch the event, once the key's writes are committed on its own
-     * connection, to the dispatcher the guard has now.
+     * connection, to the dispatcher the guard has then.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\ApiKey  $key
      * @param  \SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent  $event
@@ -490,13 +490,10 @@ final readonly class ApiKeyService
      */
     private function report(ApiKey $key, AuthenticationEvent $event): void
     {
-        $container  = $this->container;
-        $dispatcher = $this->context->events();
+        $container = $this->container;
 
         (new AfterCommit(static fn (): mixed => $container->bound('db.transactions') ? $container->make('db.transactions') : null))
-            ->run($key, static function () use ($dispatcher, $event): void {
-                $dispatcher->dispatch($event);
-            });
+            ->run($key, fn () => $this->context->dispatch($event));
     }
 
     /**

@@ -130,15 +130,15 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A reset's `PasswordSet` goes, once committed, to the dispatcher the guard
-     * had when the password was written, while the revocations' events go to
-     * the one it has at the commit.
+     * A reset's `PasswordSet` and its revocations' events go, once committed,
+     * to the dispatcher the guard has at the commit: one swapped in after the
+     * reset receives them all, and the dispatcher of the reset none.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAResetKeepsTheDispatcherOfTheWriteAndTheRevocationsTakeTheOneAtTheCommit(): void
+    public function testAResetsEventsReachTheDispatcherBoundAtTheCommit(): void
     {
         self::seedResettable();
 
@@ -162,8 +162,8 @@ final class ResetSubmissionsTest extends TestCase
             $guard->setDispatcher($swapped);
         });
 
-        self::assertSame([PasswordSet::class], $this->recordedClasses());
-        self::assertSame([DeviceRevoked::class, SignedOutEverywhere::class], $received);
+        self::assertSame([], $this->recordedClasses());
+        self::assertSame([DeviceRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $received);
     }
 
     /**

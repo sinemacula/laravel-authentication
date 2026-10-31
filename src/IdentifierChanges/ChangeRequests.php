@@ -395,7 +395,6 @@ final readonly class ChangeRequests
     private function deliver(Identity&Model $identity, CodeBinding $binding, ?IssuedCode $issued, RequestedChange $change, EventContext $context): void
     {
         $container = $this->container;
-        $events    = $this->context->events();
         $event     = new IdentifierChangeRequested($context, $change->type, $change->identifier, $change->expiresAt);
 
         if ($issued !== null) {
@@ -403,9 +402,7 @@ final readonly class ChangeRequests
         }
 
         (new AfterCommit(static fn (): mixed => $container->bound('db.transactions') ? $container->make('db.transactions') : null))
-            ->run($identity, static function () use ($events, $event): void {
-                $events->dispatch($event);
-            });
+            ->run($identity, fn () => $this->context->dispatch($event));
     }
 
     /**

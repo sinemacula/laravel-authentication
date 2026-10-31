@@ -532,16 +532,16 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * Each report goes, once committed, to the dispatcher the guard had when
-     * its write was made: a dispatcher swapped in between the writes receives
-     * only the reports of the writes made after the swap, and one swapped in
-     * after the last write, before the commit, receives none.
+     * Every report goes, once committed, to the dispatcher the guard has when
+     * the commit runs it: the issue, the rotation and the revocation all reach
+     * the one swapped in after the last write, and neither the dispatcher of
+     * the issue nor the one swapped in between the writes receives any.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testEachReportKeepsTheDispatcherOfItsWrite(): void
+    public function testEveryReportReachesTheDispatcherBoundAtTheCommit(): void
     {
         $machine  = $this->seedMachine();
         $keys     = $this->apiKeys();
@@ -576,9 +576,9 @@ final class ApiKeyServiceTest extends TestCase
             $guard->setDispatcher($last);
         });
 
-        self::assertSame([ApiKeyIssued::class], $this->machineEventClasses());
-        self::assertSame([ApiKeyRotated::class, ApiKeyRevoked::class], $received);
-        self::assertSame([], $late);
+        self::assertSame([], $this->machineEventClasses());
+        self::assertSame([], $received);
+        self::assertSame([ApiKeyIssued::class, ApiKeyRotated::class, ApiKeyRevoked::class], $late);
     }
 
     /**

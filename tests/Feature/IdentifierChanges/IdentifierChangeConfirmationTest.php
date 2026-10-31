@@ -478,16 +478,17 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * Each event goes, once committed, to the dispatcher the guard had when its
-     * write was made: a dispatcher swapped in after the request receives only
-     * the confirmation's `IdentifierChanged`, and one swapped in after the
-     * confirmation, before the commit, receives nothing.
+     * Every event goes, once committed, to the dispatcher the guard has when
+     * the commit runs it: the request's `IdentifierChangeRequested` and the
+     * confirmation's `IdentifierChanged` both reach the one swapped in after
+     * the confirmation, and neither the dispatcher of the request nor the one
+     * swapped in between receives either.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testEachReportKeepsTheDispatcherOfItsWrite(): void
+    public function testEveryReportReachesTheDispatcherBoundAtTheCommit(): void
     {
         $identity = self::seedChangeable(self::EMAIL, self::PHONE);
         $guard    = $this->freshGuard('web');
@@ -514,8 +515,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
             $guard->setDispatcher($last);
         });
 
-        self::assertSame([IdentifierChangeRequested::class], $this->recordedClasses());
-        self::assertSame(['swapped' => [IdentifierChanged::class], 'last' => []], $received);
+        self::assertSame([], $this->recordedClasses());
+        self::assertSame(['swapped' => [], 'last' => [IdentifierChangeRequested::class, IdentifierChanged::class]], $received);
     }
 
     /**

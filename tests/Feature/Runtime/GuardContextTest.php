@@ -9,6 +9,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -17,12 +18,15 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\PasskeyRemoved;
+use SineMacula\Laravel\Authentication\Events\PasskeyUsed;
+use SineMacula\Laravel\Authentication\Events\PasswordSet;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
+use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithSessions;
@@ -200,6 +204,41 @@ final class GuardContextTest extends TestCase
         Event::assertDispatched(AuthenticationFailed::class, static fn (AuthenticationFailed $event): bool => $event->flow === AuthenticationFlow::PASSWORD_RESET);
         Event::assertDispatched(Refreshed::class, static fn (Refreshed $event): bool => $event->context->guard === 'api');
         Event::assertDispatched(AuthenticationFailed::class, static fn (AuthenticationFailed $event): bool => $event->flow === AuthenticationFlow::BEARER);
+    }
+
+    /**
+     * A fake swapped in after the writes, before their commit (`Event::fake()`
+     * inside the caller's transaction), receives every event they deferred: a
+     * passkey sign-in's `PasskeyUsed` and `SignedIn`, a password change's
+     * `PasswordSet` and a passkey's removal; the dispatcher bound when they
+     * were written receives none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFakeSwappedInBeforeTheCommitReceivesEveryDeferredEvent(): void
+    {
+        $identity = $this->seedIdentity();
+        $passkey  = $this->registerPasskey($identity);
+
+        $this->freshGuard();
+        $this->recordEvents([PasskeyUsed::class, SignedIn::class, PasswordSet::class, PasskeyRemoved::class]);
+
+        DB::transaction(function () use ($identity, $passkey): void {
+            self::assertTrue($this->signInWithPasskey()->isSignedIn());
+            self::assertTrue(Auth::passwords('api')->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE)->isSet());
+            self::assertTrue(Auth::passkeys('api')->remove($identity, $passkey->id));
+
+            Event::fake();
+        });
+
+        self::assertSame([], $this->recordedClasses());
+
+        Event::assertDispatched(PasskeyUsed::class, static fn (PasskeyUsed $event): bool => $event->context->credentialId === $passkey->id);
+        Event::assertDispatched(SignedIn::class, static fn (SignedIn $event): bool => $event->context->method === 'passkey');
+        Event::assertDispatched(PasswordSet::class, static fn (PasswordSet $event): bool => $event->flow === PasswordFlow::CHANGE);
+        Event::assertDispatched(PasskeyRemoved::class, static fn (PasskeyRemoved $event): bool => $event->context->credentialId === $passkey->id);
     }
 
     /**

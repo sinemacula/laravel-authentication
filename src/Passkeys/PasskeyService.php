@@ -269,7 +269,7 @@ final readonly class PasskeyService
             return PasskeyFactorResult::failed($verified);
         }
 
-        $assertions->used($rp, $this->client($client), $owner, $verified[1], $this->context->events());
+        $assertions->used($rp, $this->client($client), $owner, $verified[1], $this->context->dispatch(...));
 
         return PasskeyFactorResult::verified(PasskeySummary::of($verified[1]));
     }
@@ -381,7 +381,7 @@ final readonly class PasskeyService
 
     /**
      * Dispatch the event, once the writes on the passkey model's connection are
-     * committed, to the dispatcher the guard has now.
+     * committed, to the dispatcher the guard has then.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
      * @param  object  $event
@@ -389,11 +389,7 @@ final readonly class PasskeyService
      */
     private function dispatchOnceCommitted(Passkey $passkey, object $event): void
     {
-        $events = $this->context->events();
-
-        $this->assertions()->afterCommit()->run($passkey, static function () use ($events, $event): void {
-            $events->dispatch($event);
-        });
+        $this->assertions()->afterCommit()->run($passkey, fn () => $this->context->dispatch($event));
     }
 
     /**
