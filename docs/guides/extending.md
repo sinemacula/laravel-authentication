@@ -52,6 +52,61 @@ reserves the account twice), and each is given back.
 
 `AbstractGuard` is not final and may be extended for entirely new guard types.
 
+### Writing a guard type
+
+`AbstractGuard`'s constructor takes the guard's name, identity provider, principal resolver, event dispatcher, request
+and `Timebox`, and keeps them in the guard's context, `$this->context` (a `Runtime\GuardContext`): the one copy every
+flow of the guard reads, which the guard's `setRequest()`, `setDispatcher()` and `setPrincipalResolver()` rebind, so the
+container's rebinds of `request`, `events` and the global `PrincipalResolver`, and `Event::fake()`, reach it. A guard
+type has no `$this->name`, `$this->provider`, `$this->resolver`, `$this->events`, `$this->request` or `$this->timebox`
+of its own; it reads each collaborator from the context when it uses it, and runs a check of a secret in the guard's
+credential timebox, the one `attempt()` and `validate()` run in:
+
+```php
+use Illuminate\Support\Timebox;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
+
+final class HeaderKeyGuard extends AbstractGuard
+{
+    protected function resolveUserFromRequest(): ?Identity
+    {
+        $key = $this->context->request()->header('X-Api-Key');
+
+        if (!is_string($key) || $key === '') {
+            return null;
+        }
+
+        $identity = $this->context->timebox()->run(function (Timebox $timebox) use ($key): ?Identity {
+
+            $identity = $this->context->provider()->retrieveByCredentials(['api_key' => $key]);
+
+            if ($identity instanceof Identity) {
+                $timebox->returnEarly();
+
+                return $identity;
+            }
+
+            return null;
+        });
+
+        $principal = $identity === null ? null : $this->resolvePrincipal($identity);
+
+        if ($principal === null) {
+            return null;
+        }
+
+        $this->bindVerifiedContext($identity, $principal, null, null, 'header_key', false);
+
+        return $identity;
+    }
+}
+```
+
+The context also gives the guard's `name()`, `resolver()`, `events()` and the request's `client()`, and `dispatch()`
+sends an event to the guard's dispatcher as it is then. Read the request's client when an operation starts and build its
+events then, so a deferred event reports the request it came from (see `docs/design/guard-context.md`).
+
 ### Binding order
 
 Every default the package binds is bound only when nothing is bound yet: `PrincipalResolver`, `AudiencePolicy`,

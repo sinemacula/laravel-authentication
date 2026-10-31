@@ -204,8 +204,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   both use.
 - `src/AuthenticationServiceProvider.php`: listener registration for `DeviceAuthenticated`, `wireGuardRebinds()`, the
   `auth` middleware binding, and the guest response render callback.
-- `src/Guards/JwtGuard.php` and `src/Jwt/RefreshTokenExchange.php`: `setDispatcher()` and `setPrincipalResolver()`,
-  which keep the exchange on the guard's dispatcher and resolver.
+- `src/Runtime/GuardContext.php`: the one copy of the guard's dispatcher, resolver and request, which the guard and its
+  refresh exchange both read (see `guard-context.md`).
 - `src/Http/Middleware/Authenticate.php`, `src/Http/UnauthenticatedResponse.php`: the package guards' `401`.
 - `src/Listeners/RecordDeviceUsage.php` and `src/Http/ClientContext.php`: the last-use write for bound devices.
 - `src/Jwt/RefreshTokenExchange.php`: `revokeDevice()` and the `DeviceRevoked` dispatch, deferred to the device
