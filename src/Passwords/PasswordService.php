@@ -14,6 +14,7 @@ use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
+use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 
 /**
  * The password service of a JWT guard (`Auth::passwords($guard)`): the password
@@ -33,8 +34,8 @@ use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
  *
  * A non-human identity (`MachineIdentity`) has no password, so setting one is a
  * misconfiguration. The service keeps no state between calls: it reads the
- * guard and resolves the settings, checker, hasher and session service each
- * time.
+ * guard, resolves the settings, checker and hasher, and builds the session
+ * revocations each time.
  *
  * @api
  *
@@ -125,7 +126,10 @@ final readonly class PasswordService
             return PasswordResult::rejected($check->violations);
         }
 
-        return PasswordResult::set((new PasswordWriter($this->guard, $this->container))->write($model, $password, $flow, $except, $client));
+        $context = $this->guard->context();
+        $writer  = new PasswordWriter($context, SessionRevocations::forContext($context, $this->container), $this->container);
+
+        return PasswordResult::set($writer->write($model, $password, $flow, $except, $client));
     }
 
     /**

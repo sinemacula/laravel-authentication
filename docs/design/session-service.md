@@ -70,6 +70,10 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   a rolled-back session.
 - The service holds no per-sign-in state, and reads the guard's provider, resolver, dispatcher and request, and the
   sign-in method manager and policies from the container, each time it needs them.
+- Ending sessions is not the service's own: `signOut()`, `signOutEverywhere()`, `revokeDevice()`, `revokeDevices()`,
+  `revokePrincipalDevices()` and the security-change methods delegate to `SessionRevocations` (see
+  `device-lifecycle.md`), on the guard's context, with the guard as the `Contracts\GuardBinding` the two sign-out calls
+  read and forget. The guard's `logout()` and the password writer use the same revocations without a session service.
 
 ## Success Path
 
@@ -124,7 +128,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 
 ## Implementation Anchors
 
-- `src/Sessions/SessionService.php`: `signIn()`, `start()`, `establish()`.
+- `src/Sessions/SessionService.php`: `signIn()`, `start()`, `establish()`; `src/Sessions/Concerns/EndsSessions.php`:
+  the methods it delegates to `src/Sessions/SessionRevocations.php`.
 - `src/Sessions/SignInRequest.php` (`reserveAccountAttempt()`) and `src/RateLimiting/AccountAttempts.php`: the slots a
   sign-in's method takes on the accounts it checks, held with the sign-in's own.
 - `src/Sessions/SessionWriter.php`: `create()`, `continueOn()` and the compare-and-swap.
@@ -140,6 +145,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 ## Authoritative Tests
 
 - `tests/Feature/Sessions/SessionServiceTest.php`, `tests/Unit/RateLimiting/AccountAttemptsTest.php`
+- `tests/Feature/Sessions/SessionRevocationsTest.php`, `tests/Feature/Sessions/ManagesDevicesTest.php`,
+  `tests/Feature/Sessions/RevokesOnSecurityChangesTest.php`: the revocations on their own and through the service
 - `tests/Feature/Sessions/SessionRoutesTest.php`: the documented sign-in and further-factor routes over HTTP, through
   `Auth::sessions()`, with tokens checked through `auth:api`
 - `tests/Integration/Sessions/SessionServiceTest.php`
@@ -164,3 +171,4 @@ Update this note when any of the following change:
 - when `DeviceCreated`, `SignedIn` and `AdditionalFactorRequired` are dispatched, or what they carry
 - what reaches the events from the sign-in input
 - what a pending sign-in stores, how long it lives, what finds it, or what completing it checks
+- which of its methods it delegates to `SessionRevocations`, or what of the guard those need

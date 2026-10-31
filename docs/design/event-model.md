@@ -143,7 +143,7 @@ to these events, so the shape and the timing are a contract.
   `src/Sessions/PrincipalSwitch.php`: `context()`.
 - `src/Sessions/SessionService.php`: `signedIn()`, `fail()`; `src/Sessions/SessionPreconditions.php`: `methodReason()`;
   `src/Sessions/SignInResult.php`: `failed()`, the concealment.
-- `src/Sessions/Concerns/ManagesDevices.php`: `endSessions()`, the `DeviceRevoked` and `SignedOutEverywhere` contexts.
+- `src/Sessions/SessionRevocations.php`: `endSessions()`, the `DeviceRevoked` and `SignedOutEverywhere` contexts.
 - `src/Database/AfterCommit.php`: the commit-bound dispatch.
 
 ## Authoritative Tests

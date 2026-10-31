@@ -14,6 +14,7 @@ use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
 use SineMacula\Laravel\Authentication\Contracts\HasGuardContext;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
@@ -50,12 +51,13 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  *
  * The collaborators the constructor takes live in the guard's `GuardContext`
  * (`$this->context`, built here), the one copy every flow of the guard reads
- * and every rebind updates.
+ * and every rebind updates. What a session flow may do to the bound state is
+ * the `GuardBinding` port the guard implements.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-abstract class AbstractGuard implements ContextualGuard, HasGuardContext
+abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardContext
 {
     use BindsContextualState, ExposesCollaborators, RebindsCollaborators, SignsInWithCredentials, ValidatesGuardCredentials, VerifiesPinnedContext;
 
@@ -398,6 +400,7 @@ abstract class AbstractGuard implements ContextualGuard, HasGuardContext
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
+    #[\Override]
     public function authenticateAs(Identity $identity, Principal $principal, ?Device $device = null, ?array $scopes = null): void
     {
         self::assertScopable($identity, $scopes);
@@ -436,6 +439,7 @@ abstract class AbstractGuard implements ContextualGuard, HasGuardContext
      *
      * @return static
      */
+    #[\Override]
     public function forgetUser(): static
     {
         $this->clearContextualState();

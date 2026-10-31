@@ -43,7 +43,8 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  * itself; the round trip is delegated to `RefreshTokenExchange`, which the
  * guard builds on its own context, so the exchange reads the provider, resolver
  * and dispatcher the guard does, rebinds included. `sessions()` returns the
- * guard's session service, which starts sessions.
+ * guard's session service, which starts sessions; `logout()` signs the session
+ * out through the guard's session revocations, also built on its context.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -71,6 +72,7 @@ final class JwtGuard extends AbstractGuard
      * @param  \Illuminate\Support\Timebox  $timebox
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $tokens
      * @param  \Closure(\SineMacula\Laravel\Authentication\Runtime\GuardContext): \SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange  $exchangeFactory
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Runtime\GuardContext): \SineMacula\Laravel\Authentication\Sessions\SessionRevocations  $revocationsFactory
      * @param  \Closure(\SineMacula\Laravel\Authentication\Guards\JwtGuard, \Closure(\Closure(\Illuminate\Support\Timebox): mixed): mixed): \SineMacula\Laravel\Authentication\Sessions\SessionService  $sessionFactory
      * @param  \Closure(): \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transportFactory
      *
@@ -103,6 +105,9 @@ final class JwtGuard extends AbstractGuard
 
         // Builds the guard's refresh-token exchange, given the guard's context.
         \Closure $exchangeFactory,
+
+        /** Builds the session revocations the guard signs out through, given the guard's context, each time it signs out. */
+        private readonly \Closure $revocationsFactory,
 
         /** Builds the guard's session service, given the guard and its credential timebox, the first time it is asked for. */
         private readonly \Closure $sessionFactory,
@@ -150,11 +155,12 @@ final class JwtGuard extends AbstractGuard
     }
 
     /**
-     * Sign the request's session out through the session service: the device
-     * the guard is bound to is revoked (`signed_out`) and `DeviceRevoked`
-     * reported once committed, Laravel's `Logout` fires when an identity was
-     * bound, and the guard stays signed out for the rest of the request. A
-     * session without a persisted device is only forgotten.
+     * Sign the request's session out through the guard's session revocations,
+     * as the session service's `signOut()` does: the device the guard is bound
+     * to is revoked (`signed_out`) and `DeviceRevoked` reported once committed,
+     * Laravel's `Logout` fires when an identity was bound, and the guard stays
+     * signed out for the rest of the request. A session without a persisted
+     * device is only forgotten.
      *
      * @return void
      *
@@ -163,7 +169,7 @@ final class JwtGuard extends AbstractGuard
     #[\Override]
     public function logout(): void
     {
-        $this->sessions()->signOut();
+        ($this->revocationsFactory)($this->context)->signOut($this);
     }
 
     /**

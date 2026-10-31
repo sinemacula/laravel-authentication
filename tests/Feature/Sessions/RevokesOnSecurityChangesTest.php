@@ -20,8 +20,9 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
-use SineMacula\Laravel\Authentication\Sessions\Concerns\RevokesOnSecurityChanges;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
+use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -47,7 +48,8 @@ use Tests\Unit\Stubs\StubTenant;
  */
 #[CoversClass(SessionService::class)]
 #[CoversClass(DeviceRevocations::class)]
-#[CoversTrait(RevokesOnSecurityChanges::class)]
+#[CoversClass(SessionRevocations::class)]
+#[CoversTrait(EndsSessions::class)]
 final class RevokesOnSecurityChangesTest extends TestCase
 {
     use InteractsWithSessions;

@@ -27,9 +27,10 @@ use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
-use SineMacula\Laravel\Authentication\Sessions\Concerns\ManagesDevices;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
 use SineMacula\Laravel\Authentication\Sessions\RevocationScope;
+use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -58,7 +59,8 @@ use Tests\Unit\Stubs\PlainDeviceFixture;
 #[CoversClass(RevocationScope::class)]
 #[CoversClass(IdentityDevices::class)]
 #[CoversClass(AbstractGuard::class)]
-#[CoversTrait(ManagesDevices::class)]
+#[CoversClass(SessionRevocations::class)]
+#[CoversTrait(EndsSessions::class)]
 final class DeviceRevocationsTest extends TestCase
 {
     use InteractsWithSessions;

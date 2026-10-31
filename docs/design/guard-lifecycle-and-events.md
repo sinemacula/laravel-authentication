@@ -100,9 +100,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   connection (the `sync` driver, or `dispatchSync()` whatever the default) runs inside the request or command that
   dispatched it and is skipped, so a session that request started stays bound and one it signed out stays signed out.
 - `logout()` resolves the request if nothing has yet, emits Laravel's `Logout` event only when an identity is bound,
-  then clears contextual state. On a JWT guard it signs the session out through the session service (`signOut()`): the
-  bound persisted device is revoked first (`signed_out`, `DeviceRevoked` once committed), then `Logout`, then
-  `forgetUser()` clears the state with no event and keeps the guard signed out for the rest of the request.
+  then clears contextual state. On a JWT guard it signs the session out through the guard's `SessionRevocations`, as
+  the session service's `signOut()` does: the bound persisted device is revoked first (`signed_out`, `DeviceRevoked`
+  once committed), then `Logout`, then `forgetUser()` clears the state with no event and keeps the guard signed out for
+  the rest of the request.
 
 ## Failure / Edge Cases
 

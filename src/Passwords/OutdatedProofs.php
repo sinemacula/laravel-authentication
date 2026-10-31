@@ -24,11 +24,11 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  *
  * Whatever the flow, the password reset links and codes are outdated: the
  * password they would set is set. A change or a reset, which end sessions (see
- * `RevokesOnSecurityChanges`, whose revocation also cancels the identity's
- * pending identifier changes), also outdates the sign-in codes, which would
- * open a new one. A registration ends no session, so it leaves them. Each is
- * outdated through every `jwt` guard whose provider can return the identity
- * (see `JwtGuards::namesFor()`), for each identifier the identity holds, in
+ * `SessionRevocations`, whose revocation also cancels the identity's pending
+ * identifier changes), also outdates the sign-in codes, which would open a new
+ * one. A registration ends no session, so it leaves them. Each is outdated
+ * through every `jwt` guard whose provider can return the identity (see
+ * `JwtGuards::namesFor()`), for each identifier the identity holds, in
  * canonical form (see `ResetRecipient`), of a type a proof can be bound to: a
  * guard's password identifier, and any type with a registered normaliser. The
  * identifiers are read from the identity's row as it is stored, on the write

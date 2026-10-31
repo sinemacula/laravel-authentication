@@ -38,6 +38,8 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
+use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
+use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
@@ -82,6 +84,11 @@ final class JwtGuardTest extends JwtGuardTestCase
                 $context,
                 $app->make(ConnectionResolverInterface::class),
                 static fn (): null => null,
+            ),
+            static fn (GuardContext $context): SessionRevocations => new SessionRevocations(
+                $context,
+                new DeviceRevocations($app->make(ConnectionResolverInterface::class), static fn (): null => null),
+                $app,
             ),
             function (JwtGuard $guard, \Closure $timebox) use (&$built, $app): SessionService {
                 $built[] = [$guard, $timebox];
@@ -136,6 +143,11 @@ final class JwtGuardTest extends JwtGuardTestCase
                 $context,
                 $app->make(ConnectionResolverInterface::class),
                 static fn (): null => null,
+            ),
+            static fn (GuardContext $context): SessionRevocations => new SessionRevocations(
+                $context,
+                new DeviceRevocations($app->make(ConnectionResolverInterface::class), static fn (): null => null),
+                $app,
             ),
             function (JwtGuard $guard, \Closure $timebox) use (&$runner, $app): SessionService {
                 $runner = $timebox;
