@@ -172,6 +172,24 @@ final class GuardApplicationPolicyTest extends TestCase
     }
 
     /**
+     * Neither a guard's `audience` block nor `authentication.audience` is an
+     * application setting: a guard that lists its methods only there has no
+     * `application` block, so it allows nothing, and validates.
+     *
+     * @return void
+     */
+    public function testAnAudienceBlockIsNotRead(): void
+    {
+        config()->set('auth.guards.' . self::GUARD . '.audience', ['methods' => ['password']]);
+        config()->set('authentication.audience', ['methods' => ['password'], 'require_verified_identifier' => false]);
+
+        $this->packagePolicy()->validate(self::GUARD);
+
+        self::assertSame([], $this->packagePolicy()->methods(self::GUARD));
+        self::assertFalse($this->policy()->allowsMethod(self::GUARD, 'password'));
+    }
+
+    /**
      * A guard whose `application` entry is `null` keeps the package defaults.
      *
      * @return void
