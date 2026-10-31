@@ -88,7 +88,8 @@ an Eloquent model does not cross a queue and is `null` there. A model a queued l
 evidence of what happened. No event carries a token, a digest, a password or any other secret. An event that reports a
 write is dispatched once the write is committed on the written row's own connection: at once when it has no open
 transaction, on its commit otherwise, and never when it is rolled back; a transaction on another connection neither
-delays nor withdraws it.
+delays nor withdraws it. It goes to the dispatcher bound when it is dispatched, not the one bound at the write, so an
+`Event::fake()` made between the write and its commit receives it, while what it reports is still taken at the write.
 
 A request's bearer token authenticates; it is not a sign-in. It dispatches only Laravel's `Authenticated` and the
 package's `PrincipalAssigned` and `DeviceAuthenticated`, and a rejected token only `AuthenticationFailed`, once per

@@ -49,10 +49,14 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   whether the request was resolved.
 - A flow reads a collaborator from the context each time it uses one and keeps no copy, so a flow built before a rebind
   (the guard's session service, its refresh exchange, a service the manager handed out) follows the rebind. An operation
-  captures what it reports when it starts: the client of the request (`client()`) and its events' payload. A callback
-  deferred to a commit that dispatches through the context (`dispatch()`) reaches the dispatcher as it is when the
-  callback runs, so a dispatcher swapped in between still receives the event: the guard's own deferred events, the
-  refresh exchange's `DeviceRevoked`, and the session revocations' `DeviceRevoked` and `SignedOutEverywhere` do.
+  captures what it reports when it starts: the client of the request (`client()`) and its events' payload. Every event
+  deferred to a commit is dispatched by the callback the commit runs, through the context's `dispatch()`, so it reaches
+  the dispatcher as it is then, and a dispatcher swapped in between the write and the commit receives it: the guard's
+  own deferred events, the refresh exchange's `DeviceRevoked`, the session revocations' `DeviceRevoked` and
+  `SignedOutEverywhere`, and the events of the passkey, API key, password and identifier change services alike. No flow
+  takes the dispatcher when it schedules an event. `Passkeys\PasskeySignIn`, a sign-in method the container builds
+  rather than a flow of the guard, reads the container's dispatcher the same way, when the commit runs its
+  `PasskeyUsed`.
 - The credential timebox, `Runtime\CredentialTimebox`, is one per guard and wraps the guard's `Timebox`: `attempt()`,
   `validate()`, the session service's sign-ins, a password reset and a password reauthentication all run in it. Before
   every call it tells the box that it may not return early, so a check that fails after one that succeeded on the same
@@ -73,7 +77,7 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   request.
 - `Event::fake()` after a guard resolved rebinds `events`: the guard's own events, the session service's, the refresh
   exchange's `DeviceRevoked`, and the events of the code, passkey, API key, client credentials, password and identifier
-  change services all go to the fake.
+  change services all go to the fake, those a write deferred before the fake to a commit after it included.
 - A guard type an application writes reads its collaborators through `$this->context` (`name()`, `provider()`,
   `resolver()`, `events()`, `request()`, `client()`), dispatches through `$this->context->dispatch()`, and checks a
   secret inside `$this->context->timebox()->run()`.
@@ -84,11 +88,9 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   resolver for its life, on refresh as on bearer requests.
 - A deferred event scheduled before a request rebind carries the client its operation started from, not the new
   request's.
-- The services that read the dispatcher themselves take it when they schedule a deferred event (a password set, by a
-  change or a reset, whose writer reads it from the context when the write starts, a passkey's use, addition or removal,
-  an API key's issue, rotation or revocation, an identifier change's request or confirmation), so a dispatcher swapped
-  between the scheduling and the commit does not receive that event. The revocations of a password change or reset
-  still reach the swapped dispatcher: they dispatch through the context when the commit runs them.
+- A dispatcher swapped in after a write and before its commit (`Event::fake()` inside the caller's transaction, a rebind
+  of `events`) receives every event the write deferred, a password set and the revocations of its change or reset alike,
+  and the dispatcher bound at the write receives none. A write rolled back reports to neither.
 - A flow that copied a collaborator out of the context would freeze it at that moment; none does, and the rebind tests
   hold every long-lived holder to reading per use.
 - A subclass that read the protected properties a guard had before the context (`$this->name`, `$this->provider`,
@@ -113,6 +115,9 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   `src/Sessions/PrincipalSwitch.php`; `src/Passwords/ResetRecipient.php`: `find()`, `eligible()`.
 - `src/Runtime/JwtGuardContexts.php`: `named()`, called by `src/Codes/SendOneTimeCode.php` and
   `src/Passwords/SendPasswordReset.php`.
+- The deferred reports: `src/ApiKeys/ApiKeyService.php` `report()`, `src/Passkeys/PasskeyService.php`
+  `dispatchOnceCommitted()`, `src/Passkeys/PasskeyAssertions.php` `used()`, `src/IdentifierChanges/ChangeRequests.php`
+  `deliver()`, `src/IdentifierChanges/ChangeConfirmation.php` `report()`.
 
 ## Authoritative Tests
 
@@ -128,13 +133,15 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   `testADispatcherSwappedBeforeTheCommitReceivesTheEvents`
 - `tests/Feature/Sessions/SessionRevocationsTest.php` `testADeferredReportReachesTheDispatcherAsItIsAtTheCommit`,
   `testTheGuardsLogoutNeedsNoSessionService`
+- `tests/Feature/Runtime/GuardContextTest.php` `testAFakeSwappedInBeforeTheCommitReceivesEveryDeferredEvent`
 - `tests/Integration/Passwords/PasswordWriterTest.php`
-  `testThePasswordSetKeepsTheDispatcherOfTheWriteAndTheRevocationsTakeTheOneAtTheCommit`,
-  `tests/Feature/Passwords/ResetSubmissionsTest.php`
-  `testAResetKeepsTheDispatcherOfTheWriteAndTheRevocationsTakeTheOneAtTheCommit`
-- `tests/Feature/IdentifierChanges/IdentifierChangeConfirmationTest.php` `testEachReportKeepsTheDispatcherOfItsWrite`
-- `tests/Feature/Passkeys/PasskeyServiceTest.php` `testEachEventKeepsTheDispatcherOfItsWrite`,
-  `tests/Integration/ApiKeys/ApiKeyServiceTest.php` `testEachReportKeepsTheDispatcherOfItsWrite`
+  `testThePasswordSetAndTheRevocationsReachTheDispatcherBoundAtTheCommit`,
+  `tests/Feature/Passwords/ResetSubmissionsTest.php` `testAResetsEventsReachTheDispatcherBoundAtTheCommit`
+- `tests/Feature/IdentifierChanges/IdentifierChangeConfirmationTest.php`
+  `testEveryReportReachesTheDispatcherBoundAtTheCommit`
+- `tests/Feature/Passkeys/PasskeyServiceTest.php` `testEveryEventReachesTheDispatcherBoundAtTheCommit`,
+  `tests/Feature/Passkeys/PasskeySignInTest.php` `testAUseReachesTheDispatcherBoundAtTheCommit`,
+  `tests/Integration/ApiKeys/ApiKeyServiceTest.php` `testEveryReportReachesTheDispatcherBoundAtTheCommit`
 - `tests/Feature/ClientCredentials/ClientCredentialsExchangeTest.php` `testAnExchangeFollowsTheGuardsRebinds`
 - `tests/Integration/Codes/SendOneTimeCodeTest.php` `testASignInJobForAnotherDriversGuardThrows`,
   `testASignInJobForAJwtDriverReplacedByAnotherGuardThrows`,
