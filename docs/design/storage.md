@@ -14,7 +14,7 @@ and how the runtime models and the published migrations are kept choosing the sa
 - Every shipped model takes its connection from the resolver when it is built: `PendingSignIn`, `OneTimeCode`,
   `Passkey`, `PasskeyChallenge`, `ApiKey` and `IdentifierChange` from `name()`, `RateLimit` from `forRateLimits()`, and
   the shipped `Device` from `name()` unless its class names a connection of its own. No persistence model reads the
-  device model, or `Jwt\DeviceLookup`, for its connection.
+  device model, or `Devices\DeviceLookup`, for its connection.
 - Every published migration's `getConnection()` returns the same value its model reads, and its collision guard,
   `create()` and `dropIfExists()` run on `Schema::connection($this->getConnection())`. Laravel's migrator runs a
   migration, and its schema transaction, on the connection the migration names, so `php artisan migrate` and a direct
@@ -26,7 +26,7 @@ and how the runtime models and the published migrations are kept choosing the sa
   session, on the pending row's connection), a bulk revocation (devices, pending sign-ins and pending identifier
   changes), a password reset and an identifier change (the proof with the identity, its cutoff and its devices). Two
   connections cannot commit as one.
-- The device model must therefore live there: `Jwt\DeviceLookup::model()`, which every device path and
+- The device model must therefore live there: `Devices\DeviceLookup::model()`, which every device path and
   `AuthenticationServiceProvider::createJwtGuard()` go through, refuses a configured device model on another connection
   (`InvalidDeviceModelConfigurationException::offStorage()`), and `Database\SharedConnection` refuses a reset or an
   identifier change for an identity elsewhere (`LogicException`). Connections are compared by name, a model's own or
@@ -60,8 +60,8 @@ and how the runtime models and the published migrations are kept choosing the sa
   connection inside the identity's transaction, so a failure after it ends more, never less.
 - Laravel gives a related model that names no connection its parent's, so a device's `authenticatable()` and
   `principal()` relations look an owner up on the storage connection unless its model names its own. The package never
-  loads an owner through them (it reloads owners through the guard's provider, and `Jwt\DeviceOwnership` reads only the
-  relation's key names), so this concerns application code only, and the configuration guide says so.
+  loads an owner through them (it reloads owners through the guard's provider, and `Devices\DeviceOwnership` reads only
+  the relation's key names), so this concerns application code only, and the configuration guide says so.
 - Changing a setting moves no table already created, and a rollback runs against the setting at the time it runs: moving
   the tables is a deploy, with a migration the application writes and a restart of every worker.
 
@@ -71,8 +71,8 @@ and how the runtime models and the published migrations are kept choosing the sa
 - The constructors of `src/Models/Device.php`, `PendingSignIn.php`, `RateLimit.php`, `OneTimeCode.php`, `Passkey.php`,
   `PasskeyChallenge.php`, `ApiKey.php` and `IdentifierChange.php`; `getConnection()` in every migration under
   `database/migrations/`.
-- `src/Jwt/DeviceLookup.php`: `model()`; `src/Exceptions/InvalidDeviceModelConfigurationException.php`: `offStorage()`;
-  `src/Database/SharedConnection.php`.
+- `src/Devices/DeviceLookup.php`: `model()`; `src/Exceptions/InvalidDeviceModelConfigurationException.php`:
+  `offStorage()`; `src/Database/SharedConnection.php`.
 - `src/AuthenticationServiceProvider.php`: `createJwtGuard()`, `createApiKeyGuard()`;
   `src/Console/CheckConfigurationCommand.php`: `packageChecks()`; `config/authentication.php`: `storage`.
 
@@ -82,7 +82,7 @@ and how the runtime models and the published migrations are kept choosing the sa
 - `tests/Integration/Migration/StorageConnectionMigrationTest.php`
 - `tests/Integration/Database/StorageConnectionSessionsTest.php`
 - `tests/Integration/ApiKeys/StorageConnectionApiKeysTest.php`
-- `tests/Feature/Jwt/DeviceLookupTest.php` `testTheModelMustLiveOnTheStorageConnection`
+- `tests/Feature/Devices/DeviceLookupTest.php` `testTheModelMustLiveOnTheStorageConnection`
 - `tests/Feature/AuthenticationServiceProviderGuardValidationTest.php`
   `testJwtGuardRejectsADeviceModelOffTheStorageConnection`
 - `tests/Feature/AuthenticationServiceProviderTest.php` `testApiKeyGuardIgnoresTheDeviceModel`,

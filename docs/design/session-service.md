@@ -125,21 +125,21 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 ## Implementation Anchors
 
 - `src/Sessions/SessionService.php`: `signIn()`, `start()`, `establish()`.
-- `src/Sessions/SignInRequest.php` (`reserveAccountAttempt()`) and `src/Sessions/AccountAttempts.php`: the slots a
+- `src/Sessions/SignInRequest.php` (`reserveAccountAttempt()`) and `src/RateLimiting/AccountAttempts.php`: the slots a
   sign-in's method takes on the accounts it checks, held with the sign-in's own.
 - `src/Sessions/SessionWriter.php`: `create()`, `continueOn()` and the compare-and-swap.
-- `src/Sessions/DeviceProof.php`, `src/Jwt/JwtTokenService.php` (`parseRefreshProof()`), `src/Jwt/DeviceLookup.php`.
+- `src/Sessions/DeviceProof.php`, `src/Jwt/JwtTokenService.php` (`parseRefreshProof()`), `src/Devices/DeviceLookup.php`.
 - `src/Sessions/PendingSignIns.php` and `src/Models/PendingSignIn.php`: issuing, finding and consuming pending sign-ins.
 - `src/Sessions/SessionPreconditions.php`: the `HasDevices` refusal, and `start()`'s one-principal rule and
   reloaded-identity check.
-- `src/Sessions/Admission/SignInAdmission.php`, shared with `attempt()`; `src/Guards/PinnedPrincipal.php`.
+- `src/Admission/SignInAdmission.php`, shared with `attempt()`; `src/Admission/PinnedPrincipal.php`.
 - `src/Database/AfterCommit.php`, shared with the refresh exchange's revocation report.
 - `src/Guards/JwtGuard.php` (`sessions()`), `src/AuthManager.php` (`sessions()`), and the factory
   `AuthenticationServiceProvider::createJwtGuard()` passes the guard.
 
 ## Authoritative Tests
 
-- `tests/Feature/Sessions/SessionServiceTest.php`, `tests/Unit/Sessions/AccountAttemptsTest.php`
+- `tests/Feature/Sessions/SessionServiceTest.php`, `tests/Unit/RateLimiting/AccountAttemptsTest.php`
 - `tests/Feature/Sessions/SessionRoutesTest.php`: the documented sign-in and further-factor routes over HTTP, through
   `Auth::sessions()`, with tokens checked through `auth:api`
 - `tests/Integration/Sessions/SessionServiceTest.php`

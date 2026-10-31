@@ -59,6 +59,18 @@ final class NamespaceDependenciesTest extends TestCase
             'forbids' => ['Jwt', 'Sessions', 'Guards'],
             'allows'  => [],
         ],
+        'admission, devices and the support helpers name nothing of tokens, sessions or guards' => [
+            'from'    => ['Admission', 'Devices', 'Support'],
+            'except'  => [],
+            'forbids' => ['Jwt', 'Sessions', 'Guards'],
+            'allows'  => [],
+        ],
+        'tokens, API keys and client credentials name nothing of sessions but the sign-in request' => [
+            'from'    => ['Jwt', 'ApiKeys', 'ClientCredentials'],
+            'except'  => [],
+            'forbids' => ['Sessions'],
+            'allows'  => ['Sessions\SignInRequest'],
+        ],
         'the HTTP helpers name nothing of sessions or guards' => [
             'from'    => ['Http'],
             'except'  => [],

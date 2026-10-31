@@ -8,8 +8,8 @@ use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
-use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Models\Passkey;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * Who a passkey or a ceremony belongs to, recorded as devices record their

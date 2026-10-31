@@ -6,6 +6,9 @@ namespace SineMacula\Laravel\Authentication\Jwt;
 
 use Illuminate\Container\Container;
 use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
+use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -14,10 +17,9 @@ use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Devices\DeviceOwnership;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
-use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
-use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * Decides whom a device's refresh token signs in again: the device's owner,
@@ -63,19 +65,19 @@ final readonly class RefreshAdmission
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  mixed  $principalHint
-     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function admit(EloquentDevice&Model $device, mixed $principalHint): AdmittedSignIn|RefusedSignIn
+    public function admit(EloquentDevice&Model $device, mixed $principalHint): Admitted|Refused
     {
         $identity = $this->owner($device);
 
         if ($identity === null) {
-            return new RefusedSignIn(FailureReason::IDENTITY_UNKNOWN);
+            return new Refused(FailureReason::IDENTITY_UNKNOWN);
         }
 
         $refusal = match (true) {
@@ -84,7 +86,7 @@ final readonly class RefreshAdmission
             default                                => null,
         };
 
-        return $refusal === null ? $this->admitAs($device, $identity, $principalHint) : new RefusedSignIn($refusal, $identity);
+        return $refusal === null ? $this->admitAs($device, $identity, $principalHint) : new Refused($refusal, $identity);
     }
 
     /**
@@ -95,28 +97,28 @@ final readonly class RefreshAdmission
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $principalHint
-     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    private function admitAs(EloquentDevice&Model $device, Identity $identity, mixed $principalHint): AdmittedSignIn|RefusedSignIn
+    private function admitAs(EloquentDevice&Model $device, Identity $identity, mixed $principalHint): Admitted|Refused
     {
         $principal = $this->principal($identity, $principalHint);
 
         if ($principal instanceof FailureReason || !ActivationPolicy::isActive($principal)) {
             return $principal instanceof FailureReason
-                ? new RefusedSignIn($principal, $identity)
-                : new RefusedSignIn(FailureReason::PRINCIPAL_INACTIVE, $identity, $principal);
+                ? new Refused($principal, $identity)
+                : new Refused(FailureReason::PRINCIPAL_INACTIVE, $identity, $principal);
         }
 
         $tenant = ActivationPolicy::activeTenant($principal);
 
         return $tenant === false
-            ? new RefusedSignIn(FailureReason::TENANT_INACTIVE, $identity, $principal)
-            : $this->admitByPolicy($device, new AdmittedSignIn($identity, $principal, $tenant, $device));
+            ? new Refused(FailureReason::TENANT_INACTIVE, $identity, $principal)
+            : $this->admitByPolicy($device, new Admitted($identity, $principal, $tenant, $device));
     }
 
     /**
@@ -129,14 +131,14 @@ final readonly class RefreshAdmission
      * cannot allow a method the primary no longer records for the device.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
-     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    private function admitByPolicy(EloquentDevice&Model $device, AdmittedSignIn $admitted): AdmittedSignIn|RefusedSignIn
+    private function admitByPolicy(EloquentDevice&Model $device, Admitted $admitted): Admitted|Refused
     {
         $policy  = Container::getInstance()->make(AudiencePolicy::class);
         $method  = WriteConnection::during($device, static fn (): ?string => $device->getSignInMethod());
@@ -148,7 +150,7 @@ final readonly class RefreshAdmission
             default                                                                                => null,
         };
 
-        return $refusal === null ? $admitted : RefusedSignIn::after($refusal, $admitted);
+        return $refusal === null ? $admitted : Refused::after($refusal, $admitted);
     }
 
     /**

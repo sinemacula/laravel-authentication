@@ -5,16 +5,17 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
-use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
-use SineMacula\Laravel\Authentication\Jwt\DeviceOwnership;
+use SineMacula\Laravel\Authentication\Devices\DeviceLookup;
+use SineMacula\Laravel\Authentication\Devices\DeviceOwnership;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
+use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * Decides whether a client signing in proved, with its refresh token, that it
@@ -53,14 +54,14 @@ final readonly class DeviceProof
      * admitted sign-in, or `null` when it proves none.
      *
      * @param  string  $guard
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  string  $refreshToken
      * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      * @throws \LogicException
      */
-    public function provenDevice(string $guard, AdmittedSignIn $admitted, #[\SensitiveParameter] string $refreshToken): (EloquentDevice&Model)|null
+    public function provenDevice(string $guard, Admitted $admitted, #[\SensitiveParameter] string $refreshToken): (EloquentDevice&Model)|null
     {
         return $this->provenDeviceOf($guard, $admitted->identity, $admitted->principal, $refreshToken);
     }

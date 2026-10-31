@@ -21,7 +21,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
-use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
+use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 use Tests\Unit\Stubs\Stub3dPrincipal;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubPinnedContextGuard;

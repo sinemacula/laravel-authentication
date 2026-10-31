@@ -25,6 +25,7 @@ use Illuminate\Support\Timebox;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
@@ -41,17 +42,15 @@ use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
-use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
-use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -60,6 +59,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
 use Tests\Fixtures\Sessions\RefusalIgnoringSignIn;
@@ -1026,7 +1026,7 @@ final class SessionServiceTest extends TestCase
         $identity = $this->seedIdentityWithoutDevices();
         $pending  = (new PendingSignIns(app(ConfigRepository::class)))->issue(
             'plain',
-            new AdmittedSignIn($identity, $identity, null),
+            new Admitted($identity, $identity, null),
             'password',
             'email',
             new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT)),
@@ -1058,7 +1058,7 @@ final class SessionServiceTest extends TestCase
         $identity = $this->seedIdentity();
         $pending  = (new PendingSignIns(app(ConfigRepository::class)))->issue(
             'api',
-            new AdmittedSignIn($identity, $identity, null),
+            new Admitted($identity, $identity, null),
             'password',
             'email',
             new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT)),
@@ -1157,7 +1157,7 @@ final class SessionServiceTest extends TestCase
         $identity = $this->seedIdentity();
         $pending  = (new PendingSignIns(app(ConfigRepository::class)))->issue(
             'api',
-            new AdmittedSignIn($identity, $identity, null),
+            new Admitted($identity, $identity, null),
             'password',
             'email',
             new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT)),
@@ -1195,7 +1195,7 @@ final class SessionServiceTest extends TestCase
         $identity = $this->seedIdentity();
         $pending  = (new PendingSignIns(app(ConfigRepository::class)))->issue(
             'api',
-            new AdmittedSignIn($identity, $identity, null),
+            new Admitted($identity, $identity, null),
             'password',
             'email',
             new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT)),

@@ -10,6 +10,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\Device as DeviceContract;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -17,7 +18,6 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Models\Device;
-use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\DeviceProof;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
@@ -258,16 +258,16 @@ final class DeviceProofTest extends TestCase
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted
      */
-    private function admitted(Identity $identity, ?Principal $principal = null): AdmittedSignIn
+    private function admitted(Identity $identity, ?Principal $principal = null): Admitted
     {
         self::assertTrue($principal !== null || $identity instanceof Principal);
 
         /** @var \SineMacula\Laravel\Authentication\Contracts\Principal $acting */
         $acting = $principal ?? $identity;
 
-        return new AdmittedSignIn($identity, $acting, null);
+        return new Admitted($identity, $acting, null);
     }
 
     /**

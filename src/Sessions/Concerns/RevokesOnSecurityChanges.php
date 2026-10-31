@@ -11,9 +11,9 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
-use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
-use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
 use SineMacula\Laravel\Authentication\Sessions\RevocationScope;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * The session service's answers to security changes an application makes in its

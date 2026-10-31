@@ -4,8 +4,8 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Guards;
 
+use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
-use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 
 /**
  * An access token the bearer path accepted: whom it admitted, and, for a token
@@ -22,14 +22,14 @@ final readonly class AuthenticatedBearer
     /**
      * Constructor.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  ?string  $credentialId
      * @param  ?list<string>  $scopes
      */
     public function __construct(
 
         /** The identity, principal, tenant and device the token admitted. */
-        public AdmittedSignIn $admitted,
+        public Admitted $admitted,
 
         /** The API key a client credentials token was exchanged for, if it was. */
         #[\SensitiveParameter]

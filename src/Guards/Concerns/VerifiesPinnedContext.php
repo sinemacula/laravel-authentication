@@ -5,12 +5,12 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Guards\Concerns;
 
 use Illuminate\Support\Carbon;
+use SineMacula\Laravel\Authentication\Admission\PinnedPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Guards\OwnedDevice;
-use SineMacula\Laravel\Authentication\Guards\PinnedPrincipal;
-use SineMacula\Laravel\Authentication\Sessions\IdentityDevices;
+use SineMacula\Laravel\Authentication\Devices\IdentityDevices;
+use SineMacula\Laravel\Authentication\Devices\OwnedDevice;
 
 /**
  * Proves that a principal or device pinned on `attempt()` belongs to the

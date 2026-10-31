@@ -18,8 +18,11 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Devices\DeviceDeadlines;
+use SineMacula\Laravel\Authentication\Devices\DeviceOwnership;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * JWT issue/parse service.
@@ -385,7 +388,7 @@ final class JwtTokenService
      */
     private function sessionEnd(Device $device, CarbonInterface $issuedAt): CarbonImmutable
     {
-        [$idle, $absolute] = WriteConnection::during($device, static fn (): ?array => TokenLifetimes::liveDeadlines($device, $issuedAt))
+        [$idle, $absolute] = WriteConnection::during($device, static fn (): ?array => DeviceDeadlines::liveDeadlines($device, $issuedAt))
             ?? throw new \InvalidArgumentException('Cannot issue a token for a device whose session has ended or that has no idle and absolute deadlines.');
 
         return CarbonImmutable::createFromTimestamp(min($idle->getTimestamp(), $absolute->getTimestamp()));

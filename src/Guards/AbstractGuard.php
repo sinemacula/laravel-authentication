@@ -11,6 +11,7 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
+use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -28,7 +29,6 @@ use SineMacula\Laravel\Authentication\Guards\Concerns\SignsInWithCredentials;
 use SineMacula\Laravel\Authentication\Guards\Concerns\ValidatesGuardCredentials;
 use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 
 /**
@@ -309,7 +309,7 @@ abstract class AbstractGuard implements ContextualGuard
         $client     = ClientContext::fromRequest($this->request);
         $outcome    = $this->signInWithCredentials($password, $credentials, $principal, $device, $client);
 
-        if ($outcome instanceof RefusedSignIn) {
+        if ($outcome instanceof Refused) {
 
             $this->fireFailedEvent($this->lastRetrievedUser, $credentials);
 

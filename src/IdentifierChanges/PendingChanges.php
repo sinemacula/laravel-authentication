@@ -10,7 +10,7 @@ use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Models\IdentifierChange;
-use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
+use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 
 /**
  * The pending identifier changes as the identifier change service reads and

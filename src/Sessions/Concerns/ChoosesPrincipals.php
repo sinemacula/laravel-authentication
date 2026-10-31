@@ -6,6 +6,10 @@ namespace SineMacula\Laravel\Authentication\Sessions\Concerns;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
+use SineMacula\Laravel\Authentication\Admission\PinnedPrincipal;
+use SineMacula\Laravel\Authentication\Admission\Refused;
+use SineMacula\Laravel\Authentication\Admission\SignInAdmission;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
@@ -20,25 +24,21 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PrincipalChoiceRequired;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
-use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
-use SineMacula\Laravel\Authentication\Guards\PinnedPrincipal;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
-use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
-use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
-use SineMacula\Laravel\Authentication\Sessions\Admission\SignInAdmission;
 use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalChoice;
-use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * The session service's principal choice and switch.
@@ -151,7 +151,7 @@ trait ChoosesPrincipals
         $live = $this->liveChoice($token, $now);
 
         if ($live === null || !PendingSignIns::delete($live[0], $live[1], $now)) {
-            return $this->fail(new RefusedSignIn(FailureReason::PENDING_INVALID), null, SignInContext::fromRequest($this->guard->getRequest()), null, []);
+            return $this->fail(new Refused(FailureReason::PENDING_INVALID), null, SignInContext::fromRequest($this->guard->getRequest()), null, []);
         }
 
         [$pending, , $identity] = $live;
@@ -168,9 +168,9 @@ trait ChoosesPrincipals
                 FailureReason::PRINCIPAL_MISMATCH,
                 $pending->identifier_type,
             )
-            : new RefusedSignIn(FailureReason::METHOD_NOT_ALLOWED, $identity);
+            : new Refused(FailureReason::METHOD_NOT_ALLOWED, $identity);
 
-        if ($admitted instanceof RefusedSignIn) {
+        if ($admitted instanceof Refused) {
             return $this->fail($admitted, $method, $context, null, []);
         }
 
@@ -269,10 +269,10 @@ trait ChoosesPrincipals
      * Whether a refusal is of a verified identity that only lacks a principal:
      * no principal was named and the resolver has no default.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn  $refused
+     * @param  \SineMacula\Laravel\Authentication\Admission\Refused  $refused
      * @return bool
      */
-    private static function awaitsChoice(RefusedSignIn $refused): bool
+    private static function awaitsChoice(Refused $refused): bool
     {
         return $refused->reason === FailureReason::PRINCIPAL_UNRESOLVED && $refused->identity !== null;
     }
@@ -296,18 +296,18 @@ trait ChoosesPrincipals
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  ?list<array<string, string>>  $attemptWindows
-     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn|\SineMacula\Laravel\Authentication\Sessions\SignInResult
+     * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
-    private function offerChoice(Identity $identity, string $method, ?string $identifierType, SignInContext $context, ?array $attemptWindows): RefusedSignIn|SignInResult
+    private function offerChoice(Identity $identity, string $method, ?string $identifierType, SignInContext $context, ?array $attemptWindows): Refused|SignInResult
     {
         $guard = $this->guard->getName();
 
         [$principals, $refusal] = $this->admissible($identity, $identifierType);
 
         if ($principals === []) {
-            return new RefusedSignIn($refusal ?? FailureReason::PRINCIPAL_UNRESOLVED, $identity);
+            return new Refused($refusal ?? FailureReason::PRINCIPAL_UNRESOLVED, $identity);
         }
 
         $now    = CarbonImmutable::now()->startOfSecond();

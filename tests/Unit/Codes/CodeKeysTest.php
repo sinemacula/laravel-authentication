@@ -10,7 +10,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Codes\CodeKeys;
-use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
+use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**

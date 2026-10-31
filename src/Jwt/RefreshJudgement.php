@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Devices\DeviceDeadlines;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch;
 
@@ -67,7 +68,7 @@ final class RefreshJudgement
                 return FailureReason::DEVICE_REVOKED;
             }
 
-            $deadlines = TokenLifetimes::liveDeadlines($device, $now);
+            $deadlines = DeviceDeadlines::liveDeadlines($device, $now);
             $current   = $device->getRefreshKey();
 
             if ($deadlines === null || $current === null) {

@@ -13,7 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
-use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
+use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
 /**
@@ -266,7 +266,7 @@ final readonly class PasswordSignIn implements SignInMethod
      * checked and the answer is `false`, as for a wrong password, so the
      * refusal does not reveal that the account exists.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\AccountAttempts  $attempts
+     * @param  \SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts  $attempts
      * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  array<array-key, mixed>  $credentials

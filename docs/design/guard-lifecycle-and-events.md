@@ -190,18 +190,18 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `authenticateAs()`, `logout()`, `forgetUser()`, `bindAuthenticationLifecycle()`, `bindVerifiedContext()`;
   `src/Guards/Concerns/RebindsCollaborators.php`: `setRequest()`; `src/Guards/Concerns/SignsInWithCredentials.php`:
   `signInWithCredentials()`, `admitVerifiedIdentity()`.
-- `src/Sessions/Methods/PasswordSignIn.php` and `src/Sessions/Admission/SignInAdmission.php`: the credential check and
-  the activity, principal, tenant and audience checks every sign-in shares.
-- `src/Guards/ActivationPolicy.php`: the opt-in identity, principal, and tenant activation checks.
+- `src/Sessions/Methods/PasswordSignIn.php` and `src/Admission/SignInAdmission.php`: the credential check and the
+  activity, principal, tenant and audience checks every sign-in shares.
+- `src/Admission/ActivationPolicy.php`: the opt-in identity, principal, and tenant activation checks.
 - `src/Guards/Concerns/BindsContextualState.php`: the resolving accessors, `setPrincipal()`, `setDevice()`,
   `bindContext()`, `clearContextualState()`.
 - `src/Guards/Concerns/VerifiesPinnedContext.php`: the ownership checks for principals and devices pinned on
   `attempt()`.
 - `src/Guards/JwtGuard.php`: `resolveUserFromRequest()`, `resolveBearerToken()`, `refresh()`, `refreshFromRequest()`.
 - `src/AuthManager.php`: `forgetGuardState()`; `src/Listeners/ForgetGuardStateBeforeJob.php`.
-- `src/Guards/BearerAuthentication.php` and `src/Guards/OwnedDevice.php`: the bearer checks, their order and reasons,
-  and the device checks they share with the `attempt()` device pin; `src/Sessions/IdentityDevices.php`: the device
-  lookup both use.
+- `src/Guards/BearerAuthentication.php` and `src/Devices/OwnedDevice.php`: the bearer checks, their order and reasons,
+  and the device checks they share with the `attempt()` device pin; `src/Devices/IdentityDevices.php`: the device lookup
+  both use.
 - `src/AuthenticationServiceProvider.php`: listener registration for `DeviceAuthenticated`, `wireGuardRebinds()`, the
   `auth` middleware binding, and the guest response render callback.
 - `src/Guards/JwtGuard.php` and `src/Jwt/RefreshTokenExchange.php`: `setDispatcher()` and `setPrincipalResolver()`,
