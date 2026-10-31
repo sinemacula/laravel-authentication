@@ -118,7 +118,7 @@ if ($result->isFailed()) {
     // Failed and AuthenticationFailed were dispatched; $result->reason says why.
     if ($result->reason === FailureReason::RATE_LIMITED) {
         // A 429 with Retry-After, as a refused refresh answers, so clients wait.
-        throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $result->retryAfter]);
+        throw new ThrottleRequestsException(__('Too Many Attempts.'), null, ['Retry-After' => $result->retryAfter]);
     }
 
     abort(401);
@@ -221,7 +221,7 @@ Route::post('/codes', function (Request $request) {
 
     // The same answer whether or not anyone has the number.
     return match ($result->status) {
-        CodeRequestStatus::RATE_LIMITED       => response()->json(['message' => 'Too Many Attempts.'], 429, ['Retry-After' => $result->retryAfter]),
+        CodeRequestStatus::RATE_LIMITED       => response()->json(['message' => __('Too Many Attempts.')], 429, ['Retry-After' => $result->retryAfter]),
         CodeRequestStatus::IDENTIFIER_INVALID => response()->json(['message' => 'Enter a number in international format.'], 422),
         CodeRequestStatus::METHOD_NOT_ALLOWED => abort(403),
         CodeRequestStatus::SENT               => response()->json(['expires_at' => $result->expiresAt->toIso8601String()], 202),
@@ -354,14 +354,15 @@ $result = Auth::sessions('api')->signIn('passkey', $request->only('challenge', '
 `signInOptions()` names no credential, so the browser offers every passkey it holds for the relying party. Anyone may
 ask for them and each request writes a challenge, so each is counted against the client's IP address under the guard's
 `passkey_options` limit (see [Rate limits](configuration.md#rate-limits)); past it, a `ThrottleRequestsException`
-answers `429` with `Retry-After`. The `passkey` method uses the challenge up, finds the passkey of the guard's relying
-party the answer names, loads its owner through the guard's provider as the very model it records, takes a slot of the
-owner's account limit, and verifies the assertion: the origin, the relying party, user presence and verification, the
-signature, the challenge, and the user handle the passkey was registered under. The session service then decides the
-rest, as for any method (see [Signing in: the session service](#signing-in-the-session-service)): no identifier is
-named, so only the IP address is limited before the method runs and the verified-identifier requirement does not apply.
-A challenge the answer cannot use fails as `passkey_challenge_invalid`, in the result too, since it says nothing about
-any account (the client starts again); every other refusal is `invalid_credentials`.
+answers `429` with `Retry-After` and a [localisable](installation.md#localising-messages) message. The `passkey` method
+uses the challenge up, finds the passkey of the guard's relying party the answer names, loads its owner through the
+guard's provider as the very model it records, takes a slot of the owner's account limit, and verifies the assertion:
+the origin, the relying party, user presence and verification, the signature, the challenge, and the user handle the
+passkey was registered under. The session service then decides the rest, as for any method (see [Signing in: the session
+service](#signing-in-the-session-service)): no identifier is named, so only the IP address is limited before the method
+runs and the verified-identifier requirement does not apply. A challenge the answer cannot use fails as
+`passkey_challenge_invalid`, in the result too, since it says nothing about any account (the client starts again); every
+other refusal is `invalid_credentials`.
 
 The sign counter guards against a cloned authenticator. With `s` the count stored and `p` the assertion's: `s = 0` and
 `p = 0` is accepted and the count stays 0 (most synced passkeys keep no counter); `p > s` is accepted and the count
