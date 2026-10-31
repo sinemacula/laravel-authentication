@@ -711,6 +711,57 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
+     * Rows of `[the guards named with `--guard`, what a policy of the
+     * application's own throws when asked `phone_code`, what the run prints]`.
+     *
+     * @return iterable<string, array{0: list<string>, 1: \Exception, 2: list<string>}>
+     */
+    public static function provideGuardsLeftOut(): iterable
+    {
+        $problem = static fn (string $guard, string $message): string => "[codes] Guard [{$guard}]'s application policy could not say"
+            . " whether it allows a code sign-in method: {$message}";
+        $before = ['[storage] OK', '[device] OK', '[sign_in] OK', '[passwords] OK', '[delivery] OK', '[passkeys] OK', '[api_keys] OK', '[identifier_changes] OK'];
+
+        foreach ([new \InvalidArgumentException('Unreadable `phone_code` setting.'), new \RuntimeException('Policy store down.')] as $exception) {
+
+            $message = $exception->getMessage();
+            $kind    = $exception::class;
+
+            yield "only the api_key guard, {$kind}" => [['machine'], $exception, [...$before, '[machine] OK', $problem('api', $message), $problem('admin', $message)]];
+            yield "one jwt guard, {$kind}" => [['api'], $exception, [...$before, $problem('admin', $message), "[api] {$message}"]];
+        }
+    }
+
+    /**
+     * A policy of the application's own that throws when asked whether a `jwt`
+     * guard left out of the run with `--guard` allows a code sign-in method is
+     * a `[codes]` problem for that guard, reported once, since no check of the
+     * guard's own asks again; a named guard reports it as its own problem.
+     *
+     * @param  list<string>  $guards
+     * @param  \Exception  $exception
+     * @param  list<string>  $output
+     * @return void
+     */
+    #[DataProvider('provideGuardsLeftOut')]
+    public function testAPolicyThatThrowsForAGuardLeftOutIsACodesProblem(array $guards, \Exception $exception, array $output): void
+    {
+        $policy = \Mockery::mock(ApplicationPolicy::class);
+
+        $policy->allows('allowsMethod')->andReturnUsing(static function (string $guard, string $method) use ($exception): bool {
+            if ($method === 'phone_code') {
+                throw $exception;
+            }
+
+            return $method !== 'passkey';
+        });
+
+        $this->app?->instance(ApplicationPolicy::class, $policy);
+
+        self::assertSame([1, $output], $this->check(['--guard' => $guards]));
+    }
+
+    /**
      * Rows of `[whether a policy of the application's own allows the api_key
      * guard `api_key`, the exit code, what the run prints]`.
      *

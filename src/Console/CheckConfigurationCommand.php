@@ -54,8 +54,10 @@ use Symfony\Component\Console\Attribute\AsCommand;
  * (while a `jwt` guard is configured: the device model, which must live on the
  * storage connection, and the pruning retention), `[sign_in]` (the pending
  * sign-in lifetime), `[passwords]` (the password policy settings), `[codes]`
- * (the one-time code settings and key, and a sender bound when a guard allows a
- * code sign-in method, the package's or an application's own `CodeSignIn`),
+ * (the one-time code settings and key, a sender bound when a guard allows a
+ * code sign-in method, the package's or an application's own `CodeSignIn`, and
+ * an exception a guard's application policy throws when asked so, for a guard
+ * `--guard` leaves out; a checked guard reports it as its own problem),
  * `[delivery]` (the delivery queue, with a warning, not a problem, when a `jwt`
  * guard is configured and deliveries run on a `sync` queue connection, or a
  * `failover` one that can fall back to `sync`), `[passkeys]` (the passkey
@@ -99,7 +101,7 @@ final class CheckConfigurationCommand extends Command
 
         $problems = [];
 
-        foreach ($this->packageChecks($config) as $subject => $checks) {
+        foreach ($this->packageChecks($config, $guards) as $subject => $checks) {
 
             $found = self::prefixed($subject, array_map(static fn (\Closure $check): ?string => self::problem($check), $checks));
 
@@ -141,9 +143,10 @@ final class CheckConfigurationCommand extends Command
      * settings, each of which otherwise fails only when it is first used.
      *
      * @param  \Illuminate\Config\Repository  $config
+     * @param  list<string>  $checked
      * @return array<string, list<\Closure(): mixed>>
      */
-    private function packageChecks(ConfigRepository $config): array
+    private function packageChecks(ConfigRepository $config, array $checked): array
     {
         $device = JwtGuards::names($config) === [] ? [] : [
             'device' => [
@@ -164,7 +167,7 @@ final class CheckConfigurationCommand extends Command
                 static fn (): int => (new PendingSignIns($config))->ttlSeconds(),
             ],
             'passwords' => (new PasswordChecks($this->laravel, $config))->settings(),
-            'codes'     => $this->codeChecks($config),
+            'codes'     => $this->codeChecks($config, $checked),
             'delivery'  => [
                 static function () use ($config): void {
                     (new DeliverySettings($config))->validate();
@@ -221,16 +224,20 @@ final class CheckConfigurationCommand extends Command
 
     /**
      * The checks of the one-time code settings, each of which otherwise fails
-     * only when a code is first issued: the numbers, the key, and a sender
-     * bound when a guard allows a code sign-in method.
+     * only when a code is first issued: the numbers, the key, a sender bound
+     * when a guard allows a code sign-in method, and an answer from each
+     * guard's application policy on whether it does, reported here for a guard
+     * whose own checks do not run (one `--guard` leaves out).
      *
      * @param  \Illuminate\Config\Repository  $config
+     * @param  list<string>  $checked
      * @return list<\Closure(): mixed>
      */
-    private function codeChecks(ConfigRepository $config): array
+    private function codeChecks(ConfigRepository $config, array $checked): array
     {
-        $guards = $this->codeGuards($config);
-        $bound  = $this->laravel->bound(OneTimeCodeSender::class);
+        [$guards, $unanswered] = $this->codeGuards($config, $checked);
+
+        $bound = $this->laravel->bound(OneTimeCodeSender::class);
 
         return [
             static function () use ($config): void {
@@ -246,6 +253,9 @@ final class CheckConfigurationCommand extends Command
                     throw new \LogicException($message);
                 }
             },
+            ...array_map(static fn (string $message): \Closure => static function () use ($message): never {
+                throw new \LogicException($message);
+            }, $unanswered),
         ];
     }
 
@@ -286,30 +296,55 @@ final class CheckConfigurationCommand extends Command
     }
 
     /**
-     * The `jwt` guards whose application allows a code sign-in method.
+     * The `jwt` guards whose application allows a code sign-in method, and a
+     * problem for each guard outside the checked ones whose application policy
+     * throws when asked. A guard that is checked has its policy asked again by
+     * its own application check, which reports what it throws, so it is left
+     * out of both here.
      *
      * @param  \Illuminate\Config\Repository  $config
-     * @return list<string>
+     * @param  list<string>  $checked
+     * @return array{0: list<string>, 1: list<string>}
      */
-    private function codeGuards(ConfigRepository $config): array
+    private function codeGuards(ConfigRepository $config, array $checked): array
     {
-        $policy  = $this->laravel->make(ApplicationPolicy::class);
-        $methods = $this->codeMethods();
-        $guards  = $config->get('auth.guards');
-        $found   = [];
+        $policy     = $this->laravel->make(ApplicationPolicy::class);
+        $methods    = $this->codeMethods();
+        $guards     = $config->get('auth.guards');
+        $found      = [];
+        $unanswered = [];
 
         foreach (is_array($guards) ? $guards : [] as $name => $guard) {
 
             $name = (string) $name;
 
-            if (!is_array($guard) || ($guard['driver'] ?? null) !== 'jwt' || !self::allowsAnyOf($policy, $name, $methods)) {
+            $answer = is_array($guard) && ($guard['driver'] ?? null) === 'jwt' ? self::allowsAnyOf($policy, $name, $methods) : false;
+
+            if ($answer instanceof \Exception && !in_array($name, $checked, true)) {
+                $unanswered[] = self::unanswered($name, $answer);
+            }
+
+            if ($answer !== true) {
                 continue;
             }
 
             $found[] = $name;
         }
 
-        return $found;
+        return [$found, $unanswered];
+    }
+
+    /**
+     * The problem of a guard whose application policy throws when asked whether
+     * it allows a code sign-in method.
+     *
+     * @param  string  $guard
+     * @param  \Exception  $exception
+     * @return string
+     */
+    private static function unanswered(string $guard, \Exception $exception): string
+    {
+        return "Guard [{$guard}]'s application policy could not say whether it allows a code sign-in method: {$exception->getMessage()}";
     }
 
     /**
@@ -335,16 +370,15 @@ final class CheckConfigurationCommand extends Command
     }
 
     /**
-     * Whether the guard's application allows any of the methods; a policy that
-     * throws when asked, as over settings it cannot read, allows none here,
-     * since the guard's own check asks it again and reports what it throws.
+     * Whether the guard's application allows any of the methods, or the
+     * exception its policy throws when asked, as over settings it cannot read.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy  $policy
      * @param  string  $guard
      * @param  array<int, string>  $methods
-     * @return bool
+     * @return bool|\Exception
      */
-    private static function allowsAnyOf(ApplicationPolicy $policy, string $guard, array $methods): bool
+    private static function allowsAnyOf(ApplicationPolicy $policy, string $guard, array $methods): bool|\Exception
     {
         try {
             foreach ($methods as $method) {
@@ -354,8 +388,8 @@ final class CheckConfigurationCommand extends Command
             }
 
             return false;
-        } catch (\Exception) {
-            return false;
+        } catch (\Exception $exception) {
+            return $exception;
         }
     }
 

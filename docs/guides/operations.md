@@ -238,5 +238,7 @@ guard whose password resets or identifier changes would refuse to run: its provi
 the storage connection, or, for resets, a password identifier other than `email` while Laravel's notification is the
 reset link sender (see [Password reset](passwords.md#password-reset)). Only the named guards are checked with
 `--guard=api --guard=admin`; a named guard that is not configured, or neither a `jwt` nor an `api_key` guard, is a
-problem. The command reads configuration only: it opens no database connection and never prints a key. The package does
-not run these checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
+problem. The `[codes]` sender check still asks every `jwt` guard's application whether it allows a code sign-in method,
+and an exception a policy of your own throws for a guard left out of the run is a `[codes]` problem naming that guard.
+The command reads configuration only: it opens no database connection and never prints a key. The package does not run
+these checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
