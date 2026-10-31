@@ -26,7 +26,9 @@ final class AuthenticationServiceProviderHelpersTest extends TestCase
     /**
      * `registerPublishing()` short-circuits when the application is not running
      * in the console: invoking the protected method directly with
-     * `runningInConsole()` returning false must NOT register a publish group.
+     * `runningInConsole()` returning false must NOT register a publish path,
+     * checked against an emptied registry so the paths the boot registered
+     * cannot hide one.
      *
      * @return void
      *
@@ -39,12 +41,19 @@ final class AuthenticationServiceProviderHelpersTest extends TestCase
 
         $provider = new AuthenticationServiceProvider($app);
 
-        $previousGroups = ServiceProvider::publishableGroups();
+        [$publishes, $groups] = [ServiceProvider::$publishes, ServiceProvider::$publishGroups];
 
-        $reflection = new \ReflectionClass(AuthenticationServiceProvider::class);
-        $reflection->getMethod('registerPublishing')->invoke($provider);
+        ServiceProvider::$publishes     = [];
+        ServiceProvider::$publishGroups = [];
 
-        self::assertSame($previousGroups, ServiceProvider::publishableGroups());
+        try {
+            (new \ReflectionMethod(AuthenticationServiceProvider::class, 'registerPublishing'))->invoke($provider);
+
+            self::assertSame([], ServiceProvider::$publishes);
+            self::assertSame([], ServiceProvider::$publishGroups);
+        } finally {
+            [ServiceProvider::$publishes, ServiceProvider::$publishGroups] = [$publishes, $groups];
+        }
     }
 
     /**

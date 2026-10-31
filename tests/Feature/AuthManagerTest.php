@@ -284,6 +284,28 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
+     * Under a default guard that is not contextual, the manager's own accessors
+     * answer `null` rather than passing the call on to the guard, which has no
+     * such methods.
+     *
+     * @return void
+     */
+    public function testTheContextualAccessorsAreNullUnderAGuardThatIsNotContextual(): void
+    {
+        /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+        $manager = app('auth');
+
+        $manager->extend('mocked', fn (): Guard => \Mockery::mock(Guard::class));
+        config()->set('auth.guards.mocked', ['driver' => 'mocked']);
+        $manager->shouldUse('mocked');
+
+        self::assertNull($manager->identity());
+        self::assertNull($manager->principal());
+        self::assertNull($manager->device());
+        self::assertNull($manager->tenant());
+    }
+
+    /**
      * `inheritStateFrom()` takes over the replaced manager's guard and user
      * provider creators, so guards and providers registered on it before the
      * package booted resolve through the package's manager.

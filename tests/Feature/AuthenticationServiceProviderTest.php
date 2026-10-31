@@ -117,6 +117,22 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
+     * A `model` that is not a string reaches `ModelProvider` as one, so it is
+     * refused with the provider's message naming it rather than a type error.
+     *
+     * @return void
+     */
+    public function testAModelThatIsNotAStringIsRefusedByTheProvider(): void
+    {
+        config()->set('auth.providers.numbered', ['driver' => 'model', 'model' => 123]);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('ModelProvider received unknown class "123" as its identity model.');
+
+        IlluminateAuth::createUserProvider('numbered');
+    }
+
+    /**
      * The `jwt` guard driver creator is registered against Laravel's `Auth`
      * factory so resolving an `auth.guards.*.driver = jwt` guard yields the
      * package `JwtGuard`.
@@ -749,6 +765,25 @@ final class AuthenticationServiceProviderTest extends TestCase
             'authentication-config',
             ServiceProvider::publishableGroups(),
         );
+    }
+
+    /**
+     * The config tag publishes the package's config file to the application's
+     * `config/authentication.php`.
+     *
+     * @return void
+     */
+    public function testConfigPublishingTagPublishesThePackageConfig(): void
+    {
+        $paths = [];
+
+        foreach (ServiceProvider::pathsToPublish(AuthenticationServiceProvider::class, 'authentication-config') as $from => $to) {
+            $paths[(string) realpath($from)] = $to;
+        }
+
+        self::assertSame([
+            realpath(dirname(__DIR__, 2) . '/config/authentication.php') => config_path('authentication.php'),
+        ], $paths);
     }
 
     /**

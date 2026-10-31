@@ -71,7 +71,7 @@ final class OneTimeCodeTest extends TestCase
 
     /**
      * The binding digest, the issuance and the code's hash never reach a
-     * serialised row, and the times are cast.
+     * serialised row, and the attempts and times are cast.
      *
      * @return void
      */
@@ -83,13 +83,17 @@ final class OneTimeCodeTest extends TestCase
 
         self::assertSame(['purpose', 'guard', 'attempts', 'issued_at', 'expires_at', 'consumed_at'], array_keys($code->toArray()));
         self::assertSame(3, $code->attempts);
+
+        $code->setAttribute('attempts', '4');
+
+        self::assertSame(4, $code->attempts);
         self::assertSame('2026-04-06 12:10:00', $code->expires_at->format('Y-m-d H:i:s'));
         self::assertNull($code->consumed_at);
     }
 
     /**
      * `model:prune` deletes the codes that have expired, from the second they
-     * expire, and keeps the rest.
+     * expire, and keeps the rest; `prunable()` is the query it deletes.
      *
      * @return void
      */
@@ -100,6 +104,8 @@ final class OneTimeCodeTest extends TestCase
         self::insertCode('a', '2026-04-06 11:00:00');
         self::insertCode('b', '2026-04-06 12:00:00');
         self::insertCode('c', '2026-04-06 12:00:01');
+
+        self::assertSame([str_repeat('a', 64), str_repeat('b', 64)], (new OneTimeCode)->prunable()->orderBy('id')->pluck('id')->all());
 
         Artisan::call('model:prune', ['--model' => [OneTimeCode::class]]);
 
