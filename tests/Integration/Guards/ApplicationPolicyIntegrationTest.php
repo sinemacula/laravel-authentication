@@ -237,15 +237,14 @@ final class ApplicationPolicyIntegrationTest extends TestCase
     }
 
     /**
-     * An access token signed with the guard's key that still carries a `pty`
-     * claim, as tokens issued before principal types were removed do,
+     * An access token signed with the guard's key that carries a `pty` claim
      * authenticates a bearer request as any other: nothing reads the claim.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testATokenStillCarryingAPrincipalTypeAuthenticates(): void
+    public function testATokenCarryingAPrincipalTypeAuthenticates(): void
     {
         $membership = $this->seedMembership('client_staff', 'staff');
         $claims     = $this->claims($this->tokens()->issueAccessToken($membership->getIdentity(), $membership, null));

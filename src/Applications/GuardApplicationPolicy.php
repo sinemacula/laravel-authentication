@@ -73,9 +73,7 @@ final readonly class GuardApplicationPolicy implements ApplicationPolicy
 
     /**
      * Admit every principal, holding the identity only to the
-     * verified-identifier requirement (`admitIdentifier()`): the package has no
-     * rule about which principals may hold the guard's sessions, so an
-     * application that has one rebinds the policy.
+     * verified-identifier requirement (`admitIdentifier()`).
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
