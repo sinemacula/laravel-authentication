@@ -41,6 +41,7 @@ use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\PendingFactor;
+use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
@@ -65,6 +66,7 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(SessionService::class)]
+#[CoversClass(SessionEstablishment::class)]
 final class PendingFactorSessionServiceTest extends TestCase
 {
     use InteractsWithRateLimits, InteractsWithSessions;

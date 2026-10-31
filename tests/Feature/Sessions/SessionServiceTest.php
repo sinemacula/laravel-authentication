@@ -31,6 +31,7 @@ use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
@@ -53,6 +54,8 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
+use SineMacula\Laravel\Authentication\Sessions\PrincipalChoices;
+use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
@@ -64,6 +67,8 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
 use Tests\Fixtures\Sessions\RefusalIgnoringSignIn;
 use Tests\Integration\Fixtures\ActivatableTenant;
+use Tests\Integration\Fixtures\ChoosingMember;
+use Tests\Integration\Fixtures\ChoosingMembership;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\NormalisedEmailIdentity;
 use Tests\TestCase;
@@ -79,6 +84,8 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(SessionService::class)]
+#[CoversClass(SessionEstablishment::class)]
+#[CoversClass(PrincipalChoices::class)]
 #[CoversClass(SignInResult::class)]
 final class SessionServiceTest extends TestCase
 {
@@ -1268,7 +1275,35 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Configure the guards, and a guard over identities without devices.
+     * A password sign-in or a started session for an identity whose resolver
+     * has no default, with principals to choose from, waits for the identity to
+     * choose one, and binds nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignInOrAStartWithoutADefaultPrincipalWaitsForAChoice(): void
+    {
+        $member = ChoosingMember::query()->create(['email' => 'chooser@example.test', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
+        $tenant = ActivatableTenant::query()->create(['name' => 'Tenant', 'is_active' => true]);
+        $first  = ChoosingMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
+
+        $signedIn = $this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'));
+        $started  = $this->sessions('choosers')->start($member, null, 'sso');
+
+        foreach ([$signedIn, $started] as $result) {
+            self::assertTrue($result->requiresPrincipal());
+            self::assertSame([$first->getKey()], array_map(static fn (Principal $principal): mixed => $principal->getPrincipalIdentifier(), $result->choice->principals ?? []));
+        }
+
+        self::assertSame(2, DB::table('pending_sign_ins')->count());
+        self::assertTrue(app('auth')->guard('choosers')->guest());
+    }
+
+    /**
+     * Configure the guards, a guard over identities without devices, and one
+     * over members with no default principal.
      *
      * @param  mixed  $app
      * @return void
@@ -1288,6 +1323,8 @@ final class SessionServiceTest extends TestCase
 
         $config->set('auth.providers.plain', ['driver' => 'model', 'model' => NormalisedEmailIdentity::class]);
         $config->set('auth.guards.plain', ['driver' => 'jwt', 'provider' => 'plain']);
+        $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
+        $config->set('auth.guards.choosers', ['driver' => 'jwt', 'provider' => 'choosers', 'audience' => ['methods' => ['password', 'sso']]]);
     }
 
     /**

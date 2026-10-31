@@ -41,6 +41,7 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalChoice;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalChoices;
+use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
@@ -68,6 +69,7 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(SessionService::class)]
+#[CoversClass(SessionEstablishment::class)]
 #[CoversClass(PendingSignIns::class)]
 #[CoversClass(PrincipalChoice::class)]
 #[CoversClass(PrincipalChoiceRequired::class)]

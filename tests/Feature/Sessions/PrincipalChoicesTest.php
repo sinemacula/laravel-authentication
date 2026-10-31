@@ -13,18 +13,22 @@ use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Admission\Refused;
+use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalChoiceRequired;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 use SineMacula\Laravel\Authentication\Sessions\DeviceProof;
 use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalChoices;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Sessions\InvitedTenantAudiencePolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ChoosingMember;
 use Tests\Integration\Fixtures\ChoosingMembership;
@@ -136,6 +140,59 @@ final class PrincipalChoicesTest extends TestCase
     }
 
     /**
+     * With an identifier type, the admissible principals are those the audience
+     * policy also admits with it; an identity refused the type has none, and is
+     * refused with the policy's reason.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheAdmissiblePrincipalsWithAnIdentifierTypeAreThoseThePolicyAdmits(): void
+    {
+        [$member, $own, $invited] = $this->seedChooser();
+
+        $choices = $this->choices($this->freshGuard(self::GUARD));
+
+        app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy(app(AudiencePolicy::class), $invited->tenant_id));
+
+        [$typed, $typedRefusal] = $choices->admissible($member, 'email');
+
+        self::assertSame([$own->getKey()], self::keys($typed));
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $typedRefusal);
+        self::assertSame([$own->getKey(), $invited->getKey()], self::keys($choices->admissible($member, null)[0]));
+
+        $audience = \Mockery::mock(AudiencePolicy::class);
+        $audience->shouldReceive('admitIdentifier')->once()->with(self::GUARD, $member, 'email')->andReturn(FailureReason::IDENTIFIER_UNVERIFIED);
+        $audience->shouldReceive('admit')->twice()->with(self::GUARD, $member, \Mockery::type(ChoosingMembership::class), null)->andReturnNull();
+
+        app()->instance(AudiencePolicy::class, $audience);
+
+        self::assertSame([[], FailureReason::IDENTIFIER_UNVERIFIED], $choices->admissible($member, 'email'));
+        self::assertSame([$own->getKey(), $invited->getKey()], self::keys($choices->admissible($member, null)[0]));
+    }
+
+    /**
+     * An identity that is its own principal may choose only the resolver's
+     * default, itself; an identity with no `principals()` that is not a
+     * principal goes to the resolver too.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentityWithoutPrincipalsHasTheResolversDefault(): void
+    {
+        $identity = $this->seedIdentity();
+
+        self::assertSame([[$identity], null], $this->choices($this->freshGuard())->admissible($identity, null));
+
+        $this->expectException(UnresolvableIdentityException::class);
+
+        $this->choices($this->freshGuard())->admissible(\Mockery::mock(Identity::class), null);
+    }
+
+    /**
      * A sign-in held for a choice stores the choice with the slots it took and
      * answers with the eligible principals; `PrincipalChoiceRequired` waits for
      * the caller's commit, and nothing is bound.
@@ -193,6 +250,51 @@ final class PrincipalChoicesTest extends TestCase
         self::assertSame($member, $refused->identity);
         self::assertSame(0, PendingSignIn::query()->count());
         self::assertSame([], $this->recordedClasses());
+    }
+
+    /**
+     * An identifier type the audience policy refuses every principal to refuses
+     * the sign-in with the policy's reason, with no choice stored.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentifierRefusedEveryPrincipalIsRefusedWithThePolicysReason(): void
+    {
+        $member  = $this->seedMemberWithout();
+        $invited = ActivatableTenant::query()->create(['name' => 'Invited', 'is_active' => true]);
+
+        ChoosingMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $invited->getKey()]);
+
+        app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy(app(AudiencePolicy::class), $invited->getKey()));
+
+        $refused = $this->choices($this->freshGuard(self::GUARD))->offerChoice($member, 'password', 'email', SignInContext::fromRequest(app('request')), null);
+
+        self::assertInstanceOf(Refused::class, $refused);
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $refused->reason);
+        self::assertSame(0, PendingSignIn::query()->count());
+    }
+
+    /**
+     * A choice whose identity is gone is no live choice.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChoiceWhoseIdentityIsGoneIsNotLive(): void
+    {
+        [$member] = $this->seedChooser();
+
+        $choices = $this->choices($this->freshGuard(self::GUARD));
+        $result  = $choices->offerChoice($member, 'password', null, SignInContext::fromRequest(app('request')), null);
+
+        self::assertInstanceOf(SignInResult::class, $result);
+
+        $member->delete();
+
+        self::assertNull($choices->liveChoice($result->choice->token ?? '', CarbonImmutable::now()));
     }
 
     /**

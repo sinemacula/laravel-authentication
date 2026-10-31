@@ -13,6 +13,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
@@ -120,6 +121,8 @@ final class SessionEstablishmentTest extends TestCase
         self::assertSame(1, DB::table('devices')->count());
         self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertSame($result->session->device, $this->recordedEvent(SignedIn::class)->context->device);
+        self::assertTrue($this->recordedEvent(SignedIn::class)->deviceCreated);
+        self::assertFalse($this->recordedEvent(SignedIn::class)->refresh);
         self::assertTrue($guard->guest());
     }
 
@@ -257,6 +260,46 @@ final class SessionEstablishmentTest extends TestCase
         self::assertInstanceOf(Refused::class, $again);
         self::assertSame(FailureReason::PENDING_INVALID, $again->reason);
         self::assertSame(self::WINDOWS, self::released($limiter));
+    }
+
+    /**
+     * A session that continues a spent pending sign-in (a choice already used
+     * up) records the client that sign-in began from as its device's creation,
+     * runs in the client continuing it, and gives back the slots the sign-in
+     * took once the caller's transaction commits.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASpentSignInIsContinuedFromWhereItBegan(): void
+    {
+        $identity = $this->seedIdentity();
+        $guard    = $this->freshGuard();
+        $limiter  = new RecordingAttemptLimiter;
+        $began    = SignInContext::fromRequest(Request::create('/sign-in', 'POST', server: ['REMOTE_ADDR' => '198.51.100.7']));
+
+        app()->instance(AttemptLimiter::class, $limiter);
+
+        (new PendingSignIns(app(ConfigRepository::class)))->issueChoice($guard->getName(), $identity, null, 'password', 'email', $began, CarbonImmutable::now(), self::WINDOWS);
+
+        $spent = PendingSignIn::query()->sole();
+
+        DB::beginTransaction();
+
+        $result = $this->establishment($guard)->establish(self::admitted($identity), null, 'password', 'email', $this->context(), CarbonImmutable::now(), self::WINDOWS, $spent);
+
+        self::assertTrue($result->isSignedIn());
+        self::assertSame([], self::released($limiter));
+
+        DB::commit();
+
+        $device = DB::table('devices')->sole();
+
+        self::assertSame('198.51.100.7', $device->created_ip);
+        self::assertSame(self::CLIENT_IP, $device->last_used_ip);
+        self::assertSame(self::WINDOWS, self::released($limiter));
+        self::assertTrue($guard->guest());
     }
 
     /**

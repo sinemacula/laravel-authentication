@@ -33,7 +33,9 @@ use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\Enums\ResetStatus;
 use SineMacula\Laravel\Authentication\Passwords\PasswordService;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
+use SineMacula\Laravel\Authentication\Sessions\PrincipalChoices;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
+use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
@@ -71,6 +73,8 @@ use Tests\TestCase;
 #[CoversClass(JwtGuard::class)]
 #[CoversClass(ApiKeyGuard::class)]
 #[CoversClass(SessionService::class)]
+#[CoversClass(PrincipalChoices::class)]
+#[CoversClass(SessionEstablishment::class)]
 #[CoversClass(PasswordService::class)]
 #[CoversClass(IdentifierChangeService::class)]
 #[CoversClass(ClientCredentialsExchange::class)]
