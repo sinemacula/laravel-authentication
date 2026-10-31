@@ -34,6 +34,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\HoldsARotatedSession;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\RefreshesSessions;
 use SineMacula\Laravel\Authentication\Sessions\RefreshResult;
 use SineMacula\Laravel\Authentication\Sessions\SessionRefresh;
@@ -58,6 +59,7 @@ use Tests\TestCase;
 #[CoversClass(RefreshResult::class)]
 #[CoversClass(SessionService::class)]
 #[CoversTrait(RefreshesSessions::class)]
+#[CoversTrait(HoldsARotatedSession::class)]
 final class SessionRefreshTest extends TestCase
 {
     use InteractsWithSessions;

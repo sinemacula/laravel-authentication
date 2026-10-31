@@ -7,13 +7,14 @@ namespace Tests\Unit\Sessions;
 use Illuminate\Database\Eloquent\Model;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\HoldsARotatedSession;
 use SineMacula\Laravel\Authentication\Sessions\RefreshResult;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 
@@ -26,6 +27,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
  * @internal
  */
 #[CoversClass(RefreshResult::class)]
+#[CoversTrait(HoldsARotatedSession::class)]
 final class RefreshResultTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
@@ -50,48 +52,18 @@ final class RefreshResultTest extends TestCase
     }
 
     /**
-     * A refused refresh carries its reason and, when given, the wait.
+     * A refreshed outcome read from a source keeps its session and says which
+     * source.
      *
      * @return void
      */
-    public function testAFailedResultCarriesItsReason(): void
+    public function testARefreshReadFromASourceKeepsItsSession(): void
     {
-        $limited = RefreshResult::failed(FailureReason::RATE_LIMITED, 30);
-
-        self::assertTrue($limited->isFailed());
-        self::assertFalse($limited->isRefreshed());
-        self::assertNull($limited->session);
-        self::assertSame(FailureReason::RATE_LIMITED, $limited->reason);
-        self::assertSame(30, $limited->retryAfter);
-        self::assertNull($limited->source);
-
-        self::assertNull(RefreshResult::failed(FailureReason::ROTATION_REUSE)->retryAfter);
-    }
-
-    /**
-     * The same outcome read from a source keeps every part and says which
-     * source, without changing the result it came from.
-     *
-     * @return void
-     */
-    public function testAResultReadFromASourceSaysWhich(): void
-    {
-        $limited = RefreshResult::failed(FailureReason::RATE_LIMITED, 30);
-        $read    = $limited->withSource(RefreshTokenSource::COOKIE);
-
-        self::assertNotSame($limited, $read);
-        self::assertNull($limited->source);
-        self::assertSame(RefreshTokenSource::COOKIE, $read->source);
-        self::assertSame(FailureReason::RATE_LIMITED, $read->reason);
-        self::assertSame(30, $read->retryAfter);
-        self::assertTrue($read->isFailed());
-
         $session   = self::session();
         $refreshed = RefreshResult::refreshed($session)->withSource(RefreshTokenSource::BODY);
 
         self::assertSame($session, $refreshed->session);
         self::assertSame(RefreshTokenSource::BODY, $refreshed->source);
-        self::assertNull($refreshed->reason);
         self::assertTrue($refreshed->isRefreshed());
     }
 
