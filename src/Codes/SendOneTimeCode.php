@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Codes;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -15,12 +16,14 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
+use SineMacula\Laravel\Authentication\Config\JwtGuards;
+use SineMacula\Laravel\Authentication\Contracts\HasGuardContext;
 use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
-use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 
 /**
@@ -139,18 +142,14 @@ final class SendOneTimeCode implements ShouldBeEncrypted, ShouldQueue
      * @param  \Illuminate\Contracts\Container\Container  $container
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
+     * @throws \LogicException
      */
     private function signInRecipient(Container $container): ?Identity
     {
-        $guard = $container->make('auth')->guard($this->binding->guard);
-
-        if (!$guard instanceof JwtGuard) {
-            throw new \InvalidArgumentException(sprintf('Auth guard [%s] is not a jwt guard, so it sends no one-time codes.', $this->binding->guard));
-        }
-
         $type  = $this->binding->type;
-        $found = $guard->getProvider()->retrieveByCredentials([$type => $this->binding->identifier]);
+        $found = $this->guardContext($container)->provider()->retrieveByCredentials([$type => $this->binding->identifier]);
 
         if (!$found instanceof Identity || !$found instanceof HasVerifiableIdentifiers || $found instanceof MachineIdentity) {
             return null;
@@ -159,6 +158,32 @@ final class SendOneTimeCode implements ShouldBeEncrypted, ShouldQueue
         return ActivationPolicy::isActive($found)
             && CodeIdentifiers::isHeldBy($found, $this->binding, $container->make(IdentifierVerifier::class))
             && WriteConnection::during($found, static fn (): bool => $found->hasVerifiedIdentifier($type)) ? $found : null;
+    }
+
+    /**
+     * The context of the binding's guard, which must be one `auth.guards`
+     * configures with the `jwt` driver and that the package's guard serves.
+     *
+     * @param  \Illuminate\Contracts\Container\Container  $container
+     * @return \SineMacula\Laravel\Authentication\Runtime\GuardContext
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     */
+    private function guardContext(Container $container): GuardContext
+    {
+        $name  = $this->binding->guard;
+        $guard = $container->make('auth')->guard($name);
+
+        if (!in_array($name, JwtGuards::names($container->make(Repository::class)), true)) {
+            throw new \InvalidArgumentException(sprintf('Auth guard [%s] is not a jwt guard, so it sends no one-time codes.', $name));
+        }
+
+        if (!$guard instanceof HasGuardContext) {
+            throw new \LogicException(sprintf('Auth guard [%s] has the jwt driver but resolves to %s, not a package guard, so it sends no one-time codes.', $name, $guard::class));
+        }
+
+        return $guard->context();
     }
 
     /**

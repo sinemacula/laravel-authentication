@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Integration\Codes;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Auth\RequestGuard;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Database\Schema\Blueprint;
@@ -385,6 +386,33 @@ final class SendOneTimeCodeTest extends TestCase
         $this->expectExceptionMessage('Auth guard [session] is not a jwt guard, so it sends no one-time codes.');
 
         $job->handle(app());
+    }
+
+    /**
+     * A sign-in job for a jwt guard whose driver the application replaced with
+     * a guard that is not the package's has no provider to find the recipient
+     * through, and sends nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignInJobForAJwtDriverReplacedByAnotherGuardThrows(): void
+    {
+        $job      = $this->job();
+        $expected = sprintf('Auth guard [mobile] has the jwt driver but resolves to %s, not a package guard, so it sends no one-time codes.', RequestGuard::class);
+
+        Auth::extend('jwt', static fn (): RequestGuard => new RequestGuard(static fn (): null => null, request()));
+        Auth::forgetGuards();
+
+        try {
+            $job->handle(app());
+            self::fail('A sign-in code was sent through a guard that is not the package\'s.');
+        } catch (\LogicException $exception) {
+            self::assertSame($expected, $exception->getMessage());
+        }
+
+        self::assertSame(0, $this->sender->count());
     }
 
     /**
