@@ -162,8 +162,9 @@ final class MisconfiguredIdentityIntegrationTest extends TestCase
         $config->set('auth.defaults.guard', 'api');
 
         $config->set('auth.guards.api', [
-            'driver'   => 'jwt',
-            'provider' => 'unresolvable',
+            'driver'      => 'jwt',
+            'provider'    => 'unresolvable',
+            'application' => ['methods' => ['password']],
         ]);
 
         $config->set('auth.providers.unresolvable', [

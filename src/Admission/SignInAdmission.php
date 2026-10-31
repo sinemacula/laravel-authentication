@@ -4,7 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Admission;
 
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -15,14 +15,14 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
  * was proven: the identity is a human one (a non-human identity has no
  * interactive sign-in and no session, so it is refused as `machine_identity`
  * whatever method proved it), the identity is active, the principal resolves
- * and is active, the tenant it acts within is active, and the guard's audience
+ * and is active, the tenant it acts within is active, and the application
  * policy admits the identity as that principal.
  *
  * Shared by `attempt()` and the session service, so a password sign-in, a
  * sign-in started for an externally verified identity, and the completion of a
  * pending one are held to the same rules in the same order.
  *
- * The audience policy's identity-level answer (`admitIdentifier()`: with the
+ * The application policy's identity-level answer (`admitIdentifier()`: with the
  * package's policy, an identifier the guard requires verified and is not) is
  * asked before any principal is resolved, so its refusal is the same whether
  * the identity has principals or not.
@@ -37,18 +37,18 @@ final readonly class SignInAdmission
     /**
      * Constructor.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy  $audience
+     * @param  \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy  $policy
      */
     public function __construct(
 
-        /** The guards' audience policy. */
-        private AudiencePolicy $audience,
+        /** The guards' application policy. */
+        private ApplicationPolicy $policy,
     ) {}
 
     /**
      * Admit the identity to the guard as the principal the callback resolves,
      * or say why not. The callback runs only once the identity is known to be
-     * human and active and the audience policy admits it with the identifier
+     * human and active and the application policy admits it with the identifier
      * type (`admitIdentifier()`); when it resolves no principal, the sign-in
      * fails with `$unresolved`.
      *
@@ -68,7 +68,7 @@ final readonly class SignInAdmission
         $refusal = match (true) {
             $identity instanceof MachineIdentity   => FailureReason::MACHINE_IDENTITY,
             !ActivationPolicy::isActive($identity) => FailureReason::IDENTITY_INACTIVE,
-            default                                => $this->audience->admitIdentifier($guard, $identity, $identifierType),
+            default                                => $this->policy->admitIdentifier($guard, $identity, $identifierType),
         };
 
         if ($refusal !== null) {
@@ -84,7 +84,7 @@ final readonly class SignInAdmission
 
     /**
      * Admit the active identity as the resolved principal: the principal and
-     * its tenant must be active, and the audience policy must admit them.
+     * its tenant must be active, and the application policy must admit them.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -108,7 +108,7 @@ final readonly class SignInAdmission
         }
 
         $admitted = new Admitted($identity, $principal, $tenant);
-        $refusal  = $this->audience->admit($guard, $identity, $principal, $identifierType);
+        $refusal  = $this->policy->admit($guard, $identity, $principal, $identifierType);
 
         return $refusal === null ? $admitted : Refused::after($refusal, $admitted);
     }

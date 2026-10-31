@@ -51,7 +51,7 @@ token parsed for this guard, the device found, of this guard, live, and the rota
 inside the grace window; any other id is a replay and revokes the device (`rotation_reuse`). On every path the device's
 owner must still be returned by the guard's provider and be active, the target must resolve through the resolver's
 hinted path as the very principal named, of its class, owned by that identity (read from the principal's own key, not
-trusted to the resolver), active, in an active tenant and admitted by the audience policy, also with the type of
+trusted to the resolver), active, in an active tenant and admitted by the application policy, also with the type of
 identifier the session's sign-in used (which the device records), so a principal your policy refuses to that identifier
 cannot be reached by switching to it, the session's sign-in method must still be allowed, and the additional-factor
 policy must not ask for a further factor (`additional_factor_required`: sign in again as the target).

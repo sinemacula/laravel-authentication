@@ -48,7 +48,7 @@ trait InteractsWithPasskeys
         $config->set('authentication.passkeys.relying_party', ['id' => self::RP_ID, 'name' => 'Example', 'origins' => [self::ORIGIN]]);
 
         foreach (['api', 'admin', 'members'] as $guard) {
-            $config->set("auth.guards.{$guard}.audience.methods", ['password', 'sso', 'trusted', 'passkey']);
+            $config->set("auth.guards.{$guard}.application.methods", ['password', 'sso', 'trusted', 'passkey']);
         }
     }
 

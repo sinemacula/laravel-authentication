@@ -22,18 +22,18 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - No event ever receives the sign-in input. `Attempting` and `Failed` carry only `[type => identifier]` (or
   `['identifier' => ...]` for a method without a type, or nothing); `AuthenticationFailed` carries the identifier as
   given.
-- `signIn()` order: the method is resolved (unknown throws); `Attempting`; the audience policy must allow the method
+- `signIn()` order: the method is resolved (unknown throws); `Attempting`; the application policy must allow the method
   (`method_not_allowed`, nothing counted, no timebox); the attempt limiter must grant a slot (`rate_limited`); then, in
   the guard's credential timebox, cut short only for an admitted sign-in: the method verifies the input, the identity
-  must not be a `MachineIdentity` (`machine_identity`) and must be active, the audience policy must admit it with the
+  must not be a `MachineIdentity` (`machine_identity`) and must be active, the application policy must admit it with the
   identifier type before any principal is resolved (`admitIdentifier()`; the package's finds the identifier verified
   where the guard requires it), the principal (the context's pin, verified like an `attempt()` pin, else the resolver's
-  default) and its tenant must be active, and the audience policy must admit them with the method's identifier type; a
-  password is rehashed; the proof of a device is checked; the additional-factor policy is asked; the session is written,
-  recording the method and its identifier type on the device, or a pending sign-in is issued. Only a success gives the
-  slots back, those the method took on the accounts it checked included; a pending sign-in keeps them all, with their
-  windows, until `complete()` starts its session. The slots are written on `rate_limits.connection`, outside the
-  session's own transaction but not outside a transaction the caller opened on that connection: with the default
+  default) and its tenant must be active, and the application policy must admit them with the method's identifier type;
+  a password is rehashed; the proof of a device is checked; the additional-factor policy is asked; the session is
+  written, recording the method and its identifier type on the device, or a pending sign-in is issued. Only a success
+  gives the slots back, those the method took on the accounts it checked included; a pending sign-in keeps them all,
+  with their windows, until `complete()` starts its session. The slots are written on `rate_limits.connection`, outside
+  the session's own transaction but not outside a transaction the caller opened on that connection: with the default
   (`null`, the storage connection) a caller that rolls back around a sign-in rolls its counts back too, so its attempts
   go uncounted. Only counters on a connection of their own survive such a rollback. `complete()` therefore gives the
   slots back only once its delete of the pending sign-in commits on that row's connection: a rollback restores the
@@ -44,7 +44,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   slots not given back stay counted. A handler that throws while reporting is not caught, as with Laravel's `rescue()`:
   an error that cannot be reported surfaces rather than vanishing.
 - The steps `signIn()` and the guard's `attempt()` take the same way are `Sessions\CredentialAttempt`'s, which each
-  calls in its own order: `checkMethod()` (the audience policy's method check, before anything is counted), `begin()`
+  calls in its own order: `checkMethod()` (the application policy's method check, before anything is counted), `begin()`
   (the slot on the identifier and IP limits, from the limiter the caller resolved after the method check), the account
   attempts the method's checks count against, `accountRefusal()` (`account_rate_limited`, with the account's wait),
   `windows()` for a pending sign-in to keep and `release()` for a session. Between the two, `attempt()` reads the
@@ -60,9 +60,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   context, never both. A machine credential kind (`SignInMethodManager::CREDENTIAL_METHODS`) as the method is an
   `InvalidArgumentException` before anything else: a session recorded under `client_credentials` would pass for a
   client credentials token to every listener that reads the method.
-- One `$now` per call, cut to the second, is used for the deadlines, the last use and every token's `iat`. The
-  deadlines come from the audience policy's lifetimes for the guard (`AudiencePolicy::lifetimes($guard)`), which with
-  the shipped policy are the guard's token service's (see `audience-policy.md`).
+- One `$now` per call, cut to the second, is used for the deadlines, the last use and every token's `iat`. The deadlines
+  come from the application policy's lifetimes for the guard (`ApplicationPolicy::lifetimes($guard)`), which with the
+  shipped policy are the guard's token service's (see `application-policy.md`).
 - A session is written in one transaction on the device's connection: the device first, then both tokens, so any
   failure while issuing rolls the device back. Only the digest of the rotation id is stored.
 - A refresh token proves a device only when it is the device's current rotation id, validly signed for the guard
@@ -127,8 +127,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   took on the account (`SignInRequest::reserveAccountAttempt()`) among them, and `discard()` uses one up without a
   session (as when its factor fails), so each guess at a factor costs a sign-in attempt. For the password method the
   guesses are bounded by the account's one count, whatever spelling of the identifier or guard the sign-ins used, held
-  to the most permissive `per_identifier` limit among the guards that check the account (see `audience-policy.md`); for
-  a method that counts no account, only by its identifier's and the IP address's limits. A pending sign-in from
+  to the most permissive `per_identifier` limit among the guards that check the account (see `application-policy.md`);
+  for a method that counts no account, only by its identifier's and the IP address's limits. A pending sign-in from
   `start()` holds no slots (nothing was guessed), so its external verifier bounds it.
 - `pending()` finds a live pending sign-in of the guard (identity reloaded through the provider as the recorded owner,
   principal through the hinted path as the recorded one, still owned) without using it up. `complete()` uses it up by a
@@ -195,8 +195,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - `tests/Feature/Sessions/PendingSignInsTest.php`, `tests/Integration/Sessions/PendingFactorSessionServiceTest.php`
 - `tests/Integration/Sessions/ReplicaPendingSignInsTest.php`: pending sign-ins read from the writer
 - `tests/Unit/Sessions/SessionPreconditionsTest.php`
-- `tests/Integration/Sessions/SignInPolicyEndToEndTest.php`: the shipped audience policy, attempt limiter, normalisers
-  and verified-identifier gate, through `signIn()`, `start()` and `attempt()`
+- `tests/Integration/Sessions/SignInPolicyEndToEndTest.php`: the shipped application policy, attempt limiter,
+  normalisers and verified-identifier gate, through `signIn()`, `start()` and `attempt()`
 - `tests/Integration/Migration/PendingSignInsTableSchemaTest.php`
 - `tests/Performance/SessionServiceQueryBudgetTest.php`
 - `tests/Feature/Contracts/EventSequenceTest.php`, `tests/Integration/Contracts/EventSequenceTest.php`: the event

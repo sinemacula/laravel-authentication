@@ -13,7 +13,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  * belongs to one domain.
  *
  * Stands in for an application provider that scopes identity lookups (for
- * example to one tenant or audience), so tests can prove the refresh path
+ * example to one tenant or application), so tests can prove the refresh path
  * reloads the device owner through the guard's provider and honours that scope.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

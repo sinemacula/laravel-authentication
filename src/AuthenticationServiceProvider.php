@@ -23,11 +23,11 @@ use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Timebox;
-use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
+use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
 use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
@@ -103,7 +103,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         );
 
         $this->app->singletonIf(PrincipalResolver::class, DefaultPrincipalResolver::class);
-        $this->app->singletonIf(AudiencePolicy::class, GuardAudiencePolicy::class);
+        $this->app->singletonIf(ApplicationPolicy::class, GuardApplicationPolicy::class);
         $this->app->singletonIf(IdentifierNormalisers::class);
         $this->app->singletonIf(AttemptLimiter::class, DatabaseAttemptLimiter::class);
         $this->app->singletonIf(SignInMethodManager::class);

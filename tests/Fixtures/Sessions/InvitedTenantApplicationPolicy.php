@@ -4,38 +4,41 @@ declare(strict_types = 1);
 
 namespace Tests\Fixtures\Sessions;
 
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * Audience policy an application rebinds to decide which principals may use a
- * guard: the principals the rule names are refused as `principal_ineligible`,
- * whatever identifier the sign-in used, and everything else is the wrapped
- * policy's.
+ * Application policy double that decides verification per principal, as the
+ * contract allows: an identifier a sign-in used may act within any tenant but
+ * the one that invited it, whose principals are refused as
+ * `identifier_unverified` to every sign-in that used an identifier. A sign-in
+ * that used none, and a refresh, are not refused. Everything else is the
+ * wrapped policy's.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-final readonly class RefusingAudiencePolicy implements AudiencePolicy
+final readonly class InvitedTenantApplicationPolicy implements ApplicationPolicy
 {
     /**
      * Constructor.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy  $inner
-     * @param  \Closure(string, \SineMacula\Laravel\Authentication\Contracts\Principal): bool  $refuses
+     * @param  \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy  $inner
+     * @param  mixed  $invitingTenant
      */
     public function __construct(
 
         /** The policy that decides everything else. */
-        private AudiencePolicy $inner,
+        private ApplicationPolicy $inner,
 
-        /** Whether the guard refuses the principal. */
-        private \Closure $refuses,
+        /** Identifier of the tenant whose principals an identifier is refused. */
+        private mixed $invitingTenant,
     ) {}
 
     /**
@@ -66,8 +69,8 @@ final readonly class RefusingAudiencePolicy implements AudiencePolicy
     }
 
     /**
-     * Refuse a principal the rule names as `principal_ineligible`, otherwise
-     * answer as the wrapped policy.
+     * Refuse a principal of the inviting tenant to a sign-in that used an
+     * identifier, otherwise answer as the wrapped policy.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -78,7 +81,11 @@ final readonly class RefusingAudiencePolicy implements AudiencePolicy
     #[\Override]
     public function admit(string $guard, Identity $identity, Principal $principal, ?string $identifierType): ?FailureReason
     {
-        return ($this->refuses)($guard, $principal) ? FailureReason::PRINCIPAL_INELIGIBLE : $this->inner->admit($guard, $identity, $principal, $identifierType);
+        if ($identifierType !== null && IdentifierCoercion::matches($principal->getTenant()?->getTenantIdentifier(), $this->invitingTenant)) {
+            return FailureReason::IDENTIFIER_UNVERIFIED;
+        }
+
+        return $this->inner->admit($guard, $identity, $principal, $identifierType);
     }
 
     /**

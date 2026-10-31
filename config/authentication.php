@@ -206,25 +206,33 @@ return [
 
     /*
     |---------------------------------------------------------------------------
-    | Audiences
+    | Applications
     |---------------------------------------------------------------------------
     |
-    | An audience is a guard. These are the defaults every guard starts from; a
-    | guard overrides any of them in an `audience` block on its
+    | An application is a guard: each app being signed into (`admin`, `console`,
+    | `mobile`) is one. These are the defaults every application starts from; a
+    | guard overrides any of them in an `application` block on its
     | `config/auth.php` entry, where a key that is present wins, `null`
-    | included. `methods` lists the sign-in methods that may start the guard's
-    | sessions, by the lower-case names they are registered under, and the
-    | machine credentials it accepts (`api_key`, `client_credentials`): a
-    | non-empty list. `require_verified_identifier` refuses a sign-in with an identifier (an
-    | email address, say) the identity has not verified; sign-ins that use no
-    | identifier, such as SSO, are not affected. A malformed value, or an
-    | unknown key, fails closed with an `InvalidArgumentException` naming the
-    | guard and the key when the guard's policy is first used.
+    | included. `methods` lists the sign-in methods that may start the
+    | application's sessions, by the lower-case names they are registered under
+    | (or, for a session the application starts itself, the name it passes to
+    | `start()`), and the machine credentials it accepts (`api_key`,
+    | `client_credentials`). It is empty by default, so each application lists
+    | what it uses: an empty list refuses every sign-in, refresh, code and
+    | password reset request as `method_not_allowed` (and every client
+    | credentials exchange as `unauthorized_client`), and `authentication:check`
+    | warns about a `jwt` guard that lists nothing, or only `api_key`, which a
+    | `jwt` guard never accepts. `require_verified_identifier` refuses a sign-in
+    | with an identifier (an email address, say) the identity has not verified;
+    | sign-ins that use no identifier, such as SSO, are not affected. A
+    | malformed value, or an unknown key, fails closed with an
+    | `InvalidArgumentException` naming the guard and the key when the guard's
+    | policy is first used.
     |
     */
 
-    'audience' => [
-        'methods'                     => ['password'],
+    'application' => [
+        'methods'                     => [],
         'require_verified_identifier' => false,
     ],
 
@@ -603,7 +611,7 @@ return [
     | malformed value or an unknown key fails closed with an
     | `InvalidArgumentException` naming the guard and the key when the guard's
     | passkeys are first used, and `authentication:check` reports it for every
-    | guard whose audience allows `passkey` or that sets a `passkeys` block.
+    | guard whose application allows `passkey` or that sets a `passkeys` block.
     |
     */
 

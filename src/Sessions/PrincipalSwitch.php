@@ -11,8 +11,8 @@ use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\PinnedPrincipal;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
@@ -49,8 +49,8 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * limits, and a replayed one revokes the device. Every live check runs on every
  * path: the owner, reloaded through the guard's provider and active; the
  * target, resolved through the hinted path as the very principal named, owned,
- * active, in an active tenant, and admitted by the audience policy, also with
- * the type of identifier the session's sign-in used; the session's sign-in
+ * active, in an active tenant, and admitted by the application policy, also
+ * with the type of identifier the session's sign-in used; the session's sign-in
  * method still allowed; and the additional-factor policy, which may not ask for
  * a further factor (sign in again as the target then).
  *
@@ -188,7 +188,7 @@ final readonly class PrincipalSwitch
     /**
      * Admit the target for the device's session: the device's owner, active, as
      * the target resolved through the hinted path (the very principal named,
-     * owned, active, in an active tenant, admitted by the audience policy),
+     * owned, active, in an active tenant, admitted by the application policy),
      * with the session's sign-in method still allowed, then as the target the
      * session's sign-in could have chosen, with no further factor asked.
      *
@@ -214,11 +214,11 @@ final readonly class PrincipalSwitch
     /**
      * Hold the admitted principal to what makes it the target the session may
      * switch to: it must be the very target (`principal_mismatch`); the
-     * audience policy must admit the identity and then the target with the type
-     * of identifier the session's sign-in used, as that sign-in was admitted,
-     * so a policy that refuses such an identifier (an unverified one, say), or
-     * some principals to it, refuses the switch for its reason; and the
-     * additional-factor policy must not ask a further factor
+     * application policy must admit the identity and then the target with the
+     * type of identifier the session's sign-in used, as that sign-in was
+     * admitted, so a policy that refuses such an identifier (an unverified one,
+     * say), or some principals to it, refuses the switch for its reason; and
+     * the additional-factor policy must not ask a further factor
      * (`additional_factor_required`). A session whose sign-in used no
      * identifier is not held to an identifier type. The type is read on the
      * write connection.
@@ -244,7 +244,7 @@ final readonly class PrincipalSwitch
     }
 
     /**
-     * The audience policy's reason to refuse the target to the session's
+     * The application policy's reason to refuse the target to the session's
      * identifier type, if any: first for the identity as a whole, as its
      * sign-in was asked, then for the target.
      *
@@ -258,11 +258,11 @@ final readonly class PrincipalSwitch
      */
     private function admitWithType(Admitted $admitted, string $type): ?FailureReason
     {
-        $audience = Container::getInstance()->make(AudiencePolicy::class);
-        $guard    = $this->context->name();
+        $policy = Container::getInstance()->make(ApplicationPolicy::class);
+        $guard  = $this->context->name();
 
-        return $audience->admitIdentifier($guard, $admitted->identity, $type)
-            ?? $audience->admit($guard, $admitted->identity, $admitted->principal, $type);
+        return $policy->admitIdentifier($guard, $admitted->identity, $type)
+            ?? $policy->admit($guard, $admitted->identity, $admitted->principal, $type);
     }
 
     /**
@@ -470,7 +470,7 @@ final readonly class PrincipalSwitch
      */
     private function deadlines(EloquentDevice&Model $device, CarbonImmutable $now): array
     {
-        $lifetimes = Container::getInstance()->make(AudiencePolicy::class)->lifetimes($this->context->name());
+        $lifetimes = Container::getInstance()->make(ApplicationPolicy::class)->lifetimes($this->context->name());
         $stored    = CarbonImmutable::instance($device->getAbsoluteExpiresAt() ?? $now);
         $signedIn  = $device->getSignedInAt();
         $absolute  = $signedIn === null ? $stored : $stored->min($lifetimes->absoluteDeadline($signedIn));

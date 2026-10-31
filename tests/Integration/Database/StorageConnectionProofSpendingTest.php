@@ -271,7 +271,7 @@ final class StorageConnectionProofSpendingTest extends TestCase
         $config->set('database.connections.' . self::STORAGE, [...$config->array('database.connections.testing'), 'prefix' => 'store_']);
         $config->set('authentication.storage.connection', self::STORAGE);
         $config->set('auth.providers.stored', ['driver' => 'model', 'model' => StoredIdentity::class]);
-        $config->set('auth.guards.web', ['driver' => 'jwt', 'provider' => 'stored', 'audience' => ['methods' => ['password']]]);
+        $config->set('auth.guards.web', ['driver' => 'jwt', 'provider' => 'stored', 'application' => ['methods' => ['password']]]);
         $config->set('queue.default', 'sync');
         $config->set('queue.connections.sync', ['driver' => 'sync']);
         $config->set('hashing.bcrypt.rounds', 4);

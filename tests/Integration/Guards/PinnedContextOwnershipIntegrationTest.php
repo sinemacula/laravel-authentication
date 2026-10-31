@@ -357,25 +357,29 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
         $config = app(ConfigRepository::class);
 
         $config->set('auth.guards.api', [
-            'driver'   => 'jwt',
-            'provider' => 'members',
+            'driver'      => 'jwt',
+            'provider'    => 'members',
+            'application' => ['methods' => ['password']],
         ]);
 
         $config->set('auth.guards.unscoped', [
             'driver'             => 'jwt',
             'provider'           => 'members',
+            'application'        => ['methods' => ['password']],
             'principal_resolver' => UnscopedMembershipResolver::class,
         ]);
 
         $config->set('auth.guards.collection', [
             'driver'             => 'jwt',
             'provider'           => 'members',
+            'application'        => ['methods' => ['password']],
             'principal_resolver' => CollectionMembershipResolver::class,
         ]);
 
         $config->set('auth.guards.inverse', [
             'driver'             => 'jwt',
             'provider'           => 'members',
+            'application'        => ['methods' => ['password']],
             'principal_resolver' => InverseRelationMembershipResolver::class,
         ]);
 

@@ -51,6 +51,7 @@ The package defaults are `authentication.refresh_token`; a guard overrides any o
 'api' => [
     'driver'        => 'jwt',
     'provider'      => 'users',
+    'application'   => ['methods' => ['password']],
     'refresh_token' => ['sources' => ['header'], 'header' => 'X-App-Refresh'],
 ],
 ```
@@ -62,7 +63,7 @@ which only `refreshFromRequest()` reads with the cookie's cross-site checks.
 
 A refresh is held to the guard as well as the token. A device the row records for another guard (or for none) fails
 with `device_guard_mismatch` and is left alone, even for a token that would be a replay, and a bearer token naming it
-is rejected as if the device were missing. The guard's audience policy is asked again on every refresh: the method that
+is rejected as if the device were missing. The application policy is asked again on every refresh: the method that
 started the session (the device's `sign_in_method`) must still be one the guard allows (`method_not_allowed`; a device
 that records none fails too), and the policy must still admit the owner as the principal (`principal_ineligible`).
 Neither revokes the device, so the session refreshes again once the policy allows it. Each rotation moves the idle
@@ -121,6 +122,7 @@ stateless. List the cookie as the guard's source and give it the path its routes
 'browser' => [
     'driver'        => 'jwt',
     'provider'      => 'users',
+    'application'   => ['methods' => ['password']],
     'refresh_token' => [
         'sources' => ['cookie'],
         'cookie'  => ['path' => '/auth'],

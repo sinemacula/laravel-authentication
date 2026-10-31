@@ -15,8 +15,8 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -34,11 +34,10 @@ use Tests\TestCase;
 /**
  * End-to-end tests for what a refresh and a bearer request are held to beyond
  * the token itself, against a real database on whichever engine the suite runs
- * on: the device must be one of the guard's sessions, the guard's audience
- * policy must still allow the method that started the session and still admit
- * its owner, the next idle deadline follows the policy's lifetimes for the
- * principal, and failed refreshes are counted and, past the limit, answered
- * with a 429.
+ * on: the device must be one of the guard's sessions, the application policy
+ * must still allow the method that started the session and still admit its
+ * owner, the next idle deadline follows the policy's lifetimes for the guard,
+ * and failed refreshes are counted and, past the limit, answered with a 429.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -47,7 +46,7 @@ use Tests\TestCase;
  */
 #[CoversClass(RefreshTokenExchange::class)]
 #[CoversClass(JwtGuard::class)]
-final class RefreshAudienceIntegrationTest extends TestCase
+final class RefreshApplicationIntegrationTest extends TestCase
 {
     use InteractsWithSessions;
 
@@ -154,15 +153,15 @@ final class RefreshAudienceIntegrationTest extends TestCase
         $this->seedIdentity();
 
         $session = $this->signIn();
-        $allowed = app(AudiencePolicy::class);
+        $allowed = app(ApplicationPolicy::class);
 
-        $this->bindAudience(allowsMethod: false);
+        $this->bindApplicationPolicy(allowsMethod: false);
         $this->recordEvents([AuthenticationFailed::class]);
 
         self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
         self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->recordedEvent(AuthenticationFailed::class)->reason);
 
-        app()->instance(AudiencePolicy::class, $allowed);
+        app()->instance(ApplicationPolicy::class, $allowed);
 
         self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
     }
@@ -189,20 +188,20 @@ final class RefreshAudienceIntegrationTest extends TestCase
     }
 
     /**
-     * An owner the guard's audience policy no longer admits cannot refresh the
+     * An owner the application policy no longer admits cannot refresh the
      * session.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAnOwnerTheAudienceNoLongerAdmitsIsNotRefreshed(): void
+    public function testAnOwnerTheApplicationNoLongerAdmitsIsNotRefreshed(): void
     {
         $this->seedIdentity();
 
         $session = $this->signIn();
 
-        $this->bindAudience(admit: FailureReason::PRINCIPAL_INELIGIBLE);
+        $this->bindApplicationPolicy(admit: FailureReason::PRINCIPAL_INELIGIBLE);
         $this->recordEvents([AuthenticationFailed::class]);
 
         self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
@@ -212,19 +211,19 @@ final class RefreshAudienceIntegrationTest extends TestCase
 
     /**
      * A rotation moves the idle deadline by the idle lifetime the policy gives
-     * the principal.
+     * the guard.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testARotationFollowsThePrincipalsIdleLifetime(): void
+    public function testARotationFollowsTheGuardsIdleLifetime(): void
     {
         $this->seedIdentity();
 
         $session = $this->signIn();
 
-        $this->bindAudience(lifetimes: new TokenLifetimes(5, 30, 60 * 24, 30));
+        $this->bindApplicationPolicy(lifetimes: new TokenLifetimes(5, 30, 60 * 24, 30));
 
         self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
         self::assertSame(
@@ -353,7 +352,7 @@ final class RefreshAudienceIntegrationTest extends TestCase
     }
 
     /**
-     * Bind an audience policy with the given answers, and the guard's own
+     * Bind an application policy with the given answers, and the guard's own
      * lifetimes unless others are given.
      *
      * @param  bool  $allowsMethod
@@ -361,15 +360,15 @@ final class RefreshAudienceIntegrationTest extends TestCase
      * @param  ?\SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  $lifetimes
      * @return void
      */
-    private function bindAudience(bool $allowsMethod = true, ?FailureReason $admit = null, ?TokenLifetimes $lifetimes = null): void
+    private function bindApplicationPolicy(bool $allowsMethod = true, ?FailureReason $admit = null, ?TokenLifetimes $lifetimes = null): void
     {
-        $policy = \Mockery::mock(AudiencePolicy::class);
+        $policy = \Mockery::mock(ApplicationPolicy::class);
 
         $policy->shouldReceive('allowsMethod')->with('api', 'password')->andReturn($allowsMethod);
         $policy->shouldReceive('admit')->andReturn($admit);
         $policy->shouldReceive('lifetimes')->andReturnUsing(static fn (string $guard): TokenLifetimes => $lifetimes ?? Auth::manager()->jwt($guard)->lifetimes());
 
-        app()->instance(AudiencePolicy::class, $policy);
+        app()->instance(ApplicationPolicy::class, $policy);
     }
 
     /**

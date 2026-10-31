@@ -212,13 +212,15 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
         $config->set('auth.defaults.guard', self::JWT_GUARD);
 
         $config->set('auth.guards.' . self::JWT_GUARD, [
-            'driver'   => 'jwt',
-            'provider' => 'tenant_aware_identities',
+            'driver'      => 'jwt',
+            'provider'    => 'tenant_aware_identities',
+            'application' => ['methods' => ['password']],
         ]);
 
         $config->set('auth.guards.' . self::TWO_D_GUARD, [
-            'driver'   => 'jwt',
-            'provider' => 'two_d_identities',
+            'driver'      => 'jwt',
+            'provider'    => 'two_d_identities',
+            'application' => ['methods' => ['password']],
         ]);
 
         $config->set('auth.providers.tenant_aware_identities', [

@@ -914,8 +914,9 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $this->configureLaggingReplica($config);
 
         $config->set('auth.guards.api', [
-            'driver'   => 'jwt',
-            'provider' => 'identities',
+            'driver'      => 'jwt',
+            'provider'    => 'identities',
+            'application' => ['methods' => ['password']],
         ]);
 
         $config->set('auth.providers.identities', [
@@ -924,8 +925,9 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         ]);
 
         $config->set('auth.guards.members', [
-            'driver'   => 'jwt',
-            'provider' => 'members',
+            'driver'      => 'jwt',
+            'provider'    => 'members',
+            'application' => ['methods' => ['password']],
         ]);
 
         $config->set('auth.providers.members', [
@@ -934,8 +936,9 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         ]);
 
         $config->set('auth.guards.revocation_log', [
-            'driver'   => 'jwt',
-            'provider' => 'revocation_log',
+            'driver'      => 'jwt',
+            'provider'    => 'revocation_log',
+            'application' => ['methods' => ['password']],
         ]);
 
         $config->set('auth.providers.revocation_log', [
@@ -944,8 +947,9 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         ]);
 
         $config->set('auth.guards.suspendable', [
-            'driver'   => 'jwt',
-            'provider' => 'suspendable',
+            'driver'      => 'jwt',
+            'provider'    => 'suspendable',
+            'application' => ['methods' => ['password']],
         ]);
 
         $config->set('auth.providers.suspendable', [

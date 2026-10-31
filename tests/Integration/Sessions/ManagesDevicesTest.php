@@ -189,7 +189,7 @@ final class ManagesDevicesTest extends TestCase
         $config = $app->make(ConfigRepository::class);
 
         $config->set('auth.providers.cutoff', ['driver' => 'model', 'model' => CutoffIdentity::class]);
-        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'cutoff', 'audience' => ['methods' => ['password', 'sso']]]);
+        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'cutoff', 'application' => ['methods' => ['password', 'sso']]]);
         $config->set('hashing.bcrypt.rounds', 4);
         $config->set('authentication.timebox.credentials_microseconds', 1);
     }

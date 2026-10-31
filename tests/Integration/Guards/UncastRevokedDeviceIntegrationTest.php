@@ -114,7 +114,8 @@ final class UncastRevokedDeviceIntegrationTest extends TestCase
     }
 
     /**
-     * Pinning the revoked device on `attempt()` fails the attempt.
+     * Pinning the device on `attempt()` signs in while it is live, and fails
+     * with `device_mismatch` once it is revoked.
      *
      * @return void
      *
@@ -124,12 +125,23 @@ final class UncastRevokedDeviceIntegrationTest extends TestCase
     {
         [$identity, $device] = $this->seedIdentityWithDevice();
 
+        $credentials = ['email' => $identity->email, 'password' => self::PASSWORD];
+
+        self::assertTrue($this->guardForRequest(Request::create('/sign-in', 'POST'))->attempt($credentials, null, $device));
+
         $this->revoke($device);
+
+        Event::fake([AuthenticationFailed::class]);
 
         $guard = $this->guardForRequest(Request::create('/sign-in', 'POST'));
 
-        self::assertFalse($guard->attempt(['email' => $identity->email, 'password' => self::PASSWORD], null, $device));
+        self::assertFalse($guard->attempt($credentials, null, $device));
         self::assertFalse($guard->hasUser());
+
+        Event::assertDispatched(
+            AuthenticationFailed::class,
+            static fn (AuthenticationFailed $event): bool => $event->reason === FailureReason::DEVICE_MISMATCH,
+        );
     }
 
     /**
@@ -173,7 +185,7 @@ final class UncastRevokedDeviceIntegrationTest extends TestCase
         $config = app(ConfigRepository::class);
 
         $config->set('authentication.device.model', UncastDevice::class);
-        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities']);
+        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities', 'application' => ['methods' => ['password']]]);
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => UncastDeviceIdentity::class]);
 
         // Failed attempts wait out the timebox; keep it short.

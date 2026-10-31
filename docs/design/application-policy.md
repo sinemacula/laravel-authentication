@@ -1,26 +1,47 @@
-# Audience Policy
+# Application Policy
 
 ## Purpose
 
-This note records what a guard decides about the sessions it holds, beyond the token itself: which sign-in methods may
-start them, which principals may hold them, whether the identifier a sign-in used must be verified, and how long they
-last. An audience is a guard, so these are per-guard settings, read by one contract
-(`AudiencePolicy`) that every path that starts or continues a session consults. It also records how the attempt limits
-and the identifier normalisers meet that policy, since a sign-in passes through all three.
+This note records what an application decides about the sessions it holds, beyond the token itself: which sign-in
+methods may start them and which machine credentials it accepts, which principals may hold them, whether the identifier
+a sign-in used must be verified, and how long they last. An application is the app being signed into, and each
+application is a guard, so these are per-guard settings, read by one contract (`ApplicationPolicy`) that every path that
+starts or continues a session consults. "Audience" names only the API a token is for, its `aud` claim
+(`jwt.audience`), which this policy does not touch. The note also records how the attempt limits and the identifier
+normalisers meet that policy, since a sign-in passes through all three.
 
 ## Invariants
 
-- The shipped `Audience\GuardAudiencePolicy` reads the guard's `audience` block over the package defaults in
-  `authentication.audience`: a key present at guard level wins, `null` included. `methods` (default `['password']`) is a
-  non-empty list of method names; `require_verified_identifier` (default `false`) is a boolean. A missing, malformed or
-  unknown key, at either level, fails closed with an `InvalidArgumentException` naming the guard and the key. Every call
-  reads and checks the whole block, so a malformed key fails whichever check runs first and nothing is cached past a
-  configuration change.
-- A method is allowed only when the guard lists its exact name, the key it is registered under on the
-  `SignInMethodManager` and the name a device records in `sign_in_method`. The same list names the machine credentials
-  the guard accepts (`SignInMethodManager::CREDENTIAL_METHODS`): `api_key` on an `api_key` guard, `client_credentials`
-  on a `jwt` guard whose client credentials exchange is open; neither is a sign-in method, and the manager refuses to
-  register a method under either name (see `machine-credentials.md`).
+- The shipped `Applications\GuardApplicationPolicy` reads the guard's `application` block over the package defaults in
+  `authentication.application`: a key present at guard level wins, `null` included. `methods` (default `[]`) is a list,
+  possibly empty, of method names; `require_verified_identifier` (default `false`) is a boolean. A missing, malformed or
+  unknown key (a leftover `principal_types` included), at either level, fails closed with an `InvalidArgumentException`
+  naming the guard and the key. Every call reads and checks the whole block, so a malformed key fails whichever check
+  runs first and nothing is cached past a configuration change.
+- An empty `methods` list is a valid state, not a misconfiguration (decided: D21, every feature is opt-in). It allows
+  nothing, through the same refusals as a method the application does not list, with no code path of its own:
+  `attempt()`, `signIn()` and `start()` are refused as `method_not_allowed` before any attempt slot is reserved or the
+  method runs; a pending further factor or principal choice is consumed first (an unknown, expired or spent credential
+  is still `pending_invalid`) and then refused, so the person signs in again and the slots it held stay counted until
+  their window ends; code and password reset requests answer `method_not_allowed`, and a password never
+  reauthenticates; refresh and switch are refused without revoking the device; an `api_key` guard refuses every key and
+  a client credentials exchange answers `unauthorized_client`. Access tokens already issued keep working until they
+  expire: the list is admission, not revocation. It does not throw because the package default is `[]`, so throwing
+  would turn every application not yet configured into a server error, and because an application with no methods is
+  legitimate (access-only mode, or sign-ins stopped without revoking). `null` stays malformed, so "none" has one
+  spelling. `authentication:check` warns about a `jwt` guard whose package settings list nothing, or only `api_key`
+  (which a `jwt` guard never accepts), and reports an `api_key` guard whose policy, whichever is bound, does not allow
+  `api_key` as a problem, since such a guard has no other use. Any other name counts, registered or not, since
+  `start()` signs in under it; a policy of the application's own is asked every registered name and
+  `client_credentials` so an exception it throws is reported, and a guard it allows `passkey` has its relying party
+  checked, but no such policy, even one that wraps the package's, gets the warning, since the names it allows are its
+  own to know.
+- A method is allowed only when the guard lists its exact name: the key a method the package runs is registered under on
+  the `SignInMethodManager`, or the name the application passes to `start()` for a session it starts itself (which needs
+  no registration), and in either case the name a device records in `sign_in_method`. The same list names the machine
+  credentials the guard accepts (`SignInMethodManager::CREDENTIAL_METHODS`): `api_key` on an `api_key` guard,
+  `client_credentials` on a `jwt` guard whose client credentials exchange is open; neither is a sign-in method, and the
+  manager refuses to register a method under either name (see `machine-credentials.md`).
 - The package has no rule about which principals may hold a guard's sessions: its `admit()` admits every principal and
   is exactly `admitIdentifier()`. An application with such a rule rebinds the policy and refuses from `admit()`; a
   refresh, a switch, an API key and a client credentials exchange report that refusal as `principal_ineligible`. A
@@ -42,9 +63,9 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
   policy with no identity-level rule returns `null`.
 - `admit()` is asked only after the identity, the principal and its tenant have passed their activity checks.
 - Lifetimes are per guard only: `lifetimes($guard)` is the guard's token service's lifetimes, the same for every
-  principal. Unlike the audience block, they are read only when the token service is built: the token service factory
-  keeps the service, so a later change reaches it only once the process restarts. Issuing an access token reads nothing
-  from the principal beyond its identifier.
+  principal. Unlike the `application` block, they are read only when the token service is built: the token service
+  factory keeps the service, so a later change reaches it only once the process restarts. Issuing an access token reads
+  nothing from the principal beyond its identifier.
 - Policy decisions never revoke a device. A session the policy stops admitting is refused on its next refresh and
   refreshes again once the policy admits it.
 
@@ -53,12 +74,11 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
 - `signIn()` and `attempt()`: `Attempting`; `allowsMethod()` (nothing counted when it refuses); the attempt limiter's
   reservation; inside the credential timebox, the method's verification, activity, `admitIdentifier($guard,
   $identity, $identifierType)`, the principal, then `admit($guard, $identity, $principal, $identifierType)`; the
-  session's device takes its deadlines from
-  `lifetimes($guard)`.
+  session's device takes its deadlines from `lifetimes($guard)`.
 - `start()`: `allowsMethod()` and `admit()` with no identifier type; no limiter, no timebox.
-- `complete()`: `allowsMethod()` for the stored method, and `admitIdentifier()` and `admit()` with the stored
-  identifier type, rechecked when
-  the pending sign-in is used, so a policy change while a factor is verified still applies.
+- `complete()` and `choose()`: the pending row is consumed first, then `allowsMethod()` for the stored method, and
+  `admitIdentifier()` and `admit()` with the stored identifier type, rechecked when the pending sign-in is used, so a
+  policy change while a factor is verified or a principal chosen still applies.
 - Refresh: right after the device lookup, the device must record this guard (`device_guard_mismatch`); after the owner
   and principal are reloaded, the recorded method must still be allowed (`method_not_allowed`, also when the device
   records none) and `admit()` must pass with no identifier type (`principal_ineligible`, whatever reason the policy
@@ -97,7 +117,7 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
   integer nor a query closure before any lookup, and an IPv6 client is counted per /64 network, except that an address
   carrying an IPv4 client's address (IPv4-mapped, or the NAT64 well-known prefix `64:ff9b::/96`) is counted as that IPv4
   address.
-- A custom `AudiencePolicy` decides the session's deadlines (the device's on sign-in, the idle deadline on each
+- A custom `ApplicationPolicy` decides the session's deadlines (the device's on sign-in, the idle deadline on each
   rotation) through `lifetimes($guard)`; the access token's expiry is still computed by the guard's token service from
   the guard's `jwt` lifetimes, and is capped at the session's end. A policy that returns lifetimes the guard's
   configuration does not describe therefore shortens or lengthens sessions, not access tokens.
@@ -109,7 +129,8 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
 
 ## Implementation Anchors
 
-- `src/Contracts/AudiencePolicy.php`, `src/Audience/GuardAudiencePolicy.php`.
+- `src/Contracts/ApplicationPolicy.php`, `src/Applications/GuardApplicationPolicy.php`,
+  `src/Console/ApplicationChecks.php` (`authentication:check`).
 - `src/Jwt/JwtTokenServiceFactory.php` (the guard's lifetimes) and `src/Jwt/JwtTokenService.php` (`lifetimes()`).
 - `src/Sessions/SessionService.php`, `src/Sessions/CredentialAttempt.php` (the method check) and
   `src/Admission/SignInAdmission.php`, shared with `src/Guards/Concerns/SignsInWithCredentials.php` (`attempt()`).
@@ -124,9 +145,14 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
 
 - `tests/Integration/Sessions/SignInPolicyEndToEndTest.php` (every piece above, through the shipped bindings)
 - `tests/Unit/Admission/SignInAdmissionTest.php` `testAnyPolicysRefusalOfTheIdentityComesBeforeItsPrincipal`
-- `tests/Feature/Audience/GuardAudiencePolicyTest.php`, `tests/Integration/Guards/AudiencePolicyIntegrationTest.php`
+- `tests/Feature/Applications/GuardApplicationPolicyTest.php`,
+  `tests/Integration/Guards/ApplicationPolicyIntegrationTest.php`
+- `tests/Integration/Applications/EmptyApplicationIntegrationTest.php` (the shipped empty default, end to end), with
+  `testAPendingSignInWhoseMethodIsRemovedIsSpentAndRefused` in `SignInPolicyEndToEndTest` and
+  `testAChoiceWhoseMethodIsRemovedIsSpentAndRefused` in `tests/Integration/Sessions/PrincipalChoiceEndToEndTest.php`
+- `tests/Feature/Console/CheckConfigurationCommandTest.php` (the application checks and the warning)
 - `tests/Performance/AccessTokenIssueQueryBudgetTest.php`
-- `tests/Integration/Guards/RefreshAudienceIntegrationTest.php`
+- `tests/Integration/Guards/RefreshApplicationIntegrationTest.php`
 - `tests/Integration/RateLimiting/DatabaseAttemptLimiterTest.php`,
   `tests/Integration/RateLimiting/ConcurrentDatabaseAttemptLimiterTest.php`
 - `tests/Performance/AttemptLimiterQueryBudgetTest.php`, `tests/Performance/SessionServiceQueryBudgetTest.php`,
@@ -136,7 +162,8 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
 
 Update this note when any of the following change:
 
-- the keys of an `audience` block, their defaults, or how a guard's keys combine with the package's
+- the keys of an `application` block, their defaults, or how a guard's keys combine with the package's
+- what an empty `methods` list allows or refuses, or whether `authentication:check` warns about it
 - whether the package decides which principals may hold a guard's sessions, or how a rebound policy's refusal is
   reported
 - which sign-ins carry an identifier type, and so which the verified-identifier gate applies to

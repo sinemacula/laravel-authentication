@@ -347,7 +347,7 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
         self::configureCodeGuards($config);
 
         $config->set('auth.providers.slow_identities', ['driver' => 'slow_model', 'model' => CodeIdentity::class]);
-        $config->set('auth.guards.slow', ['driver' => 'jwt', 'provider' => 'slow_identities', 'audience' => ['methods' => ['phone_code', 'email_code']]]);
+        $config->set('auth.guards.slow', ['driver' => 'jwt', 'provider' => 'slow_identities', 'application' => ['methods' => ['phone_code', 'email_code']]]);
     }
 
     /**

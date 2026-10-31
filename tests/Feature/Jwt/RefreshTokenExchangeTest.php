@@ -23,8 +23,8 @@ use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Random\RandomException;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
@@ -122,8 +122,8 @@ final class RefreshTokenExchangeTest extends TestCase
     /** @var \Mockery\MockInterface Dispatcher mock. */
     private MockInterface $events;
 
-    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\AudiencePolicy Audience policy the exchange resolves from the container. */
-    private MockInterface $audience;
+    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy Application policy the exchange resolves from the container. */
+    private MockInterface $policy;
 
     /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\AttemptLimiter Limiter the exchange resolves from the container. */
     private MockInterface $limiter;
@@ -172,16 +172,16 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $this->context = new GuardContext(self::GUARD_NAME, $this->provider, $this->resolver, $this->events, Request::create('/'), new CredentialTimebox(new Timebox));
 
-        $this->audience = \Mockery::mock(AudiencePolicy::class);
-        $this->audience->shouldReceive('allowsMethod')->andReturn(true)->byDefault();
-        $this->audience->shouldReceive('admit')->andReturn(null)->byDefault();
-        $this->audience->shouldReceive('lifetimes')->andReturn($this->tokens->lifetimes())->byDefault();
+        $this->policy = \Mockery::mock(ApplicationPolicy::class);
+        $this->policy->shouldReceive('allowsMethod')->andReturn(true)->byDefault();
+        $this->policy->shouldReceive('admit')->andReturn(null)->byDefault();
+        $this->policy->shouldReceive('lifetimes')->andReturn($this->tokens->lifetimes())->byDefault();
 
         $this->limiter = \Mockery::mock(AttemptLimiter::class);
         $this->limiter->shouldReceive('blocked')->andReturn(null)->byDefault();
         $this->limiter->shouldReceive('recordFailure')->byDefault();
 
-        $this->app?->instance(AudiencePolicy::class, $this->audience);
+        $this->app?->instance(ApplicationPolicy::class, $this->policy);
         $this->app?->instance(AttemptLimiter::class, $this->limiter);
 
         self::createDeviceTable('stub_devices');
@@ -1573,8 +1573,8 @@ final class RefreshTokenExchangeTest extends TestCase
         $unstated = $this->seedDevice(43, ['sign_in_method' => null, 'refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
         $before   = [$this->row($removed), $this->row($unstated)];
 
-        $this->audience->shouldReceive('allowsMethod')->once()->with(self::GUARD_NAME, 'sso')->andReturn(false);
-        $this->audience->shouldNotReceive('admit');
+        $this->policy->shouldReceive('allowsMethod')->once()->with(self::GUARD_NAME, 'sso')->andReturn(false);
+        $this->policy->shouldNotReceive('admit');
         $this->expectRefreshContext(43, 2);
         $this->recordEvents();
 
@@ -1585,8 +1585,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * The guard's audience policy must still admit the owner as the principal,
-     * asked without an identifier type; when it does not, the exchange fails as
+     * The application policy must still admit the owner as the principal, asked
+     * without an identifier type; when it does not, the exchange fails as
      * `principal_ineligible` without writing.
      *
      * @return void
@@ -1600,8 +1600,8 @@ final class RefreshTokenExchangeTest extends TestCase
         $before   = $this->row($device);
         $identity = $this->expectRefreshContext(44);
 
-        $this->audience->shouldReceive('allowsMethod')->once()->with(self::GUARD_NAME, 'password')->andReturn(true);
-        $this->audience->shouldReceive('admit')
+        $this->policy->shouldReceive('allowsMethod')->once()->with(self::GUARD_NAME, 'password')->andReturn(true);
+        $this->policy->shouldReceive('admit')
             ->once()
             ->with(self::GUARD_NAME, $identity, \Mockery::type(Principal::class), null)
             ->andReturn(FailureReason::IDENTIFIER_UNVERIFIED);
@@ -1626,7 +1626,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $device = $this->seedDevice(45, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
 
         $this->expectRefreshContext(45);
-        $this->audience->shouldReceive('lifetimes')
+        $this->policy->shouldReceive('lifetimes')
             ->once()
             ->with(self::GUARD_NAME)
             ->andReturn(new TokenLifetimes(self::ACCESS_TTL, 45, 60 * 24 * 180, self::GRACE));

@@ -192,7 +192,7 @@ final class DeviceRelationWriteConnectionIntegrationTest extends TestCase
 
         $this->configureLaggingReplica($config);
 
-        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities']);
+        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities', 'application' => ['methods' => ['password']]]);
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => GrantedDevicesIdentity::class]);
 
         // Failed attempts wait out the timebox; keep it short.

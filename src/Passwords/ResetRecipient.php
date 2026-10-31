@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Codes\CodeIdentifiers;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
@@ -162,6 +162,6 @@ final class ResetRecipient
             return $identity;
         }
 
-        return $container->make(AudiencePolicy::class)->admitIdentifier($guard, $identity, $type) ?? $identity;
+        return $container->make(ApplicationPolicy::class)->admitIdentifier($guard, $identity, $type) ?? $identity;
     }
 }

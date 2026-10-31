@@ -6,7 +6,7 @@ namespace SineMacula\Laravel\Authentication\ApiKeys;
 
 use Carbon\CarbonImmutable;
 use SineMacula\Laravel\Authentication\Admission\Refused;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -17,7 +17,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
  * it is (`credential_invalid`, the same for a malformed key, an unknown public
  * part and a wrong secret); the key must be the guard's
  * (`credential_guard_mismatch`), not revoked (`credential_revoked`) and not
- * expired (`credential_expired`); the guard's audience must allow the
+ * expired (`credential_expired`); the guard's application must allow the
  * credential (`method_not_allowed`); then its owner and principal are admitted
  * (`ApiKeyAdmission`). No password hashing is done: the secret's SHA-256 digest
  * is compared in constant time, against a fixed digest when no key matched.
@@ -39,14 +39,14 @@ final readonly class ApiKeyAuthentication
      * @param  string  $method
      * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
      * @param  \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver  $resolver
-     * @param  \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy  $audience
+     * @param  \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy  $policy
      */
     public function __construct(
 
         /** Name of the guard the key must authenticate for. */
         private string $guard,
 
-        /** The credential kind the guard's audience must allow: `api_key` or `client_credentials`. */
+        /** The credential kind the guard's application must allow: `api_key` or `client_credentials`. */
         private string $method,
 
         /** The guard's identity provider. */
@@ -55,8 +55,8 @@ final readonly class ApiKeyAuthentication
         /** The guard's principal resolver. */
         private PrincipalResolver $resolver,
 
-        /** The audience policy. */
-        private AudiencePolicy $audience,
+        /** The application policy. */
+        private ApplicationPolicy $policy,
     ) {}
 
     /**
@@ -80,10 +80,10 @@ final readonly class ApiKeyAuthentication
             return new ApiKeyOutcome($key, new Refused(FailureReason::CREDENTIAL_INVALID));
         }
 
-        $refusal = ApiKeyLookup::refusal($key, $this->guard, $now) ?? ($this->audience->allowsMethod($this->guard, $this->method) ? null : FailureReason::METHOD_NOT_ALLOWED);
+        $refusal = ApiKeyLookup::refusal($key, $this->guard, $now) ?? ($this->policy->allowsMethod($this->guard, $this->method) ? null : FailureReason::METHOD_NOT_ALLOWED);
 
         return new ApiKeyOutcome($key, $refusal === null
-            ? (new ApiKeyAdmission($this->guard, $this->provider, $this->resolver, $this->audience))->admit($key)
+            ? (new ApiKeyAdmission($this->guard, $this->provider, $this->resolver, $this->policy))->admit($key)
             : new Refused($refusal));
     }
 }

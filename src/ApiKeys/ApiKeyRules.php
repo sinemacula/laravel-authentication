@@ -31,7 +31,7 @@ final class ApiKeyRules
 
     /**
      * The principal a key may be issued for: the one the resolver returned,
-     * which the audience admitted.
+     * which the application admitted.
      *
      * @param  string  $guard
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $resolved
@@ -47,7 +47,7 @@ final class ApiKeyRules
         }
 
         if ($refusal !== null) {
-            throw new \InvalidArgumentException("The audience of guard [{$guard}] does not admit the principal an API key was to be issued for ({$refusal->value}).");
+            throw new \InvalidArgumentException("The application [{$guard}] does not admit the principal an API key was to be issued for ({$refusal->value}).");
         }
 
         return $resolved;

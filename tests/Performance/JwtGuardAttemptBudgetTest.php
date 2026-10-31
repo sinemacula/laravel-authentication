@@ -392,13 +392,15 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
         $config = $app->make(ConfigRepository::class);
 
         $config->set('auth.guards.' . self::TWO_D_GUARD, [
-            'driver'   => 'jwt',
-            'provider' => 'integration_identities',
+            'driver'      => 'jwt',
+            'provider'    => 'integration_identities',
+            'application' => ['methods' => ['password']],
         ]);
 
         $config->set('auth.guards.' . self::THREE_D_GUARD, [
-            'driver'   => 'jwt',
-            'provider' => 'coexist_3d_identities',
+            'driver'      => 'jwt',
+            'provider'    => 'coexist_3d_identities',
+            'application' => ['methods' => ['password']],
         ]);
 
         $config->set('auth.providers.integration_identities', [

@@ -27,8 +27,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -370,8 +370,8 @@ final class SessionServiceTest extends TestCase
     {
         $this->seedIdentity();
 
-        $audience = $this->audience();
-        $audience->shouldReceive('allowsMethod')->once()->with('api', 'password')->andReturnFalse();
+        $policy = $this->policy();
+        $policy->shouldReceive('allowsMethod')->once()->with('api', 'password')->andReturnFalse();
 
         $limiter = $this->bindMock(AttemptLimiter::class);
         $limiter->shouldNotReceive('acquire');
@@ -518,20 +518,20 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * The audience policy admits the identity as the principal for the method's
-     * identifier type; its refusal fails the sign-in with its reason and the
-     * whole context, tenant included.
+     * The application policy admits the identity as the principal for the
+     * method's identifier type; its refusal fails the sign-in with its reason
+     * and the whole context, tenant included.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testTheAudiencePolicysRefusalFailsTheSignIn(): void
+    public function testTheApplicationPolicysRefusalFailsTheSignIn(): void
     {
         [$member, $membership, $tenant] = $this->seedMember();
 
-        $audience = $this->audience();
-        $audience->shouldReceive('admit')
+        $policy = $this->policy();
+        $policy->shouldReceive('admit')
             ->once()
             ->with('members', \Mockery::on(static fn (Identity $identity): bool => $identity->getAuthIdentifier() === $member->getKey()), \Mockery::any(), 'email')
             ->andReturn(FailureReason::PRINCIPAL_INELIGIBLE);
@@ -730,19 +730,19 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * The device's deadlines follow the lifetimes the audience policy gives the
-     * guard.
+     * The device's deadlines follow the lifetimes the application policy gives
+     * the guard.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testDeadlinesFollowTheAudiencePolicysLifetimes(): void
+    public function testDeadlinesFollowTheApplicationPolicysLifetimes(): void
     {
         $this->seedIdentity();
 
-        $audience = $this->audience();
-        $audience->shouldReceive('lifetimes')->once()->with('api')->andReturn(new TokenLifetimes(5, 60, 120, 30));
+        $policy = $this->policy();
+        $policy->shouldReceive('lifetimes')->once()->with('api')->andReturn(new TokenLifetimes(5, 60, 120, 30));
 
         $session = $this->sessions()->signIn('password', self::credentials())->session;
 
@@ -880,12 +880,12 @@ final class SessionServiceTest extends TestCase
         self::assertSame($unsaved, $this->recordedEvent(Failed::class)->user);
         self::assertSame([], $this->recordedEvent(Failed::class)->credentials);
 
-        $audience = $this->audience();
-        $audience->shouldReceive('allowsMethod')->with('api', 'sso')->andReturnFalse();
+        $policy = $this->policy();
+        $policy->shouldReceive('allowsMethod')->with('api', 'sso')->andReturnFalse();
 
         $this->assertSignInFails(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->start($identity, null, 'sso'));
 
-        $audience->shouldReceive('allowsMethod')->with('api', 'otp')->andReturnTrue();
+        $policy->shouldReceive('allowsMethod')->with('api', 'otp')->andReturnTrue();
 
         $factors = $this->bindMock(AdditionalFactorPolicy::class);
         $factors->shouldReceive('requiresAdditionalFactor')->once()->andReturnTrue();
@@ -898,7 +898,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Rows of `[credential kind]`: what an audience may list that is not a
+     * Rows of `[credential kind]`: what an application may list that is not a
      * sign-in method.
      *
      * @return iterable<string, array{0: string}>
@@ -913,8 +913,8 @@ final class SessionServiceTest extends TestCase
 
     /**
      * `start()` refuses a machine credential kind as the method, even on a
-     * guard whose audience lists it: no session is recorded under it, so none
-     * passes for a machine credential.
+     * guard whose application lists it: no session is recorded under it, so
+     * none passes for a machine credential.
      *
      * @param  string  $kind
      * @return void
@@ -926,7 +926,7 @@ final class SessionServiceTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        config()->set('auth.guards.api.audience', ['methods' => ['password', $kind]]);
+        config()->set('auth.guards.api.application', ['methods' => ['password', $kind]]);
 
         try {
             $this->sessions()->start($identity, null, $kind);
@@ -1322,9 +1322,9 @@ final class SessionServiceTest extends TestCase
         self::configureSessionGuards($config);
 
         $config->set('auth.providers.plain', ['driver' => 'model', 'model' => NormalisedEmailIdentity::class]);
-        $config->set('auth.guards.plain', ['driver' => 'jwt', 'provider' => 'plain']);
+        $config->set('auth.guards.plain', ['driver' => 'jwt', 'provider' => 'plain', 'application' => ['methods' => ['password']]]);
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
-        $config->set('auth.guards.choosers', ['driver' => 'jwt', 'provider' => 'choosers', 'audience' => ['methods' => ['password', 'sso']]]);
+        $config->set('auth.guards.choosers', ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password', 'sso']]]);
     }
 
     /**
@@ -1406,22 +1406,22 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Bind a permissive audience policy mock with the guard's own lifetimes,
+     * Bind a permissive application policy mock with the guard's own lifetimes,
      * whose expectations a test can override.
      *
      * @return \Mockery\MockInterface
      */
-    private function audience(): MockInterface
+    private function policy(): MockInterface
     {
-        $audience = $this->bindMock(AudiencePolicy::class);
-        $audience->shouldReceive('allowsMethod')->byDefault()->andReturnTrue();
-        $audience->shouldReceive('admitIdentifier')->byDefault()->andReturnNull();
-        $audience->shouldReceive('admit')->byDefault()->andReturnNull();
-        $audience->shouldReceive('lifetimes')
+        $policy = $this->bindMock(ApplicationPolicy::class);
+        $policy->shouldReceive('allowsMethod')->byDefault()->andReturnTrue();
+        $policy->shouldReceive('admitIdentifier')->byDefault()->andReturnNull();
+        $policy->shouldReceive('admit')->byDefault()->andReturnNull();
+        $policy->shouldReceive('lifetimes')
             ->byDefault()
             ->andReturnUsing(static fn (string $guard): TokenLifetimes => app(JwtTokenServiceFactory::class)->forGuard($guard)->lifetimes());
 
-        return $audience;
+        return $policy;
     }
 
     /**

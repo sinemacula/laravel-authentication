@@ -19,9 +19,9 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
+use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -43,7 +43,7 @@ use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\InteractsWithTypedPrincipals;
 use Tests\Concerns\InteractsWithVerifiableIdentities;
-use Tests\Fixtures\Sessions\RefusingAudiencePolicy;
+use Tests\Fixtures\Sessions\RefusingApplicationPolicy;
 use Tests\Integration\Fixtures\TypedIdentity;
 use Tests\Integration\Fixtures\TypedMembership;
 use Tests\Integration\Fixtures\TypedTenant;
@@ -53,9 +53,10 @@ use Tests\TestCase;
 
 /**
  * End-to-end tests of signing in, and refreshing, through the bindings the
- * package ships, on whichever engine the suite runs against: the guard audience
- * policy, the database attempt limiter, the identifier normalisers and the
- * verified-identifier gate, configured per guard as an application would.
+ * package ships, on whichever engine the suite runs against: the guard
+ * application policy, the database attempt limiter, the identifier normalisers
+ * and the verified-identifier gate, configured per guard as an application
+ * would.
  *
  * - `api`: identities with a designated email, the password and `sso` methods.
  * - `by_number`: the same identities, signing in by their `id` with a password.
@@ -73,7 +74,7 @@ use Tests\TestCase;
  */
 #[CoversClass(SessionService::class)]
 #[CoversClass(SessionEstablishment::class)]
-#[CoversClass(GuardAudiencePolicy::class)]
+#[CoversClass(GuardApplicationPolicy::class)]
 #[CoversClass(DatabaseAttemptLimiter::class)]
 #[CoversClass(RefreshTokenExchange::class)]
 #[CoversClass(VerificationLinks::class)]
@@ -540,6 +541,34 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
+     * A sign-in waiting for a further factor when the application stops listing
+     * its method is spent and then refused: completing it is
+     * `method_not_allowed` and writes no device, and the token cannot be
+     * completed again (`pending_invalid`).
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingSignInWhoseMethodIsRemovedIsSpentAndRefused(): void
+    {
+        $this->seedPasswordIdentity('ada@example.test');
+
+        self::requireAFurtherFactor();
+
+        $pending = $this->sessions()->signIn('password', self::credentials())->pending;
+
+        self::assertNotNull($pending);
+
+        config()->set('auth.guards.api.application.methods', []);
+
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->complete($pending->token)->reason);
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->complete($pending->token)->reason);
+        self::assertSame(0, PendingSignIn::query()->count());
+        self::assertSame(0, Device::query()->count());
+    }
+
+    /**
      * A session lasts as the guard sets, whatever its principal: the device's
      * deadlines, the access token's expiry, and the refresh token's, which is
      * the idle deadline, are the guard's for two memberships whose own `type`
@@ -576,7 +605,7 @@ final class SignInPolicyEndToEndTest extends TestCase
 
     /**
      * An application that decides which principals may use a guard rebinds the
-     * audience policy: a principal it refuses is refused as
+     * application policy: a principal it refuses is refused as
      * `principal_ineligible` before anything is written, and once it refuses a
      * principal whose session already exists, that session no longer refreshes,
      * and the device is kept.
@@ -587,7 +616,7 @@ final class SignInPolicyEndToEndTest extends TestCase
      */
     public function testAReboundPolicyRefusesThePrincipalOnSignInAndRefresh(): void
     {
-        $package = app(AudiencePolicy::class);
+        $package = app(ApplicationPolicy::class);
 
         self::refuseMembersOfType($package, 'contractor');
 
@@ -702,23 +731,34 @@ final class SignInPolicyEndToEndTest extends TestCase
         $config->set('auth.providers.typed', ['driver' => 'model', 'model' => TypedIdentity::class]);
         $config->set('auth.providers.verifiable_staff', ['driver' => 'model', 'model' => VerifiableStaffIdentity::class]);
 
-        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'verifiable', 'audience' => ['methods' => ['password', 'sso']]]);
-        $config->set('auth.guards.by_number', ['driver' => 'jwt', 'provider' => 'verifiable', 'sign_in' => ['password_identifier' => 'id']]);
-        $config->set('auth.guards.staff', ['driver' => 'jwt', 'provider' => 'verifiable_staff']);
+        $config->set('auth.guards.api', [
+            'driver'      => 'jwt',
+            'provider'    => 'verifiable',
+            'application' => ['methods' => ['password', 'sso']],
+        ]);
+        $config->set('auth.guards.by_number', [
+            'driver'      => 'jwt',
+            'provider'    => 'verifiable',
+            'application' => ['methods' => ['password']],
+            'sign_in'     => ['password_identifier' => 'id'],
+        ]);
+        $config->set('auth.guards.staff', ['driver' => 'jwt', 'provider' => 'verifiable_staff', 'application' => ['methods' => ['password']]]);
         $config->set('auth.guards.loose', [
             'driver'      => 'jwt',
             'provider'    => 'verifiable',
+            'application' => ['methods' => ['password']],
             'rate_limits' => ['sign_in' => ['per_identifier' => ['max' => 10, 'decay_seconds' => 300]]],
         ]);
-        $config->set('auth.guards.sso_only', ['driver' => 'jwt', 'provider' => 'verifiable', 'audience' => ['methods' => ['sso']]]);
+        $config->set('auth.guards.sso_only', ['driver' => 'jwt', 'provider' => 'verifiable', 'application' => ['methods' => ['sso']]]);
         $config->set('auth.guards.verified', [
-            'driver'   => 'jwt',
-            'provider' => 'verifiable',
-            'audience' => ['methods' => ['password', 'sso'], 'require_verified_identifier' => true],
+            'driver'      => 'jwt',
+            'provider'    => 'verifiable',
+            'application' => ['methods' => ['password', 'sso'], 'require_verified_identifier' => true],
         ]);
         $config->set('auth.guards.members', [
             'driver'      => 'jwt',
             'provider'    => 'typed',
+            'application' => ['methods' => ['password']],
             'rate_limits' => ['refresh' => ['per_ip' => ['max' => 3, 'decay_seconds' => 60]]],
             'jwt'         => [
                 'access_ttl_minutes'           => self::MEMBERS_ACCESS_MINUTES,
@@ -746,16 +786,16 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * Rebind the audience policy around the given one so the `members` guard
+     * Rebind the application policy around the given one so the `members` guard
      * refuses every membership whose `type` is the one given.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy  $inner
+     * @param  \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy  $inner
      * @param  string  $type
      * @return void
      */
-    private static function refuseMembersOfType(AudiencePolicy $inner, string $type): void
+    private static function refuseMembersOfType(ApplicationPolicy $inner, string $type): void
     {
-        app()->instance(AudiencePolicy::class, new RefusingAudiencePolicy(
+        app()->instance(ApplicationPolicy::class, new RefusingApplicationPolicy(
             $inner,
             static fn (string $guard, Principal $principal): bool => $guard === 'members' && $principal instanceof TypedMembership && $principal->type === $type,
         ));

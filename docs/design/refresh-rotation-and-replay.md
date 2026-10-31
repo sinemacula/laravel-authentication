@@ -60,12 +60,12 @@ other rotated token as a replay that revokes the device.
   for a device of the guard exchanging it, checked right after the lookup and before anything else is judged, so a
   token of one guard can never revoke, rotate, or even classify another guard's device; the bearer path and sign-in pins
   treat such a device as missing. A device that records no guard belongs to none.
-- Refresh holds every session to the guard's current audience policy (`AudiencePolicy`, resolved from the container on
-  each exchange): the method that started the session (`sign_in_method`) must still be one the guard allows, and the
-  policy must still admit the owner as the principal (asked without an identifier type, so the verified-identifier
-  requirement never applies to a refresh). Neither failure revokes: the session refreshes again once the policy allows
-  it. A rotation's idle lifetime is the one the policy gives the guard; the grace window and leeway are the guard's
-  token service's, since they apply before the principal is known.
+- Refresh holds every session to the guard's current application policy (`ApplicationPolicy`, resolved from the
+  container on each exchange): the method that started the session (`sign_in_method`) must still be one the guard
+  allows, and the policy must still admit the owner as the principal (asked without an identifier type, so the
+  verified-identifier requirement never applies to a refresh). Neither failure revokes: the session refreshes again once
+  the policy allows it. A rotation's idle lifetime is the one the policy gives the guard; the grace window and leeway
+  are the guard's token service's, since they apply before the principal is known.
 - Refresh counts failures, not attempts: it cannot guess a secret (signed tokens, 256-bit rotation ids), so each failed
   exchange is counted against the token's device and the client's IP address by the bound `AttemptLimiter`, and
   successful ones are not. Once either count is full, the exchange stops before the device lookup.
@@ -96,9 +96,9 @@ other rotated token as a replay that revokes the device.
 - Reload the device's owner through the guard's identity provider, confirm it is that exact owner (see
   `guard-bound-tokens.md`) and that it is active; resolve the principal (the `pid` one when the token carries it) and
   confirm it and its tenant are active.
-- Ask the audience policy: `allowsMethod(guard, sign_in_method)` (a `null` method fails without asking) and
+- Ask the application policy: `allowsMethod(guard, sign_in_method)` (a `null` method fails without asking) and
   `admit(guard, identity, principal, null)`.
-- CURRENT: compute the successor and the new idle deadline (from `AudiencePolicy::lifetimes(guard)`), issue
+- CURRENT: compute the successor and the new idle deadline (from `ApplicationPolicy::lifetimes(guard)`), issue
   the access token and a refresh token carrying the successor at `$now`, then run the compare-and-swap. When it affects
   the row, mirror the new state on the in-memory device and return the pair.
 - GRACE: issue, at `$now`, a fresh access token and a refresh token whose `jti` is the current id (the successor of the
@@ -121,7 +121,7 @@ other rotated token as a replay that revokes the device.
 - A device of another guard, or of none, produces `device_guard_mismatch` without a write to the device, even for a
   token that would be a replay, and nothing is hydrated.
 - A device whose `sign_in_method` the guard no longer allows, or which records none, produces `method_not_allowed`; an
-  owner the guard's audience policy no longer admits as the principal produces `principal_ineligible`. Neither writes
+  owner the application policy no longer admits as the principal produces `principal_ineligible`. Neither writes
   to the device or revokes it.
 - Missing or malformed claims produce `token_invalid`: a refresh token must carry `exp`, `iat`, `jti`, `typ`, `grd`, and
   `did` (`pid` is optional). The token's own `exp` is checked by `parse()` (with leeway) before `$now` is taken; the
@@ -220,12 +220,12 @@ other rotated token as a replay that revokes the device.
 - `src/Jwt/RefreshJudgement.php`: `classify()` and `isGraceRetry()`, the verdict a refresh and a switch of principal
   share.
 - `src/Jwt/RefreshAdmission.php`: `admit()` (the owner reload, the principal, activity), `admitByPolicy()` (the
-  audience policy).
+  application policy).
 - `src/Jwt/RefreshRotationStore.php`: `rotate()` (the compare-and-swap), `switchPrincipal()` (the switch's
   compare-and-swap), `revoke()` (the guarded revocation), and `reload()` (the locking re-read on the writer).
 - `src/Database/AfterCommit.php`: defers `DeviceRevoked` to the commit of the device's own connection.
 - `src/Devices/DeviceLookup.php`: `find()`, the device lookup on the writer.
-- `src/Contracts/AudiencePolicy.php` and `src/Contracts/AttemptLimiter.php`: the policy and the limiter each exchange
+- `src/Contracts/ApplicationPolicy.php` and `src/Contracts/AttemptLimiter.php`: the policy and the limiter each exchange
   resolves from the container.
 - `src/Jwt/RefreshTokenHasher.php`: `generate()`, `successor()`, `hash()`, and constant-time `verify()`.
 - `src/Devices/DeviceDeadlines.php`: `hasEnded()` and `liveDeadlines()`.
@@ -304,10 +304,10 @@ other rotated token as a replay that revokes the device.
   `testARateLimitedRefreshIsAnsweredWithRetryAfter`
 - `tests/Feature/Guards/VerifiesPinnedContextTest.php`
   `testPinnedDeviceOfAnotherGuardFailsTheAttempt`
-- `tests/Integration/Guards/RefreshAudienceIntegrationTest.php`
+- `tests/Integration/Guards/RefreshApplicationIntegrationTest.php`
   `testADeviceOfAnotherGuardIsNeitherRefreshedNorRevoked`, `testASessionOfAMethodNoLongerAllowedIsNotRefreshed`,
-  `testADeviceThatRecordsNoMethodIsNotRefreshed`, `testAnOwnerTheAudienceNoLongerAdmitsIsNotRefreshed`,
-  `testARotationFollowsThePrincipalsIdleLifetime`, `testAFailedRefreshIsCountedAgainstTheDeviceAndTheIpAddress`,
+  `testADeviceThatRecordsNoMethodIsNotRefreshed`, `testAnOwnerTheApplicationNoLongerAdmitsIsNotRefreshed`,
+  `testARotationFollowsTheGuardsIdleLifetime`, `testAFailedRefreshIsCountedAgainstTheDeviceAndTheIpAddress`,
   `testARateLimitedRefreshIsAnswered429WithRetryAfter`
 - `tests/Feature/Jwt/RefreshRotationStoreTest.php`
   `testRotateRecordsTheRotationAndMirrorsIt`, `testRotateMissesAfterAChangeSinceTheDeviceWasLoaded`,
@@ -439,7 +439,7 @@ Update this note when any of the following change:
   repeated daylight saving hour read as its first pass)
 - which activity checks refresh applies, or whether an `UnresolvableIdentityException` still propagates
 - whether refresh and the bearer path still bind a device to its guard, or what a device without a guard means
-- which audience policy checks refresh applies (method, admission, the guard's lifetimes), or whether any of them
+- which application policy checks refresh applies (method, admission, the guard's lifetimes), or whether any of them
   revokes
 - what refresh counts against its limits, when it consults them, or how a rate-limited refresh is answered
 - whether the package opens its own transaction around a refresh

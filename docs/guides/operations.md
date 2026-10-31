@@ -78,7 +78,7 @@ swaps Eloquent's process-wide connection resolver while its callback runs and re
 mode, when the callback returns or throws, so the next request reads as configured. No package class keeps a request, an
 identity or a token in a static property. The sign-in methods you register are kept as long as the application serving
 them, so they must hold no state between calls (see [Writing a sign-in method](signing-in.md#writing-a-sign-in-method)),
-and so must a factor or audience policy you bind as a singleton.
+and so must a factor or application policy you bind as a singleton.
 
 ## Configuration lifetimes
 
@@ -97,16 +97,20 @@ test does) applies from the next use. Two kinds are read once and kept:
 
 The token service factory is a singleton that builds each guard's token service (its keys, active kid, algorithm,
 lifetimes, refresh grace, leeway, issuer and audience) once, so a runtime change to a JWT setting does not reach a token
-service already built, even for a guard built afterwards. Nor does it reach the lifetimes the audience policy applies,
-which come from the token service; the rest of the audience settings, the rate limits and every other setting are read
-anew. A queue worker resets its guards between jobs rather
-than rebuilding them, so it keeps both kinds for as long as it runs. To change a kept setting, change the configuration
-and restart the worker, as above.
+service already built, even for a guard built afterwards. Nor does it reach the lifetimes the application policy
+applies, which come from the token service; the rest of the application settings, the rate limits and every other
+setting are read anew. A queue worker resets its guards between jobs rather than rebuilding them, so it keeps both kinds
+for as long as it runs. To change a kept setting, change the configuration and restart the worker, as above.
+
+The same holds for an application's `application.methods`: emptying the list (or removing a method) to stop an
+application's sign-ins and refreshes is a deploy plus a worker restart, after which every sign-in, refresh and machine
+credential it no longer lists is refused (see [Applications](configuration.md#applications)). Nothing is revoked: access
+tokens already issued keep working until they expire, and sessions refresh again once the method is listed again.
 
 Under Octane, each request runs in a copy of the application with its own copy of the configuration. A singleton first
 resolved while a request is served, the token service factory included, lives only as long as that request; one resolved
 before the first request (warmed through Octane's `warm` list, or resolved while the application boots) lives as long as
-the worker, and one built with the configuration repository, such as the attempt limiter or the audience policy, then
+the worker, and one built with the configuration repository, such as the attempt limiter or the application policy, then
 reads the worker's configuration, not the request's copy.
 
 ## Key Rotation
@@ -205,11 +209,13 @@ to describe it. Database errors are never read as an unknown device: they propag
 `php artisan authentication:check` resolves every `jwt` and `api_key` guard's settings the way the guard would and exits
 `1` when any is wrong, `0` otherwise, for a deploy pipeline or a readiness probe. It checks each `jwt` guard's token
 service (keys, active kid, algorithm, key lengths, lifetimes, leeway, issuer and audience), that its provider resolves
-to an `IdentityProvider`, its `principal_resolver` override, its audience settings when the package's `AudiencePolicy`
-is bound, the rate limits of every flow, the password identifier, the refresh token transport and, when its audience
-allows `passkey` or it sets a `passkeys` block, its passkey relying party; each `api_key` guard's provider,
-`principal_resolver` override, audience settings (which must allow `api_key`) and rate limits; and, for the whole
-package, the storage and rate limit connections (`authentication.storage.connection`,
+to an `IdentityProvider`, its `principal_resolver` override, its application (with the package's `ApplicationPolicy`,
+its application settings; with a policy of your own, every registered sign-in method and `client_credentials` is asked
+of it, and an exception it throws is a problem for the guard), the rate limits of every flow, the password identifier,
+the refresh token transport and, when its application allows `passkey` or it sets a `passkeys` block, its passkey
+relying party; each `api_key` guard's provider, `principal_resolver` override, application (which must allow `api_key`
+whatever the policy, since an `api_key` guard has no other use, and with the package's policy, its settings) and rate
+limits; and, for the whole package, the storage and rate limit connections (`authentication.storage.connection`,
 `authentication.rate_limits.connection`: a connection name configured in `database.connections`, or none), the
 configured device model, which must live on the storage connection, and the pruning retention while any `jwt` guard is
 configured (`authentication.device.prune_after_days`, otherwise checked only when `model:prune` runs), the pending
@@ -225,10 +231,12 @@ the code settings and sender, `[delivery]` for the delivery queue, `[passkeys]` 
 for the API key settings, `[identifier_changes]` for the identifier change settings), and a subject without one as
 `[<guard>] OK`. Delivery on a `sync` queue connection, or on a `failover` one that can fall back to `sync`, while any
 `jwt` guard is configured (any of them may send codes, reset links and codes, or identifier change codes and notices),
-is a `[delivery]` warning that leaves the exit code alone, as is a `jwt` guard whose password resets or identifier
-changes would refuse to run: its provider's model on another connection than the storage connection, or, for resets, a
-password identifier other than `email` while Laravel's notification is the reset link sender (see [Password
-reset](passwords.md#password-reset)). Only the named guards are checked with `--guard=api --guard=admin`; a named guard
-that is not configured, or neither a `jwt` nor an `api_key` guard, is a problem. The command reads configuration only:
-it opens no database connection and never prints a key. The package does not run these checks at boot; a
-misconfiguration otherwise surfaces when a guard first uses the setting.
+is a `[delivery]` warning that leaves the exit code alone, as is a `jwt` guard whose package application settings allow
+nothing (its `methods` lists nothing, or only `api_key`; see [Applications](configuration.md#applications); a policy of
+your own, even one that wraps the package's, gets no such warning, since the names it allows are its own), and a `jwt`
+guard whose password resets or identifier changes would refuse to run: its provider's model on another connection than
+the storage connection, or, for resets, a password identifier other than `email` while Laravel's notification is the
+reset link sender (see [Password reset](passwords.md#password-reset)). Only the named guards are checked with
+`--guard=api --guard=admin`; a named guard that is not configured, or neither a `jwt` nor an `api_key` guard, is a
+problem. The command reads configuration only: it opens no database connection and never prints a key. The package does
+not run these checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.

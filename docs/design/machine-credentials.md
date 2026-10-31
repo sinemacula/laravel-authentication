@@ -64,14 +64,14 @@ authorization package decides what they allow.
 ## Success Path
 
 - `Auth::apiKeys($guard)->issue($identity, $principal, $scopes)` resolves the principal for the identity through the
-  guard's resolver (as a pinned principal), asks the audience to admit it, normalises and registers the scopes, records
-  the tenant, draws a public part (again on the unlikely collision with a stored one, at most three times) and a
-  secret, inserts the row and returns the key once; `ApiKeyIssued` follows the commit.
+  guard's resolver (as a pinned principal), asks the application policy to admit it, normalises and registers the
+  scopes, records the tenant, draws a public part (again on the unlikely collision with a stored one, at most three
+  times) and a secret, inserts the row and returns the key once; `ApiKeyIssued` follows the commit.
 - An `api_key` guard request: parse the bearer key, look its public part up, compare digests, check the guard,
-  revocation and expiry, that the audience lists `api_key`, then the owner (exactly the recorded identity, a
+  revocation and expiry, that the application lists `api_key`, then the owner (exactly the recorded identity, a
   `MachineIdentity`, active) and the principal (exactly the recorded one, active, in an active tenant, of the recorded
-  type and tenant, admitted by the audience); bind with `Authenticated` and `PrincipalAssigned` only, and record the
-  last use at most once per throttle with one conditional update.
+  type and tenant, admitted by the application policy); bind with `Authenticated` and `PrincipalAssigned` only, and
+  record the last use at most once per throttle with one conditional update.
 - `rotate()` ends the replaced key at `now + overlap` or its own expiry, whichever comes first, with an explicit `CASE`
   (never `LEAST()` over a nullable column), and inserts the replacement with the same binding and scopes but only the
   expiry the call names: none by default (settled design 6.3), so rotating a key that expires without `expiresAt`
@@ -88,7 +88,7 @@ authorization package decides what they allow.
   Basic is `invalid_client`. Request failures are reported as `invalid_credentials` and not counted.
 - Every failure to authenticate the client (unknown, wrong secret, revoked, expired, another guard's key, owner or
   principal problems) is `invalid_client` (401, with a Basic challenge for a Basic client), counted per IP address; only
-  a principal the audience does not admit is `unauthorized_client`. A guard whose audience does not list
+  a principal the application does not admit is `unauthorized_client`. A guard whose application does not list
   `client_credentials` answers `unauthorized_client` before looking at the key. A scope not granted is `invalid_scope`,
   not counted. Past its limit an address gets 429 `slow_down` (RFC 8628's registered error). Each failure's
   `AuthenticationFailed` names the client id only when it is a key's public part in form

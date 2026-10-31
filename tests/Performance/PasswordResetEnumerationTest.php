@@ -356,7 +356,7 @@ final class PasswordResetEnumerationTest extends PerformanceContractTestCase
         self::configurePasswordGuards($config);
 
         $config->set('auth.providers.slow', ['driver' => 'slow_model']);
-        $config->set('auth.guards.slow', ['driver' => 'jwt', 'provider' => 'slow', 'audience' => ['methods' => ['password']]]);
+        $config->set('auth.guards.slow', ['driver' => 'jwt', 'provider' => 'slow', 'application' => ['methods' => ['password']]]);
     }
 
     /**

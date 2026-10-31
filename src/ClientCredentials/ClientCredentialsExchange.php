@@ -12,8 +12,8 @@ use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyAuthentication;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyLookup;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyOutcome;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\ClientCredentialsGranted;
@@ -36,13 +36,13 @@ use SineMacula\Laravel\Authentication\Scopes\Scopes;
  * as a client id (its public part) and secret, exchanged for a short-lived
  * access token of the guard. No device is created and no refresh token issued.
  *
- * In order: the guard's audience must list `client_credentials`
+ * In order: the guard's application must list `client_credentials`
  * (`unauthorized_client`); the IP address must not have used up its failures
  * for now, nor the client id when the guard limits it, which it does not by
  * default, as a client id is no secret (`slow_down`, 429 with `Retry-After`);
  * the key must be this guard's, live, its secret right, and its owner and
  * principal admitted as on an `api_key` guard (`invalid_client`, or
- * `unauthorized_client` for a principal the audience does not admit); the
+ * `unauthorized_client` for a principal the application does not admit); the
  * requested scope, space-separated, must be granted to the key (none asks for
  * every granted scope; else `invalid_scope`). The token then carries the key's
  * id in `cid` and the scopes in `scope`, lives the guard's access lifetime and
@@ -64,7 +64,7 @@ use SineMacula\Laravel\Authentication\Scopes\Scopes;
  */
 final readonly class ClientCredentialsExchange
 {
-    /** @var string The credential kind a guard's audience lists to allow the exchange, and the method its contexts report. */
+    /** @var string The credential kind an application lists to allow the exchange, and the method its contexts report. */
     public const string METHOD = 'client_credentials';
 
     /** @var string The grant type a token request names. */
@@ -81,7 +81,7 @@ final readonly class ClientCredentialsExchange
         /** The context of the guard the access tokens are for. */
         private GuardContext $context,
 
-        /** Container the audience policy, the attempt limiter and the token services are resolved from. */
+        /** Container the application policy, the attempt limiter and the token services are resolved from. */
         private Container $container,
     ) {}
 
@@ -154,11 +154,11 @@ final readonly class ClientCredentialsExchange
      */
     private function exchangeFor(PresentedClient $presented, ClientContext $client): ClientCredentialsResult
     {
-        $guard    = $this->context->name();
-        $context  = new EventContext($guard, $client, method: self::METHOD);
-        $audience = $this->audience();
+        $guard   = $this->context->name();
+        $context = new EventContext($guard, $client, method: self::METHOD);
+        $policy  = $this->applicationPolicy();
 
-        if (!$audience->allowsMethod($guard, self::METHOD)) {
+        if (!$policy->allowsMethod($guard, self::METHOD)) {
             return $this->refuse($context, FailureReason::METHOD_NOT_ALLOWED, ClientCredentialsResult::UNAUTHORIZED_CLIENT, $presented->reportedId());
         }
 
@@ -171,7 +171,7 @@ final readonly class ClientCredentialsExchange
             return $this->refuse($context, FailureReason::RATE_LIMITED, ClientCredentialsResult::SLOW_DOWN, $presented->reportedId(), $wait);
         }
 
-        return $this->authenticated($presented, $client, $limiter, $subject, $audience);
+        return $this->authenticated($presented, $client, $limiter, $subject, $policy);
     }
 
     /**
@@ -182,7 +182,7 @@ final readonly class ClientCredentialsExchange
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  \SineMacula\Laravel\Authentication\Contracts\AttemptLimiter  $limiter
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject  $subject
-     * @param  \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy  $audience
+     * @param  \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy  $policy
      * @return \SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsResult
      *
      * @throws \InvalidArgumentException
@@ -196,10 +196,10 @@ final readonly class ClientCredentialsExchange
         ClientContext $client,
         AttemptLimiter $limiter,
         AttemptSubject $subject,
-        AudiencePolicy $audience,
+        ApplicationPolicy $policy,
     ): ClientCredentialsResult {
         $now     = CarbonImmutable::now()->startOfSecond();
-        $outcome = (new ApiKeyAuthentication($this->context->name(), self::METHOD, $this->context->provider(), $this->context->resolver(), $audience))
+        $outcome = (new ApiKeyAuthentication($this->context->name(), self::METHOD, $this->context->provider(), $this->context->resolver(), $policy))
             ->authenticate($presented->clientId, $presented->clientSecret(), $now);
 
         if ($outcome->admission instanceof Refused || $outcome->key === null) {
@@ -267,8 +267,8 @@ final readonly class ClientCredentialsExchange
 
     /**
      * Refuse a client that failed to authenticate: `unauthorized_client` for a
-     * principal the guard's audience does not admit, `invalid_client`
-     * otherwise, with the context established by then.
+     * principal the application does not admit, `invalid_client` otherwise,
+     * with the context established by then.
      *
      * @param  \SineMacula\Laravel\Authentication\ApiKeys\ApiKeyOutcome  $outcome
      * @param  \SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient  $presented
@@ -309,14 +309,14 @@ final readonly class ClientCredentialsExchange
     }
 
     /**
-     * The audience policy.
+     * The application policy.
      *
-     * @return \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy
+     * @return \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy
      */
-    private function audience(): AudiencePolicy
+    private function applicationPolicy(): ApplicationPolicy
     {
-        /** @var \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy */
-        return $this->container->make(AudiencePolicy::class);
+        /** @var \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy */
+        return $this->container->make(ApplicationPolicy::class);
     }
 
     /**

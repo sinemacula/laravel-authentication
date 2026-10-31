@@ -257,7 +257,7 @@ final class NormalisedLookupModelProviderTest extends TestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
 
-        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'normalised']);
+        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'normalised', 'application' => ['methods' => ['password']]]);
         $config->set('auth.providers.normalised', ['driver' => 'model', 'model' => NormalisedEmailIdentity::class]);
         $config->set('authentication.timebox.credentials_microseconds', 1);
     }

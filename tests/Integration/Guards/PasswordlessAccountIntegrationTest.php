@@ -125,7 +125,7 @@ final class PasswordlessAccountIntegrationTest extends TestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = app(ConfigRepository::class);
 
-        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities']);
+        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities', 'application' => ['methods' => ['password']]]);
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => StubPrincipal::class]);
 
         // Failed attempts wait out the timebox; keep it short.

@@ -172,6 +172,7 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
         $config->set('auth.guards.' . self::GUARD, [
             'driver'             => 'jwt',
             'provider'           => 'identities',
+            'application'        => ['methods' => ['password']],
             'principal_resolver' => self::RESOLVER,
         ]);
 

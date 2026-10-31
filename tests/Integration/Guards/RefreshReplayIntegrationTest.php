@@ -419,7 +419,7 @@ final class RefreshReplayIntegrationTest extends TestCase
         $config->set('database.connections.' . self::COMPETITOR, $config->get('database.connections.testing'));
         $config->set('auth.defaults.guard', 'api');
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => StubPrincipal::class]);
-        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities', 'jwt' => ['refresh_grace_seconds' => 30]]);
+        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities', 'application' => ['methods' => ['password']], 'jwt' => ['refresh_grace_seconds' => 30]]);
         $config->set('authentication.device.last_used_throttle_seconds', 3600);
     }
 

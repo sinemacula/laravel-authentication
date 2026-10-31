@@ -129,10 +129,11 @@ a service provider. A hint can come from a caller pinning a principal on `attemp
 $this->app->singleton(PrincipalResolver::class, MyTenantScopedResolver::class);
 ```
 
-## Which principals may use a guard
+## Which principals may use an application
 
-Which principals may hold a guard's sessions is the audience policy's `admit()`: the package's admits every principal,
-so rebind `AudiencePolicy` to refuse some (see [Extending](extending.md)). What a principal may do is authorization's.
+Which principals may use an application is the application policy's `admit()`: the package's admits every principal, so
+rebind `ApplicationPolicy` to refuse some (see
+[Extending](extending.md#deciding-which-principals-may-use-an-application)). What a principal may do is authorization's.
 
 ## Identifiers
 

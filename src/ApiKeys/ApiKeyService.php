@@ -12,7 +12,7 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Database\Query\Expression;
 use Illuminate\Support\Str;
 use SineMacula\Laravel\Authentication\Admission\PinnedPrincipal;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
@@ -37,7 +37,7 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * identity for one of its principals, rotate it with a bounded overlap, revoke
  * it, and list what may be shown about a principal's keys.
  *
- * The guard is the one audience a key authenticates for: an `api_key` guard,
+ * The guard is the one application a key authenticates for: an `api_key` guard,
  * whose requests present the key, or a `jwt` guard, whose client credentials
  * exchange takes the key's public part and secret as an OAuth client's id and
  * secret. Every keyed operation names the principal the key must belong to, and
@@ -47,8 +47,8 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * principal's keys first; this package decides no permission.
  *
  * Issuing and rotating are trusted, programmatic actions, so a principal the
- * identity does not act as, one the guard's audience does not admit, a
- * malformed or rejected scope, a past expiry or an overlap out of range is an
+ * identity does not act as, one the application does not admit, a malformed or
+ * rejected scope, a past expiry or an overlap out of range is an
  * `InvalidArgumentException` (`InvalidScopeException` for scopes) rather than a
  * failed authentication. Each write is one conditional statement on the key's
  * own connection, and its event is dispatched once it is committed there.
@@ -78,7 +78,7 @@ final readonly class ApiKeyService
         /** The context of the guard whose keys these are. */
         private GuardContext $context,
 
-        /** Container the audience policy, the scope registry and the transactions manager are resolved from. */
+        /** Container the application policy, the scope registry and the transactions manager are resolved from. */
         private Container $container,
 
         /** Draws a new public part under a prefix; the package's secure generator unless given. */
@@ -88,8 +88,8 @@ final readonly class ApiKeyService
     /**
      * Issue a key to the non-human identity, acting as the principal, granting
      * the scopes, optionally named and expiring. The principal must be one the
-     * identity acts as on the guard, and admitted by the guard's audience; the
-     * key records it, the identity and the principal's tenant, which must be
+     * identity acts as on the guard, and admitted by the application; the key
+     * records it, the identity and the principal's tenant, which must be
      * loadable, and authenticates only as them. `ApiKeyIssued` follows once
      * committed.
      *
@@ -373,7 +373,7 @@ final readonly class ApiKeyService
 
     /**
      * The principal, as the guard's resolver returns it for the identity, that
-     * the guard's audience admits; a key may only be issued for that.
+     * the application admits; a key may only be issued for that.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\MachineIdentity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -388,10 +388,10 @@ final readonly class ApiKeyService
         $name     = $this->context->name();
         $resolved = PinnedPrincipal::resolve($this->context->resolver(), $identity, $principal);
 
-        /** @var \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy $audience */
-        $audience = $this->container->make(AudiencePolicy::class);
+        /** @var \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy $policy */
+        $policy = $this->container->make(ApplicationPolicy::class);
 
-        return ApiKeyRules::principal($name, $resolved, $resolved === null ? null : $audience->admit($name, $identity, $resolved, null));
+        return ApiKeyRules::principal($name, $resolved, $resolved === null ? null : $policy->admit($name, $identity, $resolved, null));
     }
 
     /**

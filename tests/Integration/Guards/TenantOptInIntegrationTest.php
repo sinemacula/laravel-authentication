@@ -171,10 +171,10 @@ final class TenantOptInIntegrationTest extends TestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = app(ConfigRepository::class);
 
-        $config->set('auth.guards.teams', ['driver' => 'jwt', 'provider' => 'teams']);
+        $config->set('auth.guards.teams', ['driver' => 'jwt', 'provider' => 'teams', 'application' => ['methods' => ['password']]]);
         $config->set('auth.providers.teams', ['driver' => 'model', 'model' => PlainTeamUser::class]);
 
-        $config->set('auth.guards.unchecked', ['driver' => 'jwt', 'provider' => 'unchecked']);
+        $config->set('auth.guards.unchecked', ['driver' => 'jwt', 'provider' => 'unchecked', 'application' => ['methods' => ['password']]]);
         $config->set('auth.providers.unchecked', ['driver' => 'model', 'model' => UncheckedTenantUser::class]);
 
         // Failed attempts wait out the timebox; keep it short.

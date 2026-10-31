@@ -14,6 +14,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
@@ -83,7 +84,7 @@ final class PrincipalChoiceEndToEndTest extends TestCase
 
             $result = Auth::sessions(self::GUARD)->choose($request->string('choice')->toString(), ChoosingMembership::query()->findOrFail($request->integer('membership')));
 
-            return ['status' => $result->status->value, 'access' => $result->session?->tokens->accessToken];
+            return ['status' => $result->status->value, 'reason' => $result->reason?->value, 'access' => $result->session?->tokens->accessToken];
         });
 
         Route::middleware('auth:' . self::GUARD)->get('/me', static fn (): array => [
@@ -157,6 +158,32 @@ final class PrincipalChoiceEndToEndTest extends TestCase
     }
 
     /**
+     * A choice offered while the method was listed, then the method removed:
+     * choosing is spent and refused as `method_not_allowed`, writes no device,
+     * and the choice cannot be made again (`pending_invalid`).
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChoiceWhoseMethodIsRemovedIsSpentAndRefused(): void
+    {
+        [, , $second] = $this->seedChooser();
+
+        $token = $this->postJson('/sign-in', ['email' => self::CHOOSER, 'password' => self::PASSWORD])->assertOk()->json('choice');
+
+        self::assertIsString($token);
+
+        config()->set('auth.guards.' . self::GUARD . '.application.methods', []);
+
+        $this->postJson('/choose', ['choice' => $token, 'membership' => $second->getKey()])->assertOk()->assertJson(['reason' => FailureReason::METHOD_NOT_ALLOWED->value]);
+        $this->postJson('/choose', ['choice' => $token, 'membership' => $second->getKey()])->assertOk()->assertJson(['reason' => FailureReason::PENDING_INVALID->value]);
+
+        self::assertSame(0, PendingSignIn::query()->count());
+        self::assertSame(0, Device::query()->count());
+    }
+
+    /**
      * Register the guards, and a guard over the choosing members.
      *
      * @param  mixed  $app
@@ -176,7 +203,7 @@ final class PrincipalChoiceEndToEndTest extends TestCase
         self::configureSessionGuards($config);
 
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
-        $config->set('auth.guards.' . self::GUARD, ['driver' => 'jwt', 'provider' => 'choosers', 'audience' => ['methods' => ['password']]]);
+        $config->set('auth.guards.' . self::GUARD, ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password']]]);
     }
 
     /**

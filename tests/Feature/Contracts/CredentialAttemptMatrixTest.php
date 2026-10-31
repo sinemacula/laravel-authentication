@@ -450,9 +450,9 @@ final class CredentialAttemptMatrixTest extends TestCase
 
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
         $config->set('auth.providers.machine_clients', ['driver' => 'model', 'model' => MachineClient::class]);
-        $config->set('auth.guards.choosers', ['driver' => 'jwt', 'provider' => 'choosers', 'audience' => ['methods' => ['password']]]);
-        $config->set('auth.guards.machines', ['driver' => 'jwt', 'provider' => 'machine_clients', 'audience' => ['methods' => ['password']]]);
-        $config->set('auth.guards.passwordless', ['driver' => 'jwt', 'provider' => 'identities', 'audience' => ['methods' => ['sso']]]);
+        $config->set('auth.guards.choosers', ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password']]]);
+        $config->set('auth.guards.machines', ['driver' => 'jwt', 'provider' => 'machine_clients', 'application' => ['methods' => ['password']]]);
+        $config->set('auth.guards.passwordless', ['driver' => 'jwt', 'provider' => 'identities', 'application' => ['methods' => ['sso']]]);
     }
 
     /**

@@ -39,13 +39,16 @@ empty, or too-short key, or an `active_kid` that is not in the map.
 
 ## Guards and providers
 
-Register guards and providers in `config/auth.php` exactly as you would with any first-party guard:
+Register guards and providers in `config/auth.php` exactly as you would with any first-party guard. Each guard is an
+application and allows only the sign-in methods its `application.methods` lists, none by default (see
+[Applications](configuration.md#applications)):
 
 ```php
 'guards' => [
     'api' => [
-        'driver'   => 'jwt',
-        'provider' => 'users',
+        'driver'      => 'jwt',
+        'provider'    => 'users',
+        'application' => ['methods' => ['password']],
     ],
 ],
 
@@ -57,15 +60,15 @@ Register guards and providers in `config/auth.php` exactly as you would with any
 ],
 ```
 
-Non-human identities authenticate with API keys on a guard of the `api_key` driver, whose audience lists `api_key`
+Non-human identities authenticate with API keys on a guard of the `api_key` driver, whose application lists `api_key`
 (see [API keys](machine-credentials.md#api-keys)):
 
 ```php
 'guards' => [
     'machine' => [
-        'driver'   => 'api_key',
-        'provider' => 'clients',
-        'audience' => ['methods' => ['api_key']],
+        'driver'      => 'api_key',
+        'provider'    => 'clients',
+        'application' => ['methods' => ['api_key']],
     ],
 ],
 ```
@@ -133,7 +136,8 @@ Device tracking and refresh are opt-in. For simple backends or short-lived sessi
 device to revoke, so an identity or principal model that implements `HasTokensValidAfter` ends them instead: a token
 whose `iat` is at or before either one's `getTokensValidAfter()` is rejected (`issued_before_cutoff`), counted in whole
 seconds, so a token issued in the cutoff's own second is rejected too. Tokens that name a device are not held to it.
-Bearer requests need none of the package's tables. A guard that signs in with `attempt()` counts its attempts in the
-`rate_limits` table (see [Rate limits](configuration.md#rate-limits)), so publish and run the migrations for it, or set
-the guard's `rate_limits.sign_in` to `null`; the `devices` and `pending_sign_ins` tables then stay empty. See
+Bearer requests need none of the package's tables. A guard that signs in with `attempt()` lists `password` in its
+`application.methods` (see [Applications](configuration.md#applications)) and counts its attempts in the `rate_limits`
+table (see [Rate limits](configuration.md#rate-limits)), so publish and run the migrations for it, or set the guard's
+`rate_limits.sign_in` to `null`; the `devices` and `pending_sign_ins` tables then stay empty. See
 `docs/design/access-only-mode.md`.

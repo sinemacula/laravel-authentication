@@ -21,8 +21,8 @@ use Illuminate\Support\Facades\Route;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceCreated;
@@ -333,7 +333,7 @@ final class PendingFactorSessionServiceTest extends TestCase
     /**
      * Completion checks the sign-in again, and a check that fails still uses
      * the pending sign-in up: an identity deactivated meanwhile, a method the
-     * guard no longer allows, and a principal the audience policy no longer
+     * guard no longer allows, and a principal the application policy no longer
      * admits each fail with their reason.
      *
      * @return void
@@ -352,15 +352,15 @@ final class PendingFactorSessionServiceTest extends TestCase
 
         $identity->forceFill(['is_active' => true])->save();
 
-        $removed  = $this->pendingFor();
-        $audience = $this->audience();
-        $audience->shouldReceive('allowsMethod')->with('api', 'password')->andReturnFalse();
+        $removed = $this->pendingFor();
+        $policy  = $this->policy();
+        $policy->shouldReceive('allowsMethod')->with('api', 'password')->andReturnFalse();
 
         $this->assertCompletionFails(FailureReason::METHOD_NOT_ALLOWED, $removed);
 
-        $audience   = $this->audience();
+        $policy     = $this->policy();
         $ineligible = $this->pendingFor();
-        $audience->shouldReceive('admit')
+        $policy->shouldReceive('admit')
             ->once()
             ->with('api', \Mockery::type(IntegrationIdentity::class), \Mockery::type(IntegrationIdentity::class), 'email')
             ->andReturn(FailureReason::IDENTIFIER_UNVERIFIED);
@@ -385,8 +385,8 @@ final class PendingFactorSessionServiceTest extends TestCase
 
         self::assertNotNull($started);
 
-        $audience = $this->audience();
-        $audience->shouldReceive('admit')->twice()->with('members', \Mockery::any(), \Mockery::any(), null)->andReturnNull();
+        $policy = $this->policy();
+        $policy->shouldReceive('admit')->twice()->with('members', \Mockery::any(), \Mockery::any(), null)->andReturnNull();
 
         self::assertTrue($this->sessions('members')->complete($started->token)->isSignedIn());
 
@@ -903,7 +903,7 @@ final class PendingFactorSessionServiceTest extends TestCase
         $input    = [...self::credentials(), 'pin' => TwoSecretSignIn::PIN];
 
         app(SignInMethodManager::class)->extend('two_secrets', fn (): TwoSecretSignIn => new TwoSecretSignIn);
-        config()->set('auth.guards.api.audience.methods', ['two_secrets']);
+        config()->set('auth.guards.api.application.methods', ['two_secrets']);
 
         for ($signIn = 1; $signIn <= 6; $signIn++) {
 
@@ -1011,24 +1011,24 @@ final class PendingFactorSessionServiceTest extends TestCase
     }
 
     /**
-     * Bind a permissive audience policy mock whose expectations a test can add
-     * to.
+     * Bind a permissive application policy mock whose expectations a test can
+     * add to.
      *
      * @return \Mockery\MockInterface
      */
-    private function audience(): MockInterface
+    private function policy(): MockInterface
     {
-        $audience = \Mockery::mock(AudiencePolicy::class);
-        $audience->shouldReceive('allowsMethod')->byDefault()->andReturnTrue();
-        $audience->shouldReceive('admitIdentifier')->byDefault()->andReturnNull();
-        $audience->shouldReceive('admit')->byDefault()->andReturnNull();
-        $audience->shouldReceive('lifetimes')
+        $policy = \Mockery::mock(ApplicationPolicy::class);
+        $policy->shouldReceive('allowsMethod')->byDefault()->andReturnTrue();
+        $policy->shouldReceive('admitIdentifier')->byDefault()->andReturnNull();
+        $policy->shouldReceive('admit')->byDefault()->andReturnNull();
+        $policy->shouldReceive('lifetimes')
             ->byDefault()
             ->andReturnUsing(static fn (string $guard): TokenLifetimes => app(JwtTokenServiceFactory::class)->forGuard($guard)->lifetimes());
 
-        app()->instance(AudiencePolicy::class, $audience);
+        app()->instance(ApplicationPolicy::class, $policy);
 
-        return $audience;
+        return $policy;
     }
 
     /**

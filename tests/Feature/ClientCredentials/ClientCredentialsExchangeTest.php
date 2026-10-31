@@ -337,7 +337,7 @@ final class ClientCredentialsExchangeTest extends TestCase
         $refusals = [
             'refused as a client'          => [static function (): void {}, 401, 'invalid_client'],
             'on a guard without the grant' => [static function (): void {
-                config()->set('auth.guards.m2m.audience.methods', ['password']);
+                config()->set('auth.guards.m2m.application.methods', ['password']);
             }, 400, 'unauthorized_client'],
             'from an address past its limit' => [static function (self $test): void {
                 config()->set('authentication.rate_limits.client_credentials.per_ip', ['max' => 1, 'decay_seconds' => 60]);
@@ -401,17 +401,31 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
-     * A guard whose audience does not list `client_credentials` refuses every
-     * client as `unauthorized_client`, before the key is looked at, and counts
-     * nothing.
+     * Rows of `[the guard's application block]`: an application that lists
+     * other methods, and one that takes the package default, which lists none.
      *
+     * @return iterable<string, array{0: ?array<string, mixed>}>
+     */
+    public static function provideApplicationsWithoutTheGrant(): iterable
+    {
+        yield 'one listing other methods' => [['methods' => ['sso']]];
+        yield 'none, so the shipped default that lists nothing' => [null];
+    }
+
+    /**
+     * A guard whose application does not list `client_credentials` refuses
+     * every client as `unauthorized_client`, before the key is looked at, and
+     * counts nothing.
+     *
+     * @param  ?array<string, mixed>  $application
      * @return void
      */
-    public function testAGuardThatDoesNotAllowTheGrantRefusesIt(): void
+    #[DataProvider('provideApplicationsWithoutTheGrant')]
+    public function testAGuardThatDoesNotAllowTheGrantRefusesIt(?array $application): void
     {
         [, $issued] = $this->machineKey();
 
-        config()->set('auth.guards.m2m.audience.methods', ['password']);
+        config()->set('auth.guards.m2m.application', $application);
 
         $this->token('grant_type=client_credentials', $this->basic($issued))
             ->assertStatus(400)
@@ -423,12 +437,12 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
-     * A principal the guard's audience no longer admits is refused as
+     * A principal the application no longer admits is refused as
      * `unauthorized_client`, and counted.
      *
      * @return void
      */
-    public function testAPrincipalTheAudienceDoesNotAdmitIsAnUnauthorizedClient(): void
+    public function testAPrincipalTheApplicationDoesNotAdmitIsAnUnauthorizedClient(): void
     {
         [$account, $membership] = $this->seedAccount();
 

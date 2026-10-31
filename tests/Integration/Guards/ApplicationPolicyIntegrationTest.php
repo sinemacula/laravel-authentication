@@ -11,8 +11,8 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
@@ -30,11 +30,10 @@ use Tests\Integration\Fixtures\TypedTenant;
 use Tests\TestCase;
 
 /**
- * Integration tests for a guard's audience over stored principals: every
- * principal is admitted whatever its own columns say, and the tokens and
- * sessions a guard issues follow that guard's lifetimes and carry nothing about
- * the principal's kind, through sign-in, refresh, switch and the `auth`
- * middleware.
+ * Integration tests for an application over stored principals: every principal
+ * is admitted whatever its own columns say, and the tokens and sessions a guard
+ * issues follow that guard's lifetimes and carry nothing about the principal's
+ * kind, through sign-in, refresh, switch and the `auth` middleware.
  *
  * The `api` guard issues two-minute access tokens and one-day sessions; the
  * `other` guard keeps the package's fifteen minutes and thirty days.
@@ -46,11 +45,11 @@ use Tests\TestCase;
  *
  * @internal
  */
-#[CoversClass(GuardAudiencePolicy::class)]
+#[CoversClass(GuardApplicationPolicy::class)]
 #[CoversClass(JwtTokenService::class)]
 #[CoversClass(JwtTokenServiceFactory::class)]
 #[CoversClass(JwtGuard::class)]
-final class AudiencePolicyIntegrationTest extends TestCase
+final class ApplicationPolicyIntegrationTest extends TestCase
 {
     use InteractsWithTypedPrincipals;
 
@@ -64,7 +63,7 @@ final class AudiencePolicyIntegrationTest extends TestCase
     private const string PASSWORD = 'secret';
 
     /** @var string Plaintext rotation id of seeded devices. */
-    private const string ROTATION_ID = 'audience-rotation';
+    private const string ROTATION_ID = 'application-rotation';
 
     /**
      * Create the tables and the routes behind each guard's `auth` middleware.
@@ -111,7 +110,7 @@ final class AudiencePolicyIntegrationTest extends TestCase
      */
     public function testEveryStoredPrincipalIsAdmitted(): void
     {
-        $policy = app(AudiencePolicy::class);
+        $policy = app(ApplicationPolicy::class);
 
         foreach ([['client_admin', 'staff'], [null, 'staff'], ['contractor', null], [null, null]] as [$type, $category]) {
 
@@ -166,7 +165,7 @@ final class AudiencePolicyIntegrationTest extends TestCase
     {
         $membership = $this->seedMembership('client_staff', null);
         $identity   = $membership->getIdentity();
-        $lifetimes  = app(AudiencePolicy::class)->lifetimes(self::GUARD);
+        $lifetimes  = app(ApplicationPolicy::class)->lifetimes(self::GUARD);
         $absolute   = $lifetimes->absoluteDeadline(Carbon::now());
 
         self::assertInstanceOf(TypedIdentity::class, $identity);
@@ -283,10 +282,10 @@ final class AudiencePolicyIntegrationTest extends TestCase
 
         $config->set('auth.defaults.guard', self::GUARD);
         $config->set('auth.guards.' . self::GUARD, [
-            'driver'   => 'jwt',
-            'provider' => 'typed',
-            'audience' => ['methods' => ['password']],
-            'jwt'      => ['access_ttl_minutes' => 2, 'refresh_absolute_ttl_minutes' => 60 * 24],
+            'driver'      => 'jwt',
+            'provider'    => 'typed',
+            'application' => ['methods' => ['password']],
+            'jwt'         => ['access_ttl_minutes' => 2, 'refresh_absolute_ttl_minutes' => 60 * 24],
         ]);
         $config->set('auth.guards.' . self::OTHER_GUARD, [
             'driver'   => 'jwt',
@@ -307,7 +306,7 @@ final class AudiencePolicyIntegrationTest extends TestCase
      */
     private function seedMembership(?string $type, ?string $category): TypedMembership
     {
-        $identity = TypedIdentity::query()->create(['email' => 'audience@example.test', 'password' => bcrypt(self::PASSWORD)]);
+        $identity = TypedIdentity::query()->create(['email' => 'application@example.test', 'password' => bcrypt(self::PASSWORD)]);
         $tenant   = $category === null ? null : TypedTenant::query()->create(['category' => $category]);
 
         $membership = TypedMembership::query()->create([

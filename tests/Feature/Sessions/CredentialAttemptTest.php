@@ -8,8 +8,8 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Admission\Refused;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
@@ -65,14 +65,14 @@ final class CredentialAttemptTest extends TestCase
     }
 
     /**
-     * A method the audience policy does not allow is refused before the limiter
-     * is so much as resolved, so nothing is counted.
+     * A method the application policy does not allow is refused before the
+     * limiter is so much as resolved, so nothing is counted.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAMethodTheAudienceDoesNotAllowIsRefusedBeforeTheLimiterIsResolved(): void
+    public function testAMethodTheApplicationDoesNotAllowIsRefusedBeforeTheLimiterIsResolved(): void
     {
         $limiter  = new RecordingAttemptLimiter;
         $resolved = 0;
@@ -92,16 +92,16 @@ final class CredentialAttemptTest extends TestCase
     }
 
     /**
-     * A method the audience policy allows answers with the policy the container
-     * holds then, the one the sign-in goes on to admit with.
+     * A method the application policy allows answers with the policy the
+     * container holds then, the one the sign-in goes on to admit with.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAMethodTheAudienceAllowsAnswersWithThePolicy(): void
+    public function testAMethodTheApplicationAllowsAnswersWithThePolicy(): void
     {
-        self::assertSame(app(AudiencePolicy::class), CredentialAttempt::checkMethod(app(), 'api', 'password'));
+        self::assertSame(app(ApplicationPolicy::class), CredentialAttempt::checkMethod(app(), 'api', 'password'));
     }
 
     /**
@@ -117,7 +117,7 @@ final class CredentialAttemptTest extends TestCase
         $limiter = new RecordingAttemptLimiter(refuse: static fn (AttemptSubject $subject): ?int => $subject->account === null ? 45 : null);
         $subject = self::subject();
 
-        $refused = CredentialAttempt::begin($limiter, app(AudiencePolicy::class), $subject);
+        $refused = CredentialAttempt::begin($limiter, app(ApplicationPolicy::class), $subject);
 
         self::assertInstanceOf(Refused::class, $refused);
         self::assertSame([FailureReason::RATE_LIMITED, 45], [$refused->reason, $refused->retryAfter]);
@@ -136,13 +136,13 @@ final class CredentialAttemptTest extends TestCase
      */
     public function testAGrantedAttemptHoldsThePolicyAndCountsAccountsOnTheSameLimiter(): void
     {
-        $limiter  = new RecordingAttemptLimiter;
-        $audience = \Mockery::mock(AudiencePolicy::class);
+        $limiter = new RecordingAttemptLimiter;
+        $policy  = \Mockery::mock(ApplicationPolicy::class);
 
-        $attempt = CredentialAttempt::begin($limiter, $audience, self::subject());
+        $attempt = CredentialAttempt::begin($limiter, $policy, self::subject());
 
         self::assertInstanceOf(CredentialAttempt::class, $attempt);
-        self::assertSame($audience, $attempt->audience);
+        self::assertSame($policy, $attempt->policy);
         self::assertNull($attempt->accountRefusal());
 
         $identity = $this->seedIdentity();
@@ -167,7 +167,7 @@ final class CredentialAttemptTest extends TestCase
     public function testAnAccountWithNoAttemptsLeftRefusesTheSignInWithItsWait(): void
     {
         $limiter = new RecordingAttemptLimiter(refuse: static fn (AttemptSubject $subject): ?int => $subject->account === null ? null : 90);
-        $attempt = CredentialAttempt::begin($limiter, app(AudiencePolicy::class), self::subject());
+        $attempt = CredentialAttempt::begin($limiter, app(ApplicationPolicy::class), self::subject());
 
         self::assertInstanceOf(CredentialAttempt::class, $attempt);
         self::assertFalse($attempt->accounts->reserve($this->seedIdentity()));
@@ -191,7 +191,7 @@ final class CredentialAttemptTest extends TestCase
     {
         $limiter = new RecordingAttemptLimiter;
 
-        $attempt = CredentialAttempt::begin($limiter, app(AudiencePolicy::class), self::subject());
+        $attempt = CredentialAttempt::begin($limiter, app(ApplicationPolicy::class), self::subject());
 
         self::assertInstanceOf(CredentialAttempt::class, $attempt);
 
@@ -232,7 +232,7 @@ final class CredentialAttemptTest extends TestCase
 
         self::configureSessionGuards($config);
 
-        $config->set('auth.guards.passwordless', ['driver' => 'jwt', 'provider' => 'identities', 'audience' => ['methods' => ['sso']]]);
+        $config->set('auth.guards.passwordless', ['driver' => 'jwt', 'provider' => 'identities', 'application' => ['methods' => ['sso']]]);
     }
 
     /**

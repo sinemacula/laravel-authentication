@@ -14,7 +14,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
 
 /**
  * An application with the package's own bindings, for the benchmarks of paths
- * that resolve the package's collaborators from the container (the audience
+ * that resolve the package's collaborators from the container (the application
  * policy, the attempt limiter, the sign-in methods, the scope registry): the
  * service provider is registered, not booted, over the shared sqlite database,
  * a dispatcher, the package's shipped configuration (with a signing key, and a

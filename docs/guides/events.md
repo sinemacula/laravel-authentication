@@ -141,7 +141,7 @@ not told: a refusal by the account's own limit is `account_rate_limited` on the 
 | `principal_mismatch`         | The requested principal (or a token's `pid`) is not the identity's                |
 | `principal_inactive`         | The principal reported inactive                                                   |
 | `tenant_inactive`            | The principal's tenant inactive, or opted in and missing                          |
-| `principal_ineligible`       | The guard's audience policy does not admit the identity as principal              |
+| `principal_ineligible`       | The application policy does not admit the identity as principal                   |
 | `identifier_unverified`      | The guard requires a verified identifier and it is not                            |
 | `device_mismatch`            | The pinned device is not a live device of the identity and principal              |
 | `additional_factor_required` | A further factor is required, which only `signIn()` can ask                       |

@@ -2,7 +2,7 @@
 
 The package's settings live in the published `config/authentication.php`, under `authentication.`. A guard overrides
 the ones marked per guard in its own `config/auth.php` entry, in a block named after the first part of the key (`jwt`,
-`audience`, `rate_limits`, `refresh_token`, `passkeys` for the relying party, and `sign_in` for the password
+`application`, `rate_limits`, `refresh_token`, `passkeys` for the relying party, and `sign_in` for the password
 identifier), where a key it sets wins. A value that is malformed or out of range fails closed, naming the key (and the
 guard), when it is first used, and `php artisan authentication:check` reports it before a deploy (see
 [Checking the configuration](operations.md#checking-the-configuration)). Most settings are read each time they are used;
@@ -30,8 +30,8 @@ a guard's JWT settings are read once and kept (see [Configuration lifetimes](ope
 | `jwt.leeway_seconds`                                | `30`                                                                         | `AUTHENTICATION_JWT_LEEWAY_SECONDS`                               | yes       | [Token and session lifetimes](#token-and-session-lifetimes)           |
 | `jwt.issuer`                                        | `null`                                                                       | `AUTHENTICATION_JWT_ISSUER`                                       | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
 | `jwt.audience`                                      | `null`                                                                       | `AUTHENTICATION_JWT_AUDIENCE`                                     | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
-| `audience.methods`                                  | `['password']`                                                               |                                                                   | yes       | [Audiences](#audiences)                                               |
-| `audience.require_verified_identifier`              | `false`                                                                      |                                                                   | yes       | [Audiences](#audiences)                                               |
+| `application.methods`                               | `[]`                                                                         |                                                                   | yes       | [Applications](#applications)                                         |
+| `application.require_verified_identifier`           | `false`                                                                      |                                                                   | yes       | [Applications](#applications)                                         |
 | `identifiers.normalisers`                           | `['email' => EmailNormaliser::class, 'phone' => E164PhoneNormaliser::class]` |                                                                   |           | [Identifiers](identity-models.md#identifiers)                         |
 | `rate_limits.table`                                 | `rate_limits`                                                                | `AUTHENTICATION_RATE_LIMITS_TABLE`                                |           | [Rate limits](#rate-limits)                                           |
 | `rate_limits.connection`                            | `null`                                                                       | `AUTHENTICATION_RATE_LIMITS_CONNECTION`                           |           | [Rate limits](#rate-limits)                                           |
@@ -208,66 +208,84 @@ or a string of digits (as `env()` returns it) within its range. A value that is 
 fails closed with an `InvalidJwtConfigurationException` naming the key and the guard when the guard or `Auth::jwt()`
 service is resolved; the defaults live only in the published config.
 
-## Audiences
+## Applications
 
-An audience is a guard. Each guard decides which sign-in methods may start its sessions, whether the identifier a
-sign-in used must be verified, and how long its sessions last. The defaults live in the package `audience` block, and a
-guard overrides any key in an `audience` block of its own:
+An application is the app being signed into (`admin`, `console`, `mobile`), and each application is a guard. Each
+decides which sign-in methods may start its sessions and which machine credentials it accepts, whether the identifier a
+sign-in used must be verified, and how long its sessions last. The defaults live in the package `application` block,
+and a guard overrides any key in an `application` block of its own:
 
 ```php
 'guards' => [
     'console' => [
-        'driver'   => 'jwt',
-        'provider' => 'users',
-        'audience' => [
+        'driver'      => 'jwt',
+        'provider'    => 'users',
+        'application' => [
             'methods' => ['password'],
         ],
     ],
     'mobile' => [
-        'driver'   => 'jwt',
-        'provider' => 'users',
-        'audience' => [
+        'driver'      => 'jwt',
+        'provider'    => 'users',
+        'application' => [
             'methods'                     => ['email_code'],
             'require_verified_identifier' => true,
         ],
-        'jwt' => [
+        'jwt'         => [
             'refresh_absolute_ttl_minutes' => 60 * 24 * 365,
         ],
     ],
 ],
 ```
 
-| Key                           | Default        | Meaning                                                                                                                                                                  |
-|-------------------------------|----------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `methods`                     | `['password']` | The sign-in methods that may start the guard's sessions, and the machine credentials (`api_key`, `client_credentials`) it accepts (a non-empty list of lower-case names) |
-| `require_verified_identifier` | `false`        | Refuse a sign-in with an identifier the identity has not verified                                                                                                        |
+| Key                           | Default | Meaning                                                                                                                                                    |
+|-------------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `methods`                     | `[]`    | The sign-in methods that may start the application's sessions, and the machine credentials (`api_key`, `client_credentials`) it accepts (lower-case names) |
+| `require_verified_identifier` | `false` | Refuse a sign-in with an identifier the identity has not verified                                                                                          |
 
-The session layer asks the guard before it issues anything: a sign-in with a method the guard does not list fails with
-`method_not_allowed`, at sign-in and again on every refresh, so a valid credential for one audience cannot open or keep a
-session in another. With `require_verified_identifier`, a sign-in that used an identifier (an email address for the
-password method) fails with `identifier_unverified` unless the identity reports that identifier verified (see
+Every feature is opt-in, so an application allows nothing until it lists it: with the default empty `methods` (or a
+guard's own `[]`), every sign-in (`attempt()`, `signIn()`, `start()`), refresh, switch of principal, one-time code
+request and password reset request is refused as `method_not_allowed`, a password never reauthenticates
+(`reauthentication_required`), an `api_key` guard refuses every key, and a client credentials exchange answers
+`unauthorized_client`. A further-factor sign-in or a principal choice already pending when its method is removed is
+spent, then refused as `method_not_allowed`. An empty list is a valid setting, not an error: an application in
+access-only mode issues its tokens itself, and an operator can empty the list to stop an application's sign-ins and
+refreshes without revoking anything. The list decides who may start or continue a session, not who holds one: access
+tokens already issued keep working until they expire, and a session refreshes again, if it is otherwise still valid,
+once its method is listed again. `authentication:check` warns about a `jwt` guard whose `methods` lists nothing, or
+only `api_key`, which a `jwt` guard never accepts; any other name counts, registered or not, since the application can
+start a session under it with `start()`. It reports an `api_key` guard that does not allow `api_key` as a problem,
+whatever policy is bound, since such a guard has no other use. A policy of your own, even one that wraps the package's,
+gets no warning, since the names it allows are its own. A change reaches a long-running process only after a restart
+(see [Configuration lifetimes](operations.md#configuration-lifetimes)).
+
+The session layer asks the application before it issues anything: a sign-in with a method it does not list fails with
+`method_not_allowed`, at sign-in and again on every refresh, so a valid credential for one application cannot open or
+keep a session in another. With `require_verified_identifier`, a sign-in that used an identifier (an email address for
+the password method) fails with `identifier_unverified` unless the identity reports that identifier verified (see
 [Identifier verification](identity-models.md#identifier-verification)); sign-ins that used no identifier, such as SSO
 through `start()`, and refreshes are not gated, since the external provider or the existing session vouches for them.
 The check is made before any principal is resolved, so an unverified identifier gets `identifier_unverified` whether or
 not the identity has a principal yet, and the answer cannot tell whether it has been invited anywhere. A switch of
 principal is held to the identifier type its session's sign-in used, which the device records.
 
-A guard key that is present wins, `null` included; a guard `audience` entry of `null` means no overrides. Nothing falls
-back to a literal: a key missing from both blocks, a value of the wrong shape, an empty list, or a key the policy does
-not know fails closed with an `InvalidArgumentException` naming the guard and the key the first time the guard's policy
-is used. The policy is `Contracts\AudiencePolicy`, bound to `Audience\GuardAudiencePolicy`; bind your own
-implementation to decide differently. The package's admits every principal; an application that decides which
-principals may hold a guard's sessions refuses the others from `admit()` (as `principal_ineligible`, which a refresh,
-a switch, an API key and a client credentials exchange report too). Its `admitIdentifier()` is the check every sign-in
-makes before any principal is resolved, so a policy of your own keeps the guarantee above only by deciding
-verification there, for the identity as a whole; one that wraps the package's policy delegates `admitIdentifier()` to
-it like the other methods. A refusal from `admit()` comes only once a principal resolves, so an identity with none
-would get `principal_unresolved` instead. A policy of your own decides the session's deadlines through
-`lifetimes($guard)`, while an access token's lifetime still comes from the guard's `jwt` configuration (capped at the
-session's end). See `docs/design/audience-policy.md` for every point where the policy is enforced.
+A guard key that is present wins, `null` included; a guard `application` entry of `null` means no overrides. Nothing
+falls back to a literal: a key missing from both blocks, a value of the wrong shape (`null` or a map for `methods`, or a
+name no method can be registered under, such as `Password`), or a key the policy does not know fails closed with an
+`InvalidArgumentException` naming the guard and the key the first time the guard's policy is used. The policy is
+`Contracts\ApplicationPolicy`, bound to `Applications\GuardApplicationPolicy`; bind your own implementation to decide
+differently. The package's admits every principal; an application that decides which principals may hold its sessions
+refuses the others from `admit()` (as `principal_ineligible`, which a refresh, a switch, an API key and a client
+credentials exchange report too; see [Extending](extending.md#deciding-which-principals-may-use-an-application)). Its
+`admitIdentifier()` is the check every sign-in makes before any principal is resolved, so a policy of your own keeps the
+guarantee above only by deciding verification there, for the identity as a whole; one that wraps the package's policy
+delegates `admitIdentifier()` to it like the other methods. A refusal from `admit()` comes only once a principal
+resolves, so an identity with none would get `principal_unresolved` instead. A policy of your own decides the session's
+deadlines through `lifetimes($guard)`, while an access token's lifetime still comes from the guard's `jwt` configuration
+(capped at the session's end). See `docs/design/application-policy.md` for every point where the policy is enforced.
 
-Lifetimes are per guard only: each guard's `jwt` block sets its own (see
-[Token and session lifetimes](#token-and-session-lifetimes)), and every principal of the guard gets them.
+Lifetimes are per application only: each guard's `jwt` block sets its own (see
+[Token and session lifetimes](#token-and-session-lifetimes)), and every principal of the application gets them.
 
 ## Per-guard principal resolvers
 
@@ -393,9 +411,10 @@ another column names its own, and that is the one `signIn('password', ...)` and 
 ```php
 'guards' => [
     'staff' => [
-        'driver'   => 'jwt',
-        'provider' => 'staff',
-        'sign_in'  => ['password_identifier' => 'username'],
+        'driver'      => 'jwt',
+        'provider'    => 'staff',
+        'application' => ['methods' => ['password']],
+        'sign_in'     => ['password_identifier' => 'username'],
     ],
 ],
 ```
@@ -514,10 +533,10 @@ present wins:
 ```php
 'guards' => [
     'console' => [
-        'driver'   => 'jwt',
-        'provider' => 'users',
-        'audience' => ['methods' => ['password', 'passkey']],
-        'passkeys' => ['id' => 'console.example.com', 'origins' => ['https://console.example.com']],
+        'driver'      => 'jwt',
+        'provider'    => 'users',
+        'application' => ['methods' => ['password', 'passkey']],
+        'passkeys'    => ['id' => 'console.example.com', 'origins' => ['https://console.example.com']],
     ],
 ],
 ```
@@ -530,7 +549,7 @@ subdomain of it; a ceremony from any other origin, or framed in another site (wh
 top-level origin or only that the ceremony is cross-origin), is refused. The package does not consult
 the public suffix list, so never name a public suffix (`co.uk`, say) as the id. Anything else, or an unknown key, fails
 closed with an `InvalidArgumentException` naming the guard and the key when the guard's passkeys are first used, and
-`authentication:check` reports it for every guard whose audience allows `passkey` or that sets a `passkeys` block.
+`authentication:check` reports it for every guard whose application allows `passkey` or that sets a `passkeys` block.
 
 A challenge lives `challenge_ttl_seconds` (30 to 600, five minutes by default), which is also the `timeout` the options
 give the browser. Both tables live on the storage connection; prune expired challenges with `model:prune` (see [Pruning
@@ -551,6 +570,7 @@ a cache. Publish the migration with the others (`authentication-migrations` crea
     'console' => [
         'driver'      => 'jwt',
         'provider'    => 'users',
+        'application' => ['methods' => ['password']],
         'rate_limits' => [
             'sign_in' => [
                 'per_identifier' => ['max' => 3, 'decay_seconds' => 900],

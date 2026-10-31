@@ -15,7 +15,7 @@ can verify its signature, and the `sub` is then looked up in the wrong guard's p
 - Parsing always requires `grd` to equal the verifying service's guard, whatever token type is expected. A missing or
   different `grd` rejects the token, even when the signature verifies.
 - Refresh reloads the device's owner through the refreshing guard's own identity provider, so the provider's scoping
-  (tenants, soft deletes, audiences) applies on refresh exactly as it does on the bearer path.
+  (tenants, soft deletes, applications) applies on refresh exactly as it does on the bearer path.
 - The reloaded identity must be the device's exact owner: an Eloquent identity of the device row's morph type with the
   device row's owner key. Anything else is rejected.
 - The reloaded owner, not a relation cached on the device row, is what the activity checks see: it, its principal, and

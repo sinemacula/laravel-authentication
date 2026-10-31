@@ -30,7 +30,7 @@ outdates, and why the change stands when the notice to the old identifier fails.
 - A request proves a recent authentication (`Sessions\Reauthentication`) within
   `identifier_changes.recent_authentication_seconds`: a device of the identity's, of this guard, live, read again by key,
   signed in within the window (a refresh or a switch does not move `signed_in_at`; a sign-in does); the current password,
-  on a guard whose audience allows the `password` method only, checked in the guard's credential timebox against the
+  on a guard whose application allows the `password` method only, checked in the guard's credential timebox against the
   identity read again through the guard's provider, counted under `sign_in` against the account and the IP address and
   given back when correct; or a trusted confirmation time, not in the future.
 - A request checks the proof, the new identifier and the limits first, on the identity's row read again by key on the
@@ -95,7 +95,7 @@ outdates, and why the change stands when the notice to the old identifier fails.
   an address mistyped into a stranger's scanned mailbox, would make that address the one password resets go to.
   `confirmByLink()` reads the signature from the request's query, so the `POST` carries it.
 - No recent authentication, a wrong password, or a password on a guard that does not allow passwords (a code- or
-  passkey-only audience, which counts nothing): `reauthentication_required`. A password checked too often: the
+  passkey-only application, which counts nothing): `reauthentication_required`. A password checked too often: the
   `sign_in` limits' wait, as `rate_limited`.
 - Two confirmations of one change: the conditional delete lets one through; the other is `invalid`.
 - Two identities confirming one value: the provider's check may find neither (the other has not committed), so the

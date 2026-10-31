@@ -161,8 +161,9 @@ final class ActivationOptInIntegrationTest extends TestCase
         $config->set('auth.defaults.guard', 'api');
 
         $config->set('auth.guards.api', [
-            'driver'   => 'jwt',
-            'provider' => 'default_users',
+            'driver'      => 'jwt',
+            'provider'    => 'default_users',
+            'application' => ['methods' => ['password']],
         ]);
 
         $config->set('auth.providers.default_users', [

@@ -8,7 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Container\Container;
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Admission\Refused;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -29,7 +29,7 @@ use SineMacula\Laravel\Authentication\Runtime\GuardContext;
  * this guard, waits for the identity to choose: it hands out a single-use
  * choice token (`PrincipalChoice`), the attempt-limit slots it took stay
  * counted, and `PrincipalChoiceRequired` reports it once committed. Policy over
- * the audience policy and the guard's resolver, read on the write connection;
+ * the application policy and the guard's resolver, read on the write connection;
  * the only thing it writes is the choice.
  *
  * It runs on the guard's context: the event carries the client of the sign-in
@@ -66,7 +66,7 @@ final readonly class PrincipalChoices
         /** Defers `PrincipalChoiceRequired` until the choice commits. */
         private AfterCommit $afterCommit,
 
-        /** Container the audience policy is resolved from. */
+        /** Container the application policy is resolved from. */
         private Container $container,
     ) {}
 
@@ -89,7 +89,7 @@ final readonly class PrincipalChoices
      * it took, and report `PrincipalChoiceRequired` once committed. An identity
      * with no eligible principal fails as `principal_unresolved`.
      *
-     * The audience policy admits each principal with the identifier type the
+     * The application policy admits each principal with the identifier type the
      * sign-in used, as it would a sign-in that named one, so a guard that
      * requires a verified identifier lists no principal (not even which there
      * are) to an identity whose identifier is unverified: when it refuses every
@@ -128,7 +128,7 @@ final readonly class PrincipalChoices
     }
 
     /**
-     * The eligible principals the audience policy also admits with the
+     * The eligible principals the application policy also admits with the
      * identifier type a sign-in used, and its reason for refusing the identity
      * with it, or for the last principal it refused with it, if any. A sign-in
      * that used no identifier is not held to it.
@@ -148,9 +148,9 @@ final readonly class PrincipalChoices
      */
     public function admissible(Identity $identity, ?string $identifierType): array
     {
-        $guard    = $this->context->name();
-        $audience = $this->container->make(AudiencePolicy::class);
-        $refusal  = $identifierType === null ? null : $audience->admitIdentifier($guard, $identity, $identifierType);
+        $guard   = $this->context->name();
+        $policy  = $this->container->make(ApplicationPolicy::class);
+        $refusal = $identifierType === null ? null : $policy->admitIdentifier($guard, $identity, $identifierType);
 
         if ($refusal !== null) {
             return [[], $refusal];
@@ -164,7 +164,7 @@ final readonly class PrincipalChoices
                 continue;
             }
 
-            $reason = self::refusalOf($audience, $guard, $identity, $principal, $identifierType);
+            $reason = self::refusalOf($policy, $guard, $identity, $principal, $identifierType);
 
             if ($reason === null) {
                 $principals[] = $principal;
@@ -214,15 +214,15 @@ final readonly class PrincipalChoices
     }
 
     /**
-     * Whether the audience policy refuses the principal to the identifier type:
-     * `false` when the principal is not eligible at all (inactive, within an
-     * inactive tenant, or refused with no identifier type), the policy's reason
-     * when it refuses the eligible principal to the type, and `null` when it
-     * admits it. The principal is read through `WriteConnection::stored()`, so
-     * its tenant, which the checks read, is loaded even when a collection
-     * hydrated it with lazy loading prevented.
+     * Whether the application policy refuses the principal to the identifier
+     * type: `false` when the principal is not eligible at all (inactive, within
+     * an inactive tenant, or refused with no identifier type), the policy's
+     * reason when it refuses the eligible principal to the type, and `null`
+     * when it admits it. The principal is read through
+     * `WriteConnection::stored()`, so its tenant, which the checks read, is
+     * loaded even when a collection hydrated it with lazy loading prevented.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy  $audience
+     * @param  \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy  $policy
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -232,15 +232,15 @@ final readonly class PrincipalChoices
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    private static function refusalOf(AudiencePolicy $audience, string $guard, Identity $identity, Principal $principal, ?string $identifierType): FailureReason|false|null
+    private static function refusalOf(ApplicationPolicy $policy, string $guard, Identity $identity, Principal $principal, ?string $identifierType): FailureReason|false|null
     {
-        return WriteConnection::stored($principal, static function (Principal $stored) use ($audience, $guard, $identity, $identifierType): FailureReason|false|null {
+        return WriteConnection::stored($principal, static function (Principal $stored) use ($policy, $guard, $identity, $identifierType): FailureReason|false|null {
 
-            if (!ActivationPolicy::isPrincipalActive($stored) || $audience->admit($guard, $identity, $stored, null) !== null) {
+            if (!ActivationPolicy::isPrincipalActive($stored) || $policy->admit($guard, $identity, $stored, null) !== null) {
                 return false;
             }
 
-            return $identifierType === null ? null : $audience->admit($guard, $identity, $stored, $identifierType);
+            return $identifierType === null ? null : $policy->admit($guard, $identity, $stored, $identifierType);
         });
     }
 }
