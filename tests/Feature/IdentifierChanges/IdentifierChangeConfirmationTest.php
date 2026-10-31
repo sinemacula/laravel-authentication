@@ -519,6 +519,38 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
+     * A service handed out before the guard's dispatcher and request were
+     * rebound reports a refusal to the dispatcher bound now, with the client of
+     * the request bound now.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAServiceHandedOutBeforeARebindFollowsIt(): void
+    {
+        $identity = $this->requestedByCode();
+        $guard    = $this->freshGuard('web');
+        $changes  = Auth::manager()->identifierChanges('web');
+        $swapped  = new Dispatcher(app());
+        $received = [];
+
+        $swapped->listen(AuthenticationFailed::class, static function (AuthenticationFailed $event) use (&$received): void {
+            $received[] = $event;
+        });
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $guard->setDispatcher($swapped);
+        $guard->setRequest(Request::create('/', server: ['REMOTE_ADDR' => '198.51.100.7']));
+
+        self::assertSame(IdentifierChangeOutcome::INVALID, $changes->confirmByCode($identity, 'email', '000000'));
+        self::assertSame([], $this->recorded);
+        self::assertCount(1, $received);
+        self::assertSame([AuthenticationFlow::IDENTIFIER_CHANGE, '198.51.100.7'], [$received[0]->flow, $received[0]->context->client->ip]);
+    }
+
+    /**
      * A confirmed change invalidates, in every jwt guard whose provider reads
      * the identity's table, the codes of both the replaced and the new
      * identifier: sign-in, password reset and reset link codes, and the
