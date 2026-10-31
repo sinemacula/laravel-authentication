@@ -14,11 +14,10 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
-use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
-use SineMacula\Laravel\Authentication\Events\IdentifierVerified;
 use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 use Tests\Concerns\InteractsWithVerifiableIdentities;
+use Tests\Concerns\RecordsEventSequences;
 use Tests\Integration\Fixtures\VerifiableIdentity;
 use Tests\TestCase;
 
@@ -26,7 +25,8 @@ use Tests\TestCase;
  * Proves each outcome of consuming a verification link is what it wrote and
  * reported, on whichever engine the suite runs against: the identifier recorded
  * verified only for `verified`, whose `IdentifierVerified` waits for the
- * commit, and a failure reported for `invalid` and `expired` alone.
+ * commit, a failure reported for `invalid` and `expired` alone, and no sign-in
+ * event, Laravel's or the package's, for any of them.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -36,16 +36,13 @@ use Tests\TestCase;
 #[CoversClass(VerificationLinks::class)]
 final class VerificationLinkOutcomesTest extends TestCase
 {
-    use InteractsWithVerifiableIdentities;
+    use InteractsWithVerifiableIdentities, RecordsEventSequences;
 
     /** @var string Guard the links verify for. */
     private const string GUARD = 'api';
 
     /** @var string When the seeded identity's address was verified, where it starts verified. */
     private const string VERIFIED_BEFORE = '2027-01-01 00:00:00';
-
-    /** @var list<class-string> The events dispatched, by class. */
-    private array $events = [];
 
     /**
      * Freeze the clock, create the identities table and record the events.
@@ -61,9 +58,7 @@ final class VerificationLinkOutcomesTest extends TestCase
 
         self::createVerifiableIdentitiesTable();
 
-        Event::listen([AuthenticationFailed::class, IdentifierVerified::class], function (object $event): void {
-            $this->events[] = $event::class;
-        });
+        $this->recordSequence();
     }
 
     /**
@@ -82,18 +77,19 @@ final class VerificationLinkOutcomesTest extends TestCase
 
     /**
      * Rows of `[whether the address starts verified, what happens before the
-     * link is followed, outcome, address verified at, events]`.
+     * link is followed, outcome, address verified at, every authentication
+     * event dispatched]`.
      *
-     * @return iterable<string, array{0: bool, 1: string, 2: \SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome, 3: ?string, 4: list<class-string>}>
+     * @return iterable<string, array{0: bool, 1: string, 2: \SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome, 3: ?string, 4: list<string>}>
      */
     public static function provideOutcomes(): iterable
     {
         yield from [
-            'verified'         => [false, 'nothing', VerificationLinkOutcome::VERIFIED, '2027-03-01 08:30:00', [IdentifierVerified::class]],
+            'verified'         => [false, 'nothing', VerificationLinkOutcome::VERIFIED, '2027-03-01 08:30:00', ['IdentifierVerified api i1/-/-']],
             'already verified' => [true, 'nothing', VerificationLinkOutcome::ALREADY_VERIFIED, self::VERIFIED_BEFORE, []],
             'mismatch'         => [false, 'race', VerificationLinkOutcome::MISMATCH, null, []],
-            'invalid'          => [false, 'change', VerificationLinkOutcome::INVALID, null, [AuthenticationFailed::class]],
-            'expired'          => [false, 'expire', VerificationLinkOutcome::EXPIRED, null, [AuthenticationFailed::class]],
+            'invalid'          => [false, 'change', VerificationLinkOutcome::INVALID, null, ['AuthenticationFailed api identifier_verification:invalid_credentials i1/-/-']],
+            'expired'          => [false, 'expire', VerificationLinkOutcome::EXPIRED, null, ['AuthenticationFailed api identifier_verification:link_expired -/-/-']],
         ];
     }
 
@@ -104,13 +100,15 @@ final class VerificationLinkOutcomesTest extends TestCase
      * @param  string  $before
      * @param  \SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome  $outcome
      * @param  ?string  $verifiedAt
-     * @param  list<class-string>  $events
+     * @param  list<string>  $events
      * @return void
      */
     #[DataProvider('provideOutcomes')]
     public function testEachOutcomeIsWhatTheLinkWroteAndReported(bool $verified, string $before, VerificationLinkOutcome $outcome, ?string $verifiedAt, array $events): void
     {
         $identity = self::seedVerifiableIdentity();
+
+        $this->nameIdentities($identity);
 
         DB::table('verifiable_identities')->update(['email_verified_at' => $verified ? self::VERIFIED_BEFORE : null]);
 
@@ -127,7 +125,7 @@ final class VerificationLinkOutcomesTest extends TestCase
 
         self::assertSame($outcome, $this->links()->consume(Request::create($link)));
         self::assertSame($verifiedAt, self::verifiedAt());
-        self::assertSame($events, $this->events);
+        self::assertSame($events, $this->recordedSequence());
     }
 
     /**
@@ -141,24 +139,27 @@ final class VerificationLinkOutcomesTest extends TestCase
      */
     public function testTheVerificationIsReportedOnlyOnceCommitted(): void
     {
-        $link = $this->links()->create(self::GUARD, self::seedVerifiableIdentity(), 'email', 'verify');
+        $identity = self::seedVerifiableIdentity();
+        $link     = $this->links()->create(self::GUARD, $identity, 'email', 'verify');
+
+        $this->nameIdentities($identity);
 
         DB::beginTransaction();
 
         self::assertSame(VerificationLinkOutcome::VERIFIED, $this->links()->consume(Request::create($link)));
-        self::assertSame([], $this->events);
+        self::assertSame([], $this->recordedSequence());
 
         DB::rollBack();
 
-        self::assertSame([], $this->events);
+        self::assertSame([], $this->recordedSequence());
         self::assertNull(self::verifiedAt());
 
         DB::transaction(function () use ($link): void {
             self::assertSame(VerificationLinkOutcome::VERIFIED, $this->links()->consume(Request::create($link)));
-            self::assertSame([], $this->events);
+            self::assertSame([], $this->recordedSequence());
         });
 
-        self::assertSame([IdentifierVerified::class], $this->events);
+        self::assertSame(['IdentifierVerified api i1/-/-'], $this->recordedSequence());
         self::assertSame('2027-03-01 08:30:00', self::verifiedAt());
     }
 

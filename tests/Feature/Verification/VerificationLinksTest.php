@@ -5,6 +5,13 @@ declare(strict_types = 1);
 namespace Tests\Feature\Verification;
 
 use Carbon\Carbon;
+use Illuminate\Auth\Events\Attempting;
+use Illuminate\Auth\Events\Authenticated;
+use Illuminate\Auth\Events\Failed;
+use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Logout;
+use Illuminate\Auth\Events\Validated;
+use Illuminate\Auth\Events\Verified;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
@@ -16,6 +23,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\URL;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
@@ -34,6 +42,9 @@ use Tests\Unit\Stubs\StubPrincipal;
  * the application's that consumes the link: every outcome, and the
  * `AuthenticationFailed` each refusal reports.
  *
+ * Every package event and Laravel's auth events are recorded, so asserting the
+ * one event an outcome dispatches also proves it signed nobody in.
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -50,7 +61,7 @@ final class VerificationLinksTest extends TestCase
     /** @var string Name of the application's verification route. */
     private const string ROUTE = 'verification.verify';
 
-    /** @var list<object> The failure and verification events dispatched. */
+    /** @var list<object> Every authentication event dispatched, in order. */
     private array $events = [];
 
     /**
@@ -79,7 +90,9 @@ final class VerificationLinksTest extends TestCase
             'user'    => Auth::guard(self::GUARD)->hasUser(),
         ])->name(self::ROUTE);
 
-        Event::listen([AuthenticationFailed::class, IdentifierVerified::class], function (object $event): void {
+        $events = [AuthenticationEvent::class, Attempting::class, Validated::class, Login::class, Authenticated::class, Failed::class, Logout::class, Verified::class];
+
+        Event::listen($events, function (object $event): void {
             $this->events[] = $event;
         });
     }
