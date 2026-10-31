@@ -125,7 +125,8 @@ in the guard's credential timebox, the one `attempt()` and `validate()` run in.
 `bindVerifiedContext()` binds what it is given and checks none of it, so a guard type admits what its credential named
 first, as the package's guards do: the application must allow the method it reports, the identity, the principal
 and the principal's tenant must be active (`Admission\ActivationPolicy`), and the application policy must admit the
-identity, then the identity as the principal. The tenant the activity check loaded is the one it binds:
+identity, then the identity as the principal, each asked inside `WriteConnection::during()` as the package asks them.
+The tenant the activity check loaded is the one it binds:
 
 ```php
 use Illuminate\Container\Container;
@@ -133,6 +134,8 @@ use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 
 final class HeaderKeyGuard extends AbstractGuard
@@ -163,17 +166,30 @@ final class HeaderKeyGuard extends AbstractGuard
 
     private function admit(Identity $identity): ?Identity
     {
-        $guard    = $this->context->name();
-        $policy   = Container::getInstance()->make(ApplicationPolicy::class);
+        $guard  = $this->context->name();
+        $policy = Container::getInstance()->make(ApplicationPolicy::class);
 
-        if (!$policy->allowsMethod($guard, 'header_key') || !ActivationPolicy::isActive($identity) || $policy->admitIdentifier($guard, $identity, null) !== null) {
+        if (!$policy->allowsMethod($guard, 'header_key') || !ActivationPolicy::isActive($identity)) {
+            return null;
+        }
+
+        if (WriteConnection::during($identity, fn (): ?FailureReason => $policy->admitIdentifier($guard, $identity, null)) !== null) {
             return null;
         }
 
         $principal = $this->resolvePrincipal($identity);
         $tenant    = $principal === null || !ActivationPolicy::isActive($principal) ? false : ActivationPolicy::activeTenant($principal);
 
-        if ($principal === null || $tenant === false || $policy->admit($guard, $identity, $principal, null) !== null) {
+        if ($principal === null || $tenant === false) {
+            return null;
+        }
+
+        $refusal = WriteConnection::during($identity, fn (): ?FailureReason => WriteConnection::during(
+            $principal,
+            fn (): ?FailureReason => $policy->admit($guard, $identity, $principal, null),
+        ));
+
+        if ($refusal !== null) {
             return null;
         }
 
