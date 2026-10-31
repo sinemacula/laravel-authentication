@@ -91,10 +91,8 @@ abstract class AbstractGuardTestCase extends TestCase
             ->byDefault()
             ->andReturnNull();
 
-        // Default: Timebox::call() invokes the callback directly and returns
-        // its result so tests exercise the real credential validation path.
-        // Tests that need to assert the timebox budget override this
-        // expectation.
+        // Run the callback without the timebox delay so tests exercise the real
+        // credential check; budget tests override this.
         $this->timebox->shouldReceive('call')
             ->byDefault()
             ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));
