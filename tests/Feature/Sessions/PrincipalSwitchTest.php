@@ -655,6 +655,36 @@ final class PrincipalSwitchTest extends TestCase
     }
 
     /**
+     * Once the guard's application no longer lists the method the session
+     * signed in with, or lists nothing, a switch is refused as
+     * `method_not_allowed` and the session is left as it was, neither revoked
+     * nor rotated; listed again, the same refresh token switches.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchIsRefusedOnceTheSessionsMethodIsNoLongerAllowed(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+        $row     = (array) DB::table('devices')->sole();
+
+        foreach ([['sso'], []] as $methods) {
+            config()->set('auth.guards.' . self::GUARD . '.application.methods', $methods);
+
+            $this->assertSwitchFails(FailureReason::METHOD_NOT_ALLOWED, $session, $second);
+
+            self::assertEquals($row, (array) DB::table('devices')->sole());
+        }
+
+        config()->set('auth.guards.' . self::GUARD . '.application.methods', ['password']);
+
+        self::assertSame($second->getKey(), $this->switched($session, $second)->principal->getPrincipalIdentifier());
+    }
+
+    /**
      * A device loaded without the type of identifier its session's sign-in used
      * is reported rather than switched as if the sign-in used none, which would
      * skip the policy's refusal of the target to that identifier, and the
