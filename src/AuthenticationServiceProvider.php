@@ -426,7 +426,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
      * @param  bool  $tracksGlobalPrincipalResolver
      * @return void
      */
-    private static function wireGuardRebinds(Application $app, AbstractGuard $guard, bool $tracksGlobalPrincipalResolver = true): void
+    private static function wireGuardRebinds(Application $app, AbstractGuard $guard, bool $tracksGlobalPrincipalResolver): void
     {
         $app->refresh('request', $guard, 'setRequest');
         $app->refresh('events', $guard, 'setDispatcher');
