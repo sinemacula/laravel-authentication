@@ -6,8 +6,6 @@ namespace Tests\Integration\Fixtures;
 
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsTenant;
-use SineMacula\Laravel\Authentication\Concerns\ProvidesType;
-use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 
 /**
@@ -22,9 +20,9 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
  *
  * @internal
  */
-final class TenantAware3dTenant extends Model implements HasType, Tenant
+final class TenantAware3dTenant extends Model implements Tenant
 {
-    use ActsAsTenant, ProvidesType;
+    use ActsAsTenant;
 
     /** @var string|null The table associated with the model. */
     protected $table = 'tenant_aware_3d_tenants';

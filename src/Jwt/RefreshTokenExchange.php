@@ -49,7 +49,7 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * the device records: after the session switched principal, the refresh tokens
  * of the principal it left fail as `device_principal_mismatch`, without
  * revoking the device. The next idle deadline follows the lifetimes the policy
- * gives the principal's type.
+ * gives the guard.
  *
  * Failed exchanges are counted against the token's device and the client's IP
  * address; once either count is full the exchange is refused as `rate_limited`
@@ -402,11 +402,11 @@ final readonly class RefreshTokenExchange
      * pair for it.
      *
      * The new idle deadline is the idle lifetime the audience policy gives the
-     * principal's type, from `$now`, never past the absolute deadline, which a
-     * rotation never moves. Both tokens are issued at `$now`, the time the
-     * device was judged at, before anything is written, so a failure while
-     * issuing (signing, randomness, an identifier that cannot be read) leaves
-     * the presented refresh token valid. The pair is only returned once the
+     * guard, from `$now`, never past the absolute deadline, which a rotation
+     * never moves. Both tokens are issued at `$now`, the time the device was
+     * judged at, before anything is written, so a failure while issuing
+     * (signing, randomness, an identifier that cannot be read) leaves the
+     * presented refresh token valid. The pair is only returned once the
      * compare-and-swap has committed; when the swap misses, the row changed
      * under the exchange and is judged again.
      *
@@ -440,7 +440,7 @@ final readonly class RefreshTokenExchange
         ClientContext $client,
     ): AuthenticationFailed|ExchangedRefresh {
         $next = RefreshTokenHasher::successor($rotationId);
-        $idle = Container::getInstance()->make(AudiencePolicy::class)->lifetimes($this->context->name(), $session->principal)->idleDeadline($now, $absolute);
+        $idle = Container::getInstance()->make(AudiencePolicy::class)->lifetimes($this->context->name())->idleDeadline($now, $absolute);
 
         $device->setAttribute($device->getIdleExpiresAtName(), $idle);
 

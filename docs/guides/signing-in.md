@@ -22,13 +22,12 @@ Auth::identity();       // Identity|null   - the authenticated subject
 Auth::principal();      // Principal|null  - the acting principal
 Auth::device();         // Device|null     - the issuing device
 Auth::tenant();         // Tenant|null     - the tenant the principal acts within
-Auth::type();           // string|null     - the principal's type, else its tenant's
 Auth::scopes();         // list<string>|null - the credential's scope ceiling (null: no credential limits the request)
 ```
 
 Like `Auth::user()` and `Auth::id()`, each accessor authenticates the request on first access, so they also work on
 routes without `auth` middleware. A request is authenticated at most once, whether its token is accepted or rejected,
-and after `Auth::logout()` it stays signed out for the rest of the request. `Auth::tenant()` and `Auth::type()` throw a
+and after `Auth::logout()` it stays signed out for the rest of the request. `Auth::tenant()` throws a
 `TenantUnavailableException` for a principal whose opted-in tenant cannot be loaded, and a `LogicException` for one
 loaded without that tenant's key (or polymorphic type). Sign-in, bearer requests and refresh reject such a principal, so
 that only happens for one bound through `login()`, `setUser()` or `setPrincipal()`, which skip the activity check.
@@ -163,18 +162,18 @@ attempt limit or timebox applies. The principal is given as the argument or on t
 
 A session starts on a new device that records the identity, the principal, the guard, the method, the client's name and
 platform (from the context, cleaned as the user agent is), the client's IP address and user agent at creation and as its
-last use, the digest of the first rotation id, and both deadlines from the guard's lifetimes for the principal. The
-device is written and the pair issued in one transaction on the device's connection, so a failure while issuing leaves
-no device behind. `DeviceCreated` and `SignedIn` are then scheduled for the device's commit on its own connection before
-the guard is bound (`Validated`, `Login`, `Authenticated`, `PrincipalAssigned` and `DeviceAuthenticated` fire at once).
-Outside a transaction the device is already committed, so `DeviceCreated` and `SignedIn` are dispatched before the bind
-events: a listener on them reads the event's context, not the guard. Inside your transaction they wait for it to commit,
-after the bind events, and are never dispatched when it is rolled back. Do not roll back around a sign-in: the guard
-stays bound, and unless `rate_limits.connection` names a connection of its own the sign-in's attempt counts are rolled
-back too, so it goes uncounted (see [Rate limits](configuration.md#rate-limits)). A listener that throws on a bind event
-fails the call, so the pair is lost, but cannot keep the session from being reported: outside a transaction `SignedIn`
-has already been dispatched, and inside one it follows your commit (a rollback discards the device with it). Keep those
-listeners from throwing or queue them.
+last use, the digest of the first rotation id, and both deadlines from the guard's lifetimes. The device is written and
+the pair issued in one transaction on the device's connection, so a failure while issuing leaves no device behind.
+`DeviceCreated` and `SignedIn` are then scheduled for the device's commit on its own connection before the guard is
+bound (`Validated`, `Login`, `Authenticated`, `PrincipalAssigned` and `DeviceAuthenticated` fire at once). Outside a
+transaction the device is already committed, so `DeviceCreated` and `SignedIn` are dispatched before the bind events: a
+listener on them reads the event's context, not the guard. Inside your transaction they wait for it to commit, after the
+bind events, and are never dispatched when it is rolled back. Do not roll back around a sign-in: the guard stays bound,
+and unless `rate_limits.connection` names a connection of its own the sign-in's attempt counts are rolled back too, so
+it goes uncounted (see [Rate limits](configuration.md#rate-limits)). A listener that throws on a bind event fails the
+call, so the pair is lost, but cannot keep the session from being reported: outside a transaction `SignedIn` has already
+been dispatched, and inside one it follows your commit (a rollback discards the device with it). Keep those listeners
+from throwing or queue them.
 
 A client that signs in again with its current refresh token in the context continues on the same device instead of
 creating another: the token proves the client holds that session, even when it has expired. It counts only when it is

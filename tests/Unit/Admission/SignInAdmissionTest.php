@@ -310,7 +310,7 @@ final class SignInAdmissionTest extends TestCase
     {
         $config = new Repository([
             'auth'           => ['guards' => ['api' => ['driver' => 'jwt', 'audience' => ['require_verified_identifier' => true]]]],
-            'authentication' => ['audience' => ['methods' => ['password'], 'principal_types' => null, 'require_verified_identifier' => false]],
+            'authentication' => ['audience' => ['methods' => ['password'], 'require_verified_identifier' => false]],
         ]);
 
         return new GuardAudiencePolicy($config, (new \ReflectionClass(JwtTokenServiceFactory::class))->newInstanceWithoutConstructor());

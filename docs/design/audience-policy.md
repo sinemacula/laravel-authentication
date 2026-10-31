@@ -4,26 +4,28 @@
 
 This note records what a guard decides about the sessions it holds, beyond the token itself: which sign-in methods may
 start them, which principals may hold them, whether the identifier a sign-in used must be verified, and how long they
-last for each principal type. An audience is a guard, so these are per-guard settings, read by one contract
+last. An audience is a guard, so these are per-guard settings, read by one contract
 (`AudiencePolicy`) that every path that starts or continues a session consults. It also records how the attempt limits
 and the identifier normalisers meet that policy, since a sign-in passes through all three.
 
 ## Invariants
 
 - The shipped `Audience\GuardAudiencePolicy` reads the guard's `audience` block over the package defaults in
-  `authentication.audience`: a key present at guard level wins, `null` included. `methods` (default `['password']`) is
-  a non-empty list of method names; `principal_types` (default `null`, any principal) is `null` or a non-empty list;
-  `require_verified_identifier` (default `false`) is a boolean. A missing, malformed or unknown key, at either level,
-  fails closed with an `InvalidArgumentException` naming the guard and the key. Every call reads and checks the whole
-  block, so a malformed key fails whichever check runs first and nothing is cached past a configuration change.
+  `authentication.audience`: a key present at guard level wins, `null` included. `methods` (default `['password']`) is a
+  non-empty list of method names; `require_verified_identifier` (default `false`) is a boolean. A missing, malformed or
+  unknown key, at either level, fails closed with an `InvalidArgumentException` naming the guard and the key. Every call
+  reads and checks the whole block, so a malformed key fails whichever check runs first and nothing is cached past a
+  configuration change.
 - A method is allowed only when the guard lists its exact name, the key it is registered under on the
   `SignInMethodManager` and the name a device records in `sign_in_method`. The same list names the machine credentials
   the guard accepts (`SignInMethodManager::CREDENTIAL_METHODS`): `api_key` on an `api_key` guard, `client_credentials`
   on a `jwt` guard whose client credentials exchange is open; neither is a sign-in method, and the manager refuses to
   register a method under either name (see `machine-credentials.md`).
-- A principal's type is its own non-empty `HasType::getType()`, otherwise the non-empty type of the tenant it acts
-  within, otherwise none (`Audience\PrincipalType::of()`), read on the write connection. A guard that lists types admits
-  only principals whose type it lists; a principal without a type is refused. Refusal is `principal_ineligible`.
+- The package has no rule about which principals may hold a guard's sessions: its `admit()` admits every principal and
+  is exactly `admitIdentifier()`. An application with such a rule rebinds the policy and refuses from `admit()`; a
+  refresh, a switch, an API key and a client credentials exchange report that refusal as `principal_ineligible`. A
+  caller's category (staff, a client's administrator, a service) is the application's or authorization's to model,
+  never the token's: no claim carries it and no accessor returns it.
 - The verified-identifier gate applies only when the guard sets `require_verified_identifier` and the sign-in names an
   identifier type: the password method's is the guard's `sign_in.password_identifier`, else
   `authentication.sign_in.password_identifier` (default `email`), whatever the credentials look like, so a query closure
@@ -38,17 +40,11 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
   has principals or not. A switch of principal asks it with the session's identifier type before `admit()`. The
   package's `admit()` also asks its own `admitIdentifier()`; a policy that wraps another asks the wrapped one's, and a
   policy with no identity-level rule returns `null`.
-- `admit()` is asked only after the identity, the principal and its tenant have passed their activity checks, and runs
-  eligibility before the gate.
-- Lifetimes come from `jwt.by_principal_type.<type>` on the guard (any of `access_ttl_minutes`,
-  `refresh_idle_ttl_minutes`, `refresh_absolute_ttl_minutes`, each falling back to the guard's own); the grace window
-  and leeway stay the guard's, because a refresh judges them before it knows the principal. A guard without the map
-  never reads a principal's type for its lifetimes. Malformed entries fail closed with an
-  `InvalidJwtConfigurationException` when the guard's token service is built. Unlike the audience block, the map is read
-  only then: the token service factory keeps the service, so a later change reaches it only once the process restarts.
-- An access token carries the principal's type in `pty` when it has one, read when the token is issued; a refresh
-  token never does. Nothing checks `pty` on a bearer request: eligibility is enforced when a session is issued and
-  each time it refreshes, and `Auth::type()` reads the bound principal live.
+- `admit()` is asked only after the identity, the principal and its tenant have passed their activity checks.
+- Lifetimes are per guard only: `lifetimes($guard)` is the guard's token service's lifetimes, the same for every
+  principal. Unlike the audience block, they are read only when the token service is built: the token service factory
+  keeps the service, so a later change reaches it only once the process restarts. Issuing an access token reads nothing
+  from the principal beyond its identifier.
 - Policy decisions never revoke a device. A session the policy stops admitting is refused on its next refresh and
   refreshes again once the policy admits it.
 
@@ -58,7 +54,7 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
   reservation; inside the credential timebox, the method's verification, activity, `admitIdentifier($guard,
   $identity, $identifierType)`, the principal, then `admit($guard, $identity, $principal, $identifierType)`; the
   session's device takes its deadlines from
-  `lifetimes($guard, $principal)`.
+  `lifetimes($guard)`.
 - `start()`: `allowsMethod()` and `admit()` with no identifier type; no limiter, no timebox.
 - `complete()`: `allowsMethod()` for the stored method, and `admitIdentifier()` and `admit()` with the stored
   identifier type, rechecked when
@@ -66,7 +62,7 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
 - Refresh: right after the device lookup, the device must record this guard (`device_guard_mismatch`); after the owner
   and principal are reloaded, the recorded method must still be allowed (`method_not_allowed`, also when the device
   records none) and `admit()` must pass with no identifier type (`principal_ineligible`, whatever reason the policy
-  gives); a rotation's idle deadline comes from `lifetimes($guard, $principal)`.
+  gives); a rotation's idle deadline comes from `lifetimes($guard)`.
 - Bearer requests and `attempt()`'s device pin treat a device of another guard, or of none, as missing.
 
 ## Failure / Edge Cases
@@ -102,20 +98,19 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
   carrying an IPv4 client's address (IPv4-mapped, or the NAT64 well-known prefix `64:ff9b::/96`) is counted as that IPv4
   address.
 - A custom `AudiencePolicy` decides the session's deadlines (the device's on sign-in, the idle deadline on each
-  rotation) through `lifetimes()`; the access token's expiry is still computed by the guard's token service from
-  `jwt.by_principal_type`, and is capped at the session's end. A policy that returns lifetimes the guard's
+  rotation) through `lifetimes($guard)`; the access token's expiry is still computed by the guard's token service from
+  the guard's `jwt` lifetimes, and is capped at the session's end. A policy that returns lifetimes the guard's
   configuration does not describe therefore shortens or lengthens sessions, not access tokens.
 - The policy is resolved from the container on every call, on every path, so a binding an application makes at any
   time is the one used.
 - A switch of principal asks `admitIdentifier()` and `admit()` with the identifier type its session's sign-in used
-  (recorded on the device), besides the refresh's own `admit()` with none, and `lifetimes()` for the target, and never
+  (recorded on the device), besides the refresh's own `admit()` with none, and `lifetimes($guard)`, and never
   extends the session's absolute deadline (see `principal-choice-and-switch.md`).
 
 ## Implementation Anchors
 
-- `src/Contracts/AudiencePolicy.php`, `src/Audience/GuardAudiencePolicy.php`, `src/Audience/PrincipalType.php`.
-- `src/Jwt/JwtTokenServiceFactory.php` (`jwt.by_principal_type`) and `src/Jwt/JwtTokenService.php` (`lifetimesFor()`,
-  `pty` in `issueAccessToken()`).
+- `src/Contracts/AudiencePolicy.php`, `src/Audience/GuardAudiencePolicy.php`.
+- `src/Jwt/JwtTokenServiceFactory.php` (the guard's lifetimes) and `src/Jwt/JwtTokenService.php` (`lifetimes()`).
 - `src/Sessions/SessionService.php`, `src/Sessions/CredentialAttempt.php` (the method check) and
   `src/Admission/SignInAdmission.php`, shared with `src/Guards/Concerns/SignsInWithCredentials.php` (`attempt()`).
 - `src/Jwt/RefreshTokenExchange.php` (`exchangeOn()`, `rotate()`), `src/Jwt/RefreshAdmission.php` (`admitByPolicy()`)
@@ -130,7 +125,7 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
 - `tests/Integration/Sessions/SignInPolicyEndToEndTest.php` (every piece above, through the shipped bindings)
 - `tests/Unit/Admission/SignInAdmissionTest.php` `testAnyPolicysRefusalOfTheIdentityComesBeforeItsPrincipal`
 - `tests/Feature/Audience/GuardAudiencePolicyTest.php`, `tests/Integration/Guards/AudiencePolicyIntegrationTest.php`
-- `tests/Unit/Audience/PrincipalTypeTest.php`
+- `tests/Performance/AccessTokenIssueQueryBudgetTest.php`
 - `tests/Integration/Guards/RefreshAudienceIntegrationTest.php`
 - `tests/Integration/RateLimiting/DatabaseAttemptLimiterTest.php`,
   `tests/Integration/RateLimiting/ConcurrentDatabaseAttemptLimiterTest.php`
@@ -142,10 +137,11 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
 Update this note when any of the following change:
 
 - the keys of an `audience` block, their defaults, or how a guard's keys combine with the package's
-- what counts as a principal's type, or whether an untyped principal can be admitted by a guard that lists types
+- whether the package decides which principals may hold a guard's sessions, or how a rebound policy's refusal is
+  reported
 - which sign-ins carry an identifier type, and so which the verified-identifier gate applies to
 - which paths consult the policy (sign-in, start, completion, refresh, bearer, pins), in what order, or whether any of
   its refusals revokes a device
-- which lifetimes can vary by principal type, or where access-token and session lifetimes are computed
-- whether `pty` is written, required, or checked
+- whether lifetimes vary by anything but the guard, or where access-token and session lifetimes are computed
+- whether an access token carries anything about the principal beyond its identifier
 - what the attempt limits count, in which form, where, or whether they share the session's transaction

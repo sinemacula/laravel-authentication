@@ -45,14 +45,14 @@ use SineMacula\Laravel\Authentication\Scopes\Scopes;
  * `unauthorized_client` for a principal the audience does not admit); the
  * requested scope, space-separated, must be granted to the key (none asks for
  * every granted scope; else `invalid_scope`). The token then carries the key's
- * id in `cid` and the scopes in `scope`, lives the guard's access lifetime for
- * the principal's type and never past the key's expiry, and is checked against
- * its key on every request, so revoking the key, or the end of its rotation's
- * overlap, ends it at once. Only failures to authenticate the client are
- * counted. Every failure dispatches `AuthenticationFailed` (flow
- * `client_credentials`) with the client id when it is a key's public part in
- * form, and none otherwise, so a secret sent as the id is never reported; a
- * grant dispatches `ClientCredentialsGranted`.
+ * id in `cid` and the scopes in `scope`, lives the guard's access lifetime and
+ * never past the key's expiry, and is checked against its key on every request,
+ * so revoking the key, or the end of its rotation's overlap, ends it at once.
+ * Only failures to authenticate the client are counted. Every failure
+ * dispatches `AuthenticationFailed` (flow `client_credentials`) with the client
+ * id when it is a key's public part in form, and none otherwise, so a secret
+ * sent as the id is never reported; a grant dispatches
+ * `ClientCredentialsGranted`.
  *
  * Reads the provider, resolver, dispatcher and request from the guard's context
  * each time it runs, so it keeps nothing between calls.

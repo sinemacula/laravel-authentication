@@ -482,6 +482,7 @@ final class ApiKeyGuardTest extends TestCase
 
         $issued = $this->apiKeys('accounts')->issue($account, $membership);
 
+        $this->refuseMembershipsOfType('robot');
         $membership->forceFill(['type' => 'robot'])->save();
         $this->getWithKey('/accounts/me', $issued->key())->assertUnauthorized();
         $this->assertRefused(FailureReason::PRINCIPAL_INELIGIBLE, $issued->id);

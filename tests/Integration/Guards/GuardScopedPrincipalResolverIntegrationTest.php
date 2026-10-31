@@ -27,7 +27,7 @@ use Tests\Unit\Stubs\StubTenant;
  * Integration tests for guard-local principal resolvers.
  *
  * Verifies that two JWT guards can share one identity model while resolving
- * distinct principals, tenants, and types from guard-specific resolver bindings
+ * distinct principals and tenants from guard-specific resolver bindings
  * configured in `auth.guards.<name>.principal_resolver`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -98,8 +98,8 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        $staffTenant       = $this->makeTenant(101, 'staff');
-        $customerTenant    = $this->makeTenant(202, 'customer');
+        $staffTenant       = $this->makeTenant(101);
+        $customerTenant    = $this->makeTenant(202);
         $staffPrincipal    = new PlainPrincipalFixture('staff-actor', $identity, $staffTenant);
         $customerPrincipal = new PlainPrincipalFixture('customer-actor', $identity, $customerTenant);
 
@@ -119,7 +119,6 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
         self::assertNotNull($staffGuard->user());
         self::assertSame('staff-actor', $staffGuard->principal()?->getPrincipalIdentifier());
         self::assertSame($staffTenant, $staffGuard->tenant());
-        self::assertSame('staff', $staffGuard->type());
 
         $customerGuard = PackageAuth::guard(self::CUSTOMER_GUARD);
 
@@ -131,17 +130,15 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
         self::assertTrue($customerGuard->check());
         self::assertSame('customer-actor', $customerGuard->principal()?->getPrincipalIdentifier());
         self::assertSame($customerTenant, $customerGuard->tenant());
-        self::assertSame('customer', $customerGuard->type());
 
         self::assertNull($staffGuard->identity());
         self::assertNull($staffGuard->principal());
         self::assertNull($staffGuard->tenant());
-        self::assertNull($staffGuard->type());
     }
 
     /**
      * Switching the default guard flips the package facade's contextual
-     * accessors to the guard-local principal, tenant, and type.
+     * accessors to the guard-local principal and tenant.
      *
      * @return void
      *
@@ -151,8 +148,8 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        $staffTenant       = $this->makeTenant(101, 'staff');
-        $customerTenant    = $this->makeTenant(202, 'customer');
+        $staffTenant       = $this->makeTenant(101);
+        $customerTenant    = $this->makeTenant(202);
         $staffPrincipal    = new PlainPrincipalFixture('staff-actor', $identity, $staffTenant);
         $customerPrincipal = new PlainPrincipalFixture('customer-actor', $identity, $customerTenant);
 
@@ -173,7 +170,6 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
         self::assertTrue($staffGuard->check());
         self::assertSame('staff-actor', PackageAuth::principal()?->getPrincipalIdentifier());
         self::assertSame($staffTenant, PackageAuth::tenant());
-        self::assertSame('staff', PackageAuth::type());
 
         config()->set('auth.defaults.guard', self::CUSTOMER_GUARD);
         $this->bindRequestWithBearer($customerToken);
@@ -185,7 +181,6 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
         self::assertTrue($customerGuard->check());
         self::assertSame('customer-actor', PackageAuth::principal()->getPrincipalIdentifier());
         self::assertSame($customerTenant, PackageAuth::tenant());
-        self::assertSame('customer', PackageAuth::type());
     }
 
     /**
@@ -246,19 +241,15 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
     }
 
     /**
-     * Build an unsaved tenant object with an identifier and type.
+     * Build an unsaved tenant object with an identifier.
      *
      * @param  int  $id
-     * @param  string  $type
      * @return \Tests\Unit\Stubs\StubTenant
      */
-    private function makeTenant(int $id, string $type): StubTenant
+    private function makeTenant(int $id): StubTenant
     {
         $tenant = new StubTenant;
-        $tenant->forceFill([
-            'id'   => $id,
-            'type' => $type,
-        ]);
+        $tenant->forceFill(['id' => $id]);
 
         return $tenant;
     }

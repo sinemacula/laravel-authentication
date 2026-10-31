@@ -10,16 +10,12 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Log\LoggerInterface;
 use SineMacula\Laravel\Authentication\Contracts\Device;
-use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Contracts\Tenant;
-use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
-use Tests\Unit\Stubs\PlainPrincipalFixture;
 
 /**
  * Claim-policy unit tests for `JwtTokenService`: the `grd` claim that binds
@@ -279,104 +275,23 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * An access token carries the principal's type in `pty`, its own type
-     * winning over its tenant's, while the token type stays in `typ`; a
-     * principal without a type gets a token without the claim, and a refresh
-     * token never carries it.
+     * Issuing never reads the principal's tenant: the token needs only the
+     * principal's identifier.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testAccessTokensCarryThePrincipalTypeWhenThereIsOne(): void
-    {
-        $service  = $this->makeService();
-        $identity = $this->mockIdentity('identity-7');
-
-        $typed = \Mockery::mock(Principal::class, HasType::class);
-        $typed->shouldReceive('getPrincipalIdentifier')->andReturn('principal-3');
-        $typed->shouldReceive('getType')->andReturn('client_admin');
-
-        $tenant = \Mockery::mock(Tenant::class, HasType::class);
-        $tenant->shouldReceive('getType')->andReturn('staff');
-
-        $own      = $service->parse($service->issueAccessToken($identity, $typed, null), TokenType::ACCESS);
-        $fallback = $service->parse($service->issueAccessToken($identity, new PlainPrincipalFixture('principal-4', tenant: $tenant), null), TokenType::ACCESS);
-        $untyped  = $service->parse($service->issueAccessToken($identity, $this->mockPrincipal('principal-5'), null), TokenType::ACCESS);
-        $refresh  = $service->parse($service->issueRefreshToken($this->mockDevice('device-42'), 'rotation-id', $typed), TokenType::REFRESH);
-
-        self::assertIsArray($own);
-        self::assertIsArray($fallback);
-        self::assertIsArray($untyped);
-        self::assertIsArray($refresh);
-        self::assertSame('client_admin', $own[Claims::PRINCIPAL_TYPE->value]);
-        self::assertSame(TokenType::ACCESS->value, $own[Claims::TYPE->value]);
-        self::assertSame('staff', $fallback[Claims::PRINCIPAL_TYPE->value]);
-        self::assertArrayNotHasKey(Claims::PRINCIPAL_TYPE->value, $untyped);
-        self::assertArrayNotHasKey(Claims::PRINCIPAL_TYPE->value, $refresh);
-    }
-
-    /**
-     * A service without lifetimes per principal type gives every principal the
-     * guard's lifetimes without reading its type, so a guard that does not key
-     * lifetimes on types never loads a tenant for them.
-     *
-     * @return void
-     */
-    public function testLifetimesForWithoutPerTypeLifetimesNeverReadsTheType(): void
-    {
-        $service   = $this->makeService();
-        $principal = \Mockery::mock(Principal::class, HasType::class);
-        $principal->shouldNotReceive('getType');
-        $principal->shouldNotReceive('getTenant');
-
-        self::assertSame($service->lifetimes(), $service->lifetimesFor($principal));
-    }
-
-    /**
-     * With lifetimes per principal type, a principal of a listed type gets its
-     * type's lifetimes, its tenant's type counting as its own, and any other
-     * principal, or none, gets the guard's.
-     *
-     * @return void
-     */
-    public function testLifetimesForSelectsThePrincipalTypesLifetimes(): void
-    {
-        $staff   = new TokenLifetimes(2, 60, 600, 30);
-        $service = new JwtTokenService(
-            $this->makeKeyring(),
-            self::GUARD,
-            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
-            30,
-            principalTypeLifetimes: ['staff' => $staff],
-        );
-
-        $tenant = \Mockery::mock(Tenant::class, HasType::class);
-        $tenant->shouldReceive('getType')->andReturn('staff');
-
-        self::assertSame($staff, $service->lifetimesFor(new PlainPrincipalFixture(1, tenant: $tenant)));
-        self::assertSame($service->lifetimes(), $service->lifetimesFor(new PlainPrincipalFixture(2)));
-        self::assertSame($service->lifetimes(), $service->lifetimesFor(null));
-    }
-
-    /**
-     * Issuing reports a principal whose tenant cannot be loaded instead of
-     * issuing a token without its type.
-     *
-     * @return void
-     *
-     * @throws \Random\RandomException
-     */
-    public function testIssuingReportsAPrincipalWhoseTenantCannotBeLoaded(): void
+    public function testIssuingNeverReadsThePrincipalsTenant(): void
     {
         $principal = \Mockery::mock(Principal::class);
         $principal->shouldReceive('getPrincipalIdentifier')->andReturn('principal-3');
-        $principal->shouldReceive('getTenant')->andThrow(new TenantUnavailableException('tenant gone'));
+        $principal->shouldNotReceive('getTenant');
 
-        $this->expectException(TenantUnavailableException::class);
-        $this->expectExceptionMessage('tenant gone');
+        $claims = $this->makeService()->parse($this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $principal, null), TokenType::ACCESS);
 
-        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $principal, null);
+        self::assertIsArray($claims);
+        self::assertSame('principal-3', $claims[Claims::PRINCIPAL_ID->value]);
     }
 
     /**

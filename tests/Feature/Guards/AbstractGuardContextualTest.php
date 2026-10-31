@@ -5,7 +5,6 @@ declare(strict_types = 1);
 namespace Tests\Feature\Guards;
 
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
@@ -13,7 +12,7 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 
 /**
  * Feature tests for the contextual state surface on `AbstractGuard`
- * (`setPrincipal`, `setDevice`, `tenant`, `type`).
+ * (`setPrincipal`, `setDevice`, `tenant`).
  *
  * Split out of the original AbstractGuardTest so each class stays focused on a
  * single behavioural slice.
@@ -95,81 +94,5 @@ final class AbstractGuardContextualTest extends AbstractGuardTestCase
         $guard->setPrincipal($principal);
 
         self::assertSame($tenant, $guard->tenant());
-    }
-
-    /**
-     * type() returns the principal's own type when it declares the `HasType`
-     * capability, over the type of the tenant it acts within.
-     *
-     * @return void
-     */
-    public function testTypeReturnsThePrincipalsOwnTypeOverItsTenants(): void
-    {
-        $guard = $this->makeGuard();
-
-        $tenant = \Mockery::mock(Tenant::class, HasType::class);
-        $tenant->shouldReceive('getTenantIdentifier')->andReturn('tenant-1');
-        $tenant->shouldNotReceive('getType');
-
-        $principal = $this->mockPrincipal(HasType::class);
-        $principal->shouldReceive('getType')
-            ->andReturn('client_admin');
-        $principal->shouldReceive('getTenant')->andReturn($tenant);
-
-        $this->events->shouldReceive('dispatch')->andReturnNull();
-
-        $guard->setPrincipal($principal);
-
-        self::assertSame('client_admin', $guard->type());
-    }
-
-    /**
-     * type() falls back to the tenant's type when the principal declares none
-     * and the tenant declares the `HasType` capability.
-     *
-     * @return void
-     */
-    public function testTypeReturnsTenantTypeWhenCapabilityDeclared(): void
-    {
-        $guard = $this->makeGuard();
-
-        $tenant = \Mockery::mock(Tenant::class, HasType::class);
-        $tenant->shouldReceive('getTenantIdentifier')->byDefault()->andReturn('tenant-1');
-        $tenant->shouldReceive('getType')
-            ->andReturn('staff');
-
-        $principal = $this->mockPrincipal();
-        $principal->shouldReceive('getTenant')
-            ->andReturn($tenant);
-
-        $this->events->shouldReceive('dispatch')->andReturnNull();
-
-        $guard->setPrincipal($principal);
-
-        self::assertSame('staff', $guard->type());
-    }
-
-    /**
-     * type() returns null when neither the principal nor its tenant declares
-     * the `HasType` capability.
-     *
-     * @return void
-     */
-    public function testTypeReturnsNullWhenTenantHasNoTypeCapability(): void
-    {
-        $guard = $this->makeGuard();
-
-        $tenant = \Mockery::mock(Tenant::class);
-        $tenant->shouldReceive('getTenantIdentifier')->byDefault()->andReturn('tenant-1');
-
-        $principal = $this->mockPrincipal();
-        $principal->shouldReceive('getTenant')
-            ->andReturn($tenant);
-
-        $this->events->shouldReceive('dispatch')->andReturnNull();
-
-        $guard->setPrincipal($principal);
-
-        self::assertNull($guard->type());
     }
 }

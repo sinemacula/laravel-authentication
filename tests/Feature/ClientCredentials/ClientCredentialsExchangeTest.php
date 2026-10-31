@@ -119,6 +119,7 @@ final class ClientCredentialsExchangeTest extends TestCase
         self::assertSame('invoices:read reports', $claims[Claims::SCOPE->value]);
         self::assertSame(IdentifierCoercion::stringify($machine->getKey()), $claims[Claims::SUBJECT->value]);
         self::assertNull($claims[Claims::DEVICE_ID->value] ?? null);
+        self::assertArrayNotHasKey('pty', $claims);
         self::assertSame(0, DB::table('devices')->count());
 
         $granted = $this->machineEventsOf(ClientCredentialsGranted::class);
@@ -433,6 +434,7 @@ final class ClientCredentialsExchangeTest extends TestCase
 
         $issued = $this->apiKeys('m2m_accounts')->issue($account, $membership);
 
+        $this->refuseMembershipsOfType('robot');
         $membership->forceFill(['type' => 'robot'])->save();
 
         $this->token('grant_type=client_credentials', $this->basic($issued), '/oauth/accounts/token')

@@ -66,7 +66,7 @@ is rejected as if the device were missing. The guard's audience policy is asked 
 started the session (the device's `sign_in_method`) must still be one the guard allows (`method_not_allowed`; a device
 that records none fails too), and the policy must still admit the owner as the principal (`principal_ineligible`).
 Neither revokes the device, so the session refreshes again once the policy allows it. Each rotation moves the idle
-deadline by the idle lifetime the policy gives the principal's type.
+deadline by the idle lifetime the policy gives the guard.
 
 A refresh token is accepted only for the principal its device records. After a switch (see [Switching
 principal](sessions.md#switching-principal)), the refresh token of the principal switched from fails with

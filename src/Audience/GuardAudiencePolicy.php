@@ -17,16 +17,15 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 
 /**
  * The package's audience policy: each guard's `audience` configuration over the
- * package defaults in `authentication.audience`, and its lifetimes per
- * principal type.
+ * package defaults in `authentication.audience`, and the guard's lifetimes.
  *
  * A key present in the guard's `audience` block wins, `null` included;
  * otherwise the package value applies. Nothing falls back to a literal: a key
  * missing at both levels, a malformed value, or a key the policy does not know
  * fails closed with an `InvalidArgumentException` naming the guard and the key.
  * The audience settings are read on every call, so a change to them applies at
- * once; the lifetimes per principal type come from the guard's token service,
- * which the token service factory builds once and keeps.
+ * once; the lifetimes come from the guard's token service, which the token
+ * service factory builds once and keeps.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -34,7 +33,7 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 final readonly class GuardAudiencePolicy implements AudiencePolicy
 {
     /** @var list<string> Keys an `audience` block may hold. */
-    private const array KEYS = ['methods', 'principal_types', 'require_verified_identifier'];
+    private const array KEYS = ['methods', 'require_verified_identifier'];
 
     /**
      * Constructor.
@@ -67,13 +66,10 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
     }
 
     /**
-     * Admit the principal when the guard admits any principal type, or lists
-     * the principal's type (see `PrincipalType`); otherwise refuse it as
-     * `principal_ineligible`. A principal without a type is refused by a guard
-     * that lists types.
-     *
-     * Then hold the identity to the verified-identifier requirement
-     * (`admitIdentifier()`).
+     * Admit every principal, holding the identity only to the
+     * verified-identifier requirement (`admitIdentifier()`): the package has no
+     * rule about which principals may hold the guard's sessions, so an
+     * application that has one rebinds the policy.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -83,18 +79,10 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      */
     #[\Override]
     public function admit(string $guard, Identity $identity, Principal $principal, ?string $identifierType): ?FailureReason
     {
-        $settings = $this->settings($guard);
-        $types    = $settings['principal_types'];
-
-        if ($types !== null && !in_array(PrincipalType::of($principal), $types, true)) {
-            return FailureReason::PRINCIPAL_INELIGIBLE;
-        }
-
         return $this->admitIdentifier($guard, $identity, $identifierType);
     }
 
@@ -117,7 +105,7 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
     #[\Override]
     public function admitIdentifier(string $guard, Identity $identity, ?string $identifierType): ?FailureReason
     {
-        if ($identifierType === null || !$this->settings($guard)['require_verified_identifier']) {
+        if (!$this->settings($guard)['require_verified_identifier'] || $identifierType === null) {
             return null;
         }
 
@@ -127,22 +115,17 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
     }
 
     /**
-     * The guard's lifetimes for the principal's type: its
-     * `jwt.by_principal_type` entry for that type when it has one, otherwise
-     * the guard's own.
+     * The lifetimes of the guard's token service.
      *
      * @param  string  $guard
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes
      *
      * @throws \InvalidArgumentException
-     * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      */
     #[\Override]
-    public function lifetimes(string $guard, Principal $principal): TokenLifetimes
+    public function lifetimes(string $guard): TokenLifetimes
     {
-        return $this->tokens->forGuard($guard)->lifetimesFor($principal);
+        return $this->tokens->forGuard($guard)->lifetimes();
     }
 
     /**
@@ -164,7 +147,7 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
      * one fails closed whichever check runs first.
      *
      * @param  string  $guard
-     * @return array{methods: non-empty-list<non-empty-string>, principal_types: ?non-empty-list<non-empty-string>, require_verified_identifier: bool}
+     * @return array{methods: non-empty-list<non-empty-string>, require_verified_identifier: bool}
      *
      * @throws \InvalidArgumentException
      */
@@ -184,17 +167,12 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
             throw new \InvalidArgumentException(self::message($guard, 'methods', 'a non-empty list of lower-case sign-in method names'));
         }
 
-        if ($settings['principal_types'] !== null && !self::isNameList($settings['principal_types'])) {
-            throw new \InvalidArgumentException(self::message($guard, 'principal_types', 'null or a non-empty list of principal types'));
-        }
-
         if (!is_bool($settings['require_verified_identifier'])) {
             throw new \InvalidArgumentException(self::message($guard, 'require_verified_identifier', 'true or false'));
         }
 
         return [
             'methods'                     => $settings['methods'],
-            'principal_types'             => $settings['principal_types'],
             'require_verified_identifier' => $settings['require_verified_identifier'],
         ];
     }

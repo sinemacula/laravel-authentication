@@ -849,26 +849,26 @@ final class PrincipalSwitchTest extends TestCase
     }
 
     /**
-     * The switched session's absolute deadline is held to the target type's
-     * absolute lifetime counted from the sign-in, and a session already past it
-     * fails as `session_expired`.
+     * The switched session's absolute deadline is held to the guard's absolute
+     * lifetime counted from the sign-in, so one the guard shortened after the
+     * session started applies and a switch never extends the session, and a
+     * session already past it fails as `session_expired`.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testTheTargetTypesLifetimeBoundsTheSwitchedSession(): void
+    public function testTheGuardsLifetimeBoundsTheSwitchedSession(): void
     {
         [, $second] = $this->seedMemberships();
 
-        $guard    = app(JwtTokenServiceFactory::class)->forGuard(self::GUARD)->lifetimes();
-        $short    = new TokenLifetimes(5, 60, 10, 30);
         $audience = \Mockery::mock(AudiencePolicy::class);
         $audience->shouldReceive('allowsMethod')->andReturnTrue();
         $audience->shouldReceive('admitIdentifier')->andReturnNull();
         $audience->shouldReceive('admit')->andReturnNull();
         $audience->shouldReceive('lifetimes')
-            ->andReturnUsing(static fn (string $name, Principal $principal): TokenLifetimes => $principal->is($second) ? $short : $guard); // @phpstan-ignore method.notFound
+            ->with(self::GUARD)
+            ->andReturn(app(JwtTokenServiceFactory::class)->forGuard(self::GUARD)->lifetimes(), new TokenLifetimes(5, 60, 10, 30));
 
         app()->instance(AudiencePolicy::class, $audience);
 

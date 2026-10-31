@@ -308,7 +308,7 @@ final readonly class PrincipalSwitch
     /**
      * Switch the device presenting its current rotation id: the token's
      * principal must be the one the device records, and the session must still
-     * be live under the target type's lifetimes.
+     * be live under the guard's lifetimes.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
@@ -325,7 +325,7 @@ final readonly class PrincipalSwitch
         CarbonImmutable $now,
     ): AuthenticationFailed|SwitchedPrincipal {
         [, $id]    = PrincipalReference::columns($device);
-        $deadlines = $this->deadlines($device, $admitted->principal, $now);
+        $deadlines = $this->deadlines($device, $now);
 
         $refusal = match (true) {
             !IdentifierCoercion::matches($device->getRawOriginal($id), $presented[1]) => FailureReason::DEVICE_PRINCIPAL_MISMATCH,
@@ -457,20 +457,20 @@ final readonly class PrincipalSwitch
     }
 
     /**
-     * The session's deadlines under the target, idle then absolute: the
-     * absolute one kept, held to the target type's absolute lifetime counted
-     * from the sign-in, and the idle one restarted from `$now` within it.
+     * The session's deadlines after the switch, idle then absolute: the
+     * absolute one kept, held to the guard's absolute lifetime counted from the
+     * sign-in (so a lifetime shortened since then applies and a switch never
+     * extends the session), and the idle one restarted from `$now` within it.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $target
      * @param  \Carbon\CarbonImmutable  $now
      * @return array{0: \Carbon\CarbonImmutable, 1: \Carbon\CarbonImmutable}
      *
      * @throws \Throwable
      */
-    private function deadlines(EloquentDevice&Model $device, Principal $target, CarbonImmutable $now): array
+    private function deadlines(EloquentDevice&Model $device, CarbonImmutable $now): array
     {
-        $lifetimes = Container::getInstance()->make(AudiencePolicy::class)->lifetimes($this->context->name(), $target);
+        $lifetimes = Container::getInstance()->make(AudiencePolicy::class)->lifetimes($this->context->name());
         $stored    = CarbonImmutable::instance($device->getAbsoluteExpiresAt() ?? $now);
         $signedIn  = $device->getSignedInAt();
         $absolute  = $signedIn === null ? $stored : $stored->min($lifetimes->absoluteDeadline($signedIn));

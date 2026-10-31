@@ -8,11 +8,11 @@ use Carbon\Carbon;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
-use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
@@ -30,13 +30,16 @@ use Tests\Integration\Fixtures\TypedTenant;
 use Tests\TestCase;
 
 /**
- * Integration tests for a guard's audience: eligibility read from stored
- * principals and tenants, and lifetimes per principal type on the tokens the
- * guard issues and the `auth` middleware accepts.
+ * Integration tests for a guard's audience over stored principals: every
+ * principal is admitted whatever its own columns say, and the tokens and
+ * sessions a guard issues follow that guard's lifetimes and carry nothing about
+ * the principal's kind, through sign-in, refresh, switch and the `auth`
+ * middleware.
  *
- * The `api` guard admits the `staff` and `client_staff` types, and gives
- * `client_staff` two-minute access tokens and a one-day session against the
- * guard's fifteen minutes and thirty days.
+ * The `api` guard issues two-minute access tokens and one-day sessions; the
+ * `other` guard keeps the package's fifteen minutes and thirty days.
+ * Memberships and tenants have `type` and `category` columns of the
+ * application's own.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -51,14 +54,20 @@ final class AudiencePolicyIntegrationTest extends TestCase
 {
     use InteractsWithTypedPrincipals;
 
-    /** @var string Guard the tests authenticate with. */
+    /** @var string Guard with lifetimes of its own. */
     private const string GUARD = 'api';
+
+    /** @var string Guard on the package's lifetimes. */
+    private const string OTHER_GUARD = 'other';
+
+    /** @var string Password of seeded identities. */
+    private const string PASSWORD = 'secret';
 
     /** @var string Plaintext rotation id of seeded devices. */
     private const string ROTATION_ID = 'audience-rotation';
 
     /**
-     * Create the typed tables and the route behind the `auth` middleware.
+     * Create the tables and the routes behind each guard's `auth` middleware.
      *
      * @return void
      */
@@ -72,11 +81,13 @@ final class AudiencePolicyIntegrationTest extends TestCase
 
         self::createTypedPrincipalTables();
 
-        Route::middleware('auth:' . self::GUARD)->get('/me', static fn (): array => ['type' => Auth::type()]);
+        foreach ([self::GUARD, self::OTHER_GUARD] as $guard) {
+            Route::middleware('auth:' . $guard)->get('/' . $guard . '/me', static fn (): array => ['principal' => Auth::principal()?->getPrincipalIdentifier()]);
+        }
     }
 
     /**
-     * Drop the typed tables and release the clocks.
+     * Drop the tables and release the clocks.
      *
      * @return void
      */
@@ -92,65 +103,70 @@ final class AudiencePolicyIntegrationTest extends TestCase
     }
 
     /**
-     * Eligibility reads the type from the stored rows: a member of a `staff`
-     * tenant and a `client_staff` membership are admitted, while a
-     * `client_admin` membership and an untyped member of an untyped tenant are
-     * refused.
+     * The package policy admits every stored principal, in a tenant or not,
+     * whatever its `type` or its tenant's `category`, without reading the
+     * tenant.
      *
      * @return void
      */
-    public function testEligibilityFollowsTheStoredPrincipalAndTenantTypes(): void
+    public function testEveryStoredPrincipalIsAdmitted(): void
     {
         $policy = app(AudiencePolicy::class);
 
-        self::assertNull($this->admit($policy, $this->seedMembership(null, 'staff')));
-        self::assertNull($this->admit($policy, $this->seedMembership('client_staff', 'staff')));
-        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->admit($policy, $this->seedMembership('client_admin', 'staff')));
-        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->admit($policy, $this->seedMembership(null, null)));
+        foreach ([['client_admin', 'staff'], [null, 'staff'], ['contractor', null], [null, null]] as [$type, $category]) {
+
+            $membership = $this->seedMembership($type, $category);
+            $identity   = $membership->getIdentity();
+
+            DB::enableQueryLog();
+            DB::flushQueryLog();
+
+            self::assertNull($policy->admit(self::GUARD, $identity, $membership, null));
+            self::assertSame([], DB::getQueryLog());
+            self::assertFalse($membership->relationLoaded('tenant'));
+        }
     }
 
     /**
-     * An access token for a `client_staff` principal expires after its type's
-     * two minutes, so the middleware rejects it while a `staff` token issued at
-     * the same moment, on the guard's fifteen minutes, still passes.
+     * An access token expires after its guard's access lifetime, whatever the
+     * principal, so the middleware rejects the `api` token once its two minutes
+     * are up while the `other` token, issued at the same moment, still passes.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testAccessTokensLiveForTheirPrincipalTypesLifetime(): void
+    public function testAccessTokensLiveForTheirGuardsLifetime(): void
     {
-        $clientStaff = $this->seedMembership('client_staff', null);
-        $staff       = $this->seedMembership(null, 'staff');
+        $membership = $this->seedMembership('client_staff', 'staff');
+        $token      = $this->tokens()->issueAccessToken($membership->getIdentity(), $membership, null);
+        $other      = $this->tokens(self::OTHER_GUARD)->issueAccessToken($membership->getIdentity(), $membership, null);
 
-        $clientStaffToken = $this->tokens()->issueAccessToken($clientStaff->getIdentity(), $clientStaff, null);
-        $staffToken       = $this->tokens()->issueAccessToken($staff->getIdentity(), $staff, null);
-
-        $this->assertExpiresInMinutes(2, $clientStaffToken);
-        $this->assertExpiresInMinutes(15, $staffToken);
-        $this->withToken($clientStaffToken)->getJson('/me')->assertOk()->assertExactJson(['type' => 'client_staff']);
+        $this->assertExpiresInMinutes(2, $token);
+        $this->assertExpiresInMinutes(15, $other, self::OTHER_GUARD);
+        $this->withToken($token)->getJson('/api/me')->assertOk()->assertExactJson(['principal' => $membership->getKey()]);
 
         Carbon::setTestNow(Carbon::now()->addMinutes(3));
         JWT::$timestamp = Carbon::now()->getTimestamp();
 
-        $this->withToken($clientStaffToken)->getJson('/me')->assertUnauthorized();
-        $this->withToken($staffToken)->getJson('/me')->assertOk()->assertExactJson(['type' => 'staff']);
+        $this->withToken($token)->getJson('/api/me')->assertUnauthorized();
+        $this->withToken($other)->getJson('/other/me')->assertOk()->assertExactJson(['principal' => $membership->getKey()]);
     }
 
     /**
-     * A device stamped from the policy's lifetimes for a `client_staff`
-     * principal gets that type's session, and a refresh of it returns an access
-     * token on that type's access lifetime.
+     * A device stamped from the policy's lifetimes for the guard gets the
+     * guard's session, and a refresh of it returns an access token on the
+     * guard's access lifetime, never past the absolute deadline.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testSessionsAndRefreshedTokensFollowThePrincipalTypesLifetimes(): void
+    public function testSessionsAndRefreshedTokensFollowTheGuardsLifetimes(): void
     {
         $membership = $this->seedMembership('client_staff', null);
         $identity   = $membership->getIdentity();
-        $lifetimes  = app(AudiencePolicy::class)->lifetimes(self::GUARD, $membership);
+        $lifetimes  = app(AudiencePolicy::class)->lifetimes(self::GUARD);
         $absolute   = $lifetimes->absoluteDeadline(Carbon::now());
 
         self::assertInstanceOf(TypedIdentity::class, $identity);
@@ -183,7 +199,72 @@ final class AudiencePolicyIntegrationTest extends TestCase
     }
 
     /**
-     * Configure the guard's audience and per-type lifetimes.
+     * No token the guard issues carries a principal type: not the pair a
+     * sign-in starts, nor the pair a refresh rotates to, nor the pair a switch
+     * to another principal issues, for memberships whose own `type` columns
+     * differ.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testNoIssuedTokenCarriesAPrincipalType(): void
+    {
+        $first  = $this->seedMembership('client_admin', 'staff');
+        $second = TypedMembership::query()->create(['identity_id' => $first->identity_id, 'tenant_id' => null, 'type' => 'service']);
+
+        $sessions = Auth::sessions(self::GUARD);
+        $signedIn = $sessions->start($first->getIdentity(), $first, 'password')->session;
+
+        self::assertNotNull($signedIn);
+
+        Auth::forgetGuards();
+
+        $refreshed = Auth::sessions(self::GUARD)->refresh($signedIn->tokens->refreshToken)->session;
+
+        self::assertNotNull($refreshed);
+
+        Auth::forgetGuards();
+
+        $switched = Auth::sessions(self::GUARD)->switchPrincipal($refreshed->tokens->refreshToken, $second)->session;
+
+        self::assertNotNull($switched);
+        self::assertSame($second->getKey(), $switched->principal->getPrincipalIdentifier());
+
+        foreach ([$signedIn, $refreshed, $switched] as $session) {
+            self::assertArrayNotHasKey('pty', $this->claims($session->tokens->accessToken));
+            self::assertArrayNotHasKey('pty', $this->claims($session->tokens->refreshToken, TokenType::REFRESH));
+        }
+    }
+
+    /**
+     * An access token signed with the guard's key that still carries a `pty`
+     * claim, as tokens issued before principal types were removed do,
+     * authenticates a bearer request as any other: nothing reads the claim.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testATokenStillCarryingAPrincipalTypeAuthenticates(): void
+    {
+        $membership = $this->seedMembership('client_staff', 'staff');
+        $claims     = $this->claims($this->tokens()->issueAccessToken($membership->getIdentity(), $membership, null));
+        $kid        = config('authentication.jwt.active_kid');
+
+        self::assertIsString($kid);
+
+        $key = config('authentication.jwt.keys.' . $kid);
+
+        self::assertIsString($key);
+
+        $legacy = JWT::encode([...$claims, 'pty' => 'contractor'], $key, 'HS256', $kid);
+
+        $this->withToken($legacy)->getJson('/api/me')->assertOk()->assertExactJson(['principal' => $membership->getKey()]);
+    }
+
+    /**
+     * Configure the guards and their lifetimes.
      *
      * @param  mixed  $app
      * @return void
@@ -204,28 +285,30 @@ final class AudiencePolicyIntegrationTest extends TestCase
         $config->set('auth.guards.' . self::GUARD, [
             'driver'   => 'jwt',
             'provider' => 'typed',
-            'audience' => ['principal_types' => ['staff', 'client_staff']],
-            'jwt'      => [
-                'by_principal_type' => [
-                    'client_staff' => ['access_ttl_minutes' => 2, 'refresh_absolute_ttl_minutes' => 60 * 24],
-                ],
-            ],
+            'audience' => ['methods' => ['password']],
+            'jwt'      => ['access_ttl_minutes' => 2, 'refresh_absolute_ttl_minutes' => 60 * 24],
+        ]);
+        $config->set('auth.guards.' . self::OTHER_GUARD, [
+            'driver'   => 'jwt',
+            'provider' => 'typed',
+            'jwt'      => ['access_ttl_minutes' => 15, 'refresh_absolute_ttl_minutes' => 60 * 24 * 30],
         ]);
         $config->set('auth.providers.typed', ['driver' => 'model', 'model' => TypedIdentity::class]);
     }
 
     /**
-     * Persist an identity with one membership of the given type, in a tenant of
-     * the given type when one is given.
+     * Persist an identity with one membership whose `type` column is the one
+     * given, in a tenant whose `category` is the one given when one is given,
+     * and return the membership read back without its tenant.
      *
      * @param  ?string  $type
-     * @param  ?string  $tenantType
+     * @param  ?string  $category
      * @return \Tests\Integration\Fixtures\TypedMembership
      */
-    private function seedMembership(?string $type, ?string $tenantType): TypedMembership
+    private function seedMembership(?string $type, ?string $category): TypedMembership
     {
-        $identity = TypedIdentity::query()->create(['email' => 'audience@example.test', 'password' => 'unused']);
-        $tenant   = $tenantType === null ? null : TypedTenant::query()->create(['category' => $tenantType]);
+        $identity = TypedIdentity::query()->create(['email' => 'audience@example.test', 'password' => bcrypt(self::PASSWORD)]);
+        $tenant   = $category === null ? null : TypedTenant::query()->create(['category' => $category]);
 
         $membership = TypedMembership::query()->create([
             'identity_id' => $identity->getKey(),
@@ -241,37 +324,27 @@ final class AudiencePolicyIntegrationTest extends TestCase
     }
 
     /**
-     * Ask the policy to admit the membership to the guard.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy  $policy
-     * @param  \Tests\Integration\Fixtures\TypedMembership  $membership
-     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
-     */
-    private function admit(AudiencePolicy $policy, TypedMembership $membership): ?FailureReason
-    {
-        return $policy->admit(self::GUARD, $membership->getIdentity(), $membership, null);
-    }
-
-    /**
      * Assert the access token expires the given number of minutes from now.
      *
      * @param  int  $minutes
      * @param  string  $token
+     * @param  string  $guard
      * @return void
      */
-    private function assertExpiresInMinutes(int $minutes, string $token): void
+    private function assertExpiresInMinutes(int $minutes, string $token, string $guard = self::GUARD): void
     {
-        self::assertSame(Carbon::now()->addMinutes($minutes)->getTimestamp(), $this->claims($token)[Claims::EXPIRES_AT->value]);
+        self::assertSame(Carbon::now()->addMinutes($minutes)->getTimestamp(), $this->claims($token, TokenType::ACCESS, $guard)[Claims::EXPIRES_AT->value]);
     }
 
     /**
      * The guard's token service.
      *
+     * @param  string  $guard
      * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
      */
-    private function tokens(): JwtTokenService
+    private function tokens(string $guard = self::GUARD): JwtTokenService
     {
-        return Auth::manager()->jwt(self::GUARD);
+        return Auth::manager()->jwt($guard);
     }
 
     /**
@@ -279,11 +352,12 @@ final class AudiencePolicyIntegrationTest extends TestCase
      *
      * @param  string  $token
      * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
+     * @param  string  $guard
      * @return array<string, mixed>
      */
-    private function claims(string $token, TokenType $type = TokenType::ACCESS): array
+    private function claims(#[\SensitiveParameter] string $token, TokenType $type = TokenType::ACCESS, string $guard = self::GUARD): array
     {
-        $claims = $this->tokens()->parse($token, $type);
+        $claims = $this->tokens($guard)->parse($token, $type);
 
         self::assertIsArray($claims);
 

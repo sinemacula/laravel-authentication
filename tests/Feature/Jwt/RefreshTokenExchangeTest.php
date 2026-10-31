@@ -1614,21 +1614,21 @@ final class RefreshTokenExchangeTest extends TestCase
 
     /**
      * A rotation moves the idle deadline by the idle lifetime the policy gives
-     * the principal, not the guard's own.
+     * the guard, not the token service's own.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testARotationMovesTheIdleDeadlineByThePrincipalsLifetimes(): void
+    public function testARotationMovesTheIdleDeadlineByThePolicysLifetimes(): void
     {
         $device = $this->seedDevice(45, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
 
         $this->expectRefreshContext(45);
         $this->audience->shouldReceive('lifetimes')
             ->once()
-            ->with(self::GUARD_NAME, \Mockery::type(Principal::class))
+            ->with(self::GUARD_NAME)
             ->andReturn(new TokenLifetimes(self::ACCESS_TTL, 45, 60 * 24 * 180, self::GRACE));
 
         $result = $this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client());

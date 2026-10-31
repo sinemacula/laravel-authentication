@@ -130,7 +130,6 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
         self::assertSame($resolvedIdentity, $resolvedPrincipal->getIdentity());
         self::assertSame($principal->getPrincipalIdentifier(), $resolvedPrincipal->getPrincipalIdentifier());
         self::assertSame($tenant->getTenantIdentifier(), $resolvedTenant->getTenantIdentifier());
-        self::assertSame('staff', $guard->type());
     }
 
     /**
@@ -163,7 +162,6 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
         self::assertSame($resolvedIdentity, $resolvedPrincipal->getIdentity());
         self::assertSame($principal->getPrincipalIdentifier(), $resolvedPrincipal->getPrincipalIdentifier());
         self::assertSame($tenant->getTenantIdentifier(), $resolvedTenant->getTenantIdentifier());
-        self::assertSame('staff', $guard->type());
     }
 
     /**
@@ -191,7 +189,6 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
         self::assertInstanceOf(StubPrincipal::class, $resolved);
         self::assertSame($resolved, $guard->principal());
         self::assertNull($guard->tenant());
-        self::assertNull($guard->type());
     }
 
     /**

@@ -30,8 +30,8 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  * Package AuthManager.
  *
  * Subclass of Laravel's `AuthManager` that exposes the contextual accessors
- * (`identity`, `principal`, `device`, `tenant`, `type`, `scopes`), guard-scoped
- * `jwt()` issuance, each JWT guard's `sessions()`, `codes()`, `passwords()`,
+ * (`identity`, `principal`, `device`, `tenant`, `scopes`), guard-scoped `jwt()`
+ * issuance, each JWT guard's `sessions()`, `codes()`, `passwords()`,
  * `passkeys()`, `identifierChanges()`, `refreshTransport()` and
  * `clientCredentials()`, and the API keys of an `api_key` or JWT guard
  * (`apiKeys()`) directly on the manager. Each contextual accessor forwards to
@@ -341,23 +341,6 @@ class AuthManager extends IlluminateAuthManager
         $guard = $this->guard();
 
         return $guard instanceof ContextualGuard ? $guard->tenant() : null;
-    }
-
-    /**
-     * The active principal's type (its own, else its tenant's), when the active
-     * guard is contextual and the principal has one.
-     *
-     * @return ?string
-     *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
-     * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
-     */
-    public function type(): ?string
-    {
-        $guard = $this->guard();
-
-        return $guard instanceof ContextualGuard ? $guard->type() : null;
     }
 
     /**

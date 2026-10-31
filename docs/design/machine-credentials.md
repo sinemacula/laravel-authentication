@@ -31,17 +31,17 @@ authorization package decides what they allow.
   the `IssuedApiKey` the issuing call returns, which holds it as a `SensitiveParameterValue` read through `key()`, so
   no dump shows it and serialising it throws. The exchange holds a presented client secret the same way.
 - A key belongs to one guard, one non-human identity, one principal and that principal's tenant, each of the last three
-  recorded by type (morph class, else class name) and identifier, so a tenant of another type under the same
-  identifier is not the key's. Every keyed operation of the service matches the principal's type and identifier, and
-  the guard, in its statement; a key of another principal or guard is absent.
+  recorded by type (morph class, else class name) and identifier, so a tenant of another type under the same identifier
+  is not the key's. Every keyed operation of the service matches the principal's morph type and identifier, and the
+  guard, in its statement; a key of another principal or guard is absent.
 - A presented key costs one indexed lookup of its public part on the write connection and a constant-time digest
   comparison, against a fixed digest when no key matched; never a password hash.
 - A client credentials exchange (RFC 6749 section 4.4) takes a key of a `jwt` guard, its public part as the client id
   and its secret as the client secret, and issues an access token of that guard with no device and no refresh token,
-  carrying the key's id (`cid`) and the granted scopes (`scope`), living the access lifetime for the principal's type and
-  never past the key's expiry. A token with `cid` must carry `scope` and name no device, or `parse()` rejects it. The
-  RFC 6749 5.1 response carries `scope` only when the token grants at least one: RFC 6749 3.3 has no empty scope value,
-  while the claim is `""` for none.
+  carrying the key's id (`cid`) and the granted scopes (`scope`), living the guard's access lifetime and never past the
+  key's expiry. A token with `cid` must carry `scope` and name no device, or `parse()` rejects it. The RFC 6749 5.1
+  response carries `scope` only when the token grants at least one: RFC 6749 3.3 has no empty scope value, while the
+  claim is `""` for none.
 - A client token is held to its key on every request (decided: reject at once rather than at token expiry): the key,
   read by primary key on the writer, must be the token's guard's, not revoked and not expired, the subject a machine,
   and `CredentialBinding` must hold for the loaded identity, principal and tenant. Revoking the key, or the end of a
@@ -53,9 +53,9 @@ authorization package decides what they allow.
 - Every write to a key is one conditional statement on its own connection (rotation: a conditional update of the
   replaced key, then the insert of its replacement, in one transaction), and its event is dispatched once committed
   there.
-- A keyed operation matches the guard and the principal's type and identifier in the statement and then compares the
-  key's recorded ones exactly, since a column's collation, such as MySQL's default `_ci`, can count distinct values like
-  `alice` and `Alice`, or guards `api` and `API`, as equal.
+- A keyed operation matches the guard and the principal's morph type and identifier in the statement and then compares
+  the key's recorded ones exactly, since a column's collation, such as MySQL's default `_ci`, can count distinct values
+  like `alice` and `Alice`, or guards `api` and `API`, as equal.
 - A credential's scopes are fixed when it is issued, after normalisation and the `ScopeRegistry`'s check; a malformed
   or rejected scope is an `InvalidScopeException`, the caller's error rather than a failed authentication. Any answer
   from the registry but `[]` refuses, naming the given scopes it names, or every given scope when it names none as

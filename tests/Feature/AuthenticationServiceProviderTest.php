@@ -307,7 +307,6 @@ final class AuthenticationServiceProviderTest extends TestCase
         self::assertNull($manager->principal());
         self::assertNull($manager->device());
         self::assertNull($manager->tenant());
-        self::assertNull($manager->type());
     }
 
     /**

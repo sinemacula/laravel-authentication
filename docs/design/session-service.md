@@ -61,9 +61,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   `InvalidArgumentException` before anything else: a session recorded under `client_credentials` would pass for a
   client credentials token to every listener that reads the method.
 - One `$now` per call, cut to the second, is used for the deadlines, the last use and every token's `iat`. The
-  deadlines come from the audience policy's lifetimes for the principal (`AudiencePolicy::lifetimes()`), which with the
-  shipped policy are the guard's `jwt.by_principal_type` entry for the principal's type, or the guard's own; the access
-  token is issued with the principal's type in `pty` (see `audience-policy.md`).
+  deadlines come from the audience policy's lifetimes for the guard (`AudiencePolicy::lifetimes($guard)`), which with
+  the shipped policy are the guard's token service's (see `audience-policy.md`).
 - A session is written in one transaction on the device's connection: the device first, then both tokens, so any
   failure while issuing rolls the device back. Only the digest of the rotation id is stored.
 - A refresh token proves a device only when it is the device's current rotation id, validly signed for the guard

@@ -312,7 +312,6 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
             $authenticated = $guard->check();
             $guard->principal(); // @phpstan-ignore method.resultUnused
             $guard->tenant(); // @phpstan-ignore method.resultUnused
-            $guard->type(); // @phpstan-ignore method.resultUnused
             $guard->principal()?->getIdentity();
 
             return $authenticated;
@@ -348,7 +347,6 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
             $authenticated = $guard->check();
             $guard->principal(); // @phpstan-ignore method.resultUnused
             $guard->tenant(); // @phpstan-ignore method.resultUnused
-            $guard->type(); // @phpstan-ignore method.resultUnused
             $guard->principal()?->getIdentity();
 
             return $authenticated;
@@ -356,7 +354,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         self::assertTrue($result);
         self::assertSame($secondaryPrincipal->getPrincipalIdentifier(), $guard->principal()?->getPrincipalIdentifier());
-        self::assertSame('customer', $guard->type());
+        self::assertSame($secondaryPrincipal->getTenant()?->getTenantIdentifier(), $guard->tenant()?->getTenantIdentifier());
     }
 
     /**

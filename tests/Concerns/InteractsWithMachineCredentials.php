@@ -13,7 +13,10 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyService;
+use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use Tests\Fixtures\Sessions\RefusingAudiencePolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\MachineAccount;
@@ -25,12 +28,12 @@ use Tests\Integration\Fixtures\MachineWorkspace;
  * Shared set-up for tests of machine credentials: an `api_key` guard
  * (`machine`) over `MachineClient`, which acts as its own principal; an
  * `api_key` guard (`accounts`) over `MachineAccount`, whose principals are
- * typed memberships of activatable tenants or workspaces; `jwt` guards for
- * client credentials over `MachineClient` (`m2m`) and over `MachineAccount`
- * (`m2m_accounts`, admitting `service` memberships only); a `jwt` guard (`api`)
+ * memberships of activatable tenants or workspaces, each with a `type` of the
+ * application's own; `jwt` guards for client credentials over `MachineClient`
+ * (`m2m`) and over `MachineAccount` (`m2m_accounts`); a `jwt` guard (`api`)
  * over the human `IntegrationIdentity`; the tables behind them; seeded
- * identities; the request a call comes from; and a record of the events
- * dispatched.
+ * identities; a rebound audience policy refusing memberships of a type; the
+ * request a call comes from; and a record of the events dispatched.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -124,13 +127,9 @@ trait InteractsWithMachineCredentials
         $config->set('auth.providers.accounts', ['driver' => 'model', 'model' => MachineAccount::class]);
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => IntegrationIdentity::class]);
         $config->set('auth.guards.machine', ['driver' => 'api_key', 'provider' => 'machines', 'audience' => ['methods' => ['api_key']]]);
-        $config->set('auth.guards.accounts', ['driver' => 'api_key', 'provider' => 'accounts', 'audience' => ['methods' => ['api_key'], 'principal_types' => ['service']]]);
+        $config->set('auth.guards.accounts', ['driver' => 'api_key', 'provider' => 'accounts', 'audience' => ['methods' => ['api_key']]]);
         $config->set('auth.guards.m2m', ['driver' => 'jwt', 'provider' => 'machines', 'audience' => ['methods' => ['client_credentials']]]);
-        $config->set('auth.guards.m2m_accounts', [
-            'driver'   => 'jwt',
-            'provider' => 'accounts',
-            'audience' => ['methods' => ['client_credentials'], 'principal_types' => ['service']],
-        ]);
+        $config->set('auth.guards.m2m_accounts', ['driver' => 'jwt', 'provider' => 'accounts', 'audience' => ['methods' => ['client_credentials']]]);
         $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities', 'audience' => ['methods' => ['password']]]);
         $config->set('hashing.bcrypt.rounds', 4);
         $config->set('authentication.timebox.credentials_microseconds', 1);
@@ -168,6 +167,24 @@ trait InteractsWithMachineCredentials
         ]);
 
         return [$account, $membership, $tenant];
+    }
+
+    /**
+     * Rebind the audience policy around the bound one so every guard refuses a
+     * membership whose `type` is the one given as `principal_ineligible`, as an
+     * application that keeps service accounts apart would.
+     *
+     * @param  string  $type
+     * @return void
+     */
+    protected function refuseMembershipsOfType(string $type): void
+    {
+        $inner = app(AudiencePolicy::class);
+
+        app()->instance(AudiencePolicy::class, new RefusingAudiencePolicy(
+            $inner,
+            static fn (string $guard, Principal $principal): bool => $principal instanceof MachineMembership && $principal->type === $type,
+        ));
     }
 
     /**

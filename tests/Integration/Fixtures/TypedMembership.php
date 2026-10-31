@@ -7,13 +7,11 @@ namespace Tests\Integration\Fixtures;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
-use SineMacula\Laravel\Authentication\Concerns\ProvidesType;
-use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * Membership fixture that declares a principal type in its `type` column, or
- * none when the column is `null`, and may act within a typed tenant.
+ * Membership fixture with a `type` column the package never reads, which may
+ * act within a tenant that has a `category` column of its own.
  *
  * @property int $id
  * @property int $identity_id
@@ -25,9 +23,9 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  *
  * @internal
  */
-final class TypedMembership extends Model implements HasType, Principal
+final class TypedMembership extends Model implements Principal
 {
-    use ActsAsPrincipal, ProvidesType;
+    use ActsAsPrincipal;
 
     /** @var string|null The table associated with the model. */
     protected $table = 'typed_memberships';

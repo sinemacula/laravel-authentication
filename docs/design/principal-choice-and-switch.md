@@ -22,8 +22,8 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   `principals($identity, $identifierType)` lists the same way for a switch screen given the type the session's device
   records, so it lists only targets the audience policy lets that session switch to.
 - Each principal read with the others is checked on a stored copy (`WriteConnection::stored()`): Eloquent strict mode
-  prevents lazy loading on models read together, and the activity check and the audience policy read its tenant. The
-  list holds the principals as read.
+  prevents lazy loading on models read together, and the activity check (and any audience policy that reads it) reads
+  its tenant. The list holds the principals as read.
 - Every sign-in asks the audience policy's `admitIdentifier()` before any principal is resolved or listed
   (`SignInAdmission`), so with the package's policy a guard requiring a verified identifier refuses an unverified one
   as `identifier_unverified` whether the identity has principals or not, and the answer never tells someone holding an
@@ -54,9 +54,10 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   `LogicException` rather than reading as one that used none) so a principal a policy refuses to that identifier cannot
   be reached by switching, and no further factor asked (`additional_factor_required`).
 - With the current rotation id, the token's `pid` must be the principal the device records
-  (`device_principal_mismatch`). The absolute deadline stays the session's, held to `signed_in_at` plus the target
-  type's absolute lifetime (`session_expired` when that has passed); the idle deadline restarts under the target's
-  lifetimes. Both tokens are issued for the target before the write, and end at the restarted idle deadline.
+  (`device_principal_mismatch`). The absolute deadline stays the session's, held to `signed_in_at` plus the guard's
+  absolute lifetime (`session_expired` when that has passed), so a lifetime shortened since the sign-in applies and a
+  switch never extends the session; the idle deadline restarts under the guard's lifetimes. Both tokens are issued for
+  the target before the write, and end at the restarted idle deadline.
 - The switch is one compare-and-swap (`RefreshRotationStore::switchPrincipal()`) on the presented digest, an unrevoked
   row, both loaded deadlines and the loaded principal columns. It writes the rotation, both deadlines and, when the
   principal changes, the target and `principal_switched_at`. A switch to the recorded principal writes no switch.

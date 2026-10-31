@@ -202,11 +202,6 @@ return [
 
         'issuer'   => env('AUTHENTICATION_JWT_ISSUER'),
         'audience' => env('AUTHENTICATION_JWT_AUDIENCE'),
-
-        // Lifetimes per principal type are set per guard only, in
-        // `auth.guards.<name>.jwt.by_principal_type.<type>`, with any of
-        // `access_ttl_minutes`, `refresh_idle_ttl_minutes` and
-        // `refresh_absolute_ttl_minutes`; each falls back to the guard's value.
     ],
 
     /*
@@ -220,10 +215,7 @@ return [
     | included. `methods` lists the sign-in methods that may start the guard's
     | sessions, by the lower-case names they are registered under, and the
     | machine credentials it accepts (`api_key`, `client_credentials`): a
-    | non-empty list. `principal_types` lists the principal types that may hold
-    | them (a non-empty list), or is `null` to admit any principal, typed or
-    | not; with a list, an untyped principal is refused.
-    | `require_verified_identifier` refuses a sign-in with an identifier (an
+    | non-empty list. `require_verified_identifier` refuses a sign-in with an identifier (an
     | email address, say) the identity has not verified; sign-ins that use no
     | identifier, such as SSO, are not affected. A malformed value, or an
     | unknown key, fails closed with an `InvalidArgumentException` naming the
@@ -233,7 +225,6 @@ return [
 
     'audience' => [
         'methods'                     => ['password'],
-        'principal_types'             => null,
         'require_verified_identifier' => false,
     ],
 

@@ -10,7 +10,7 @@ use Illuminate\Contracts\Auth\Guard;
  * Contextual guard contract.
  *
  * Extends Laravel's `Guard` with the package's contextual surface (identity,
- * principal, device, tenant, type, scopes, principal/device setters, contextual
+ * principal, device, tenant, scopes, principal/device setters, contextual
  * `attempt` and `login`). Like `user()`, the accessors and setters resolve the
  * current request on first access, at most once per request.
  *
@@ -98,20 +98,6 @@ interface ContextualGuard extends Guard
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function tenant(): ?Tenant;
-
-    /**
-     * Return the active principal's type, if any, resolving the request on
-     * first access: the principal's own type when it declares the `HasType`
-     * capability, otherwise its tenant's (see `Audience\PrincipalType`). Throws
-     * as `tenant()` does when the tenant has to be read.
-     *
-     * @return ?string
-     *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
-     * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
-     */
-    public function type(): ?string;
 
     /**
      * Return the scopes the request's credential grants, resolving the request

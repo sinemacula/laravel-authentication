@@ -50,6 +50,53 @@ through a reservation rebuilt from its own windows, whose subject carries the gu
 the IP address but no identifier or account. Two reservations may record the same key (a method that checks two secrets
 reserves the account twice), and each is given back.
 
+### Deciding which principals may use a guard
+
+The package's audience policy admits every principal. To keep some principals out of a guard, bind a policy of your own
+that refuses them from `admit()` and delegates everything else to the package's. A refused principal gets
+`principal_ineligible` at sign-in, on every refresh and switch, and for an API key or a client credentials exchange
+(`unauthorized_client`); its sessions are kept and refresh again once the policy admits it:
+
+```php
+use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+
+final readonly class StaffOnlyConsolePolicy implements AudiencePolicy
+{
+    public function __construct(private GuardAudiencePolicy $package) {}
+
+    public function allowsMethod(string $guard, string $method): bool
+    {
+        return $this->package->allowsMethod($guard, $method);
+    }
+
+    public function admitIdentifier(string $guard, Identity $identity, ?string $identifierType): ?FailureReason
+    {
+        return $this->package->admitIdentifier($guard, $identity, $identifierType);
+    }
+
+    public function admit(string $guard, Identity $identity, Principal $principal, ?string $identifierType): ?FailureReason
+    {
+        if ($guard === 'console' && !$principal instanceof StaffMembership) {
+            return FailureReason::PRINCIPAL_INELIGIBLE;
+        }
+
+        return $this->package->admit($guard, $identity, $principal, $identifierType);
+    }
+
+    public function lifetimes(string $guard): TokenLifetimes
+    {
+        return $this->package->lifetimes($guard);
+    }
+}
+
+$this->app->singleton(AudiencePolicy::class, StaffOnlyConsolePolicy::class);
+```
+
 `AbstractGuard` is not final and may be extended for entirely new guard types.
 
 ### Writing a guard type
@@ -240,7 +287,8 @@ $passed = $result->isVerified();   // else $result->reason
 
 ### Authorization (`laravel-authorization`)
 
-- `Auth::principal()`, `Auth::tenant()` and `Auth::type()` are the subject an authorization decision is about.
+- `Auth::principal()` and `Auth::tenant()` are the subject an authorization decision is about; a caller's category is
+  authorization's to model, from the principal and its tenant.
 - `Auth::scopes()` is the ceiling the request's credential grants: `null` for a human's session, which no credential
   limits, the granted list for an API key or a client credentials token, and `[]` for a machine bound without one.
   Intersect the principal's permissions with it; a scope never grants anything by itself (see
@@ -264,8 +312,8 @@ $passed = $result->isVerified();   // else $result->reason
 
 - Every package event implements `Contracts\AuthenticationEvent` and carries one `Events\EventContext`, so one listener
   records them all from its snapshot (`toArray()`): when, the guard, the client, the identity, principal and tenant by
-  morph class and identifier, the principal's categorical type, the device's identifier, the method, and the credential
-  and its scopes, never a secret. The snapshot survives a queue whatever was deleted meanwhile, so a queued audit
-  listener can take the event as it is (see [Events](events.md#events)).
+  morph class and identifier, the device's identifier, the method, and the credential and its scopes, never a secret.
+  The snapshot survives a queue whatever was deleted meanwhile, so a queued audit listener can take the event as it is
+  (see [Events](events.md#events)).
 - Events that report a write are dispatched once it commits on the written row's connection, and never for a rolled-back
   one, so a queued audit listener records only what happened.

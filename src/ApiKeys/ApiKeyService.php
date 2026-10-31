@@ -434,8 +434,8 @@ final readonly class ApiKeyService
     }
 
     /**
-     * Whether the key records exactly the guard and the principal's type and
-     * identifier. The statement that found it compares under the columns'
+     * Whether the key records exactly the guard and the principal's morph type
+     * and identifier. The statement that found it compares under the columns'
      * collation, which may count distinct values, such as `alice` and `Alice`
      * or guards `api` and `API`, as equal.
      *

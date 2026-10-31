@@ -242,7 +242,6 @@ final class RefreshTokenExchangeBenchHarness
         $this->sessionsOf($guard)->refresh($token);
         $guard->principal()?->getIdentity();
         $guard->tenant();
-        $guard->type();
     }
 
     /**
@@ -262,7 +261,6 @@ final class RefreshTokenExchangeBenchHarness
         $this->sessionsOf($guard)->refresh($token);
         $guard->principal()?->getIdentity();
         $guard->tenant();
-        $guard->type();
     }
 
     /**

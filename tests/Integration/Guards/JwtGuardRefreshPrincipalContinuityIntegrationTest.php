@@ -31,7 +31,7 @@ use Tests\Unit\Stubs\StubTenant;
  *
  * Verifies that a refresh token carrying the originally active principal id
  * keeps the refreshed bearer session on that same principal and therefore the
- * same tenant/type, even when the resolver's default principal differs.
+ * same tenant, even when the resolver's default principal differs.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -93,8 +93,8 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        $customerTenant    = $this->makeTenant(202, 'customer');
-        $staffTenant       = $this->makeTenant(101, 'staff');
+        $customerTenant    = $this->makeTenant(202);
+        $staffTenant       = $this->makeTenant(101);
         $customerPrincipal = new PlainPrincipalFixture('customer-actor', $identity, $customerTenant);
         $staffPrincipal    = new PlainPrincipalFixture('staff-actor', $identity, $staffTenant);
 
@@ -134,7 +134,6 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
         self::assertInstanceOf(TokenPair::class, $result);
         self::assertSame('staff-actor', $guard->principal()?->getPrincipalIdentifier());
         self::assertSame($staffTenant, $guard->tenant());
-        self::assertSame('staff', $guard->type());
 
         $parseJwt = PackageAuth::jwt(self::GUARD);
 
@@ -148,7 +147,6 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
         self::assertTrue($refreshedGuard->check());
         self::assertSame('staff-actor', $refreshedGuard->principal()?->getPrincipalIdentifier());
         self::assertSame($staffTenant, $refreshedGuard->tenant());
-        self::assertSame('staff', $refreshedGuard->type());
     }
 
     /**
@@ -202,19 +200,15 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
     }
 
     /**
-     * Build an unsaved tenant object with an identifier and type.
+     * Build an unsaved tenant object with an identifier.
      *
      * @param  int  $id
-     * @param  string  $type
      * @return \Tests\Unit\Stubs\StubTenant
      */
-    private function makeTenant(int $id, string $type): StubTenant
+    private function makeTenant(int $id): StubTenant
     {
         $tenant = new StubTenant;
-        $tenant->forceFill([
-            'id'   => $id,
-            'type' => $type,
-        ]);
+        $tenant->forceFill(['id' => $id]);
 
         return $tenant;
     }

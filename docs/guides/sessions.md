@@ -57,8 +57,8 @@ cannot be reached by switching to it, the session's sign-in method must still be
 policy must not ask for a further factor (`additional_factor_required`: sign in again as the target).
 
 With the current rotation id, the token's principal must be the one the device records (`device_principal_mismatch`).
-The switch keeps the session's absolute deadline, held to the target type's absolute lifetime counted from the sign-in
-(`session_expired` when that has passed), restarts the idle one under the target's lifetimes, issues both tokens for the
+The switch keeps the session's absolute deadline, held to the guard's absolute lifetime counted from the sign-in
+(`session_expired` when that has passed), restarts the idle one under the guard's lifetimes, issues both tokens for the
 target, then records the target, the switch time (`principal_switched_at`), the rotation and both deadlines in one
 compare-and-swap. The access tokens of the principal switched from stop at once, and switching back does not revive them
 (see [Device](configuration.md#device)). A switch to the principal the device already records rotates the credential

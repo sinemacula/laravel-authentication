@@ -64,8 +64,8 @@ other rotated token as a replay that revokes the device.
   each exchange): the method that started the session (`sign_in_method`) must still be one the guard allows, and the
   policy must still admit the owner as the principal (asked without an identifier type, so the verified-identifier
   requirement never applies to a refresh). Neither failure revokes: the session refreshes again once the policy allows
-  it. A rotation's idle lifetime is the one the policy gives the principal's type; the grace window and leeway stay the
-  guard's, since they apply before the principal is known.
+  it. A rotation's idle lifetime is the one the policy gives the guard; the grace window and leeway are the guard's
+  token service's, since they apply before the principal is known.
 - Refresh counts failures, not attempts: it cannot guess a secret (signed tokens, 256-bit rotation ids), so each failed
   exchange is counted against the token's device and the client's IP address by the bound `AttemptLimiter`, and
   successful ones are not. Once either count is full, the exchange stops before the device lookup.
@@ -98,7 +98,7 @@ other rotated token as a replay that revokes the device.
   confirm it and its tenant are active.
 - Ask the audience policy: `allowsMethod(guard, sign_in_method)` (a `null` method fails without asking) and
   `admit(guard, identity, principal, null)`.
-- CURRENT: compute the successor and the new idle deadline (from `AudiencePolicy::lifetimes(guard, principal)`), issue
+- CURRENT: compute the successor and the new idle deadline (from `AudiencePolicy::lifetimes(guard)`), issue
   the access token and a refresh token carrying the successor at `$now`, then run the compare-and-swap. When it affects
   the row, mirror the new state on the in-memory device and return the pair.
 - GRACE: issue, at `$now`, a fresh access token and a refresh token whose `jti` is the current id (the successor of the
@@ -294,7 +294,7 @@ other rotated token as a replay that revokes the device.
   `testABlockedExchangeIsRefusedBeforeTheLookup`, `testEveryFailureIsCountedAgainstTheDeviceAndTheIpAddress`,
   `testASuccessfulExchangeIsNotCounted`, `testADeviceOfAnotherGuardIsRefusedWithoutRevokingIt`,
   `testTheMethodThatStartedTheSessionMustStillBeAllowed`, `testThePolicyMustStillAdmitTheOwnerAsThePrincipal`,
-  `testARotationMovesTheIdleDeadlineByThePrincipalsLifetimes`
+  `testARotationMovesTheIdleDeadlineByThePolicysLifetimes`
 - `tests/Feature/Guards/JwtGuardTest.php`
   `testARateLimitedRefreshFiresFailedAndReturnsTheWait`
 - `tests/Feature/Sessions/SessionRefreshTest.php`
@@ -403,7 +403,7 @@ other rotated token as a replay that revokes the device.
   `testWithDaylightSavingARefreshSettingAnIdleDeadlineInTheSecondPassFailsWithoutWriting`,
   `testWithDaylightSavingADeadlineInTheSecondPassEndsTheSessionEarly`
 - `tests/Integration/Sessions/SignInPolicyEndToEndTest.php` (the shipped policy and limiter)
-  `testTheGuardAdmitsOnlyTheListedPrincipalTypesOnSignInAndRefresh`,
+  `testAReboundPolicyRefusesThePrincipalOnSignInAndRefresh`,
   `testRefreshesRefusedForTheirFailuresAreAnswered429ThroughTheRoute`
 - `tests/Performance/RefreshTokenExchangeQueryBudgetTest.php` (every refresh reads its limits once; a failure counts
   itself)
@@ -439,6 +439,7 @@ Update this note when any of the following change:
   repeated daylight saving hour read as its first pass)
 - which activity checks refresh applies, or whether an `UnresolvableIdentityException` still propagates
 - whether refresh and the bearer path still bind a device to its guard, or what a device without a guard means
-- which audience policy checks refresh applies (method, admission, per-type lifetimes), or whether any of them revokes
+- which audience policy checks refresh applies (method, admission, the guard's lifetimes), or whether any of them
+  revokes
 - what refresh counts against its limits, when it consults them, or how a rate-limited refresh is answered
 - whether the package opens its own transaction around a refresh

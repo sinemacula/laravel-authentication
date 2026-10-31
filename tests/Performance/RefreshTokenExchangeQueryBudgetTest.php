@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -29,6 +30,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\RefreshResult;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Fixtures\Sessions\GuardSessions;
+use Tests\Fixtures\Sessions\RefusingAudiencePolicy;
 use Tests\Integration\Fixtures\TenantAware3dIdentity;
 use Tests\Integration\Fixtures\TenantAware3dPrincipal;
 use Tests\Integration\Fixtures\TenantAware3dTenant;
@@ -578,7 +580,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $device   = $this->seedDevice($identity, ['refresh_key' => RefreshTokenHasher::hash('ineligible-rotation-id')]);
         $token    = $this->tokens()->issueRefreshToken($device, 'ineligible-rotation-id', $identity);
 
-        app(ConfigRepository::class)->set('auth.guards.' . self::GUARD . '.audience', ['principal_types' => ['staff']]);
+        app()->instance(AudiencePolicy::class, new RefusingAudiencePolicy(app(AudiencePolicy::class), static fn (): bool => true));
 
         $guard  = $this->freshJwtGuard(self::GUARD);
         $events = $this->recordRefreshEvents();
@@ -651,7 +653,6 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
             $tokens = GuardSessions::of($guard)->refresh($token)->session?->tokens;
             $guard->principal()?->getIdentity();
             $guard->tenant();
-            $guard->type();
 
             return $tokens;
         });
@@ -692,14 +693,13 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
             $tokens = GuardSessions::of($guard)->refresh($token)->session?->tokens;
             $guard->principal()?->getIdentity();
             $guard->tenant();
-            $guard->type();
 
             return $tokens;
         });
 
         self::assertNotNull($result);
         self::assertSame($secondaryPrincipal->getPrincipalIdentifier(), $guard->principal()?->getPrincipalIdentifier());
-        self::assertSame('customer', $guard->type());
+        self::assertSame($secondaryPrincipal->getTenant()?->getTenantIdentifier(), $guard->tenant()?->getTenantIdentifier());
     }
 
     /**

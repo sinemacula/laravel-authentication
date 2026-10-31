@@ -31,7 +31,6 @@ a guard's JWT settings are read once and kept (see [Configuration lifetimes](ope
 | `jwt.issuer`                                        | `null`                                                                       | `AUTHENTICATION_JWT_ISSUER`                                       | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
 | `jwt.audience`                                      | `null`                                                                       | `AUTHENTICATION_JWT_AUDIENCE`                                     | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
 | `audience.methods`                                  | `['password']`                                                               |                                                                   | yes       | [Audiences](#audiences)                                               |
-| `audience.principal_types`                          | `null`                                                                       |                                                                   | yes       | [Audiences](#audiences)                                               |
 | `audience.require_verified_identifier`              | `false`                                                                      |                                                                   | yes       | [Audiences](#audiences)                                               |
 | `identifiers.normalisers`                           | `['email' => EmailNormaliser::class, 'phone' => E164PhoneNormaliser::class]` |                                                                   |           | [Identifiers](identity-models.md#identifiers)                         |
 | `rate_limits.table`                                 | `rate_limits`                                                                | `AUTHENTICATION_RATE_LIMITS_TABLE`                                |           | [Rate limits](#rate-limits)                                           |
@@ -211,9 +210,9 @@ service is resolved; the defaults live only in the published config.
 
 ## Audiences
 
-An audience is a guard. Each guard decides which sign-in methods may start its sessions and which principal types may
-hold them, and can give each principal type its own token and session lifetimes. The defaults live in the package
-`audience` block, and a guard overrides any key in an `audience` block of its own:
+An audience is a guard. Each guard decides which sign-in methods may start its sessions, whether the identifier a
+sign-in used must be verified, and how long its sessions last. The defaults live in the package `audience` block, and a
+guard overrides any key in an `audience` block of its own:
 
 ```php
 'guards' => [
@@ -221,21 +220,18 @@ hold them, and can give each principal type its own token and session lifetimes.
         'driver'   => 'jwt',
         'provider' => 'users',
         'audience' => [
-            'methods'         => ['password'],
-            'principal_types' => ['staff', 'client_admin'],
+            'methods' => ['password'],
         ],
     ],
     'mobile' => [
         'driver'   => 'jwt',
         'provider' => 'users',
         'audience' => [
-            'methods'         => ['sso'],
-            'principal_types' => ['client_staff'],
+            'methods'                     => ['email_code'],
+            'require_verified_identifier' => true,
         ],
         'jwt' => [
-            'by_principal_type' => [
-                'client_staff' => ['refresh_absolute_ttl_minutes' => 60 * 24 * 365],
-            ],
+            'refresh_absolute_ttl_minutes' => 60 * 24 * 365,
         ],
     ],
 ],
@@ -244,41 +240,34 @@ hold them, and can give each principal type its own token and session lifetimes.
 | Key                           | Default        | Meaning                                                                                                                                                                  |
 |-------------------------------|----------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `methods`                     | `['password']` | The sign-in methods that may start the guard's sessions, and the machine credentials (`api_key`, `client_credentials`) it accepts (a non-empty list of lower-case names) |
-| `principal_types`             | `null`         | `null` admits any principal; a non-empty list admits only principals of those types                                                                                      |
 | `require_verified_identifier` | `false`        | Refuse a sign-in with an identifier the identity has not verified                                                                                                        |
 
-A principal's type is its own or its tenant's (see [Principal type](identity-models.md#principal-type)); with a list, a
-principal without a type is refused. The session layer asks the guard before it issues anything: a sign-in with a method
-the guard does not list fails with `method_not_allowed`, and a principal whose type it does not admit with
-`principal_ineligible`, at sign-in and again on every refresh, so a valid credential for one audience cannot open or
-keep a session in another. With `require_verified_identifier`, a sign-in that used an identifier (an email address for
-the password method) fails with `identifier_unverified` unless the identity reports that identifier verified (see
+The session layer asks the guard before it issues anything: a sign-in with a method the guard does not list fails with
+`method_not_allowed`, at sign-in and again on every refresh, so a valid credential for one audience cannot open or keep a
+session in another. With `require_verified_identifier`, a sign-in that used an identifier (an email address for the
+password method) fails with `identifier_unverified` unless the identity reports that identifier verified (see
 [Identifier verification](identity-models.md#identifier-verification)); sign-ins that used no identifier, such as SSO
 through `start()`, and refreshes are not gated, since the external provider or the existing session vouches for them.
 The check is made before any principal is resolved, so an unverified identifier gets `identifier_unverified` whether or
 not the identity has a principal yet, and the answer cannot tell whether it has been invited anywhere. A switch of
 principal is held to the identifier type its session's sign-in used, which the device records.
 
-A guard key that is present wins, `null` included, so a guard can admit any principal although the package default
-lists types; a guard `audience` entry of `null` means no overrides. Nothing falls back to a literal: a key missing from
-both blocks, a value of the wrong shape, an empty list, or a key the policy does not know fails closed with an
-`InvalidArgumentException` naming the guard and the key the first time the guard's policy is used. The policy is
-`Contracts\AudiencePolicy`, bound to `Audience\GuardAudiencePolicy`; bind your own implementation to decide differently.
-Its `admitIdentifier()` is the check every sign-in makes before any principal is resolved, so a policy of your own keeps
-the guarantee above only by deciding verification there, for the identity as a whole; one that wraps the package's
-policy delegates `admitIdentifier()` to it like the other methods. A refusal from `admit()` comes only once a principal
-resolves, so an identity with none would get `principal_unresolved` instead. A policy of your own decides the session's
-deadlines through `lifetimes()`, while an access token's lifetime still comes from the guard's `jwt.by_principal_type`
-configuration (capped at the session's end). See `docs/design/audience-policy.md` for every point where the policy is
-enforced.
+A guard key that is present wins, `null` included; a guard `audience` entry of `null` means no overrides. Nothing falls
+back to a literal: a key missing from both blocks, a value of the wrong shape, an empty list, or a key the policy does
+not know fails closed with an `InvalidArgumentException` naming the guard and the key the first time the guard's policy
+is used. The policy is `Contracts\AudiencePolicy`, bound to `Audience\GuardAudiencePolicy`; bind your own
+implementation to decide differently. The package's admits every principal; an application that decides which
+principals may hold a guard's sessions refuses the others from `admit()` (as `principal_ineligible`, which a refresh,
+a switch, an API key and a client credentials exchange report too). Its `admitIdentifier()` is the check every sign-in
+makes before any principal is resolved, so a policy of your own keeps the guarantee above only by deciding
+verification there, for the identity as a whole; one that wraps the package's policy delegates `admitIdentifier()` to
+it like the other methods. A refusal from `admit()` comes only once a principal resolves, so an identity with none
+would get `principal_unresolved` instead. A policy of your own decides the session's deadlines through
+`lifetimes($guard)`, while an access token's lifetime still comes from the guard's `jwt` configuration (capped at the
+session's end). See `docs/design/audience-policy.md` for every point where the policy is enforced.
 
-Lifetimes per principal type are set per guard only, in `jwt.by_principal_type.<type>`, with any of
-`access_ttl_minutes`, `refresh_idle_ttl_minutes` and `refresh_absolute_ttl_minutes` (same types and ranges as the
-guard's own). Each key a type leaves out, or sets to `null`, is the guard's value; the refresh grace window and the
-leeway stay the guard's, because a refresh judges them before it knows the principal. Any other key, or a map that is
-not keyed by type names, fails closed with an `InvalidJwtConfigurationException` when the guard is resolved. Access
-tokens expire after their principal type's access lifetime, `Auth::jwt('api')->lifetimesFor($principal)` returns the
-lifetimes for a principal, and a guard without per-type lifetimes never reads a principal's type for them.
+Lifetimes are per guard only: each guard's `jwt` block sets its own (see
+[Token and session lifetimes](#token-and-session-lifetimes)), and every principal of the guard gets them.
 
 ## Per-guard principal resolvers
 

@@ -66,7 +66,7 @@ final class PrincipalReference
     }
 
     /**
-     * The device's principal type and identifier columns, read from its
+     * The device's principal morph type and identifier columns, read from its
      * `principal()` relation on a blank instance: building the relation on a
      * device that records a principal would instantiate the recorded type,
      * which for a principal that is not an Eloquent model is not a model.

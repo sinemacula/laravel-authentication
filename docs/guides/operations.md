@@ -96,10 +96,10 @@ test does) applies from the next use. Two kinds are read once and kept:
 | A guard's `provider` and `principal_resolver` override | when the guard is built                                | the guard's life: one request, or a queue worker's whole life |
 
 The token service factory is a singleton that builds each guard's token service (its keys, active kid, algorithm,
-lifetimes, those per principal type included, refresh grace, leeway, issuer and audience) once, so a runtime change to a
-JWT setting does not reach a token service already built, even for a guard built afterwards. Nor does it reach the
-lifetimes per principal type the audience policy applies, which come from the token service; the rest of the audience
-settings, the rate limits and every other setting are read anew. A queue worker resets its guards between jobs rather
+lifetimes, refresh grace, leeway, issuer and audience) once, so a runtime change to a JWT setting does not reach a token
+service already built, even for a guard built afterwards. Nor does it reach the lifetimes the audience policy applies,
+which come from the token service; the rest of the audience settings, the rate limits and every other setting are read
+anew. A queue worker resets its guards between jobs rather
 than rebuilding them, so it keeps both kinds for as long as it runs. To change a kept setting, change the configuration
 and restart the worker, as above.
 
@@ -204,12 +204,12 @@ to describe it. Database errors are never read as an unknown device: they propag
 
 `php artisan authentication:check` resolves every `jwt` and `api_key` guard's settings the way the guard would and exits
 `1` when any is wrong, `0` otherwise, for a deploy pipeline or a readiness probe. It checks each `jwt` guard's token
-service (keys, active kid, algorithm, key lengths, lifetimes, those per principal type included, leeway, issuer and
-audience), that its provider resolves to an `IdentityProvider`, its `principal_resolver` override, its audience settings
-when the package's `AudiencePolicy` is bound, the rate limits of every flow, the password identifier, the refresh token
-transport and, when its audience allows `passkey` or it sets a `passkeys` block, its passkey relying party; each
-`api_key` guard's provider, `principal_resolver` override, audience settings (which must allow `api_key`) and rate
-limits; and, for the whole package, the storage and rate limit connections (`authentication.storage.connection`,
+service (keys, active kid, algorithm, key lengths, lifetimes, leeway, issuer and audience), that its provider resolves
+to an `IdentityProvider`, its `principal_resolver` override, its audience settings when the package's `AudiencePolicy`
+is bound, the rate limits of every flow, the password identifier, the refresh token transport and, when its audience
+allows `passkey` or it sets a `passkeys` block, its passkey relying party; each `api_key` guard's provider,
+`principal_resolver` override, audience settings (which must allow `api_key`) and rate limits; and, for the whole
+package, the storage and rate limit connections (`authentication.storage.connection`,
 `authentication.rate_limits.connection`: a connection name configured in `database.connections`, or none), the
 configured device model, which must live on the storage connection, and the pruning retention while any `jwt` guard is
 configured (`authentication.device.prune_after_days`, otherwise checked only when `model:prune` runs), the pending

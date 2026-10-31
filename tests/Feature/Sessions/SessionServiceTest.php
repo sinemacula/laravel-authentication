@@ -731,7 +731,7 @@ final class SessionServiceTest extends TestCase
 
     /**
      * The device's deadlines follow the lifetimes the audience policy gives the
-     * principal.
+     * guard.
      *
      * @return void
      *
@@ -742,7 +742,7 @@ final class SessionServiceTest extends TestCase
         $this->seedIdentity();
 
         $audience = $this->audience();
-        $audience->shouldReceive('lifetimes')->once()->with('api', \Mockery::type(IntegrationIdentity::class))->andReturn(new TokenLifetimes(5, 60, 120, 30));
+        $audience->shouldReceive('lifetimes')->once()->with('api')->andReturn(new TokenLifetimes(5, 60, 120, 30));
 
         $session = $this->sessions()->signIn('password', self::credentials())->session;
 

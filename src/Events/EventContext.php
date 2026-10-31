@@ -8,7 +8,6 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\ClassMorphViolationException;
 use Illuminate\Database\Eloquent\Model;
-use SineMacula\Laravel\Authentication\Audience\PrincipalType;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -41,9 +40,8 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * built: when (`occurredAt`), the guard, the client, the method, the
  * credential's id and scopes, the morph class (an Eloquent model's morph class,
  * else the class name, which also stands for a model an enforced morph map
- * leaves out) and identifier of the identity, the principal and the tenant, the
- * principal's categorical type (`principalCategory`, as `Auth::type()` reports
- * it), and the device's identifier. It is the record an audit sink keeps, and
+ * leaves out) and identifier of the identity, the principal and the tenant, and
+ * the device's identifier. It is the record an audit sink keeps, and
  * `toArray()` gives it as scalars. The models are a convenience: a synchronous
  * listener gets the instances the package holds, and after a queue each
  * Eloquent model is fetched again in its state then (with the relations it had
@@ -79,9 +77,6 @@ final readonly class EventContext implements Arrayable
 
     /** @var ?string The principal's identifier when the event was built. */
     public ?string $principalId;
-
-    /** @var ?string The principal's categorical type (its own, else its tenant's), as `Auth::type()` reports it, when the event was built. */
-    public ?string $principalCategory;
 
     /** @var ?string The tenant's morph class (an Eloquent model's morph class, or its class name) when the event was built. */
     public ?string $tenantMorphClass;
@@ -151,8 +146,7 @@ final readonly class EventContext implements Arrayable
         $this->identityId          = $identity  === null ? self::recordedOn($recorded, 'owner') : IdentifierCoercion::stringify($identity->getAuthIdentifier());
         $this->principalMorphClass = $principal === null ? self::recordedOn($recorded, 'type') : self::morphClassOf($principal);
         $this->principalId         = $principal === null ? self::recordedOn($recorded, 'id') : PrincipalReference::id($principal);
-        $this->principalCategory   = self::categoryOf($principal, $tenant);
-        $this->tenantMorphClass    = $tenant === null ? null : self::morphClassOf($tenant);
+        $this->tenantMorphClass    = $tenant    === null ? null : self::morphClassOf($tenant);
         $this->tenantId            = IdentifierCoercion::stringify($tenant?->getTenantIdentifier());
         $this->deviceId            = $device === null ? $deviceId : IdentifierCoercion::stringify($device->getDeviceIdentifier());
     }
@@ -177,32 +171,12 @@ final readonly class EventContext implements Arrayable
             'identity_id'           => $this->identityId,
             'principal_morph_class' => $this->principalMorphClass,
             'principal_id'          => $this->principalId,
-            'principal_category'    => $this->principalCategory,
             'tenant_morph_class'    => $this->tenantMorphClass,
             'tenant_id'             => $this->tenantId,
             'device_id'             => $this->deviceId,
             'credential_id'         => $this->credentialId,
             'scopes'                => $this->scopes,
         ];
-    }
-
-    /**
-     * The principal's categorical type from what is loaded: its own, else the
-     * tenant's; `null` without a principal, and when the principal or tenant
-     * was loaded without its type, which is unknown here rather than a reason
-     * to fail the flow the event reports.
-     *
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
-     * @return ?string
-     */
-    private static function categoryOf(?Principal $principal, ?Tenant $tenant): ?string
-    {
-        try {
-            return $principal === null ? null : PrincipalType::loaded($principal, $tenant);
-        } catch (\LogicException) {
-            return null;
-        }
     }
 
     /**

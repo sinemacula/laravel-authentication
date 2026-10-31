@@ -92,12 +92,11 @@ final readonly class InvitedTenantAudiencePolicy implements AudiencePolicy
      * The wrapped policy's lifetimes.
      *
      * @param  string  $guard
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes
      */
     #[\Override]
-    public function lifetimes(string $guard, Principal $principal): TokenLifetimes
+    public function lifetimes(string $guard): TokenLifetimes
     {
-        return $this->inner->lifetimes($guard, $principal);
+        return $this->inner->lifetimes($guard);
     }
 }

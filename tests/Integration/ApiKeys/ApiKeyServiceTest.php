@@ -229,6 +229,8 @@ final class ApiKeyServiceTest extends TestCase
     {
         [$account, $membership] = $this->seedAccount(type: 'robot');
 
+        $this->refuseMembershipsOfType('robot');
+
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('The audience of guard [accounts] does not admit the principal an API key was to be issued for (principal_ineligible).');
 

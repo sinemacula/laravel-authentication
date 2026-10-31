@@ -12,9 +12,9 @@ use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
  *
  * An audience is a guard: each guard decides which sign-in methods may start
  * its sessions, which principals may hold them, whether the identifier a
- * sign-in used must be verified, and how long its sessions and tokens last for
- * each principal type. The session service consults it before it issues
- * anything, and the refresh exchange before it rotates.
+ * sign-in used must be verified, and how long its sessions last. The session
+ * service consults it before it issues anything, and the refresh exchange
+ * before it rotates.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -82,13 +82,13 @@ interface AudiencePolicy
     public function admit(string $guard, Identity $identity, Principal $principal, ?string $identifierType): ?FailureReason;
 
     /**
-     * The token and session lifetimes of the guard for the principal's type.
+     * The token and session lifetimes of the guard, which a session's idle and
+     * absolute deadlines follow.
      *
      * @param  string  $guard
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes
      *
      * @throws \InvalidArgumentException
      */
-    public function lifetimes(string $guard, Principal $principal): TokenLifetimes;
+    public function lifetimes(string $guard): TokenLifetimes;
 }

@@ -31,7 +31,7 @@ final readonly class SwitchedPrincipal
         /** The session on its device, acting as the target, with its new pair. */
         public ExchangedRefresh $session,
 
-        /** The principal type the device recorded before. */
+        /** The principal's morph type the device recorded before. */
         public ?string $previousType,
 
         /** The principal identifier the device recorded before. */

@@ -235,13 +235,13 @@ final readonly class SessionEstablishment
     }
 
     /**
-     * Write the session of an admitted sign-in, with the guard's lifetimes for
-     * its principal: continue the proven device, or create one, recorded as
-     * created from the origin's client when that differs from the context's (a
-     * completion records where its sign-in began). The device records the
-     * method and the type of identifier the sign-in used, which a later switch
-     * of principal admits its target with. `null` when the proven device
-     * changed before it could be continued.
+     * Write the session of an admitted sign-in, with the guard's lifetimes:
+     * continue the proven device, or create one, recorded as created from the
+     * origin's client when that differs from the context's (a completion
+     * records where its sign-in began). The device records the method and the
+     * type of identifier the sign-in used, which a later switch of principal
+     * admits its target with. `null` when the proven device changed before it
+     * could be continued.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null  $proven
@@ -263,7 +263,7 @@ final readonly class SessionEstablishment
         CarbonImmutable $now,
         ?ClientContext $origin = null,
     ): ?SignedInSession {
-        $lifetimes = $this->container->make(AudiencePolicy::class)->lifetimes($this->context->name(), $admitted->principal);
+        $lifetimes = $this->container->make(AudiencePolicy::class)->lifetimes($this->context->name());
 
         return $proven === null
             ? $this->writer->create($admitted, $method, $identifierType, $context, $lifetimes, $now, $origin ?? $context->client)

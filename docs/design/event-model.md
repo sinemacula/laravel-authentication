@@ -22,19 +22,17 @@ to these events, so the shape and the timing are a contract.
   the identity's morph class (an Eloquent model's morph class, else its class name; the class name too for a model an
   enforced morph map leaves out, so building a context never throws `ClassMorphViolationException` for a tenant that
   never needed an alias) and auth identifier (`identityMorphClass`, `identityId`), the principal's morph class, as a
-  device row records it, and identifier (`principalMorphClass`, `principalId`), the principal's categorical type as
-  `Auth::type()` reports it (`principalCategory`: its own `HasType` type, else that of the context's tenant, read from
-  what is loaded and never with a query; `null` when neither reports one or a type was loaded without its column), and
-  the tenant's morph class and identifier (`tenantMorphClass`, `tenantId`) and the device's identifier (`deviceId`). A
-  device id a token named is kept as the device snapshot when no device row was loaded. The morph class and the
-  categorical type are distinct: the first says which model a reference names, the second what kind of principal it is.
+  device row records it, and identifier (`principalMorphClass`, `principalId`), the tenant's morph class and identifier
+  (`tenantMorphClass`, `tenantId`) and the device's identifier (`deviceId`). A device id a token named is kept as the
+  device snapshot when no device row was loaded. The morph class says which model a reference names, never what kind of
+  principal it is: a caller's category is the application's to record, from the principal it is given.
 - An event about a device row itself is built with `fromDevice`: every `DeviceRevoked`, and a refresh or switch refused
   on the row's own state before its owner was read (a `RefreshJudgement` verdict, `identity_unknown`, a row that changed
   under the compare-and-swap). An identity or principal it does not hold then takes the snapshot of the owner (its morph
   class and identifier) and the principal the row records, read from its attributes without a query; devices record no
-  tenant and no categorical type. Every other event keeps the snapshots of what it holds, even when it carries a device:
-  an identity's `SignedOutEverywhere` (its device is the one kept), `PrincipalChoiceRequired` (the proven device) and a
-  switch refused for its target name no principal.
+  tenant. Every other event keeps the snapshots of what it holds, even when it carries a device: an identity's
+  `SignedOutEverywhere` (its device is the one kept), `PrincipalChoiceRequired` (the proven device) and a switch refused
+  for its target name no principal.
 - Everything in a context but its four models is the snapshot: facts fixed at event time, the record audit sinks keep,
   which survives a queue unchanged; `toArray()` gives it as scalars (snake_case keys, `occurred_at` as an ISO 8601 UTC
   string to the microsecond, the client as `ip` and `user_agent`), a payload a sink can store or queue on its own. It is
@@ -131,7 +129,7 @@ to these events, so the shape and the timing are a contract.
 ## Implementation Anchors
 
 - `src/Events/EventContext.php` (`toArray()`), `src/Events/Concerns/SerializesLiveModels.php`,
-  `src/Audience/PrincipalType.php` (`loaded()`), `src/Contracts/AuthenticationEvent.php`,
+  `src/Contracts/AuthenticationEvent.php`,
   `src/Events/AuthenticationFailed.php`,
   `src/Events/Enums/FailureReason.php`, `src/Events/Enums/AuthenticationFlow.php`,
   `src/Events/Enums/RevocationReason.php`.
@@ -152,7 +150,6 @@ to these events, so the shape and the timing are a contract.
 
 - `tests/Unit/Events/EventContextTest.php`
   `testRecordsWhenItWasBuilt`, `testSnapshotsEveryReferenceAsAString`, `testRecordsEloquentModelsByTheirMorphClass`,
-  `testRecordsThePrincipalsCategoricalType`, `testATypeLoadedWithoutItsColumnIsRecordedAsUnknown`,
   `testSnapshotsDoNotFollowLaterChanges`, `testKeepsANamedDeviceIdWithoutADevice`,
   `testKeepsTheCredentialAndItsScopes`, `testToArrayIsTheSnapshotAsScalars`, `testSurvivesASerialiseRoundTrip`,
   `testAModelAnEnforcedMorphMapLeavesOutIsRecordedByItsClassName`
