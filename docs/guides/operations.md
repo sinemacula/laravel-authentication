@@ -102,10 +102,13 @@ applies, which come from the token service; the rest of the application settings
 setting are read anew. A queue worker resets its guards between jobs rather than rebuilding them, so it keeps both kinds
 for as long as it runs. To change a kept setting, change the configuration and restart the worker, as above.
 
-The same holds for an application's `application.methods`: emptying the list (or removing a method) to stop an
-application's sign-ins and refreshes is a deploy plus a worker restart, after which every sign-in, refresh and machine
-credential it no longer lists is refused (see [Applications](configuration.md#applications)). Nothing is revoked: access
-tokens already issued keep working until they expire, and sessions refresh again once the method is listed again.
+Like every setting, a change to an application's `application.methods` in the configuration files reaches a long-running
+process only after the restart above; the list itself is read on every use, so a runtime `config([...])` applies at
+once. Emptying the list (or removing a method) to stop an application's sign-ins and refreshes is therefore a deploy
+plus a worker restart, after which every sign-in, refresh, switch of principal, one-time code and password reset request
+and machine credential it no longer lists is refused (see [Applications](configuration.md#applications)). Nothing is
+revoked: access tokens already issued keep working until they expire, and sessions refresh again once the method is
+listed again.
 
 Under Octane, each request runs in a copy of the application with its own copy of the configuration. A singleton first
 resolved while a request is served, the token service factory included, lives only as long as that request; one resolved
