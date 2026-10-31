@@ -632,9 +632,9 @@ final class PasswordServiceTest extends TestCase
 
         try {
             $this->passwords()->set((new PasswordIdentity)->forceFill(['email' => 'grace@example.test']), self::NEW_PASSWORD, PasswordFlow::REGISTRATION);
-            self::fail('A cancelled registration was reported as set.');
+            self::fail('A canceled registration was reported as set.');
         } catch (\LogicException $exception) {
-            self::assertSame(PasswordIdentity::class . ' was not saved: a model event cancelled the registration, so no password was set.', $exception->getMessage());
+            self::assertSame(PasswordIdentity::class . ' was not saved: a model event canceled the registration, so no password was set.', $exception->getMessage());
         }
 
         self::assertSame(0, DB::table('password_identities')->count());

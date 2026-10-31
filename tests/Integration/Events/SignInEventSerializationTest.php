@@ -53,7 +53,7 @@ use Tests\TestCase;
 #[CoversClass(AdditionalFactorRequired::class)]
 #[CoversClass(AuthenticationFailed::class)]
 #[CoversClass(EventContext::class)]
-final class SignInEventSerialisationTest extends TestCase
+final class SignInEventSerializationTest extends TestCase
 {
     use InteractsWithSessions;
 

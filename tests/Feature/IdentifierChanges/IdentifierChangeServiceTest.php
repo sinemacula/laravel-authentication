@@ -204,10 +204,10 @@ final class IdentifierChangeServiceTest extends TestCase
     {
         yield from [
             'a malformed type' => ['Email', \InvalidArgumentException::class, 'Identifier type [Email] must be a lower-case letter'],
-            'no normaliser'    => [
+            'no normalizer'    => [
                 'username',
                 \InvalidArgumentException::class,
-                'No identifier normaliser is registered for [username], so its identifiers cannot be changed: add one to `authentication.identifiers.normalisers`.',
+                'No identifier normalizer is registered for [username], so its identifiers cannot be changed: add one to `authentication.identifiers.normalizers`.',
             ],
         ];
     }
@@ -342,7 +342,7 @@ final class IdentifierChangeServiceTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testCancellingReadsTheCodeKey(): void
+    public function testCancelingReadsTheCodeKey(): void
     {
         $identity = self::seedChangeable();
 
@@ -559,11 +559,11 @@ final class IdentifierChangeServiceTest extends TestCase
         self::assertSame([], array_filter($inside, static fn (string $sql): bool => str_contains($sql, 'rate_limits')));
         self::assertSame($lock, $inside[0]);
 
-        $cancelling = self::recordStatements();
+        $canceling = self::recordStatements();
 
         self::assertTrue($this->changes()->cancel($identity, 'email'));
-        self::assertSame(['begin', $lock], array_slice($cancelling(), 0, 2));
-        self::assertStringContainsString('identifier_changes', $cancelling()[2]);
+        self::assertSame(['begin', $lock], array_slice($canceling(), 0, 2));
+        self::assertStringContainsString('identifier_changes', $canceling()[2]);
     }
 
     /**

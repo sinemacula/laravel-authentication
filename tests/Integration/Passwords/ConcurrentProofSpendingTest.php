@@ -233,7 +233,7 @@ final class ConcurrentProofSpendingTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testAConfirmationWaitsForABulkRevocationAndFindsTheChangeCancelled(): void
+    public function testAConfirmationWaitsForABulkRevocationAndFindsTheChangeCanceled(): void
     {
         $identity = self::seedChangeable();
         $link     = $this->requestByLink($identity);
@@ -513,7 +513,7 @@ final class ConcurrentProofSpendingTest extends TestCase
             'update',
             'one_time_codes',
             fn (): string => $this->changes()->confirmByCode($identity, 'email', self::CODE)->value,
-            fn (): string => $this->changes()->cancel(self::reloaded($identity), 'email') ? 'cancelled' : 'none',
+            fn (): string => $this->changes()->cancel(self::reloaded($identity), 'email') ? 'canceled' : 'none',
         );
 
         self::assertSame(['changed', 'none'], [$first, $second['result']]);

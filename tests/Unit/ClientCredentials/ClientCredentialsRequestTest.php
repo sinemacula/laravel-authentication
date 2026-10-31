@@ -310,7 +310,7 @@ final class ClientCredentialsRequestTest extends TestCase
      *
      * @return void
      */
-    public function testRecognisesTheBasicScheme(): void
+    public function testRecognizesTheBasicScheme(): void
     {
         self::assertTrue(ClientCredentialsRequest::usesBasic(self::request('', ['HTTP_AUTHORIZATION' => 'Basic abc'])));
         self::assertTrue(ClientCredentialsRequest::usesBasic(self::request('', ['HTTP_AUTHORIZATION' => 'BASIC'])));

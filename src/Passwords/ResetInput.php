@@ -4,7 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Passwords;
 
-use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
+use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 
 /**
@@ -38,16 +38,16 @@ final class ResetInput
      * identifier type, or has no registered normaliser to bring it to the one
      * form a code is bound to.
      *
-     * @param  \SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers  $normalisers
+     * @param  \SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers  $normalizers
      * @param  string  $type
      * @return void
      *
      * @throws \InvalidArgumentException
      */
-    public static function assertCodeType(IdentifierNormalisers $normalisers, string $type): void
+    public static function assertCodeType(IdentifierNormalizers $normalizers, string $type): void
     {
-        if (!$normalisers->has(IdentifierType::assertValid($type))) {
-            $message = sprintf('Password reset codes need a normaliser registered for identifier type [%s] in `authentication.identifiers.normalisers`.', $type);
+        if (!$normalizers->has(IdentifierType::assertValid($type))) {
+            $message = sprintf('Password reset codes need a normalizer registered for identifier type [%s] in `authentication.identifiers.normalizers`.', $type);
 
             throw new \InvalidArgumentException($message);
         }

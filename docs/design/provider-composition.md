@@ -10,7 +10,7 @@ binding and what it takes over from the manager it replaces.
 
 - Every binding `AuthenticationServiceProvider::register()` makes is conditional (`singletonIf()`, `scopedIf()`,
   `bindIf()`): `PrincipalResolver`, `ApplicationPolicy`, `AttemptLimiter`, `AdditionalFactorPolicy`, `ScopeRegistry`,
-  `BreachedPasswordChecker`, `PasswordResetLinkSender`, the `IdentifierNormalisers` and `SignInMethodManager`
+  `BreachedPasswordChecker`, `PasswordResetLinkSender`, the `IdentifierNormalizers` and `SignInMethodManager`
   registries, the `auth` middleware, and the internal `WebAuthn`, `Rehashing` and `JwtTokenServiceFactory`. A binding
   made before the provider registers is kept, so a factor package's `AdditionalFactorPolicy` is never replaced by
   `NeverRequireAdditionalFactor`, nor an authorization package's `ScopeRegistry` by `AcceptAnyScope`, whichever order
@@ -62,7 +62,7 @@ binding and what it takes over from the manager it replaces.
   (one that already holds the default keeps it).
 - `make(SignInMethodManager::class)->extend()` in a `register()` that runs before the package's is lost: the registry is
   not shared yet, so `make()` builds one that nothing else sees. Hence `callAfterResolving()`.
-- Identifier normalisers are configuration (`authentication.identifiers.normalisers`). Laravel merges a package's
+- Identifier normalisers are configuration (`authentication.identifiers.normalizers`). Laravel merges a package's
   configuration one level deep, so a value set under `authentication.identifiers` before the package registers, when the
   application has not published the configuration, replaces the package's normalisers; a package adds its normaliser in
   `boot()`.
@@ -87,7 +87,7 @@ binding and what it takes over from the manager it replaces.
 - `tests/Integration/Providers/SiblingPoliciesRegisteredFirstTest.php`,
   `tests/Integration/Providers/SiblingPoliciesRegisteredLastTest.php` (`SiblingPoliciesTestCase`)
 - `tests/Feature/AuthManagerOwnershipTest.php`
-- `tests/Feature/AuthManagerCustomisationTest.php`
+- `tests/Feature/AuthManagerCustomizationTest.php`
 - `tests/Feature/AuthManagerReplacementTest.php`
 - `tests/Feature/AuthManagerTest.php` `testInheritStateFrom*`
 

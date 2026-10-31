@@ -662,13 +662,13 @@ final class ResetSubmissionsTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testACodeResetNeedsANormalisedType(): void
+    public function testACodeResetNeedsANormalizedType(): void
     {
         try {
             $this->passwords()->resetWithCode('username', ['username' => 'ada', 'code' => '123456', 'password' => self::NEW_PASSWORD]);
-            self::fail('A reset code was checked for a type with no normaliser.');
+            self::fail('A reset code was checked for a type with no normalizer.');
         } catch (\InvalidArgumentException $exception) {
-            self::assertStringStartsWith('Password reset codes need a normaliser registered for identifier type [username]', $exception->getMessage());
+            self::assertStringStartsWith('Password reset codes need a normalizer registered for identifier type [username]', $exception->getMessage());
         }
 
         self::assertSame(0, DB::table('rate_limits')->count());

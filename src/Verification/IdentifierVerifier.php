@@ -14,7 +14,7 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\IdentifierVerified;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
+use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 
@@ -43,7 +43,7 @@ final readonly class IdentifierVerifier
      * Constructor.
      *
      * @param  \Illuminate\Contracts\Container\Container  $container
-     * @param  \SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers  $normalisers
+     * @param  \SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers  $normalizers
      */
     public function __construct(
 
@@ -51,7 +51,7 @@ final readonly class IdentifierVerifier
         private Container $container,
 
         /** Normalisers that give identifiers their canonical form. */
-        private IdentifierNormalisers $normalisers,
+        private IdentifierNormalizers $normalizers,
     ) {}
 
     /**
@@ -99,7 +99,7 @@ final readonly class IdentifierVerifier
      */
     public function canonical(string $type, #[\SensitiveParameter] string $identifier): ?string
     {
-        return $this->normalisers->has($type) ? $this->normalisers->get($type)->normalise($identifier) : $identifier;
+        return $this->normalizers->has($type) ? $this->normalizers->get($type)->normalize($identifier) : $identifier;
     }
 
     /**

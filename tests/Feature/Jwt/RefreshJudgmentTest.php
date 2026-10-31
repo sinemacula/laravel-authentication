@@ -9,7 +9,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch;
-use SineMacula\Laravel\Authentication\Jwt\RefreshJudgement;
+use SineMacula\Laravel\Authentication\Jwt\RefreshJudgment;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\Device;
@@ -25,8 +25,8 @@ use Tests\TestCase;
  *
  * @internal
  */
-#[CoversClass(RefreshJudgement::class)]
-final class RefreshJudgementTest extends TestCase
+#[CoversClass(RefreshJudgment::class)]
+final class RefreshJudgmentTest extends TestCase
 {
     /** @var string The rotation id the device was rotated from. */
     private const string PREVIOUS = 'previous-rotation-id';
@@ -56,7 +56,7 @@ final class RefreshJudgementTest extends TestCase
      */
     public function testConstructorIsPrivate(): void
     {
-        $reflection  = new \ReflectionClass(RefreshJudgement::class);
+        $reflection  = new \ReflectionClass(RefreshJudgment::class);
         $constructor = $reflection->getConstructor();
 
         self::assertNotNull($constructor);
@@ -65,7 +65,7 @@ final class RefreshJudgementTest extends TestCase
         $instance = $reflection->newInstanceWithoutConstructor();
         $constructor->invoke($instance);
 
-        self::assertInstanceOf(RefreshJudgement::class, $instance);
+        self::assertInstanceOf(RefreshJudgment::class, $instance);
     }
 
     /**
@@ -226,6 +226,6 @@ final class RefreshJudgementTest extends TestCase
      */
     private function judge(Device $device, string $presented, int $grace = 30): array|FailureReason
     {
-        return RefreshJudgement::classify($device, $presented, $this->now, new TokenLifetimes(5, 60 * 24 * 30, 60 * 24 * 180, $grace));
+        return RefreshJudgment::classify($device, $presented, $this->now, new TokenLifetimes(5, 60 * 24 * 30, 60 * 24 * 180, $grace));
     }
 }

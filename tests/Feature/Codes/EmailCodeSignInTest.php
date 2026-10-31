@@ -148,7 +148,7 @@ final class EmailCodeSignInTest extends TestCase
      * @throws \Throwable
      */
     #[DataProvider('provideSpellings')]
-    public function testTheAddressIsNormalisedThroughout(string $requested, string $entered): void
+    public function testTheAddressIsNormalizedThroughout(string $requested, string $entered): void
     {
         $identity = self::seedCodeIdentity(email: mb_strtolower(trim($requested)));
 

@@ -23,7 +23,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
-use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
+use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
@@ -386,7 +386,7 @@ final readonly class SessionRevocations
      */
     private function identityScope(Identity $identity): RevocationScope
     {
-        $types = $identity instanceof HasChangeableIdentifiers ? $this->container->make(IdentifierNormalisers::class)->types() : [];
+        $types = $identity instanceof HasChangeableIdentifiers ? $this->container->make(IdentifierNormalizers::class)->types() : [];
 
         return RevocationScope::identity($identity, $types);
     }

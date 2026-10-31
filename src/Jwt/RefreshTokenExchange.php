@@ -232,7 +232,7 @@ final readonly class RefreshTokenExchange
     ): AuthenticationFailed|ExchangedRefresh {
         $guard   = WriteConnection::during($device, static fn (): ?string => $device->getGuard());
         $verdict = $guard === $this->context->name()
-            ? RefreshJudgement::classify($device, $rotationId, $now, $this->tokens->lifetimes())
+            ? RefreshJudgment::classify($device, $rotationId, $now, $this->tokens->lifetimes())
             : FailureReason::DEVICE_GUARD_MISMATCH;
 
         if ($verdict instanceof FailureReason) {
@@ -505,7 +505,7 @@ final readonly class RefreshTokenExchange
             return $this->refused(FailureReason::DEVICE_UNKNOWN, $context);
         }
 
-        $verdict = RefreshJudgement::classify($fresh, $rotationId, $now, $this->tokens->lifetimes());
+        $verdict = RefreshJudgment::classify($fresh, $rotationId, $now, $this->tokens->lifetimes());
 
         if (is_array($verdict)) {
             $verdict = match (true) {

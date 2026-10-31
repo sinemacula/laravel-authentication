@@ -68,7 +68,7 @@ final class CodeIdentifiersTest extends TestCase
             'a number in E.164'               => ['+447700900123', null, 'phone', '+447700900123'],
             'an address in another case'      => [null, ' Ada@Example.TEST', 'email', 'ada@example.test'],
             'no number'                       => [null, 'ada@example.test', 'phone', null],
-            'a number the normaliser rejects' => ['07700 900123', null, 'phone', null],
+            'a number the normalizer rejects' => ['07700 900123', null, 'phone', null],
         ];
     }
 

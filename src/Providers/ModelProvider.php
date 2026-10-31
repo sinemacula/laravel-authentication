@@ -8,7 +8,7 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use SineMacula\Laravel\Authentication\Casts\NormalisedIdentifier;
+use SineMacula\Laravel\Authentication\Casts\NormalizedIdentifier;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 
@@ -122,7 +122,7 @@ class ModelProvider implements IdentityProvider
      * `null` rather than running a where-less query.
      *
      * A credential for an attribute the model designates as an identifier
-     * (`Casts\NormalisedIdentifier`) is normalised first, as the attribute is
+     * (`Casts\NormalizedIdentifier`) is normalised first, as the attribute is
      * when it is set, so the lookup matches the stored form whatever the
      * database's collation: a string through the type's normaliser, an array
      * element by element. A value the normaliser rejects cannot name an
@@ -146,16 +146,16 @@ class ModelProvider implements IdentityProvider
         }
 
         $model      = $this->createModel();
-        $normalised = $this->normaliseIdentifiers($model, $filtered);
+        $normalized = $this->normalizeIdentifiers($model, $filtered);
 
-        if ($normalised === null) {
+        if ($normalized === null) {
             return null;
         }
 
         $query = $this->freshQuery($model);
 
         /** @var (\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model)|null */
-        return WriteConnection::during($model, fn (): mixed => $this->applyCredentialClauses($query, $normalised) ? $query->first() : null);
+        return WriteConnection::during($model, fn (): mixed => $this->applyCredentialClauses($query, $normalized) ? $query->first() : null);
     }
 
     /**
@@ -392,7 +392,7 @@ class ModelProvider implements IdentityProvider
      * @param  array<string, mixed>  $credentials
      * @return ?array<string, mixed>
      */
-    private function normaliseIdentifiers(Authenticatable&Model $model, #[\SensitiveParameter] array $credentials): ?array
+    private function normalizeIdentifiers(Authenticatable&Model $model, #[\SensitiveParameter] array $credentials): ?array
     {
         // @phpstan-ignore staticMethod.dynamicCall
         $casts = $model->getCasts();
@@ -402,19 +402,19 @@ class ModelProvider implements IdentityProvider
         foreach ($credentials as $key => $value) {
 
             $attribute = str_starts_with($key, $table) ? substr($key, strlen($table)) : $key;
-            $cast      = NormalisedIdentifier::fromDeclaration($casts[$attribute] ?? null);
+            $cast      = NormalizedIdentifier::fromDeclaration($casts[$attribute] ?? null);
 
             if ($cast === null) {
                 continue;
             }
 
-            $normalised = is_array($value) ? $this->normaliseEach($cast, $value) : $this->normaliseOne($cast, $value);
+            $normalized = is_array($value) ? $this->normalizeEach($cast, $value) : $this->normalizeOne($cast, $value);
 
-            if ($normalised === null) {
+            if ($normalized === null) {
                 return null;
             }
 
-            $credentials[$key] = $normalised;
+            $credentials[$key] = $normalized;
         }
 
         return $credentials;
@@ -424,21 +424,21 @@ class ModelProvider implements IdentityProvider
      * Normalise each string element of an identifier credential, or return
      * `null` when one of them cannot be an identifier.
      *
-     * @param  \SineMacula\Laravel\Authentication\Casts\NormalisedIdentifier  $cast
+     * @param  \SineMacula\Laravel\Authentication\Casts\NormalizedIdentifier  $cast
      * @param  array<array-key, mixed>  $values
      * @return ?array<array-key, mixed>
      */
-    private function normaliseEach(NormalisedIdentifier $cast, #[\SensitiveParameter] array $values): ?array
+    private function normalizeEach(NormalizedIdentifier $cast, #[\SensitiveParameter] array $values): ?array
     {
         foreach ($values as $index => $value) {
 
-            $normalised = $this->normaliseOne($cast, $value);
+            $normalized = $this->normalizeOne($cast, $value);
 
-            if ($normalised === null) {
+            if ($normalized === null) {
                 return null;
             }
 
-            $values[$index] = $normalised;
+            $values[$index] = $normalized;
         }
 
         return $values;
@@ -448,13 +448,13 @@ class ModelProvider implements IdentityProvider
      * Normalise a string identifier credential (`null` when it cannot be an
      * identifier), leaving any other value as given.
      *
-     * @param  \SineMacula\Laravel\Authentication\Casts\NormalisedIdentifier  $cast
+     * @param  \SineMacula\Laravel\Authentication\Casts\NormalizedIdentifier  $cast
      * @param  mixed  $value
      * @return mixed
      */
-    private function normaliseOne(NormalisedIdentifier $cast, #[\SensitiveParameter] mixed $value): mixed
+    private function normalizeOne(NormalizedIdentifier $cast, #[\SensitiveParameter] mixed $value): mixed
     {
-        return is_string($value) || $value instanceof \Stringable ? $cast->normalise((string) $value) : $value;
+        return is_string($value) || $value instanceof \Stringable ? $cast->normalize((string) $value) : $value;
     }
 
     /**

@@ -84,7 +84,7 @@ specific principal or device and the runtime cannot prove that claim, authentica
   on `attempt()` and the session service's `revokeDevice()`.
 - `src/Guards/Concerns/VerifiesPinnedContext.php`: `resolvePinnedPrincipal()`, `resolvePinnedDevice()` and
   `resolveDeviceFromHint()`, the pinned-context checks in `attempt()`.
-- `src/Jwt/RefreshTokenExchange.php`: `extractRefreshClaims()`; `src/Jwt/RefreshJudgement.php`: `classify()`;
+- `src/Jwt/RefreshTokenExchange.php`: `extractRefreshClaims()`; `src/Jwt/RefreshJudgment.php`: `classify()`;
   `src/Jwt/RefreshAdmission.php`: `principal()`; the device is found by `src/Devices/DeviceLookup.php`'s `find()`.
 - `src/Support/IdentifierCoercion.php`: `stringify()` and `matches()`, the exact-match rule behind the bearer and
   refresh `pid` checks.

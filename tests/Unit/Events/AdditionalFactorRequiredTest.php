@@ -52,7 +52,7 @@ final class AdditionalFactorRequiredTest extends TestCase
      *
      * @return void
      */
-    public function testSerialisesItsModelsAndDispatchesWhenTheSenderSays(): void
+    public function testSerializesItsModelsAndDispatchesWhenTheSenderSays(): void
     {
         $context = self::context();
         $event   = new AdditionalFactorRequired($context, CarbonImmutable::parse('2026-01-01 00:10:00'));

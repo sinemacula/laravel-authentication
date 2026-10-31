@@ -7,7 +7,7 @@ namespace Tests\Unit\Identifiers;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Identifiers\E164PhoneNormaliser;
+use SineMacula\Laravel\Authentication\Identifiers\E164PhoneNormalizer;
 
 /**
  * Unit tests for the default phone normaliser, which accepts E.164 only.
@@ -17,8 +17,8 @@ use SineMacula\Laravel\Authentication\Identifiers\E164PhoneNormaliser;
  *
  * @internal
  */
-#[CoversClass(E164PhoneNormaliser::class)]
-final class E164PhoneNormaliserTest extends TestCase
+#[CoversClass(E164PhoneNormalizer::class)]
+final class E164PhoneNormalizerTest extends TestCase
 {
     /**
      * Rows of `[given, normal form]`.
@@ -48,7 +48,7 @@ final class E164PhoneNormaliserTest extends TestCase
     #[DataProvider('provideNumbers')]
     public function testAcceptsE164Numbers(string $given, string $normal): void
     {
-        self::assertSame($normal, (new E164PhoneNormaliser)->normalise($given));
+        self::assertSame($normal, (new E164PhoneNormalizer)->normalize($given));
     }
 
     /**
@@ -61,9 +61,9 @@ final class E164PhoneNormaliserTest extends TestCase
     #[DataProvider('provideNumbers')]
     public function testNormalFormIsAFixedPoint(string $given, string $normal): void
     {
-        $normaliser = new E164PhoneNormaliser;
+        $normalizer = new E164PhoneNormalizer;
 
-        self::assertSame($normal, $normaliser->normalise($normaliser->normalise($given) ?? ''));
+        self::assertSame($normal, $normalizer->normalize($normalizer->normalize($given) ?? ''));
     }
 
     /**
@@ -104,6 +104,6 @@ final class E164PhoneNormaliserTest extends TestCase
     #[DataProvider('provideRejectedValues')]
     public function testRejectsAnythingElse(string $value): void
     {
-        self::assertNull((new E164PhoneNormaliser)->normalise($value));
+        self::assertNull((new E164PhoneNormalizer)->normalize($value));
     }
 }

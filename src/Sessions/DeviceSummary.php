@@ -221,7 +221,7 @@ final readonly class DeviceSummary implements \JsonSerializable, Arrayable
      */
     private static function required(Model $device, ?CarbonInterface $time, string $what): CarbonImmutable
     {
-        $message = sprintf('Device %s of %s has no %s to summarise.', IdentifierCoercion::stringify($device->getKey()), $device::class, $what);
+        $message = sprintf('Device %s of %s has no %s to summarize.', IdentifierCoercion::stringify($device->getKey()), $device::class, $what);
 
         return self::immutable($time) ?? throw new \LogicException($message);
     }

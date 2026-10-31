@@ -56,7 +56,7 @@ final class DeviceSummaryTest extends TestCase
      *
      * @return void
      */
-    public function testSummarisesEveryColumnItShows(): void
+    public function testSummarizesEveryColumnItShows(): void
     {
         $summary = DeviceSummary::of(self::device(self::ROW), true);
 
@@ -219,9 +219,9 @@ final class DeviceSummaryTest extends TestCase
 
         try {
             DeviceSummary::of(self::device($unsigned), false);
-            self::fail('A device without a sign-in time was summarised.');
+            self::fail('A device without a sign-in time was summarized.');
         } catch (\LogicException $exception) {
-            self::assertSame('Device device-1 of ' . StubUncastDevice::class . ' has no sign-in time to summarise.', $exception->getMessage());
+            self::assertSame('Device device-1 of ' . StubUncastDevice::class . ' has no sign-in time to summarize.', $exception->getMessage());
         }
 
         $row = self::ROW;
@@ -229,7 +229,7 @@ final class DeviceSummaryTest extends TestCase
         $row['absolute_expires_at'] = null;
 
         $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage('Device device-1 of ' . StubUncastDevice::class . ' has no session deadline to summarise.');
+        $this->expectExceptionMessage('Device device-1 of ' . StubUncastDevice::class . ' has no session deadline to summarize.');
 
         DeviceSummary::of(self::device($row), false);
     }

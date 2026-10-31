@@ -24,7 +24,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
+use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Models\OneTimeCode;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
@@ -120,7 +120,7 @@ final readonly class ResetSubmissions
      */
     public function code(string $type, #[\SensitiveParameter] array $input, ?ClientContext $client): ResetResult
     {
-        ResetInput::assertCodeType($this->container->make(IdentifierNormalisers::class), $type);
+        ResetInput::assertCodeType($this->container->make(IdentifierNormalizers::class), $type);
 
         return $this->reset(CodePurpose::PASSWORD_RESET, $type, ResetInput::CODE_KEY, $input, $client);
     }

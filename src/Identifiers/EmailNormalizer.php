@@ -4,7 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Identifiers;
 
-use SineMacula\Laravel\Authentication\Contracts\IdentifierNormaliser;
+use SineMacula\Laravel\Authentication\Contracts\IdentifierNormalizer;
 
 /**
  * The default normaliser for email addresses: surrounding whitespace removed
@@ -20,7 +20,7 @@ use SineMacula\Laravel\Authentication\Contracts\IdentifierNormaliser;
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final readonly class EmailNormaliser implements IdentifierNormaliser
+final readonly class EmailNormalizer implements IdentifierNormalizer
 {
     /**
      * Trim and lower-case the address; `null` for invalid UTF-8 or a value that
@@ -30,14 +30,14 @@ final readonly class EmailNormaliser implements IdentifierNormaliser
      * @return ?string
      */
     #[\Override]
-    public function normalise(#[\SensitiveParameter] string $identifier): ?string
+    public function normalize(#[\SensitiveParameter] string $identifier): ?string
     {
         if (!mb_check_encoding($identifier, 'UTF-8')) {
             return null;
         }
 
-        $normalised = mb_strtolower(trim($identifier), 'UTF-8');
+        $normalized = mb_strtolower(trim($identifier), 'UTF-8');
 
-        return $normalised === '' ? null : $normalised;
+        return $normalized === '' ? null : $normalized;
     }
 }

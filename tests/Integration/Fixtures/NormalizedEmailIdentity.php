@@ -5,7 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Integration\Fixtures;
 
 use Illuminate\Database\Eloquent\Model;
-use SineMacula\Laravel\Authentication\Casts\NormalisedIdentifier;
+use SineMacula\Laravel\Authentication\Casts\NormalizedIdentifier;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -25,12 +25,12 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  *
  * @internal
  */
-final class NormalisedEmailIdentity extends Model implements Identity, Principal
+final class NormalizedEmailIdentity extends Model implements Identity, Principal
 {
     use ActsAsPrincipal, Authenticatable;
 
     /** @var string|null The table associated with the model. */
-    protected $table = 'normalised_email_identities';
+    protected $table = 'normalized_email_identities';
 
     /** @var array<string> The attributes that aren't mass assignable. */
     protected $guarded = [];
@@ -44,7 +44,7 @@ final class NormalisedEmailIdentity extends Model implements Identity, Principal
     protected function casts(): array
     {
         return [
-            'email' => NormalisedIdentifier::using('email'),
+            'email' => NormalizedIdentifier::using('email'),
         ];
     }
 }

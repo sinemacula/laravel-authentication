@@ -382,7 +382,7 @@ final class NamespaceDependenciesTest extends TestCase
             use SineMacula\Laravel\Authentication\Jwt as Tokens;
             use function Other\Auth;
             use CONST Other\Guarding;
-            use Other\{FUNCTION tokenise as Tokens, const Auth};
+            use Other\{FUNCTION tokenize as Tokens, const Auth};
 
             /**
              * @see \sinemacula\laravel\authentication\sessions\SessionService

@@ -75,7 +75,7 @@ other rotated token as a replay that revokes the device.
   current, the grace and the lost-rotation paths alike: after a switch of principal, the refresh token of the principal
   switched from fails with `device_principal_mismatch` and is not a replay, so the device is left alone, while the same
   token after the grace window is judged a replay as any rotated token is. The switch itself runs the same judgement
-  (`RefreshJudgement::classify()`) with its own retry rule; see `principal-choice-and-switch.md`.
+  (`RefreshJudgment::classify()`) with its own retry rule; see `principal-choice-and-switch.md`.
 - The package opens no transaction around a refresh.
 
 ## Success Path
@@ -217,7 +217,7 @@ other rotated token as a replay that revokes the device.
 - `src/Jwt/RefreshTokenExchange.php`: `exchange()` (the limiter check and the failure count), `exchangeClaims()`,
   `exchangeOn()` (the guard check), `extractRefreshClaims()`, `hydrateRefreshContext()` (the recorded principal),
   `rotate()`, `afterLostRotation()`, `reissue()`, `fail()`, `revokeDevice()`.
-- `src/Jwt/RefreshJudgement.php`: `classify()` and `isGraceRetry()`, the verdict a refresh and a switch of principal
+- `src/Jwt/RefreshJudgment.php`: `classify()` and `isGraceRetry()`, the verdict a refresh and a switch of principal
   share.
 - `src/Jwt/RefreshAdmission.php`: `admit()` (the owner reload, the principal, activity), `admitByPolicy()` (the
   application policy).
@@ -252,7 +252,7 @@ other rotated token as a replay that revokes the device.
 
 ## Authoritative Tests
 
-- `tests/Feature/Jwt/RefreshJudgementTest.php` (every verdict, and the order the session's state is judged in)
+- `tests/Feature/Jwt/RefreshJudgmentTest.php` (every verdict, and the order the session's state is judged in)
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
   `testARefreshAsAPrincipalTheDeviceNoLongerRecordsIsRefused`, `testLostRotationFailsWithWhatTheRowNowSays`
 - `tests/Feature/Sessions/PrincipalSwitchTest.php`
@@ -265,7 +265,7 @@ other rotated token as a replay that revokes the device.
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
   `testReplayRevokesTheDevice`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
-  `testOnlyTheImmediatelyPreviousRotationIdIsHonoured`
+  `testOnlyTheImmediatelyPreviousRotationIdIsHonored`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
   `testDeviceWithoutARefreshCredentialIsRejectedWithoutRevoking`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
@@ -321,7 +321,7 @@ other rotated token as a replay that revokes the device.
 - `tests/Feature/Guards/JwtGuardRefreshTest.php`
   `testRefreshRevokesTheDeviceWhenItsDigestIsReplacedBeforeTheSwap`
 - `tests/Feature/Guards/JwtGuardRefreshTest.php`
-  `testReplacedRefreshTokenIsHonouredInsideTheGraceWindowOnly`
+  `testReplacedRefreshTokenIsHonoredInsideTheGraceWindowOnly`
 - `tests/Feature/Guards/JwtGuardRefreshTest.php`
   `testRefreshReturnsNullWhenDeviceHasBeenRevoked`
 - `tests/Feature/Guards/JwtGuardRefreshResolutionTest.php`
@@ -389,7 +389,7 @@ other rotated token as a replay that revokes the device.
 - `tests/Integration/Guards/TenantActivityIntegrationTest.php`
   `testRefreshRejectsMemberOfSoftDeletedTenantWithTenantInactiveReason`
 - `tests/Unit/Jwt/RefreshTokenHasherTest.php`
-  `testSuccessorIsADeterministicRotationIdOfTheSameShape`, `testSuccessorIsTheLabelledHmacOfTheRotationId`,
+  `testSuccessorIsADeterministicRotationIdOfTheSameShape`, `testSuccessorIsTheLabeledHmacOfTheRotationId`,
   `testSuccessorChainsDoNotRepeat`
 - `tests/Unit/Jwt/TokenLifetimesTest.php`
   `testGraceWindowEndsAtItsLastSecond`, `testZeroGraceWindowNeverApplies`

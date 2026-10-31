@@ -104,7 +104,7 @@ final class AttemptLimitsTest extends TestCase
             'no decay'              => [['max' => 5]],
             'no max'                => [['decay_seconds' => 60]],
             'an extra key'          => [['max' => 5, 'decay_seconds' => 60, 'burst' => 2]],
-            'a misspelt key'        => [['max' => 5, 'decay' => 60]],
+            'a misspelled key'      => [['max' => 5, 'decay' => 60]],
             'a list'                => [[5, 60]],
             'zero attempts'         => [['max' => 0, 'decay_seconds' => 60]],
             'zero seconds'          => [['max' => 5, 'decay_seconds' => 0]],

@@ -11,7 +11,7 @@ use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Config\JwtGuards;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
+use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
@@ -120,7 +120,7 @@ final readonly class OutdatedProofs
         $sign = $this->container->make(PasswordSignIn::class);
 
         return [
-            ...$this->container->make(IdentifierNormalisers::class)->types(),
+            ...$this->container->make(IdentifierNormalizers::class)->types(),
             ...array_map(static fn (string $guard): string => $sign->identifierType($guard), $guards),
         ];
     }

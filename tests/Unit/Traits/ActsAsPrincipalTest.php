@@ -103,7 +103,7 @@ final class ActsAsPrincipalTest extends TestCase
      *
      * @return void
      */
-    public function testGetIdentityHonoursIdentityRelationNameOverride(): void
+    public function testGetIdentityHonorsIdentityRelationNameOverride(): void
     {
         $identity = \Mockery::mock(Identity::class);
 

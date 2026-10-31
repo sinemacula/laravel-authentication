@@ -6,12 +6,12 @@ namespace SineMacula\Laravel\Authentication\Identifiers;
 
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Container\Container;
-use SineMacula\Laravel\Authentication\Contracts\IdentifierNormaliser;
+use SineMacula\Laravel\Authentication\Contracts\IdentifierNormalizer;
 
 /**
  * The identifier normalisers, by identifier type, from
- * `authentication.identifiers.normalisers`: a map of type names to container
- * abstracts that resolve to an `IdentifierNormaliser`.
+ * `authentication.identifiers.normalizers`: a map of type names to container
+ * abstracts that resolve to an `IdentifierNormalizer`.
  *
  * The map is read on every call, and an entry whose name is not a valid
  * identifier type, whose abstract is not a non-empty string, or that does not
@@ -21,7 +21,7 @@ use SineMacula\Laravel\Authentication\Contracts\IdentifierNormaliser;
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final readonly class IdentifierNormalisers
+final readonly class IdentifierNormalizers
 {
     /**
      * Constructor.
@@ -48,33 +48,33 @@ final readonly class IdentifierNormalisers
      */
     public function has(string $type): bool
     {
-        return array_key_exists($type, $this->normalisers());
+        return array_key_exists($type, $this->normalizers());
     }
 
     /**
      * The normaliser registered for the identifier type.
      *
      * @param  string  $type
-     * @return \SineMacula\Laravel\Authentication\Contracts\IdentifierNormaliser
+     * @return \SineMacula\Laravel\Authentication\Contracts\IdentifierNormalizer
      *
      * @throws \InvalidArgumentException
      */
-    public function get(string $type): IdentifierNormaliser
+    public function get(string $type): IdentifierNormalizer
     {
-        $abstract = $this->normalisers()[$type]
-            ?? throw new \InvalidArgumentException("No identifier normaliser is registered for [{$type}]: add it to `authentication.identifiers.normalisers`.");
+        $abstract = $this->normalizers()[$type]
+            ?? throw new \InvalidArgumentException("No identifier normalizer is registered for [{$type}]: add it to `authentication.identifiers.normalizers`.");
 
-        $normaliser = $this->container->make($abstract);
+        $normalizer = $this->container->make($abstract);
 
-        if (!$normaliser instanceof IdentifierNormaliser) {
+        if (!$normalizer instanceof IdentifierNormalizer) {
 
-            $message = "The identifier normaliser for [{$type}], [{$abstract}], resolved to ["
-                . get_debug_type($normaliser) . '] instead of [' . IdentifierNormaliser::class . '].';
+            $message = "The identifier normalizer for [{$type}], [{$abstract}], resolved to ["
+                . get_debug_type($normalizer) . '] instead of [' . IdentifierNormalizer::class . '].';
 
             throw new \InvalidArgumentException($message);
         }
 
-        return $normaliser;
+        return $normalizer;
     }
 
     /**
@@ -87,7 +87,7 @@ final readonly class IdentifierNormalisers
      */
     public function types(): array
     {
-        return array_keys($this->normalisers());
+        return array_keys($this->normalizers());
     }
 
     /**
@@ -97,18 +97,18 @@ final readonly class IdentifierNormalisers
      *
      * @throws \InvalidArgumentException
      */
-    private function normalisers(): array
+    private function normalizers(): array
     {
-        $map = $this->config->get('authentication.identifiers.normalisers');
+        $map = $this->config->get('authentication.identifiers.normalizers');
 
         if (!is_array($map)) {
-            throw new \InvalidArgumentException('`authentication.identifiers.normalisers` must be an array of identifier types to normaliser classes.');
+            throw new \InvalidArgumentException('`authentication.identifiers.normalizers` must be an array of identifier types to normalizer classes.');
         }
 
         foreach ($map as $type => $abstract) {
             if (!is_string($type) || !IdentifierType::isValid($type) || !is_string($abstract) || $abstract === '') {
-                $message = '`authentication.identifiers.normalisers` must map identifier types'
-                    . ' (lower-case letters, digits and underscores) to normaliser classes.';
+                $message = '`authentication.identifiers.normalizers` must map identifier types'
+                    . ' (lower-case letters, digits and underscores) to normalizer classes.';
 
                 throw new \InvalidArgumentException($message);
             }

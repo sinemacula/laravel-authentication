@@ -49,7 +49,7 @@ use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
-use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
+use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
@@ -446,9 +446,9 @@ final class AuthenticationServiceProviderTest extends TestCase
      *
      * @return void
      */
-    public function testIdentifierNormalisersAreBoundAsASingleton(): void
+    public function testIdentifierNormalizersAreBoundAsASingleton(): void
     {
-        self::assertSame(app(IdentifierNormalisers::class), app(IdentifierNormalisers::class));
+        self::assertSame(app(IdentifierNormalizers::class), app(IdentifierNormalizers::class));
     }
 
     /**

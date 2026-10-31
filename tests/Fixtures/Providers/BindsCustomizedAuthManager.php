@@ -7,7 +7,7 @@ namespace Tests\Fixtures\Providers;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
-use Tests\Fixtures\Auth\CustomisedAuthManager;
+use Tests\Fixtures\Auth\CustomizedAuthManager;
 
 /**
  * An application's provider that binds `auth` to its own subclass of the
@@ -18,7 +18,7 @@ use Tests\Fixtures\Auth\CustomisedAuthManager;
  *
  * @internal
  */
-final class BindsCustomisedAuthManager extends ServiceProvider
+final class BindsCustomizedAuthManager extends ServiceProvider
 {
     /**
      * Bind `auth` to the manager.
@@ -28,6 +28,6 @@ final class BindsCustomisedAuthManager extends ServiceProvider
     #[\Override]
     public function register(): void
     {
-        $this->app->singleton('auth', static fn (Application $app): AuthManager => new CustomisedAuthManager($app));
+        $this->app->singleton('auth', static fn (Application $app): AuthManager => new CustomizedAuthManager($app));
     }
 }

@@ -21,7 +21,7 @@ use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
-use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
+use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Passkeys\WebAuthn;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
@@ -59,7 +59,7 @@ final class ProviderBindingOrderTest extends TestCase
             ScopeRegistry::class,
             BreachedPasswordChecker::class,
             PasswordResetLinkSender::class,
-            IdentifierNormalisers::class,
+            IdentifierNormalizers::class,
             SignInMethodManager::class,
             Rehashing::class,
             WebAuthn::class,

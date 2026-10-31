@@ -32,7 +32,7 @@ final class PasskeySummaryTest extends TestCase
      *
      * @throws \JsonException
      */
-    public function testAPasskeyIsSummarisedWithoutItsKeyMaterial(): void
+    public function testAPasskeyIsSummarizedWithoutItsKeyMaterial(): void
     {
         $passkey = (new Passkey)->forceFill([
             'id'                 => '0192f6b2-0000-7000-8000-000000000001',

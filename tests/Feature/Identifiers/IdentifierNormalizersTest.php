@@ -6,23 +6,23 @@ namespace Tests\Feature\Identifiers;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
-use SineMacula\Laravel\Authentication\Contracts\IdentifierNormaliser;
-use SineMacula\Laravel\Authentication\Identifiers\E164PhoneNormaliser;
-use SineMacula\Laravel\Authentication\Identifiers\EmailNormaliser;
-use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
+use SineMacula\Laravel\Authentication\Contracts\IdentifierNormalizer;
+use SineMacula\Laravel\Authentication\Identifiers\E164PhoneNormalizer;
+use SineMacula\Laravel\Authentication\Identifiers\EmailNormalizer;
+use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use Tests\TestCase;
 
 /**
  * Feature tests for the identifier normaliser registry resolved from the
- * container over `authentication.identifiers.normalisers`.
+ * container over `authentication.identifiers.normalizers`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversClass(IdentifierNormalisers::class)]
-final class IdentifierNormalisersTest extends TestCase
+#[CoversClass(IdentifierNormalizers::class)]
+final class IdentifierNormalizersTest extends TestCase
 {
     /**
      * The registry is one instance for the application, and out of the box it
@@ -30,7 +30,7 @@ final class IdentifierNormalisersTest extends TestCase
      *
      * @return void
      */
-    public function testShipsTheEmailAndPhoneNormalisersAsASingleton(): void
+    public function testShipsTheEmailAndPhoneNormalizersAsASingleton(): void
     {
         $registry = $this->registry();
 
@@ -39,8 +39,8 @@ final class IdentifierNormalisersTest extends TestCase
         self::assertTrue($registry->has('phone'));
         self::assertFalse($registry->has('member_number'));
         self::assertFalse($registry->has('Email'));
-        self::assertInstanceOf(EmailNormaliser::class, $registry->get('email'));
-        self::assertInstanceOf(E164PhoneNormaliser::class, $registry->get('phone'));
+        self::assertInstanceOf(EmailNormalizer::class, $registry->get('email'));
+        self::assertInstanceOf(E164PhoneNormalizer::class, $registry->get('phone'));
         self::assertSame(['email', 'phone'], $registry->types());
     }
 
@@ -50,9 +50,9 @@ final class IdentifierNormalisersTest extends TestCase
      *
      * @return void
      */
-    public function testRegistersApplicationNormalisersThroughTheContainer(): void
+    public function testRegistersApplicationNormalizersThroughTheContainer(): void
     {
-        $digits = new class implements IdentifierNormaliser {
+        $digits = new class implements IdentifierNormalizer {
             /**
              * Keep only the digits.
              *
@@ -60,7 +60,7 @@ final class IdentifierNormalisersTest extends TestCase
              * @return ?string
              */
             #[\Override]
-            public function normalise(#[\SensitiveParameter] string $identifier): ?string
+            public function normalize(#[\SensitiveParameter] string $identifier): ?string
             {
                 $digits = preg_replace('/\D+/', '', $identifier);
 
@@ -68,14 +68,14 @@ final class IdentifierNormalisersTest extends TestCase
             }
         };
 
-        $this->app?->instance('normalisers.digits', $digits);
+        $this->app?->instance('normalizers.digits', $digits);
 
-        config()->set('authentication.identifiers.normalisers.member_number', 'normalisers.digits');
+        config()->set('authentication.identifiers.normalizers.member_number', 'normalizers.digits');
 
         self::assertTrue($this->registry()->has('member_number'));
         self::assertSame(['email', 'phone', 'member_number'], $this->registry()->types());
         self::assertSame($digits, $this->registry()->get('member_number'));
-        self::assertSame('0042', $this->registry()->get('member_number')->normalise('No. 00-42'));
+        self::assertSame('0042', $this->registry()->get('member_number')->normalize('No. 00-42'));
     }
 
     /**
@@ -86,7 +86,7 @@ final class IdentifierNormalisersTest extends TestCase
     public function testUnknownTypeIsReported(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('No identifier normaliser is registered for [member_number]: add it to `authentication.identifiers.normalisers`.');
+        $this->expectExceptionMessage('No identifier normalizer is registered for [member_number]: add it to `authentication.identifiers.normalizers`.');
 
         $this->registry()->get('member_number');
     }
@@ -97,12 +97,12 @@ final class IdentifierNormalisersTest extends TestCase
      *
      * @return void
      */
-    public function testAbstractThatIsNotANormaliserIsReported(): void
+    public function testAbstractThatIsNotANormalizerIsReported(): void
     {
-        config()->set('authentication.identifiers.normalisers.email', \stdClass::class);
+        config()->set('authentication.identifiers.normalizers.email', \stdClass::class);
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('The identifier normaliser for [email], [stdClass], resolved to [stdClass] instead of [' . IdentifierNormaliser::class . '].');
+        $this->expectExceptionMessage('The identifier normalizer for [email], [stdClass], resolved to [stdClass] instead of [' . IdentifierNormalizer::class . '].');
 
         $this->registry()->get('email');
     }
@@ -114,17 +114,17 @@ final class IdentifierNormalisersTest extends TestCase
      */
     public static function provideMalformedMaps(): iterable
     {
-        $map   = '`authentication.identifiers.normalisers` must be an array of identifier types to normaliser classes.';
-        $entry = '`authentication.identifiers.normalisers` must map identifier types (lower-case letters, digits and underscores) to normaliser classes.';
+        $map   = '`authentication.identifiers.normalizers` must be an array of identifier types to normalizer classes.';
+        $entry = '`authentication.identifiers.normalizers` must map identifier types (lower-case letters, digits and underscores) to normalizer classes.';
 
         yield from [
             'missing'           => [null, $map],
-            'a string'          => [EmailNormaliser::class, $map],
-            'a list'            => [[EmailNormaliser::class], $entry],
-            'upper-case type'   => [['Email' => EmailNormaliser::class], $entry],
-            'type with newline' => [["email\n" => EmailNormaliser::class], $entry],
+            'a string'          => [EmailNormalizer::class, $map],
+            'a list'            => [[EmailNormalizer::class], $entry],
+            'upper-case type'   => [['Email' => EmailNormalizer::class], $entry],
+            'type with newline' => [["email\n" => EmailNormalizer::class], $entry],
             'empty abstract'    => [['email' => ''], $entry],
-            'instance abstract' => [['email' => new EmailNormaliser], $entry],
+            'instance abstract' => [['email' => new EmailNormalizer], $entry],
         ];
     }
 
@@ -139,11 +139,11 @@ final class IdentifierNormalisersTest extends TestCase
     #[DataProvider('provideMalformedMaps')]
     public function testMalformedMapFailsClosed(mixed $map, string $message): void
     {
-        config()->set('authentication.identifiers.normalisers', $map);
+        config()->set('authentication.identifiers.normalizers', $map);
 
         $questions = [
             fn (): bool => $this->registry()->has('email'),
-            fn (): IdentifierNormaliser => $this->registry()->get('email'),
+            fn (): IdentifierNormalizer => $this->registry()->get('email'),
             fn (): array => $this->registry()->types(),
         ];
 
@@ -160,13 +160,13 @@ final class IdentifierNormalisersTest extends TestCase
     /**
      * The registry the container binds.
      *
-     * @return \SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers
+     * @return \SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers
      */
-    private function registry(): IdentifierNormalisers
+    private function registry(): IdentifierNormalizers
     {
-        $registry = $this->app?->make(IdentifierNormalisers::class);
+        $registry = $this->app?->make(IdentifierNormalizers::class);
 
-        self::assertInstanceOf(IdentifierNormalisers::class, $registry);
+        self::assertInstanceOf(IdentifierNormalizers::class, $registry);
 
         return $registry;
     }

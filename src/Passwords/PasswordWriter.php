@@ -141,7 +141,7 @@ final readonly class PasswordWriter
         if (!$identity->exists) {
 
             if (!$identity->forceFill([$column => $hash])->save()) {
-                throw new \LogicException(sprintf('%s was not saved: a model event cancelled the registration, so no password was set.', $identity::class));
+                throw new \LogicException(sprintf('%s was not saved: a model event canceled the registration, so no password was set.', $identity::class));
             }
 
             return;

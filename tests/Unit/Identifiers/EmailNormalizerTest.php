@@ -7,7 +7,7 @@ namespace Tests\Unit\Identifiers;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Identifiers\EmailNormaliser;
+use SineMacula\Laravel\Authentication\Identifiers\EmailNormalizer;
 
 /**
  * Unit tests for the default email normaliser.
@@ -17,8 +17,8 @@ use SineMacula\Laravel\Authentication\Identifiers\EmailNormaliser;
  *
  * @internal
  */
-#[CoversClass(EmailNormaliser::class)]
-final class EmailNormaliserTest extends TestCase
+#[CoversClass(EmailNormalizer::class)]
+final class EmailNormalizerTest extends TestCase
 {
     /**
      * Rows of `[given, normal form]`.
@@ -48,9 +48,9 @@ final class EmailNormaliserTest extends TestCase
      * @return void
      */
     #[DataProvider('provideAddresses')]
-    public function testNormalisesToTrimmedLowerCase(string $given, string $normal): void
+    public function testNormalizesToTrimmedLowerCase(string $given, string $normal): void
     {
-        self::assertSame($normal, (new EmailNormaliser)->normalise($given));
+        self::assertSame($normal, (new EmailNormalizer)->normalize($given));
     }
 
     /**
@@ -64,9 +64,9 @@ final class EmailNormaliserTest extends TestCase
     #[DataProvider('provideAddresses')]
     public function testNormalFormIsAFixedPoint(string $given, string $normal): void
     {
-        $normaliser = new EmailNormaliser;
+        $normalizer = new EmailNormalizer;
 
-        self::assertSame($normal, $normaliser->normalise($normaliser->normalise($given) ?? ''));
+        self::assertSame($normal, $normalizer->normalize($normalizer->normalize($given) ?? ''));
     }
 
     /**
@@ -93,6 +93,6 @@ final class EmailNormaliserTest extends TestCase
     #[DataProvider('provideRejectedValues')]
     public function testRejectsValuesThatCannotBeAnAddress(string $value): void
     {
-        self::assertNull((new EmailNormaliser)->normalise($value));
+        self::assertNull((new EmailNormalizer)->normalize($value));
     }
 }

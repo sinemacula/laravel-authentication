@@ -30,7 +30,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
-use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
+use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 use SineMacula\Laravel\Authentication\Models\IdentifierChange;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
@@ -480,9 +480,9 @@ final readonly class IdentifierChangeService
         $changeable = self::changeableIdentity($identity);
         $config     = $this->collaborator(Repository::class);
 
-        if (!$this->collaborator(IdentifierNormalisers::class)->has(IdentifierType::assertValid($type))) {
-            $message = "No identifier normaliser is registered for [{$type}], so its identifiers cannot be changed:"
-                . ' add one to `authentication.identifiers.normalisers`.';
+        if (!$this->collaborator(IdentifierNormalizers::class)->has(IdentifierType::assertValid($type))) {
+            $message = "No identifier normalizer is registered for [{$type}], so its identifiers cannot be changed:"
+                . ' add one to `authentication.identifiers.normalizers`.';
 
             throw new \InvalidArgumentException($message);
         }

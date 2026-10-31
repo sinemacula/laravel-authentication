@@ -22,7 +22,7 @@ inheritance:
 | Passkeys as a further factor      | Call `Auth::passkeys()->factorOptions()` and `verifyFactor()` from your further-factor package                   |
 | Application decisions             | Implement `ApplicationPolicy` and bind it in the container                                                       |
 | Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                                                          |
-| Identifier normal forms           | Implement `IdentifierNormaliser`, register it by type in the config                                              |
+| Identifier normal forms           | Implement `IdentifierNormalizer`, register it by type in the config                                              |
 | One-time code delivery            | Implement `OneTimeCodeSender` and bind it in the container                                                       |
 | Breached-password checks          | Implement `BreachedPasswordChecker` and bind it in the container                                                 |
 | Password reset links              | Implement `PasswordResetLinkSender` and bind it in the container                                                 |
@@ -241,7 +241,7 @@ driver was registered.
 
 Every default the package binds is bound only when nothing is bound yet: `PrincipalResolver`, `ApplicationPolicy`,
 `AttemptLimiter`, `AdditionalFactorPolicy`, `ScopeRegistry`, `BreachedPasswordChecker`, `PasswordResetLinkSender`, and
-the `IdentifierNormalisers` and `SignInMethodManager` registries. Bind yours in a service provider's `register()`,
+the `IdentifierNormalizers` and `SignInMethodManager` registries. Bind yours in a service provider's `register()`,
 before or after the package's provider: one bound before is kept, and one bound after replaces the default, so a factor
 policy is never replaced by `NeverRequireAdditionalFactor`, nor a scope registry by `AcceptAnyScope`. A `bind()` or
 `singleton()` replaces a default even once it has resolved, for every caller that resolves it afterwards; a deferred
@@ -259,7 +259,7 @@ $this->callAfterResolving(SignInMethodManager::class, static function (SignInMet
 });
 ```
 
-An identifier normaliser is configuration: a package that adds one sets `authentication.identifiers.normalisers.<type>`
+An identifier normaliser is configuration: a package that adds one sets `authentication.identifiers.normalizers.<type>`
 in `boot()`. Laravel merges a package's configuration one level deep, so a value set under `authentication.identifiers`
 while providers register, before the application has published the configuration, replaces the package's normalisers.
 

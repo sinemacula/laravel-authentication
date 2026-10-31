@@ -55,7 +55,7 @@ final class AuthenticationFailedTest extends TestCase
      *
      * @return void
      */
-    public function testSerialisesItsModelsAndDispatchesWhenTheSenderSays(): void
+    public function testSerializesItsModelsAndDispatchesWhenTheSenderSays(): void
     {
         $context = self::context();
         $event   = new AuthenticationFailed($context, AuthenticationFlow::SIGN_IN, FailureReason::ACCOUNT_RATE_LIMITED, 'ada@example.test', 30);

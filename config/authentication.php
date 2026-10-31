@@ -2,8 +2,8 @@
 
 declare(strict_types = 1);
 
-use SineMacula\Laravel\Authentication\Identifiers\E164PhoneNormaliser;
-use SineMacula\Laravel\Authentication\Identifiers\EmailNormaliser;
+use SineMacula\Laravel\Authentication\Identifiers\E164PhoneNormalizer;
+use SineMacula\Laravel\Authentication\Identifiers\EmailNormalizer;
 use SineMacula\Laravel\Authentication\Models\Device;
 
 return [
@@ -243,12 +243,12 @@ return [
     |
     | Normalisers bring an identifier a person types to the one form it is
     | stored and looked up in, keyed by identifier type (a lower-case name).
-    | Designate an identity attribute with the `NormalisedIdentifier` cast
-    | (`'email' => NormalisedIdentifier::using('email')`) and the attribute is
+    | Designate an identity attribute with the `NormalizedIdentifier` cast
+    | (`'email' => NormalizedIdentifier::using('email')`) and the attribute is
     | normalised when it is set, the `model` provider normalises it before it
     | looks an identity up, and attempts are counted against its normal form.
     | Each value is a container abstract resolving to an
-    | `IdentifierNormaliser`; the email normaliser trims and lower-cases. The
+    | `IdentifierNormalizer`; the email normaliser trims and lower-cases. The
     | phone normaliser accepts only numbers already in E.164 form (`+` and up
     | to 15 digits) and refuses anything else: an application that takes
     | mobile or free-form numbers binds its own normaliser under `phone`,
@@ -258,9 +258,9 @@ return [
     */
 
     'identifiers' => [
-        'normalisers' => [
-            'email' => EmailNormaliser::class,
-            'phone' => E164PhoneNormaliser::class,
+        'normalizers' => [
+            'email' => EmailNormalizer::class,
+            'phone' => E164PhoneNormalizer::class,
         ],
     ],
 

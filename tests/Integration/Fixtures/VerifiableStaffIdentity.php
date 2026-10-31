@@ -6,7 +6,7 @@ namespace Tests\Integration\Fixtures;
 
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use SineMacula\Laravel\Authentication\Casts\NormalisedIdentifier;
+use SineMacula\Laravel\Authentication\Casts\NormalizedIdentifier;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesIdentifierVerification;
@@ -65,7 +65,7 @@ final class VerifiableStaffIdentity extends Model implements HasDevices, HasVeri
     protected function casts(): array
     {
         return [
-            'email'             => NormalisedIdentifier::using('email'),
+            'email'             => NormalizedIdentifier::using('email'),
             'email_verified_at' => 'datetime',
             'phone_verified_at' => 'datetime',
         ];

@@ -362,7 +362,7 @@ final class RefreshReplayIntegrationTest extends TestCase
         $driver = DB::connection()->getDriverName();
 
         if ($driver === 'sqlite') {
-            self::markTestSkipped('SQLite serialises writers; there is no concurrent transaction to race.');
+            self::markTestSkipped('SQLite serializes writers; there is no concurrent transaction to race.');
         }
 
         [$identity, $device] = $this->signIn();

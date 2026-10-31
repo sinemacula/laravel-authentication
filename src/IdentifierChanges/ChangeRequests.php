@@ -25,7 +25,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\IdentifierChangeRequested;
-use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
+use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
@@ -148,15 +148,15 @@ final readonly class ChangeRequests
             $previous   = WriteConnection::during($stored, static fn (): ?string => $stored->getIdentifierForVerification($type));
             $verified   = WriteConnection::during($stored, static fn (): bool => $stored->hasVerifiedIdentifier($type));
 
-            $normalised = $stands($stored)
+            $normalized = $stands($stored)
                 ? $this->accepted($type, $previous, $context, $identifier)
                 : $this->refuse(IdentifierChangeRequest::reauthenticationRequired(), FailureReason::REAUTHENTICATION_REQUIRED, $context, $identifier);
 
-            if (!is_string($normalised)) {
-                return $normalised;
+            if (!is_string($normalized)) {
+                return $normalized;
             }
 
-            $change = new RequestedChange($type, $previous, $verified, $normalised, Str::uuid()->toString(), $now, $expires);
+            $change = new RequestedChange($type, $previous, $verified, $normalized, Str::uuid()->toString(), $now, $expires);
 
             return $this->write($identity, $change, $link, $context);
         });
@@ -212,9 +212,9 @@ final readonly class ChangeRequests
         }
 
         $current    = WriteConnection::during($before, static fn (): ?string => $before->getIdentifierForVerification($type));
-        $normalised = $this->accepted($type, $current, $context, $identifier);
+        $normalized = $this->accepted($type, $current, $context, $identifier);
 
-        return is_string($normalised) ? $this->limited($identity, $type, $normalised, $context, $identifier) : $normalised;
+        return is_string($normalized) ? $this->limited($identity, $type, $normalized, $context, $identifier) : $normalized;
     }
 
     /**
@@ -284,17 +284,17 @@ final readonly class ChangeRequests
         EventContext $context,
         #[\SensitiveParameter] string $identifier,
     ): IdentifierChangeRequest|string {
-        $normalised = $this->container->make(IdentifierNormalisers::class)->get($type)->normalise($identifier);
+        $normalized = $this->container->make(IdentifierNormalizers::class)->get($type)->normalize($identifier);
 
-        if ($normalised === null) {
+        if ($normalized === null) {
             return $this->refuse(IdentifierChangeRequest::identifierInvalid(), FailureReason::INVALID_CREDENTIALS, $context, $identifier);
         }
 
         $canonical = $current === null ? null : $this->container->make(IdentifierVerifier::class)->canonical($type, $current);
 
-        return $canonical !== null && hash_equals($canonical, $normalised)
+        return $canonical !== null && hash_equals($canonical, $normalized)
             ? $this->refuse(IdentifierChangeRequest::identifierUnchanged(), FailureReason::INVALID_CREDENTIALS, $context, $identifier)
-            : $normalised;
+            : $normalized;
     }
 
     /**
@@ -304,7 +304,7 @@ final readonly class ChangeRequests
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
-     * @param  string  $normalised
+     * @param  string  $normalized
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
      * @param  string  $identifier
      * @return \SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeRequest|\SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation
@@ -315,12 +315,12 @@ final readonly class ChangeRequests
     private function limited(
         Identity $identity,
         string $type,
-        #[\SensitiveParameter] string $normalised,
+        #[\SensitiveParameter] string $normalized,
         EventContext $context,
         #[\SensitiveParameter] string $identifier,
     ): AttemptReservation|IdentifierChangeRequest {
         $reservation = $this->container->make(AttemptLimiter::class)->acquire(
-            new AttemptSubject($this->context->name(), AttemptFlow::IDENTIFIER_CHANGE, $normalised, $type, $context->client->ip, AccountAttempts::account($identity)),
+            new AttemptSubject($this->context->name(), AttemptFlow::IDENTIFIER_CHANGE, $normalized, $type, $context->client->ip, AccountAttempts::account($identity)),
         );
 
         $retryAfter = $reservation->retryAfter;

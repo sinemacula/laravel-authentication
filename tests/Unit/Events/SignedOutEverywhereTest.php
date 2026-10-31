@@ -54,7 +54,7 @@ final class SignedOutEverywhereTest extends TestCase
      *
      * @return void
      */
-    public function testSerialisesItsModelsAndDispatchesWhenTheSenderSays(): void
+    public function testSerializesItsModelsAndDispatchesWhenTheSenderSays(): void
     {
         $event = new SignedOutEverywhere(self::context(), RevocationReason::SIGNED_OUT_EVERYWHERE, 0, null);
 

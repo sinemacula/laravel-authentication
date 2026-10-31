@@ -371,18 +371,18 @@ final class OutdatedProofsTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testAMisconfiguredNormaliserFailsTheChangeClosed(): void
+    public function testAMisconfiguredNormalizerFailsTheChangeClosed(): void
     {
         $identity = self::seedResettable();
         $stored   = (string) $identity->password;
 
-        config()->set('authentication.identifiers.normalisers.phone', \stdClass::class);
+        config()->set('authentication.identifiers.normalizers.phone', \stdClass::class);
 
         try {
             $this->passwords()->set($identity->fresh() ?? $identity, self::NEW_PASSWORD, PasswordFlow::CHANGE);
-            self::fail('A change with a misconfigured normaliser was made.');
+            self::fail('A change with a misconfigured normalizer was made.');
         } catch (\InvalidArgumentException $exception) {
-            self::assertStringContainsString('The identifier normaliser for [phone]', $exception->getMessage());
+            self::assertStringContainsString('The identifier normalizer for [phone]', $exception->getMessage());
         }
 
         self::assertSame($stored, PasswordIdentity::query()->value('password'));

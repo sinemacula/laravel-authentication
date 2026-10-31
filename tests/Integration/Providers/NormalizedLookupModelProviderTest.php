@@ -15,10 +15,10 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
-use SineMacula\Laravel\Authentication\Casts\NormalisedIdentifier;
+use SineMacula\Laravel\Authentication\Casts\NormalizedIdentifier;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
-use Tests\Integration\Fixtures\NormalisedEmailIdentity;
+use Tests\Integration\Fixtures\NormalizedEmailIdentity;
 use Tests\TestCase;
 
 /**
@@ -33,8 +33,8 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(ModelProvider::class)]
-#[CoversClass(NormalisedIdentifier::class)]
-final class NormalisedLookupModelProviderTest extends TestCase
+#[CoversClass(NormalizedIdentifier::class)]
+final class NormalizedLookupModelProviderTest extends TestCase
 {
     /** @var string Plaintext password of the seeded identity. */
     private const string PASSWORD = 'correct horse battery staple';
@@ -53,7 +53,7 @@ final class NormalisedLookupModelProviderTest extends TestCase
     {
         parent::setUp();
 
-        Schema::create('normalised_email_identities', static function (Blueprint $blueprint): void {
+        Schema::create('normalized_email_identities', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');
             $blueprint->string('email')->nullable()->unique();
             $blueprint->string('name');
@@ -61,7 +61,7 @@ final class NormalisedLookupModelProviderTest extends TestCase
             $blueprint->timestamps();
         });
 
-        NormalisedEmailIdentity::query()->create([
+        NormalizedEmailIdentity::query()->create([
             'email'    => 'Ben.Carey@Example.COM',
             'name'     => 'Ben',
             'password' => app(Hasher::class)->make(self::PASSWORD),
@@ -80,7 +80,7 @@ final class NormalisedLookupModelProviderTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
-        Schema::dropIfExists('normalised_email_identities');
+        Schema::dropIfExists('normalized_email_identities');
 
         parent::tearDown();
     }
@@ -93,10 +93,10 @@ final class NormalisedLookupModelProviderTest extends TestCase
      */
     public function testLookupMatchesTheStoredNormalFormWhateverTheCasing(): void
     {
-        self::assertSame('ben.carey@example.com', DB::table('normalised_email_identities')->value('email'));
+        self::assertSame('ben.carey@example.com', DB::table('normalized_email_identities')->value('email'));
 
-        self::assertInstanceOf(NormalisedEmailIdentity::class, $this->provider()->retrieveByCredentials(['email' => "  BEN.carey@example.com\t"]));
-        self::assertInstanceOf(NormalisedEmailIdentity::class, $this->provider()->retrieveByCredentials(['email' => Str::of('Ben.Carey@EXAMPLE.com')]));
+        self::assertInstanceOf(NormalizedEmailIdentity::class, $this->provider()->retrieveByCredentials(['email' => "  BEN.carey@example.com\t"]));
+        self::assertInstanceOf(NormalizedEmailIdentity::class, $this->provider()->retrieveByCredentials(['email' => Str::of('Ben.Carey@EXAMPLE.com')]));
         self::assertSame(['ben.carey@example.com'], $this->queries[1]['bindings']);
     }
 
@@ -105,11 +105,11 @@ final class NormalisedLookupModelProviderTest extends TestCase
      *
      * @return void
      */
-    public function testArrayCredentialIsNormalisedElementByElement(): void
+    public function testArrayCredentialIsNormalizedElementByElement(): void
     {
         $found = $this->provider()->retrieveByCredentials(['email' => ['NOBODY@example.com', ' Ben.Carey@Example.com ']]);
 
-        self::assertInstanceOf(NormalisedEmailIdentity::class, $found);
+        self::assertInstanceOf(NormalizedEmailIdentity::class, $found);
         self::assertSame(['nobody@example.com', 'ben.carey@example.com'], $this->queries[0]['bindings']);
     }
 
@@ -120,12 +120,12 @@ final class NormalisedLookupModelProviderTest extends TestCase
      *
      * @return void
      */
-    public function testKeyQualifiedWithTheModelsTableIsNormalised(): void
+    public function testKeyQualifiedWithTheModelsTableIsNormalized(): void
     {
-        self::assertInstanceOf(NormalisedEmailIdentity::class, $this->provider()->retrieveByCredentials(['normalised_email_identities.email' => 'BEN.CAREY@EXAMPLE.COM']));
+        self::assertInstanceOf(NormalizedEmailIdentity::class, $this->provider()->retrieveByCredentials(['normalized_email_identities.email' => 'BEN.CAREY@EXAMPLE.COM']));
         self::assertSame(['ben.carey@example.com'], $this->queries[0]['bindings']);
 
-        $pretended = DB::connection()->pretend(fn (): mixed => $this->provider()->retrieveByCredentials(['normalised_email_identities_archive.email' => 'Kept@Example.com']));
+        $pretended = DB::connection()->pretend(fn (): mixed => $this->provider()->retrieveByCredentials(['normalized_email_identities_archive.email' => 'Kept@Example.com']));
 
         self::assertSame(['Kept@Example.com'], $pretended[0]['bindings']);
     }
@@ -136,9 +136,9 @@ final class NormalisedLookupModelProviderTest extends TestCase
      *
      * @return void
      */
-    public function testDesignatedCredentialAfterOthersIsNormalised(): void
+    public function testDesignatedCredentialAfterOthersIsNormalized(): void
     {
-        self::assertInstanceOf(NormalisedEmailIdentity::class, $this->provider()->retrieveByCredentials(['name' => 'Ben', 'email' => 'BEN.CAREY@EXAMPLE.COM']));
+        self::assertInstanceOf(NormalizedEmailIdentity::class, $this->provider()->retrieveByCredentials(['name' => 'Ben', 'email' => 'BEN.CAREY@EXAMPLE.COM']));
         self::assertSame(['Ben', 'ben.carey@example.com'], $this->queries[0]['bindings']);
     }
 
@@ -190,7 +190,7 @@ final class NormalisedLookupModelProviderTest extends TestCase
             },
         ]);
 
-        self::assertInstanceOf(NormalisedEmailIdentity::class, $found);
+        self::assertInstanceOf(NormalizedEmailIdentity::class, $found);
     }
 
     /**
@@ -235,7 +235,7 @@ final class NormalisedLookupModelProviderTest extends TestCase
 
         $identity = Auth::guard('api')->user();
 
-        self::assertInstanceOf(NormalisedEmailIdentity::class, $identity);
+        self::assertInstanceOf(NormalizedEmailIdentity::class, $identity);
         self::assertSame('ben.carey@example.com', $identity->email);
     }
 
@@ -257,8 +257,8 @@ final class NormalisedLookupModelProviderTest extends TestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
 
-        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'normalised', 'application' => ['methods' => ['password']]]);
-        $config->set('auth.providers.normalised', ['driver' => 'model', 'model' => NormalisedEmailIdentity::class]);
+        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'normalized', 'application' => ['methods' => ['password']]]);
+        $config->set('auth.providers.normalized', ['driver' => 'model', 'model' => NormalizedEmailIdentity::class]);
         $config->set('authentication.timebox.credentials_microseconds', 1);
     }
 
@@ -269,6 +269,6 @@ final class NormalisedLookupModelProviderTest extends TestCase
      */
     private function provider(): ModelProvider
     {
-        return new ModelProvider(app(Hasher::class), NormalisedEmailIdentity::class);
+        return new ModelProvider(app(Hasher::class), NormalizedEmailIdentity::class);
     }
 }
