@@ -81,9 +81,15 @@ final class NamespaceDependenciesTest extends TestCase
             'forbids' => ['Guards'],
             'allows'  => [],
         ],
-        'in sessions only the session service names a guard' => [
+        'sessions name no guard' => [
             'from'    => ['Sessions'],
-            'except'  => ['Sessions\SessionService'],
+            'except'  => [],
+            'forbids' => ['Guards'],
+            'allows'  => [],
+        ],
+        'only the composition root, the guards, the testing helpers and the console name a guard' => [
+            'from'    => ['*'],
+            'except'  => ['AuthManager', 'AuthenticationServiceProvider', 'Guards', 'Testing', 'Console'],
             'forbids' => ['Guards'],
             'allows'  => [],
         ],
