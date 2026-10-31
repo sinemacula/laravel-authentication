@@ -7,6 +7,7 @@ namespace Tests\Integration\Octane;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
@@ -24,6 +25,7 @@ use SineMacula\Laravel\Authentication\Http\UnauthenticatedResponse;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\ServesRequestsThroughOctane;
+use Tests\Fixtures\Http\BindRequestTranslator;
 use Tests\Fixtures\Http\SetLocaleFromRequest;
 use Tests\TestCase;
 
@@ -88,6 +90,8 @@ final class JwtGuardRequestsTest extends TestCase
         Route::middleware('auth:api')->get('/protected', static fn (): array => ['identity' => Auth::guard('api')->id()]);
 
         Route::middleware([SetLocaleFromRequest::class, 'auth:api'])->get('/localised', static fn (): array => ['identity' => Auth::guard('api')->id()]);
+
+        Route::middleware([BindRequestTranslator::class, 'auth:api'])->get('/rebound', static fn (): array => ['identity' => Auth::guard('api')->id()]);
 
         app('translator')->addJsonPath(dirname(__DIR__, 2) . '/Fixtures/lang');
 
@@ -235,6 +239,23 @@ final class JwtGuardRequestsTest extends TestCase
         $this->serve(self::octaneRequest('GET', '/localised', ['locale' => 'fr']))->assertUnauthorized()->assertExactJson(['message' => 'Non authentifié.']);
         $this->serve(self::octaneRequest('GET', '/localised', ['locale' => 'de']))->assertUnauthorized()->assertExactJson(['message' => 'Unauthenticated.']);
         $this->serve(self::octaneRequest('GET', '/localised', ['locale' => 'fr']))->assertUnauthorized()->assertExactJson(['message' => 'Non authentifié.']);
+    }
+
+    /**
+     * With the exception handler resolved by the worker's booted application,
+     * as a provider that registers a reporter at boot resolves it, each guest's
+     * `401` is still worded by the translator its own request's sandbox bound,
+     * and a request that binds none gets the booted application's.
+     *
+     * @return void
+     */
+    public function testEachGuestIsRefusedByTheTranslatorItsOwnRequestBound(): void
+    {
+        $this->app?->make(ExceptionHandler::class);
+
+        $this->serve(self::octaneRequest('GET', '/rebound', ['unauthenticated' => 'Please sign in.']))->assertUnauthorized()->assertExactJson(['message' => 'Please sign in.']);
+        $this->serve(self::octaneRequest('GET', '/rebound', ['unauthenticated' => 'Sign in first.']))->assertUnauthorized()->assertExactJson(['message' => 'Sign in first.']);
+        $this->serve(self::octaneRequest('GET', '/protected'))->assertUnauthorized()->assertExactJson(['message' => 'Unauthenticated.']);
     }
 
     /**

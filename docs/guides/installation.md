@@ -100,10 +100,11 @@ text as a JSON key, the text Laravel itself uses for the same response. Add a li
 | `Unauthenticated.`   | The package guards' `401` (above), whichever `auth` middleware raised it                  |
 | `Too Many Attempts.` | The `429` of `Auth::passkeys()->signInOptions()` past its limit, and of a refused refresh |
 
-Each is translated in the locale the application has when it is raised (the `429`) or rendered (the `401`), so set the
-locale in a middleware that runs before `auth`. An `AuthenticationException` your application raises for a package guard
-with a message of its own is translated by that message's line too. The status and `Retry-After` are the same in every
-locale.
+Each is translated by the translator, and in the locale, of the application serving the request when it is raised (the
+`429`) or rendered (the `401`), so set the locale in a middleware that runs before `auth`; under Octane that is the
+request's sandbox, so a translator bound for one request words only that request's messages. An
+`AuthenticationException` your application raises for a package guard with a message of its own is translated by that
+message's line too. The status and `Retry-After` are the same in every locale.
 
 Everything else the package answers with is a code for your application to word: failure reasons, the statuses and
 outcomes of results, password violations, passkey registration failures and the RFC 6749 errors of client credentials.
