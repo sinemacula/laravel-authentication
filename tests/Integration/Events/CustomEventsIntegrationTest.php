@@ -233,7 +233,7 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * A successful `JwtGuard::refresh()` exchange dispatches exactly one
+     * A successful refresh through the session service dispatches exactly one
      * `Refreshed` event carrying the guard name and the bound identity.
      *
      * @return void

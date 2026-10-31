@@ -128,10 +128,10 @@ final class DeviceModelOverrideTest extends TestCase
     }
 
     /**
-     * Invoking `JwtGuard::refresh()` with a refresh token whose `did` claim
-     * points at a row in the custom table returns a refreshed access token
-     * sourced from the overridden model class, binding an instance of that
-     * class as the active device.
+     * Refreshing through the session service with a refresh token whose `did`
+     * claim points at a row in the custom table returns a refreshed access
+     * token sourced from the overridden model class, binding an instance of
+     * that class as the active device.
      *
      * @return void
      *

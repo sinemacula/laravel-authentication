@@ -879,7 +879,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
     /**
      * Allow the standard `Attempting` + `Failed` events that every failed
-     * `JwtGuard::refresh()` call now dispatches (alongside the package-specific
+     * refresh now dispatches (alongside the package-specific
      * `AuthenticationFailed` event). Tests that assert a specific
      * `AuthenticationFailed` reason call this helper first to permit the
      * standard events without constraining them.
