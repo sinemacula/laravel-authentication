@@ -20,10 +20,10 @@ use SineMacula\Laravel\Authentication\Delivery\QueuedDelivery;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\IdentifierChanged;
-use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
 use SineMacula\Laravel\Authentication\Models\IdentifierChange;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 
 /**
@@ -62,13 +62,13 @@ final readonly class ChangeConfirmation
     /**
      * Constructor.
      *
-     * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
+     * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
      * @param  \Illuminate\Contracts\Container\Container  $container
      */
     public function __construct(
 
-        /** The guard the change is confirmed through. */
-        private JwtGuard $guard,
+        /** The context of the guard the change is confirmed through. */
+        private GuardContext $context,
 
         /** Container the configuration, engine, verifier and delivery are resolved from. */
         private Container $container,
@@ -131,7 +131,7 @@ final readonly class ChangeConfirmation
      */
     private function isHeldByAnother(Identity&Model $identity, IdentifierChange $change): bool
     {
-        $provider = $this->guard->getProvider();
+        $provider = $this->context->provider();
         $holder   = WriteConnection::during($identity, static fn (): mixed => $provider->retrieveByCredentials([$change->type => $change->identifier]));
 
         return $holder !== null && !($holder instanceof Identity && AccountAttempts::account($holder) === AccountAttempts::account($identity));
@@ -183,7 +183,7 @@ final readonly class ChangeConfirmation
     private function report(Identity&Model $identity, IdentifierChange $change, EventContext $context, CarbonImmutable $now): void
     {
         $container = $this->container;
-        $events    = $this->guard->getDispatcher();
+        $events    = $this->context->events();
         $event     = new IdentifierChanged($context, $change->type, $change->previous, $change->identifier, $now);
 
         (new AfterCommit(static fn (): mixed => $container->bound('db.transactions') ? $container->make('db.transactions') : null))

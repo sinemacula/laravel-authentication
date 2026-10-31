@@ -6,6 +6,7 @@ namespace Tests\Feature\IdentifierChanges;
 
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Events\Dispatcher;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -21,6 +22,7 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\IdentifierChanged;
+use SineMacula\Laravel\Authentication\Events\IdentifierChangeRequested;
 use SineMacula\Laravel\Authentication\Events\IdentifierVerified;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeConfirmation;
@@ -473,6 +475,79 @@ final class IdentifierChangeConfirmationTest extends TestCase
         Queue::assertNotPushed(SendIdentifierChangeNotice::class);
         self::assertSame(self::EMAIL, DB::table('changeable_identities')->value('email'));
         self::assertSame(1, DB::table('identifier_changes')->count());
+    }
+
+    /**
+     * Each event goes, once committed, to the dispatcher the guard had when its
+     * write was made: a dispatcher swapped in after the request receives only
+     * the confirmation's `IdentifierChanged`, and one swapped in after the
+     * confirmation, before the commit, receives nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testEachReportKeepsTheDispatcherOfItsWrite(): void
+    {
+        $identity = self::seedChangeable(self::EMAIL, self::PHONE);
+        $guard    = $this->freshGuard('web');
+        $changes  = Auth::manager()->identifierChanges('web');
+        $swapped  = new Dispatcher(app());
+        $last     = new Dispatcher(app());
+        $received = ['swapped' => [], 'last' => []];
+
+        foreach (['swapped' => $swapped, 'last' => $last] as $name => $dispatcher) {
+            $dispatcher->listen([IdentifierChangeRequested::class, IdentifierChanged::class], static function (object $event) use (&$received, $name): void {
+                $received[$name][] = $event::class;
+            });
+        }
+
+        $this->recordEvents([IdentifierChangeRequested::class, IdentifierChanged::class]);
+
+        DB::transaction(function () use ($identity, $changes, $guard, $swapped, $last): void {
+            self::assertTrue($changes->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now))->isSent());
+
+            $guard->setDispatcher($swapped);
+
+            self::assertSame(IdentifierChangeOutcome::CHANGED, $changes->confirmByCode($identity, 'email', self::CODE));
+
+            $guard->setDispatcher($last);
+        });
+
+        self::assertSame([IdentifierChangeRequested::class], $this->recordedClasses());
+        self::assertSame(['swapped' => [IdentifierChanged::class], 'last' => []], $received);
+    }
+
+    /**
+     * A service handed out before the guard's dispatcher and request were
+     * rebound reports a refusal to the dispatcher bound now, with the client of
+     * the request bound now.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAServiceHandedOutBeforeARebindFollowsIt(): void
+    {
+        $identity = $this->requestedByCode();
+        $guard    = $this->freshGuard('web');
+        $changes  = Auth::manager()->identifierChanges('web');
+        $swapped  = new Dispatcher(app());
+        $received = [];
+
+        $swapped->listen(AuthenticationFailed::class, static function (AuthenticationFailed $event) use (&$received): void {
+            $received[] = $event;
+        });
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $guard->setDispatcher($swapped);
+        $guard->setRequest(Request::create('/', server: ['REMOTE_ADDR' => '198.51.100.7']));
+
+        self::assertSame(IdentifierChangeOutcome::INVALID, $changes->confirmByCode($identity, 'email', '000000'));
+        self::assertSame([], $this->recorded);
+        self::assertCount(1, $received);
+        self::assertSame([AuthenticationFlow::IDENTIFIER_CHANGE, '198.51.100.7'], [$received[0]->flow, $received[0]->context->client->ip]);
     }
 
     /**

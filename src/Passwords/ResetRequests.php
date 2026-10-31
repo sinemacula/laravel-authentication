@@ -23,12 +23,12 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
-use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
 use SineMacula\Laravel\Authentication\Models\OneTimeCode;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 
@@ -59,13 +59,13 @@ final readonly class ResetRequests
     /**
      * Constructor.
      *
-     * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
+     * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
      * @param  \Illuminate\Contracts\Container\Container  $container
      */
     public function __construct(
 
-        /** The guard the resets are requested through. */
-        private JwtGuard $guard,
+        /** The context of the guard the resets are requested through. */
+        private GuardContext $context,
 
         /** Container the settings, policies, limiter, engine and queue are resolved from. */
         private Container $container,
@@ -88,7 +88,7 @@ final readonly class ResetRequests
      */
     public function link(#[\SensitiveParameter] array $input, ?ClientContext $client): CodeRequest
     {
-        $type = $this->container->make(PasswordSignIn::class)->identifierType($this->guard->getName());
+        $type = $this->container->make(PasswordSignIn::class)->identifierType($this->context->name());
 
         $this->assertSenderReaches($type);
 
@@ -141,8 +141,8 @@ final readonly class ResetRequests
     {
         $delivery   = new QueuedDelivery($this->container);
         $ttl        = $this->validated($delivery);
-        $guard      = $this->guard->getName();
-        $context    = new EventContext($guard, $client ?? ClientContext::fromRequest($this->guard->getRequest()));
+        $guard      = $this->context->name();
+        $context    = new EventContext($guard, $client ?? $this->context->client());
         $given      = ResetInput::identifier($input, $type);
         $identifier = $this->admit($type, $given, $context);
 
@@ -181,7 +181,7 @@ final readonly class ResetRequests
      */
     private function admit(string $type, ?string $given, EventContext $context): array|string
     {
-        $guard      = $this->guard->getName();
+        $guard      = $this->context->name();
         $identifier = $given === null ? null : $this->container->make(IdentifierVerifier::class)->canonical($type, $given);
 
         if (!$this->container->make(AudiencePolicy::class)->allowsMethod($guard, PasswordSignIn::NAME)) {
@@ -232,7 +232,7 @@ final readonly class ResetRequests
 
         $message = sprintf(
             'Guard [%s] identifies passwords by [%s], but the bound %s, Laravel\'s notification, can only link an email address: bind a %s of your own.',
-            $this->guard->getName(),
+            $this->context->name(),
             $type,
             NotifyingResetLinkSender::class,
             PasswordResetLinkSender::class,
@@ -262,7 +262,7 @@ final readonly class ResetRequests
         (new CodeKeys($config))->validate();
         $delivery->settings();
 
-        SharedConnection::assertForGuard($this->guard->getName(), ResetSubmissions::FLOW, $config);
+        SharedConnection::assertForGuard($this->context->name(), ResetSubmissions::FLOW, $config);
 
         return (new PasswordSettings($config))->linkTtlSeconds();
     }
@@ -279,7 +279,7 @@ final readonly class ResetRequests
     {
         [$request, $reason, $retryAfter] = $refusal;
 
-        $this->guard->getDispatcher()->dispatch(new AuthenticationFailed($context, AuthenticationFlow::PASSWORD_RESET, $reason, $given, $retryAfter));
+        $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::PASSWORD_RESET, $reason, $given, $retryAfter));
 
         return $request;
     }

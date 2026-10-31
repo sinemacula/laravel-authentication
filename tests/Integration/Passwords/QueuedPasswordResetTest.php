@@ -5,12 +5,16 @@ declare(strict_types = 1);
 namespace Tests\Integration\Passwords;
 
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Passwords\Enums\ResetStatus;
 use SineMacula\Laravel\Authentication\Passwords\SendPasswordReset;
 use Tests\Concerns\InteractsWithPasswordResets;
@@ -88,6 +92,38 @@ final class QueuedPasswordResetTest extends TestCase
             : $this->passwords()->resetWithCode('phone', ['phone' => self::PHONE, 'code' => $secret, 'password' => self::NEW_PASSWORD]);
 
         self::assertSame(ResetStatus::RESET, $result->status);
+    }
+
+    /**
+     * A reset requested through a guard of another driver that builds the
+     * package's jwt guard is bound to the jwt guard it was built for, which
+     * only a guard with the `jwt` driver can be, and a worker delivers it
+     * through that guard.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAResetRequestedThroughAnotherDriversJwtGuardIsDeliveredThroughTheJwtGuard(): void
+    {
+        $this->useDatabaseQueue();
+
+        $identity = self::seedResettable();
+
+        config()->set('auth.guards.copied', ['driver' => 'copied_jwt', 'provider' => 'password_identities']);
+
+        Auth::extend('copied_jwt', static fn (Application $app): JwtGuard => AuthenticationServiceProvider::createJwtGuard($app, 'web', config()->array('auth.guards.web')));
+
+        self::assertTrue(Auth::passwords('copied')->sendResetLink(['email' => self::EMAIL])->isSent());
+
+        Artisan::call('queue:work', ['connection' => 'database', '--once' => true, '--stop-when-empty' => true]);
+
+        $link = $this->links->sent()[0] ?? null;
+
+        self::assertNotNull($link);
+        self::assertSame('web', $link->guard);
+        self::assertTrue($identity->is($link->identity));
+        self::assertTrue($this->passwords()->reset(['email' => self::EMAIL, 'token' => $link->token(), 'password' => self::NEW_PASSWORD])->isReset());
     }
 
     /**

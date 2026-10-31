@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Events\TransactionBeginning;
+use Illuminate\Events\Dispatcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Timebox;
@@ -21,6 +22,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PasswordSet;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
+use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordViolation;
@@ -125,6 +127,43 @@ final class ResetSubmissionsTest extends TestCase
 
         self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, (string) PasswordIdentity::query()->sole()->password));
         self::assertSame('password_reset', DB::table('devices')->value('revoked_reason'));
+    }
+
+    /**
+     * A reset's `PasswordSet` goes, once committed, to the dispatcher the guard
+     * had when the password was written, while the revocations' events go to
+     * the one it has at the commit.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAResetKeepsTheDispatcherOfTheWriteAndTheRevocationsTakeTheOneAtTheCommit(): void
+    {
+        self::seedResettable();
+
+        $this->signInWithPassword('web', self::EMAIL);
+
+        $token     = $this->requestLink();
+        $guard     = $this->freshGuard('web');
+        $passwords = Auth::passwords('web');
+        $swapped   = new Dispatcher(app());
+        $received  = [];
+
+        $swapped->listen([PasswordSet::class, DeviceRevoked::class, SignedOutEverywhere::class], static function (object $event) use (&$received): void {
+            $received[] = $event::class;
+        });
+
+        $this->recordEvents([PasswordSet::class, DeviceRevoked::class, SignedOutEverywhere::class]);
+
+        DB::transaction(static function () use ($passwords, $guard, $swapped, $token): void {
+            self::assertTrue($passwords->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->isReset());
+
+            $guard->setDispatcher($swapped);
+        });
+
+        self::assertSame([PasswordSet::class], $this->recordedClasses());
+        self::assertSame([DeviceRevoked::class, SignedOutEverywhere::class], $received);
     }
 
     /**

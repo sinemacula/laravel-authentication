@@ -118,10 +118,10 @@ only duplicate them.
      skipped when the model has none); a type the identity's verification throws a `LogicException` for has nothing to
      invalidate, since a reset of it would fail the same way, but an `InvalidArgumentException` (a normaliser that
      cannot be built) fails the write closed.
-   - `CHANGE`: `SessionService::passwordChanged($identity, $except)`; `RESET`: `passwordReset($identity)` (every guard's
-     devices, the identity's "tokens valid after" cutoff moved, pending sign-ins ended and, for a
-     `HasChangeableIdentifiers` identity, its pending identifier changes deleted by key, for every type with a registered
-     normaliser, their events after their commit; see the identifier changes note); `REGISTRATION`: nothing.
+   - `CHANGE`: `SessionRevocations::passwordChanged($identity, $except)`; `RESET`: `passwordReset($identity)` (every
+     guard's devices, the identity's "tokens valid after" cutoff moved, pending sign-ins ended and, for a
+     `HasChangeableIdentifiers` identity, its pending identifier changes deleted by key, for every type with a
+     registered normaliser, their events after their commit; see the identifier changes note); `REGISTRATION`: nothing.
    - `PasswordSet($context, $flow)` queued on the identity connection's commit; the context names the guard, the client,
      the identity and, for a change, the device kept.
 4. `PasswordResult::set($revoked)`.
@@ -145,12 +145,17 @@ only duplicate them.
    `CodeRequest::sent($expiresAt)`. No identity is looked up, so the statements and the time are the same for any
    identifier.
 
-`SendPasswordReset` (encrypted, queued) returns unless the issuance is still current, then finds the recipient through
-`ResetRecipient`: the identity the guard's provider returns (on the writer) that is an Eloquent model, not a
-`MachineIdentity`, holds exactly the bound identifier (canonical, `hash_equals`; through `HasVerifiableIdentifiers` when
-implemented, else the attribute named by the type), is active, and passes the audience policy's `admitIdentifier()`
-when it can report verification. A link goes to `PasswordResetLinkSender`, a code to `OneTimeCodeSender` with the purpose
-`password_reset`; anyone else gets nothing.
+`SendPasswordReset` (encrypted, queued) resolves the binding's guard by name and takes its context
+(`Runtime\JwtGuardContexts::named()`, the lookup the one-time code job makes): a guard that `auth.guards` does not
+configure with the `jwt` driver throws an `InvalidArgumentException`, and a `jwt` guard whose driver the application
+replaced with a guard that has no context (`Contracts\HasGuardContext`) a `LogicException`. A reset names the guard of
+the context that issued it, so one requested through another driver that builds a `JwtGuard` is delivered through that
+`jwt` guard. The job then returns unless the issuance is still current, and finds the recipient through `ResetRecipient`
+(given the guard's name and its context's provider): the identity the provider returns (on the writer) that is an
+Eloquent model, not a `MachineIdentity`, holds exactly the bound identifier (canonical, `hash_equals`; through
+`HasVerifiableIdentifiers` when implemented, else the attribute named by the type), is active, and passes the audience
+policy's `admitIdentifier()` when it can report verification. A link goes to `PasswordResetLinkSender`, a code to
+`OneTimeCodeSender` with the purpose `password_reset`; anyone else gets nothing.
 
 ## Reset submissions (`reset()`, `resetWithCode()`)
 
@@ -158,9 +163,9 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
    rule identifier changes share; `LogicException` naming both) before anything is counted.
 2. `acquire()` on `password_reset` for the identifier as given and the IP address (`rate_limited`), before any other
    work, released only by a reset that succeeds.
-3. Inside `JwtGuard::timeboxed()`: a missing or malformed identifier, token, code or password is `invalid`
-   (`invalid_credentials`); the policy (`PasswordPolicy::check()`, the breached check included) rejects as
-   `password_rejected`, spending nothing and reporting nothing; `ResetRecipient::find()` looks the identity up.
+3. Inside the guard's credential timebox (`$context->timebox()->run()`): a missing or malformed identifier, token, code
+   or password is `invalid` (`invalid_credentials`); the policy (`PasswordPolicy::check()`, the breached check included)
+   rejects as `password_rejected`, spending nothing and reporting nothing; `ResetRecipient::find()` finds the identity.
 4. One transaction on the codes' connection (the identity's, by the rule): the eligible identity found has its row
    locked first (`IdentityLock`, below) and is judged again, as the row reads under the lock
    (`ResetRecipient::eligible()`), so a deactivation committed since the lookup makes it ineligible; then the proof is
@@ -217,7 +222,7 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
 - `src/Events/PasswordSet.php`
 - `src/Testing/FakeBreachedPasswordChecker.php`
 - `src/Passwords/ResetRequests.php`, `src/Passwords/ResetSubmissions.php`, `src/Passwords/ResetRecipient.php`,
-  `src/Passwords/ResetInput.php`, `src/Passwords/SendPasswordReset.php`
+  `src/Passwords/ResetInput.php`, `src/Passwords/SendPasswordReset.php`, `src/Runtime/JwtGuardContexts.php`
 - `src/Passwords/PasswordResetLink.php`, `src/Passwords/ResetResult.php`, `src/Passwords/Enums/ResetStatus.php`
 - `src/Contracts/PasswordResetLinkSender.php`, `src/Passwords/NotifyingResetLinkSender.php`,
   `src/Testing/FakePasswordResetLinkSender.php`
@@ -239,7 +244,8 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
 - `tests/Feature/Passwords/ResetRequestsTest.php`, `ResetSubmissionsTest.php`, `ResetRecipientTest.php`,
   `OutdatedProofsTest.php`, `NotifyingResetLinkSenderTest.php`, `SendPasswordResetTest.php`
 - `tests/Integration/Passwords/QueuedPasswordResetTest.php` (a link and a code queued encrypted on a database queue,
-  then delivered by a worker),
+  then delivered by a worker, and a link requested through another driver's `JwtGuard` delivered through its `jwt`
+  guard),
 - `tests/Integration/Passwords/ReplicaPasswordResetsTest.php` (a link delivered and spent behind a lagging replica),
   `tests/Integration/Passwords/ConcurrentResetSubmissionsTest.php`,
   `tests/Integration/Passwords/ConcurrentProofSpendingTest.php` (a password write racing a reset, a confirmation and an

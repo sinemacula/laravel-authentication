@@ -23,14 +23,20 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   implements. Its four readers resolve the request's credential on first access, as the guard's accessors do, so a
   sign-out given the guard reads the session the request carries. The session revocations take the binding per call,
   only for `signOut()` and `signOutEverywhere()`, and otherwise need nothing of the guard but its context.
-- The code, passkey, API key and client credentials services (`Codes\CodeService`, `Passkeys\PasskeyService`,
-  `ApiKeys\ApiKeyService`, `ClientCredentials\ClientCredentialsExchange`) take the guard's context, not the guard.
-  `AuthManager` resolves the guard, refuses one the service does not belong to with the message it always gave, and
-  passes the guard's `context()`. The queued `Codes\SendOneTimeCode` carries only the guard's name: when it runs it
-  resolves the guard, accepts it only when `auth.guards` configures it with the `jwt` driver
+- The code, passkey, API key, client credentials, password and identifier change services (`Codes\CodeService`,
+  `Passkeys\PasskeyService`, `ApiKeys\ApiKeyService`, `ClientCredentials\ClientCredentialsExchange`,
+  `Passwords\PasswordService`, `IdentifierChanges\IdentifierChangeService`) take the guard's context, not the guard, and
+  so do the classes they build (`ResetRequests`, `ResetSubmissions`, `ChangeRequests`, `ChangeConfirmation`, and
+  `Sessions\RecentAuthentication`, the reauthentication check), and `Sessions\PrincipalSwitch`, which the session
+  service builds per switch. `ResetRecipient`'s static checks take the guard's name and provider. `AuthManager` resolves
+  the guard, refuses one the service does not belong to with the message it always gave, and passes the guard's
+  `context()`; for the password service it also passes the session revocations a change or a reset ends sessions
+  through, built on that context (`SessionRevocations::forContext()`, on the container's connections and transactions
+  manager). The queued `Codes\SendOneTimeCode` and `Passwords\SendPasswordReset` carry only the guard's name: when one
+  runs it resolves the guard, accepts it only when `auth.guards` configures it with the `jwt` driver
   (`Config\JwtGuards::names()`), and takes its context through `HasGuardContext`, failing with a `LogicException` when
-  the application replaced the `jwt` driver with a guard that has none. None of the four namespaces names a `Guards`
-  class.
+  the application replaced the `jwt` driver with a guard that has none (`Runtime\JwtGuardContexts::named()`, which both
+  call). None of the six services' namespaces names a `Guards` class, and in `Sessions` only `SessionService` does.
 - Only the owning guard rebinds a context: `rebindRequest()`, `rebindEvents()` and `rebindResolver()` are internal, and
   the architecture test fails a call of any of them outside `Guards`. The container's rebinds (`wireGuardRebinds()`:
   `request`, `events`, and the global `PrincipalResolver` unless the guard has a resolver of its own), `Event::fake()`,
@@ -66,8 +72,8 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   `setRequest()`, which resets the guard and rebinds the context, and every flow of the guard then reads the new
   request.
 - `Event::fake()` after a guard resolved rebinds `events`: the guard's own events, the session service's, the refresh
-  exchange's `DeviceRevoked`, and the events of the code, passkey, API key, client credentials and password services all
-  go to the fake.
+  exchange's `DeviceRevoked`, and the events of the code, passkey, API key, client credentials, password and identifier
+  change services all go to the fake.
 - A guard type an application writes reads its collaborators through `$this->context` (`name()`, `provider()`,
   `resolver()`, `events()`, `request()`, `client()`), dispatches through `$this->context->dispatch()`, and checks a
   secret inside `$this->context->timebox()->run()`.
@@ -78,11 +84,11 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   resolver for its life, on refresh as on bearer requests.
 - A deferred event scheduled before a request rebind carries the client its operation started from, not the new
   request's.
-- The services that read the dispatcher themselves take it when they schedule a deferred event (a password set, whose
-  writer reads it from the context when the write starts, a passkey's use, addition or removal, an API key's issue,
-  rotation or revocation, an identifier change), so a dispatcher swapped between the scheduling and the commit does not
-  receive that event. A password change's revocations still reach the swapped dispatcher: they dispatch through the
-  context when the commit runs them.
+- The services that read the dispatcher themselves take it when they schedule a deferred event (a password set, by a
+  change or a reset, whose writer reads it from the context when the write starts, a passkey's use, addition or removal,
+  an API key's issue, rotation or revocation, an identifier change's request or confirmation), so a dispatcher swapped
+  between the scheduling and the commit does not receive that event. The revocations of a password change or reset
+  still reach the swapped dispatcher: they dispatch through the context when the commit runs them.
 - A flow that copied a collaborator out of the context would freeze it at that moment; none does, and the rebind tests
   hold every long-lived holder to reading per use.
 - A subclass that read the protected properties a guard had before the context (`$this->name`, `$this->provider`,
@@ -94,13 +100,19 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   `src/Contracts/GuardBinding.php`.
 - `src/Guards/AbstractGuard.php`: the constructor, `context()`; `src/Guards/Concerns/ExposesCollaborators.php` and
   `src/Guards/Concerns/RebindsCollaborators.php`: the getters and setters.
-- `src/Guards/JwtGuard.php`: the constructor (the exchange and revocations factories), `sessions()`, `timeboxed()`,
-  `logout()`; `src/Jwt/RefreshTokenExchange.php`: the constructor; `src/Sessions/SessionRevocations.php`;
+- `src/Guards/JwtGuard.php`: the constructor (the exchange and revocations factories), `sessions()`, `logout()`;
+  `src/Jwt/RefreshTokenExchange.php`: the constructor; `src/Sessions/SessionRevocations.php`;
   `src/Passwords/PasswordWriter.php`: `write()`.
 - `src/AuthenticationServiceProvider.php`: `createJwtGuard()`, `wireGuardRebinds()`.
-- `src/AuthManager.php`: `codes()`, `passkeys()`, `apiKeys()`, `clientCredentials()`; the constructors of
-  `src/Codes/CodeService.php`, `src/Passkeys/PasskeyService.php`, `src/ApiKeys/ApiKeyService.php` and
-  `src/ClientCredentials/ClientCredentialsExchange.php`; `src/Codes/SendOneTimeCode.php`: `guardContext()`.
+- `src/AuthManager.php`: `codes()`, `passkeys()`, `apiKeys()`, `clientCredentials()`, `passwords()`,
+  `identifierChanges()`; the constructors of `src/Codes/CodeService.php`, `src/Passkeys/PasskeyService.php`,
+  `src/ApiKeys/ApiKeyService.php`, `src/ClientCredentials/ClientCredentialsExchange.php`,
+  `src/Passwords/PasswordService.php`, `src/Passwords/ResetRequests.php`, `src/Passwords/ResetSubmissions.php`,
+  `src/IdentifierChanges/IdentifierChangeService.php`, `src/IdentifierChanges/ChangeRequests.php`,
+  `src/IdentifierChanges/ChangeConfirmation.php`, `src/Sessions/RecentAuthentication.php` and
+  `src/Sessions/PrincipalSwitch.php`; `src/Passwords/ResetRecipient.php`: `find()`, `eligible()`.
+- `src/Runtime/JwtGuardContexts.php`: `named()`, called by `src/Codes/SendOneTimeCode.php` and
+  `src/Passwords/SendPasswordReset.php`.
 
 ## Authoritative Tests
 
@@ -117,7 +129,10 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
 - `tests/Feature/Sessions/SessionRevocationsTest.php` `testADeferredReportReachesTheDispatcherAsItIsAtTheCommit`,
   `testTheGuardsLogoutNeedsNoSessionService`
 - `tests/Integration/Passwords/PasswordWriterTest.php`
-  `testThePasswordSetKeepsTheDispatcherOfTheWriteAndTheRevocationsTakeTheOneAtTheCommit`
+  `testThePasswordSetKeepsTheDispatcherOfTheWriteAndTheRevocationsTakeTheOneAtTheCommit`,
+  `tests/Feature/Passwords/ResetSubmissionsTest.php`
+  `testAResetKeepsTheDispatcherOfTheWriteAndTheRevocationsTakeTheOneAtTheCommit`
+- `tests/Feature/IdentifierChanges/IdentifierChangeConfirmationTest.php` `testEachReportKeepsTheDispatcherOfItsWrite`
 - `tests/Feature/Passkeys/PasskeyServiceTest.php` `testEachEventKeepsTheDispatcherOfItsWrite`,
   `tests/Integration/ApiKeys/ApiKeyServiceTest.php` `testEachReportKeepsTheDispatcherOfItsWrite`
 - `tests/Feature/ClientCredentials/ClientCredentialsExchangeTest.php` `testAnExchangeFollowsTheGuardsRebinds`
@@ -126,6 +141,11 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   `testASignInJobForAJwtDriverReplacedByAnotherPackageGuardSendsThroughItsProvider`,
   `testASignInJobNamingAnotherDriversJwtGuardThrows`,
   `testACodeSentThroughAnotherDriversJwtGuardIsDeliveredThroughTheJwtGuard`
+- `tests/Feature/Runtime/JwtGuardContextsTest.php`; `tests/Feature/Passwords/SendPasswordResetTest.php`
+  `testAJobNamingAnotherDriversJwtGuardThrows`, `testAJobForAJwtDriverReplacedByAnotherGuardThrows`,
+  `testAJobForAJwtDriverReplacedByAnotherPackageGuardSendsThroughItsProvider`;
+  `tests/Integration/Passwords/QueuedPasswordResetTest.php`
+  `testAResetRequestedThroughAnotherDriversJwtGuardIsDeliveredThroughTheJwtGuard`
 - `tests/Integration/Octane/JwtGuardRequestsTest.php`, `tests/Integration/Process/QueueWorkerGuardStateTest.php`,
   `tests/Integration/Process/ForgetGuardStateBeforeJobTest.php`
 - `tests/Unit/Architecture/NamespaceDependenciesTest.php` `testOnlyTheGuardsRebindAGuardContext`

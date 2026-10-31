@@ -28,12 +28,12 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
-use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 use SineMacula\Laravel\Authentication\Models\IdentifierChange;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 
 /**
@@ -71,8 +71,9 @@ use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
  * throws before anything is counted or written; every refusal is a result,
  * reported by `AuthenticationFailed` (flow `identifier_change`), and is not
  * concealed, since the caller holds the identity. The service keeps no state
- * between calls: it reads the guard's request and dispatcher, and resolves the
- * settings, limiter, engine and delivery from the container, each time.
+ * between calls: it reads the request and dispatcher from the guard's context,
+ * and resolves the settings, limiter, engine and delivery from the container,
+ * each time.
  *
  * @api
  *
@@ -87,13 +88,13 @@ final readonly class IdentifierChangeService
     /**
      * Constructor.
      *
-     * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
+     * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
      * @param  \Illuminate\Contracts\Container\Container  $container
      */
     public function __construct(
 
-        /** The guard whose identities' identifiers the service changes. */
-        private JwtGuard $guard,
+        /** The context of the guard whose identities' identifiers the service changes. */
+        private GuardContext $context,
 
         /** Container the settings, limiter, engine, URL generator and delivery are resolved from. */
         private Container $container,
@@ -135,7 +136,7 @@ final readonly class IdentifierChangeService
         (new CodeSettings($this->collaborator(Repository::class)))->validate();
         $this->assertCodeSender();
 
-        return (new ChangeRequests($this->guard, $this->container))->request($changeable, $type, $identifier, $proof, null, $this->context($changeable, $client));
+        return (new ChangeRequests($this->context, $this->container))->request($changeable, $type, $identifier, $proof, null, $this->eventContext($changeable, $client));
     }
 
     /**
@@ -177,7 +178,9 @@ final readonly class IdentifierChangeService
 
         $this->links()->assertRoute($route, $parameters);
 
-        return (new ChangeRequests($this->guard, $this->container))->request($changeable, $type, $identifier, $proof, [$route, $parameters], $this->context($changeable, $client));
+        $context = $this->eventContext($changeable, $client);
+
+        return (new ChangeRequests($this->context, $this->container))->request($changeable, $type, $identifier, $proof, [$route, $parameters], $context);
     }
 
     /**
@@ -202,7 +205,7 @@ final readonly class IdentifierChangeService
     public function confirmByCode(Identity $identity, string $type, #[\SensitiveParameter] string $code, ?ClientContext $client = null): IdentifierChangeOutcome
     {
         $changeable = $this->changeable($identity, $type);
-        $context    = $this->context($changeable, $client);
+        $context    = $this->eventContext($changeable, $client);
         $codes      = $this->collaborator(OneTimeCodes::class);
 
         if (!$codes->isWellFormed($code)) {
@@ -247,14 +250,14 @@ final readonly class IdentifierChangeService
     public function confirmByLink(Request $request): IdentifierChangeOutcome
     {
         $client  = ClientContext::fromRequest($request);
-        $context = new EventContext($this->guard->getName(), $client);
+        $context = new EventContext($this->context->name(), $client);
         $link    = $this->links()->read($request);
 
         if ($link instanceof FailureReason) {
             return $this->refuseConfirmation($link === FailureReason::LINK_EXPIRED ? IdentifierChangeOutcome::EXPIRED : IdentifierChangeOutcome::INVALID, $link, $context);
         }
 
-        $identity = $link->guard === $this->guard->getName() ? $this->guard->getProvider()->retrieveById($link->identity) : null;
+        $identity = $link->guard === $this->context->name() ? $this->context->provider()->retrieveById($link->identity) : null;
 
         if (!$identity instanceof Identity) {
             return $this->refuseConfirmation(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS, $context);
@@ -264,7 +267,7 @@ final readonly class IdentifierChangeService
         $refusal    = new ChangeRefused(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS);
         $prove      = static fn (IdentifierChange $change): ?ChangeRefused => $link->names($change) ? null : $refusal;
 
-        return $this->confirm($changeable, $link->type, $this->context($changeable, $client), $prove, FailureReason::LINK_EXPIRED);
+        return $this->confirm($changeable, $link->type, $this->eventContext($changeable, $client), $prove, FailureReason::LINK_EXPIRED);
     }
 
     /**
@@ -283,7 +286,7 @@ final readonly class IdentifierChangeService
      */
     public function pending(Identity $identity, string $type): ?PendingIdentifierChange
     {
-        $change = PendingChanges::live(self::changeableIdentity($identity), IdentifierType::assertValid($type), $this->guard->getName(), CarbonImmutable::now()->startOfSecond());
+        $change = PendingChanges::live(self::changeableIdentity($identity), IdentifierType::assertValid($type), $this->context->name(), CarbonImmutable::now()->startOfSecond());
 
         return $change === null ? null : new PendingIdentifierChange(
             $change->type,
@@ -328,7 +331,7 @@ final readonly class IdentifierChangeService
 
             $change = PendingChanges::find($changeable, $type);
 
-            if ($change === null || $change->guard !== $this->guard->getName() || !PendingChanges::delete($change)) {
+            if ($change === null || $change->guard !== $this->context->name() || !PendingChanges::delete($change)) {
                 return false;
             }
 
@@ -424,7 +427,7 @@ final readonly class IdentifierChangeService
     ): ?ChangeRefused {
         $change = PendingChanges::find($identity, $type);
 
-        if ($change === null || $change->guard !== $this->guard->getName()) {
+        if ($change === null || $change->guard !== $this->context->name()) {
             return new ChangeRefused(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS);
         }
 
@@ -435,7 +438,7 @@ final readonly class IdentifierChangeService
         $refused = $prove($change, $now);
 
         if ($refused === null) {
-            (new ChangeConfirmation($this->guard, $this->container))->complete($identity, $change, $context, $now);
+            (new ChangeConfirmation($this->context, $this->container))->complete($identity, $change, $context, $now);
         }
 
         return $refused;
@@ -550,7 +553,7 @@ final readonly class IdentifierChangeService
      */
     private function refuseConfirmation(IdentifierChangeOutcome $outcome, FailureReason $reason, EventContext $context): IdentifierChangeOutcome
     {
-        $this->guard->getDispatcher()->dispatch(new AuthenticationFailed($context, AuthenticationFlow::IDENTIFIER_CHANGE, $reason));
+        $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::IDENTIFIER_CHANGE, $reason));
 
         return $outcome;
     }
@@ -575,9 +578,9 @@ final readonly class IdentifierChangeService
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Events\EventContext
      */
-    private function context(Identity $identity, ?ClientContext $client): EventContext
+    private function eventContext(Identity $identity, ?ClientContext $client): EventContext
     {
-        return new EventContext($this->guard->getName(), $client ?? ClientContext::fromRequest($this->guard->getRequest()), $identity);
+        return new EventContext($this->context->name(), $client ?? $this->context->client(), $identity);
     }
 
     /**

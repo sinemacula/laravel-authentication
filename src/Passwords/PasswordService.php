@@ -11,9 +11,9 @@ use SineMacula\Laravel\Authentication\Codes\CodeRequest;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
-use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 
 /**
@@ -34,8 +34,8 @@ use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
  *
  * A non-human identity (`MachineIdentity`) has no password, so setting one is a
  * misconfiguration. The service keeps no state between calls: it reads the
- * guard, resolves the settings, checker and hasher, and builds the session
- * revocations each time.
+ * guard's context and resolves the settings, checker and hasher each time, and
+ * ends sessions through the guard's session revocations.
  *
  * @api
  *
@@ -47,13 +47,17 @@ final readonly class PasswordService
     /**
      * Constructor.
      *
-     * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
+     * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SessionRevocations  $revocations
      * @param  \Illuminate\Contracts\Container\Container  $container
      */
     public function __construct(
 
-        /** The guard whose passwords the service sets. */
-        private JwtGuard $guard,
+        /** The context of the guard whose passwords the service sets. */
+        private GuardContext $context,
+
+        /** Ends the sessions a change or a reset of a password ends. */
+        private SessionRevocations $revocations,
 
         /** Container the settings, checker, hasher and handler are resolved from. */
         private Container $container,
@@ -126,8 +130,7 @@ final readonly class PasswordService
             return PasswordResult::rejected($check->violations);
         }
 
-        $context = $this->guard->context();
-        $writer  = new PasswordWriter($context, SessionRevocations::forContext($context, $this->container), $this->container);
+        $writer = new PasswordWriter($this->context, $this->revocations, $this->container);
 
         return PasswordResult::set($writer->write($model, $password, $flow, $except, $client));
     }
@@ -155,7 +158,7 @@ final readonly class PasswordService
      */
     public function sendResetLink(#[\SensitiveParameter] array $input, ?ClientContext $client = null): CodeRequest
     {
-        return (new ResetRequests($this->guard, $this->container))->link($input, $client);
+        return (new ResetRequests($this->context, $this->container))->link($input, $client);
     }
 
     /**
@@ -179,7 +182,7 @@ final readonly class PasswordService
      */
     public function sendResetCode(string $type, #[\SensitiveParameter] array $input, ?ClientContext $client = null): CodeRequest
     {
-        return (new ResetRequests($this->guard, $this->container))->code($type, $input, $client);
+        return (new ResetRequests($this->context, $this->container))->code($type, $input, $client);
     }
 
     /**
@@ -197,7 +200,7 @@ final readonly class PasswordService
      */
     public function reset(#[\SensitiveParameter] array $input, ?ClientContext $client = null): ResetResult
     {
-        return (new ResetSubmissions($this->guard, $this->container))->link($input, $client);
+        return (new ResetSubmissions($this->context, $this->revocations, $this->container))->link($input, $client);
     }
 
     /**
@@ -213,7 +216,7 @@ final readonly class PasswordService
      */
     public function resetWithCode(string $type, #[\SensitiveParameter] array $input, ?ClientContext $client = null): ResetResult
     {
-        return (new ResetSubmissions($this->guard, $this->container))->code($type, $input, $client);
+        return (new ResetSubmissions($this->context, $this->revocations, $this->container))->code($type, $input, $client);
     }
 
     /**
