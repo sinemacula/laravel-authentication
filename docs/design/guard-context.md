@@ -22,7 +22,11 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   `principal()`, `device()`, `tenant()`, `login()`, `authenticateAs()`, `forgetUser()`), which `AbstractGuard`
   implements. Its four readers resolve the request's credential on first access, as the guard's accessors do, so a
   sign-out given the guard reads the session the request carries. The session revocations take the binding per call,
-  only for `signOut()` and `signOutEverywhere()`, and otherwise need nothing of the guard but its context.
+  only for `signOut()` and `signOutEverywhere()`, and otherwise need nothing of the guard but its context. The session
+  service takes the context and the binding at construction: `AuthManager::sessions()` builds one on each call, with the
+  guard's context, the guard as the binding and the guard's token service (`JwtGuard::tokens()`), so the guard neither
+  builds nor holds a session service, and `Sessions\SessionEstablishment`, which writes a session and schedules its
+  reports, never binds: the service binds through the binding once establishment has returned.
 - The code, passkey, API key, client credentials, password and identifier change services (`Codes\CodeService`,
   `Passkeys\PasskeyService`, `ApiKeys\ApiKeyService`, `ClientCredentials\ClientCredentialsExchange`,
   `Passwords\PasswordService`, `IdentifierChanges\IdentifierChangeService`) take the guard's context, not the guard, and
@@ -36,7 +40,8 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   runs it resolves the guard, accepts it only when `auth.guards` configures it with the `jwt` driver
   (`Config\JwtGuards::names()`), and takes its context through `HasGuardContext`, failing with a `LogicException` when
   the application replaced the `jwt` driver with a guard that has none (`Runtime\JwtGuardContexts::named()`, which both
-  call). None of the six services' namespaces names a `Guards` class, and in `Sessions` only `SessionService` does.
+  call). None of the six services' namespaces names a `Guards` class, nor does `Sessions`; outside the composition root
+  (`AuthManager`, `AuthenticationServiceProvider`), `Guards`, `Testing` and `Console`, nothing does.
 - Only the owning guard rebinds a context: `rebindRequest()`, `rebindEvents()` and `rebindResolver()` are internal, and
   the architecture test fails a call of any of them outside `Guards`. The container's rebinds (`wireGuardRebinds()`:
   `request`, `events`, and the global `PrincipalResolver` unless the guard has a resolver of its own), `Event::fake()`,
@@ -48,11 +53,11 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
 - `setRequest()` rebinds the context and keeps all of its reset: the bound context, the last retrieved identity and
   whether the request was resolved.
 - A flow reads a collaborator from the context each time it uses one and keeps no copy, so a flow built before a rebind
-  (the guard's session service, its refresh exchange, a service the manager handed out) follows the rebind. An operation
-  captures what it reports when it starts: the client of the request (`client()`) and its events' payload. Every event
-  deferred to a commit is dispatched by the callback the commit runs, through the context's `dispatch()`, so it reaches
-  the dispatcher as it is then, and a dispatcher swapped in between the write and the commit receives it: the guard's
-  own deferred events, the refresh exchange's `DeviceRevoked`, the session revocations' `DeviceRevoked` and
+  (a session service or another service the manager handed out, the guard's refresh exchange) follows the rebind. An
+  operation captures what it reports when it starts: the client of the request (`client()`) and its events' payload.
+  Every event deferred to a commit is dispatched by the callback the commit runs, through the context's `dispatch()`, so
+  it reaches the dispatcher as it is then, and a dispatcher swapped in between the write and the commit receives it: the
+  guard's own deferred events, the refresh exchange's `DeviceRevoked`, the session revocations' `DeviceRevoked` and
   `SignedOutEverywhere`, and the events of the passkey, API key, password and identifier change services alike. No flow
   takes the dispatcher when it schedules an event. `Passkeys\PasskeySignIn`, a sign-in method the container builds
   rather than a flow of the guard, reads the container's dispatcher the same way, when the commit runs its
@@ -102,14 +107,15 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   `src/Contracts/GuardBinding.php`.
 - `src/Guards/AbstractGuard.php`: the constructor, `context()`; `src/Guards/Concerns/ExposesCollaborators.php` and
   `src/Guards/Concerns/RebindsCollaborators.php`: the getters and setters.
-- `src/Guards/JwtGuard.php`: the constructor (the exchange and revocations factories), `sessions()`, `logout()`;
+- `src/Guards/JwtGuard.php`: the constructor (the exchange and revocations factories), `tokens()`, `logout()`;
   `src/Jwt/RefreshTokenExchange.php`: the constructor; `src/Sessions/SessionRevocations.php`;
   `src/Passwords/PasswordWriter.php`: `write()`.
 - `src/AuthenticationServiceProvider.php`: `createJwtGuard()`, `wireGuardRebinds()`.
-- `src/AuthManager.php`: `codes()`, `passkeys()`, `apiKeys()`, `clientCredentials()`, `passwords()`,
-  `identifierChanges()`; the constructors of `src/Codes/CodeService.php`, `src/Passkeys/PasskeyService.php`,
-  `src/ApiKeys/ApiKeyService.php`, `src/ClientCredentials/ClientCredentialsExchange.php`,
-  `src/Passwords/PasswordService.php`, `src/Passwords/ResetRequests.php`, `src/Passwords/ResetSubmissions.php`,
+- `src/AuthManager.php`: `sessions()`, `codes()`, `passkeys()`, `apiKeys()`, `clientCredentials()`, `passwords()`,
+  `identifierChanges()`; the constructors of `src/Sessions/SessionService.php`, `src/Codes/CodeService.php`,
+  `src/Passkeys/PasskeyService.php`, `src/ApiKeys/ApiKeyService.php`,
+  `src/ClientCredentials/ClientCredentialsExchange.php`, `src/Passwords/PasswordService.php`,
+  `src/Passwords/ResetRequests.php`, `src/Passwords/ResetSubmissions.php`,
   `src/IdentifierChanges/IdentifierChangeService.php`, `src/IdentifierChanges/ChangeRequests.php`,
   `src/IdentifierChanges/ChangeConfirmation.php`, `src/Sessions/RecentAuthentication.php` and
   `src/Sessions/PrincipalSwitch.php`; `src/Passwords/ResetRecipient.php`: `find()`, `eligible()`.

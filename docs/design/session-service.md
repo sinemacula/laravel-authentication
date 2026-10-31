@@ -67,9 +67,19 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - After the session's transaction, `DeviceCreated` (new devices only) and `SignedIn` are scheduled on the commit of the
   device's connection, and a completion's or a choice's slot give-back on the pending row's, and only then is the guard
   bound, with the usual immediate bind events: a bind listener that throws cannot withhold them, and they never fire for
-  a rolled-back session.
-- The service holds no per-sign-in state, and reads the guard's provider, resolver, dispatcher and request, and the
-  sign-in method manager and policies from the container, each time it needs them.
+  a rolled-back session. The order holds by construction: `SessionEstablishment` writes the session (or issues the
+  pending sign-in), asks the factor policy and schedules those reports, and never binds; the service binds the guard,
+  through `login()` on the `Contracts\GuardBinding` it was given, only once establishment has returned a signed-in
+  result, and `signIn()` gives its slots back after that bind.
+- The service holds no state between calls. It runs on the guard's context (`Runtime\GuardContext`), reading the
+  provider, resolver, dispatcher and request, and the sign-in method manager and policies from the container, each time
+  it needs them, and reaches the guard's bound state only through its binding; it names no `Guards` class. The guard
+  neither builds nor holds one: `AuthManager::sessions()` builds a service on each call, from the guard's context and
+  token service, with the guard as the binding, on the container's connections and transactions manager. A service
+  handed out earlier therefore follows the guard's rebinds as a new one does.
+- The principals an identity may choose from, the choice a sign-in without a default waits on, and finding a live choice
+  are `PrincipalChoices`' (see `principal-choice-and-switch.md`); the service routes a sign-in to it and binds a chosen
+  session as it binds any other.
 - Ending sessions is not the service's own: `signOut()`, `signOutEverywhere()`, `revokeDevice()`, `revokeDevices()`,
   `revokePrincipalDevices()` and the security-change methods delegate to `SessionRevocations` (see
   `device-lifecycle.md`), on the guard's context, with the guard as the `Contracts\GuardBinding` the two sign-out calls
@@ -128,8 +138,12 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 
 ## Implementation Anchors
 
-- `src/Sessions/SessionService.php`: `signIn()`, `start()`, `establish()`; `src/Sessions/Concerns/EndsSessions.php`:
-  the methods it delegates to `src/Sessions/SessionRevocations.php`.
+- `src/Sessions/SessionService.php`: `signIn()`, `start()`, `complete()`, `choose()`, `bound()`;
+  `src/Sessions/Concerns/EndsSessions.php`: the methods it delegates to `src/Sessions/SessionRevocations.php` (a trait
+  only so the service stays within phpcs's limit of methods a class may declare).
+- `src/Sessions/SessionEstablishment.php`: `proceed()`, `establish()`, `complete()`, `write()`, `signedIn()`,
+  `giveBack()`: the session, the factor policy and the scheduled reports, never the bind.
+- `src/Sessions/PrincipalChoices.php`: `offerChoice()`, `admissible()`, `liveChoice()`.
 - `src/Sessions/SignInRequest.php` (`reserveAccountAttempt()`) and `src/RateLimiting/AccountAttempts.php`: the slots a
   sign-in's method takes on the accounts it checks, held with the sign-in's own.
 - `src/Sessions/SessionWriter.php`: `create()`, `continueOn()` and the compare-and-swap.
@@ -139,12 +153,14 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   reloaded-identity check.
 - `src/Admission/SignInAdmission.php`, shared with `attempt()`; `src/Admission/PinnedPrincipal.php`.
 - `src/Database/AfterCommit.php`, shared with the refresh exchange's revocation report.
-- `src/Guards/JwtGuard.php` (`sessions()`), `src/AuthManager.php` (`sessions()`), and the factory
-  `AuthenticationServiceProvider::createJwtGuard()` passes the guard.
+- `src/AuthManager.php`: `sessions()`, which builds the service per call; `src/Guards/JwtGuard.php`: `tokens()`.
 
 ## Authoritative Tests
 
 - `tests/Feature/Sessions/SessionServiceTest.php`, `tests/Unit/RateLimiting/AccountAttemptsTest.php`
+- `tests/Feature/Sessions/SessionEstablishmentTest.php`: establishment on its own (what it writes, returns and
+  schedules, and that it never binds); `tests/Feature/Sessions/PrincipalChoicesTest.php`
+- `tests/Feature/AuthManagerTest.php`: the service built per call on the guard's context, binding and token service
 - `tests/Feature/Sessions/SessionRevocationsTest.php`, `tests/Feature/Sessions/ManagesDevicesTest.php`,
   `tests/Feature/Sessions/RevokesOnSecurityChangesTest.php`: the revocations on their own and through the service
 - `tests/Feature/Sessions/SessionRoutesTest.php`: the documented sign-in and further-factor routes over HTTP, through
@@ -167,7 +183,7 @@ Update this note when any of the following change:
 
 - the order of the checks, or which of them count an attempt or run in the timebox
 - what proves a device, or what continuing one writes or keeps
-- what the session's transaction contains, or when the guard is bound
+- what the session's transaction contains, or when the guard is bound, or what builds the service
 - when `DeviceCreated`, `SignedIn` and `AdditionalFactorRequired` are dispatched, or what they carry
 - what reaches the events from the sign-in input
 - what a pending sign-in stores, how long it lives, what finds it, or what completing it checks
