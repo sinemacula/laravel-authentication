@@ -103,14 +103,13 @@ final class StubCredentialGuard extends AbstractGuard
     }
 
     /**
-     * Return the credential timebox budget through the inherited
-     * `timeboxMicroseconds()` hook.
+     * Return the credential timebox budget through the guard's context.
      *
      * @return int
      */
     public function credentialTimeboxMicroseconds(): int
     {
-        return $this->timeboxMicroseconds();
+        return $this->context->timebox()->microseconds();
     }
 
     /**

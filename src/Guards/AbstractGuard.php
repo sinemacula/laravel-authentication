@@ -14,6 +14,7 @@ use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\HasGuardContext;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -28,7 +29,8 @@ use SineMacula\Laravel\Authentication\Guards\Concerns\RebindsCollaborators;
 use SineMacula\Laravel\Authentication\Guards\Concerns\SignsInWithCredentials;
 use SineMacula\Laravel\Authentication\Guards\Concerns\ValidatesGuardCredentials;
 use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
-use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Runtime\CredentialTimebox;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 
 /**
@@ -46,10 +48,14 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * to the guard's collaborators via `ExposesCollaborators`, and their rebinding
  * via `RebindsCollaborators`.
  *
+ * The collaborators the constructor takes live in the guard's `GuardContext`
+ * (`$this->context`, built here), the one copy every flow of the guard reads
+ * and every rebind updates.
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-abstract class AbstractGuard implements ContextualGuard
+abstract class AbstractGuard implements ContextualGuard, HasGuardContext
 {
     use BindsContextualState, ExposesCollaborators, RebindsCollaborators, SignsInWithCredentials, ValidatesGuardCredentials, VerifiesPinnedContext;
 
@@ -58,6 +64,9 @@ abstract class AbstractGuard implements ContextualGuard
 
     /** @var bool Whether the current request is settled: resolved, successfully or not, or signed out. */
     protected bool $requestResolved = false;
+
+    /** @var \SineMacula\Laravel\Authentication\Runtime\GuardContext The collaborators the guard's flows run with, which its setters rebind. */
+    protected readonly GuardContext $context;
 
     /**
      * Constructor.
@@ -71,24 +80,26 @@ abstract class AbstractGuard implements ContextualGuard
      */
     public function __construct(
 
-        /** Guard name, as registered under `auth.guards.<name>`. */
-        protected string $name,
+        // Guard name, as registered under `auth.guards.<name>`.
+        string $name,
 
-        /** Identity provider used to look up and validate credentials. */
-        protected IdentityProvider $provider,
+        // Identity provider used to look up and validate credentials.
+        IdentityProvider $provider,
 
-        /** Resolver that maps an identity to its acting principal. */
-        protected PrincipalResolver $resolver,
+        // Resolver that maps an identity to its acting principal.
+        PrincipalResolver $resolver,
 
-        /** Event dispatcher for standard and custom auth events. */
-        protected Dispatcher $events,
+        // Event dispatcher for standard and custom auth events.
+        Dispatcher $events,
 
-        /** Current HTTP request used to extract credentials. */
-        protected Request $request,
+        // Current HTTP request used to extract credentials.
+        Request $request,
 
-        /** Timebox enforcing uniform elapsed time on the credential path. */
-        protected Timebox $timebox,
-    ) {}
+        // Timebox enforcing uniform elapsed time on the credential path.
+        Timebox $timebox,
+    ) {
+        $this->context = new GuardContext($name, $provider, $resolver, $events, $request, new CredentialTimebox($timebox));
+    }
 
     /**
      * Determine if the current request has no authenticated identity, resolving
@@ -193,9 +204,9 @@ abstract class AbstractGuard implements ContextualGuard
     {
         $password = self::signInCollaborator(PasswordSignIn::class);
 
-        return $this->withinTimebox(function (Timebox $timebox) use ($password, $credentials): bool {
+        return $this->context->timebox()->run(function (Timebox $timebox) use ($password, $credentials): bool {
 
-            $identity = $password->verifyCredentials($this->provider, $credentials);
+            $identity = $password->verifyCredentials($this->context->provider(), $credentials);
 
             if ($identity === null) {
                 return false;
@@ -241,14 +252,16 @@ abstract class AbstractGuard implements ContextualGuard
     #[\Override]
     public function setUser(Authenticatable $user): self
     {
+        $name = $this->context->name();
+
         if (!$user instanceof Identity) {
-            throw new \InvalidArgumentException(sprintf('Guard %s expected an Identity instance, got %s.', $this->name, $user::class));
+            throw new \InvalidArgumentException(sprintf('Guard %s expected an Identity instance, got %s.', $name, $user::class));
         }
 
         $principal = $this->resolvePrincipal($user);
 
         if ($principal === null) {
-            throw new \InvalidArgumentException(sprintf('Guard %s could not resolve a default principal for identity %s; bind one with login().', $this->name, $user::class));
+            throw new \InvalidArgumentException(sprintf('Guard %s could not resolve a default principal for identity %s; bind one with login().', $name, $user::class));
         }
 
         $this->bindContext($user, $principal, null, self::boundTenant($principal), null);
@@ -305,16 +318,16 @@ abstract class AbstractGuard implements ContextualGuard
         $this->fireAttemptingEvent($credentials);
 
         $password   = self::signInCollaborator(PasswordSignIn::class);
-        $identifier = $password->identifier($this->name, $credentials);
-        $client     = ClientContext::fromRequest($this->request);
+        $identifier = $password->identifier($this->context->name(), $credentials);
+        $client     = $this->context->client();
         $outcome    = $this->signInWithCredentials($password, $credentials, $principal, $device, $client);
 
         if ($outcome instanceof Refused) {
 
             $this->fireFailedEvent($this->lastRetrievedUser, $credentials);
 
-            $this->events->dispatch(new AuthenticationFailed(
-                new EventContext($this->name, $client, $outcome->identity, $outcome->principal, $outcome->tenant, $outcome->device, PasswordSignIn::NAME),
+            $this->context->dispatch(new AuthenticationFailed(
+                new EventContext($this->context->name(), $client, $outcome->identity, $outcome->principal, $outcome->tenant, $outcome->device, PasswordSignIn::NAME),
                 AuthenticationFlow::SIGN_IN,
                 $outcome->reason,
                 $identifier,
@@ -407,7 +420,7 @@ abstract class AbstractGuard implements ContextualGuard
         $identity = $this->user();
 
         if ($identity !== null) {
-            $this->events->dispatch(new Logout($this->name, $identity));
+            $this->context->dispatch(new Logout($this->context->name(), $identity));
         }
 
         $this->clearContextualState();
@@ -439,7 +452,19 @@ abstract class AbstractGuard implements ContextualGuard
      */
     public function getName(): string
     {
-        return $this->name;
+        return $this->context->name();
+    }
+
+    /**
+     * Return the context the guard's flows run with: its collaborators, which
+     * `setRequest()`, `setDispatcher()` and `setPrincipalResolver()` rebind.
+     *
+     * @return \SineMacula\Laravel\Authentication\Runtime\GuardContext
+     */
+    #[\Override]
+    public function context(): GuardContext
+    {
+        return $this->context;
     }
 
     /**
@@ -455,7 +480,7 @@ abstract class AbstractGuard implements ContextualGuard
     {
         $this->identity = $identity;
 
-        $this->events->dispatch(new Authenticated($this->name, $identity));
+        $this->context->dispatch(new Authenticated($this->context->name(), $identity));
     }
 
     /**
@@ -475,8 +500,8 @@ abstract class AbstractGuard implements ContextualGuard
     protected function resolvePrincipal(Identity $identity, mixed $hint = null): ?Principal
     {
         return $hint === null
-            ? $this->resolver->resolve($identity)
-            : $this->resolver->resolve($identity, $hint);
+            ? $this->context->resolver()->resolve($identity)
+            : $this->context->resolver()->resolve($identity, $hint);
     }
 
     /**
@@ -509,27 +534,6 @@ abstract class AbstractGuard implements ContextualGuard
     protected function bindAuthenticationLifecycle(Identity $identity, Principal $principal, ?Device $device = null): void
     {
         $this->bindVerifiedContext($identity, $principal, $device, self::boundTenant($principal), $device?->getSignInMethod(), true);
-    }
-
-    /**
-     * Run the callback inside the guard's credential timebox, which waits out
-     * its budget unless the callback ends it early. The box is told first that
-     * it may not: Laravel's `Timebox` keeps an early return for every later
-     * call, and one guard serves a whole request, command or worker, so a check
-     * that fails after one that succeeded would otherwise not be padded.
-     *
-     * @template TResult
-     *
-     * @param  \Closure(\Illuminate\Support\Timebox): TResult  $callback
-     * @return TResult
-     *
-     * @throws \Throwable
-     */
-    protected function withinTimebox(\Closure $callback): mixed
-    {
-        $this->timebox->dontReturnEarly();
-
-        return $this->timebox->call($callback, $this->timeboxMicroseconds());
     }
 
     /**
@@ -572,7 +576,7 @@ abstract class AbstractGuard implements ContextualGuard
         $this->clearContextualState();
 
         if ($signIn) {
-            $this->events->dispatch(new Login($this->name, $identity, false));
+            $this->context->dispatch(new Login($this->context->name(), $identity, false));
         }
 
         $this->bindContext($identity, $principal, $device, $tenant, $method, $credentialId, $scopes);

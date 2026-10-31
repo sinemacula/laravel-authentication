@@ -61,23 +61,24 @@ trait SignsInWithCredentials
         ?Device $device,
         ClientContext $client,
     ): Admitted|Refused {
+        $guard    = $this->context->name();
         $audience = self::signInCollaborator(AudiencePolicy::class);
 
-        if (!$audience->allowsMethod($this->name, PasswordSignIn::NAME)) {
+        if (!$audience->allowsMethod($guard, PasswordSignIn::NAME)) {
             return new Refused(FailureReason::METHOD_NOT_ALLOWED);
         }
 
-        $type        = $password->identifierType($this->name);
+        $type        = $password->identifierType($guard);
         $limiter     = self::signInCollaborator(AttemptLimiter::class);
-        $reservation = $limiter->acquire(new AttemptSubject($this->name, AttemptFlow::SIGN_IN, $password->identifier($this->name, $credentials), $type, $client->ip));
+        $reservation = $limiter->acquire(new AttemptSubject($guard, AttemptFlow::SIGN_IN, $password->identifier($guard, $credentials), $type, $client->ip));
 
         if (!$reservation->granted()) {
             return new Refused(FailureReason::RATE_LIMITED, retryAfter: $reservation->retryAfter);
         }
 
-        $accounts = new AccountAttempts($limiter, $this->name);
+        $accounts = new AccountAttempts($limiter, $guard);
 
-        $outcome = $this->withinTimebox(
+        $outcome = $this->context->timebox()->run(
             function (Timebox $timebox) use ($password, $credentials, $principal, $device, $client, $audience, $type, $accounts): Admitted|Refused {
 
                 $user = $this->verifyAttemptedCredentials($password, $credentials, $accounts);
@@ -92,7 +93,7 @@ trait SignsInWithCredentials
 
                 if ($outcome instanceof Admitted) {
 
-                    $password->rehash($this->provider, $user, $credentials);
+                    $password->rehash($this->context->provider(), $user, $credentials);
 
                     $outcome = $this->refuseIfAFactorIsRequired($outcome, $client);
                 }
@@ -130,17 +131,17 @@ trait SignsInWithCredentials
      */
     private function verifyAttemptedCredentials(PasswordSignIn $password, #[\SensitiveParameter] array $credentials, AccountAttempts $accounts): ?Identity
     {
-        $lookup = $password->lookupCredentials($this->name, $credentials);
+        $lookup = $password->lookupCredentials($this->context->name(), $credentials);
 
         if ($lookup === null) {
             return null;
         }
 
-        $user = $password->retrieve($this->provider, $lookup);
+        $user = $password->retrieve($this->context->provider(), $lookup);
 
         $this->lastRetrievedUser = $user;
 
-        return $user instanceof Identity && $password->verifyPassword($accounts, $this->provider, $user, $lookup) ? $user : null;
+        return $user instanceof Identity && $password->verifyPassword($accounts, $this->context->provider(), $user, $lookup) ? $user : null;
     }
 
     /**
@@ -179,7 +180,7 @@ trait SignsInWithCredentials
     private function admitVerifiedIdentity(SignInAdmission $admission, Identity $identity, ?Principal $principal, ?Device $device, string $identifierType): Admitted|Refused
     {
         $admitted = $admission->admit(
-            $this->name,
+            $this->context->name(),
             $identity,
             fn (): ?Principal => $principal === null ? $this->resolvePrincipal($identity) : $this->resolvePinnedPrincipal($identity, $principal),
             $principal === null ? FailureReason::PRINCIPAL_UNRESOLVED : FailureReason::PRINCIPAL_MISMATCH,
@@ -216,7 +217,7 @@ trait SignsInWithCredentials
     private function refuseIfAFactorIsRequired(Admitted $admitted, ClientContext $client): Admitted|Refused
     {
         $required = self::signInCollaborator(AdditionalFactorPolicy::class)->requiresAdditionalFactor(new AdditionalFactorContext(
-            $this->name,
+            $this->context->name(),
             $admitted->identity,
             $admitted->principal,
             $admitted->tenant,

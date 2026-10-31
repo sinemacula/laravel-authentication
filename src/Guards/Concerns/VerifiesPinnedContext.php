@@ -38,7 +38,7 @@ trait VerifiesPinnedContext
      */
     protected function resolvePinnedPrincipal(Identity $identity, Principal $pinned): ?Principal
     {
-        return PinnedPrincipal::resolve($this->resolver, $identity, $pinned);
+        return PinnedPrincipal::resolve($this->context->resolver(), $identity, $pinned);
     }
 
     /**
@@ -85,6 +85,6 @@ trait VerifiesPinnedContext
     {
         $device = IdentityDevices::find($identity, $hint);
 
-        return $device !== null && OwnedDevice::refusal($device, $this->name, Carbon::now()) === null ? $device : null;
+        return $device !== null && OwnedDevice::refusal($device, $this->context->name(), Carbon::now()) === null ? $device : null;
     }
 }

@@ -117,7 +117,7 @@ final class JwtGuard extends AbstractGuard
      */
     public function sessions(): SessionService
     {
-        return $this->sessions ??= ($this->sessionFactory)($this, $this->timeboxed(...));
+        return $this->sessions ??= ($this->sessionFactory)($this, $this->context->timebox()->run(...));
     }
 
     /**
@@ -137,7 +137,7 @@ final class JwtGuard extends AbstractGuard
      */
     public function timeboxed(\Closure $callback): mixed
     {
-        return $this->withinTimebox($callback);
+        return $this->context->timebox()->run($callback);
     }
 
     /**
@@ -220,7 +220,7 @@ final class JwtGuard extends AbstractGuard
      */
     public function refreshFromRequest(): FailureReason|RefreshResult|null
     {
-        $presented = $this->refreshTransport()->read($this->request);
+        $presented = $this->refreshTransport()->read($this->context->request());
 
         if ($presented instanceof PresentedRefreshToken) {
 
@@ -231,7 +231,7 @@ final class JwtGuard extends AbstractGuard
 
         if ($presented !== null) {
             $this->fireAttemptingEvent([]);
-            $this->refuseRefresh(new AuthenticationFailed(new EventContext($this->name, ClientContext::fromRequest($this->request)), AuthenticationFlow::REFRESH, $presented));
+            $this->refuseRefresh(new AuthenticationFailed(new EventContext($this->context->name(), $this->context->client()), AuthenticationFlow::REFRESH, $presented));
         }
 
         return $presented;
@@ -299,7 +299,7 @@ final class JwtGuard extends AbstractGuard
     #[\Override]
     protected function resolveUserFromRequest(): ?Identity
     {
-        $token = $this->request->bearerToken();
+        $token = $this->context->request()->bearerToken();
 
         if ($token === null || $token === '') {
             return null;
@@ -324,7 +324,7 @@ final class JwtGuard extends AbstractGuard
     {
         $this->fireAttemptingEvent([]);
 
-        $client = ClientContext::fromRequest($this->request);
+        $client = $this->context->client();
         $result = $this->exchange->exchange($refreshToken, $client);
 
         if ($result instanceof AuthenticationFailed) {
@@ -360,7 +360,7 @@ final class JwtGuard extends AbstractGuard
     {
         $this->fireFailedEvent(null, []);
 
-        $this->events->dispatch($failure);
+        $this->context->dispatch($failure);
 
         if ($failure->retryAfter !== null) {
             throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $failure->retryAfter]);
@@ -379,13 +379,13 @@ final class JwtGuard extends AbstractGuard
      */
     private function reportRefresh(ExchangedRefresh $result, ClientContext $client): void
     {
-        $context   = new EventContext($this->name, $client, $result->identity, $result->principal, $result->tenant, $result->device, $result->method);
+        $context   = new EventContext($this->context->name(), $client, $result->identity, $result->principal, $result->tenant, $result->device, $result->method);
         $container = Container::getInstance();
 
         (new AfterCommit(static fn (): mixed => $container->bound('db.transactions') ? $container->make('db.transactions') : null))
             ->run($result->device, function () use ($context): void {
-                $this->events->dispatch(new Refreshed($context));
-                $this->events->dispatch(new SignedIn($context, false, true));
+                $this->context->dispatch(new Refreshed($context));
+                $this->context->dispatch(new SignedIn($context, false, true));
             });
     }
 
@@ -405,12 +405,12 @@ final class JwtGuard extends AbstractGuard
      */
     private function resolveBearerToken(#[\SensitiveParameter] string $token): ?Identity
     {
-        $outcome = (new BearerAuthentication($this->name, $this->tokens, $this->provider, $this->resolver))
-            ->authenticate($token, ClientContext::fromRequest($this->request));
+        $outcome = (new BearerAuthentication($this->context->name(), $this->tokens, $this->context->provider(), $this->context->resolver()))
+            ->authenticate($token, $this->context->client());
 
         if ($outcome instanceof AuthenticationFailed) {
 
-            $this->events->dispatch($outcome);
+            $this->context->dispatch($outcome);
 
             return null;
         }

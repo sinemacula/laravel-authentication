@@ -5,7 +5,6 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Guards\Concerns;
 
 use Illuminate\Auth\Events\Authenticated;
-use Illuminate\Contracts\Events\Dispatcher;
 use SineMacula\Laravel\Authentication\Audience\PrincipalType;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -17,7 +16,6 @@ use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
-use SineMacula\Laravel\Authentication\Http\ClientContext;
 
 /**
  * Holds the identity -> principal -> device triple bound to a guard, with the
@@ -30,19 +28,15 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
  * a request resolves it, as Laravel's own guards do, even on a route without
  * authentication middleware.
  *
- * Expects the using class to declare:
- * - `protected string $name`
- * - `protected \Illuminate\Contracts\Events\Dispatcher $events`
- * - `protected \Illuminate\Http\Request $request`
+ * Expects the using class to hold the guard's `GuardContext` in
+ * `$this->context`, whose name, dispatcher and request it reads.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @phpstan-require-implements \SineMacula\Laravel\Authentication\Contracts\ContextualGuard
  *
- * @property string $name
- * @property \Illuminate\Contracts\Events\Dispatcher $events
- * @property \Illuminate\Http\Request $request
+ * @property \SineMacula\Laravel\Authentication\Runtime\GuardContext $context
  */
 trait BindsContextualState
 {
@@ -194,7 +188,7 @@ trait BindsContextualState
 
         $this->principal = $principal;
 
-        $this->dispatcher()->dispatch(new PrincipalAssigned($this->boundContext(self::boundTenant($principal), $this->device?->getSignInMethod())));
+        $this->context->dispatch(new PrincipalAssigned($this->boundContext(self::boundTenant($principal), $this->device?->getSignInMethod())));
 
         return $this;
     }
@@ -229,7 +223,7 @@ trait BindsContextualState
 
         $tenant = $this->principal === null ? null : self::boundTenant($this->principal);
 
-        $this->dispatcher()->dispatch(new DeviceAuthenticated($this->boundContext($tenant, $device->getSignInMethod())));
+        $this->context->dispatch(new DeviceAuthenticated($this->boundContext($tenant, $device->getSignInMethod())));
 
         return $this;
     }
@@ -323,14 +317,14 @@ trait BindsContextualState
 
         $context = $this->boundContext($tenant, $method);
 
-        $this->dispatcher()->dispatch(new Authenticated($this->name, $identity));
-        $this->dispatcher()->dispatch(new PrincipalAssigned($context));
+        $this->context->dispatch(new Authenticated($this->context->name(), $identity));
+        $this->context->dispatch(new PrincipalAssigned($context));
 
         if ($device === null) {
             return;
         }
 
-        $this->dispatcher()->dispatch(new DeviceAuthenticated($context));
+        $this->context->dispatch(new DeviceAuthenticated($context));
     }
 
     /**
@@ -343,8 +337,8 @@ trait BindsContextualState
     private function boundContext(?Tenant $tenant, ?string $method): EventContext
     {
         return new EventContext(
-            $this->name,
-            ClientContext::fromRequest($this->request),
+            $this->context->name(),
+            $this->context->client(),
             $this->identity,
             $this->principal,
             $tenant,
@@ -353,15 +347,5 @@ trait BindsContextualState
             credentialId: $this->credentialId,
             scopes: $this->scopes,
         );
-    }
-
-    /**
-     * Return the host class's event dispatcher.
-     *
-     * @return \Illuminate\Contracts\Events\Dispatcher
-     */
-    private function dispatcher(): Dispatcher
-    {
-        return $this->events;
     }
 }

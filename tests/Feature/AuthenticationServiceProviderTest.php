@@ -453,7 +453,7 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         self::assertInstanceOf(RefreshTokenExchange::class, $exchange);
         self::assertSame(
-            $this->readObjectProperty($guard, 'resolver'),
+            $guard->getPrincipalResolver(),
             $this->readObjectProperty($exchange, 'resolver'),
         );
 
@@ -462,7 +462,7 @@ final class AuthenticationServiceProviderTest extends TestCase
         assert($this->app !== null);
         $this->app->instance(PrincipalResolver::class, $replacement);
 
-        self::assertSame($replacement, $this->readObjectProperty($guard, 'resolver'));
+        self::assertSame($replacement, $guard->getPrincipalResolver());
         self::assertSame($replacement, $this->readObjectProperty($exchange, 'resolver'));
     }
 
@@ -480,7 +480,7 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $guard);
 
-        $resolver = $this->readObjectProperty($guard, 'resolver');
+        $resolver = $guard->getPrincipalResolver();
         $exchange = $this->readObjectProperty($guard, 'exchange');
 
         self::assertInstanceOf(StubGuardScopedPrincipalResolver::class, $resolver);
@@ -492,9 +492,9 @@ final class AuthenticationServiceProviderTest extends TestCase
         assert($this->app !== null);
         $this->app->instance(PrincipalResolver::class, $replacement);
 
-        self::assertSame($resolver, $this->readObjectProperty($guard, 'resolver'));
+        self::assertSame($resolver, $guard->getPrincipalResolver());
         self::assertSame($resolver, $this->readObjectProperty($exchange, 'resolver'));
-        self::assertNotSame($replacement, $this->readObjectProperty($guard, 'resolver'));
+        self::assertNotSame($replacement, $guard->getPrincipalResolver());
     }
 
     /**
@@ -601,7 +601,7 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         Event::fake([Attempting::class, Failed::class, AuthenticationFailed::class]);
 
-        self::assertSame(Event::getFacadeRoot(), $this->readObjectProperty($guard, 'events'));
+        self::assertSame(Event::getFacadeRoot(), $guard->getDispatcher());
         self::assertFalse($guard->attempt(['password' => 'not-a-real-password']));
 
         Event::assertDispatched(Attempting::class, static fn (Attempting $event): bool => $event->guard === 'api');

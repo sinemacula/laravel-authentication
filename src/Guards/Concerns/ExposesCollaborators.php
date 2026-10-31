@@ -11,9 +11,9 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 
 /**
  * Exposes the collaborators a guard holds to the code that signs in through it,
- * such as the session service: each is read when it is needed, so a later
- * `setRequest()`, `setDispatcher()` or `setPrincipalResolver()` reaches that
- * code as it reaches the guard.
+ * such as the session service: each is read from the guard's context when it is
+ * needed, so a later `setRequest()`, `setDispatcher()` or
+ * `setPrincipalResolver()` reaches that code as it reaches the guard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -29,7 +29,7 @@ trait ExposesCollaborators
      */
     public function getProvider(): IdentityProvider
     {
-        return $this->provider;
+        return $this->context->provider();
     }
 
     /**
@@ -39,7 +39,7 @@ trait ExposesCollaborators
      */
     public function getPrincipalResolver(): PrincipalResolver
     {
-        return $this->resolver;
+        return $this->context->resolver();
     }
 
     /**
@@ -49,7 +49,7 @@ trait ExposesCollaborators
      */
     public function getDispatcher(): Dispatcher
     {
-        return $this->events;
+        return $this->context->events();
     }
 
     /**
@@ -59,6 +59,6 @@ trait ExposesCollaborators
      */
     public function getRequest(): Request
     {
-        return $this->request;
+        return $this->context->request();
     }
 }

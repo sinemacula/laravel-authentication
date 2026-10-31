@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Feature\Guards;
+namespace Tests\Feature\Runtime;
 
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
@@ -10,6 +10,7 @@ use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Runtime\CredentialTimebox;
 use Tests\Concerns\InteractsWithPasswords;
 use Tests\Fixtures\Passwords\RecordingTimebox;
 use Tests\TestCase;
@@ -28,6 +29,7 @@ use Tests\TestCase;
  */
 #[CoversClass(AbstractGuard::class)]
 #[CoversClass(JwtGuard::class)]
+#[CoversClass(CredentialTimebox::class)]
 final class CredentialTimeboxTest extends TestCase
 {
     use InteractsWithPasswords;
