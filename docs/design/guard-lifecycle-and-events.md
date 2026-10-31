@@ -138,7 +138,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   pinned device (`device_mismatch`), the password rehash (`PasswordSignIn::rehash()`, honouring
   `hashing.rehash_on_login`; no other path writes a password), and the additional-factor policy, which `attempt()` can
   only refuse (`additional_factor_required`) and is never told of a pinned device. Only a success gives its slot back.
-  `validate()` checks the credentials only, and still fires `Validated` when it accepts them.
+  The method check and the slot, the account's slot and its refusal (`account_rate_limited`) and the give-back are the
+  steps of `Sessions\CredentialAttempt`, which the session service's `signIn()` takes too, in its own order; what runs
+  in the timebox, `Validated`, the pins, the rehash and the factor refusal are `attempt()`'s own (see
+  `session-service.md`). `validate()` checks the credentials only, and still fires `Validated` when it accepts them.
 - A principal or device pinned on `attempt()` is verified, not trusted: the principal goes through the resolver's hinted
   path and must come back as the same class with the same identifier (the bearer `pid` exact-match check) and be owned
   by the authenticated identity (its `getIdentity()` is that identity), and the device must be found among the
@@ -196,7 +199,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `src/Guards/AbstractGuard.php`: `user()`, `resolveUserFromRequest()`, `attempt()`, `validate()`, `login()`,
   `authenticateAs()`, `logout()`, `forgetUser()`, `bindAuthenticationLifecycle()`, `bindVerifiedContext()`;
   `src/Guards/Concerns/RebindsCollaborators.php`: `setRequest()`; `src/Guards/Concerns/SignsInWithCredentials.php`:
-  `signInWithCredentials()`, `admitVerifiedIdentity()`.
+  `signInWithCredentials()`, `admitVerifiedIdentity()`; `src/Sessions/CredentialAttempt.php`: the steps it shares with
+  the session service's `signIn()`.
 - `src/Sessions/Methods/PasswordSignIn.php` and `src/Admission/SignInAdmission.php`: the credential check and the
   activity, principal, tenant and audience checks every sign-in shares.
 - `src/Admission/ActivationPolicy.php`: the opt-in identity, principal, and tenant activation checks.
@@ -228,6 +232,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `tests/Integration/Contracts/EventSequenceTest.php`: the sequence when the device's connection commits or rolls back,
   when a bind or lifecycle listener throws (and what becomes of the attempt-limit slots), and when the request or the
   dispatcher is rebound before the commit
+- `tests/Feature/Contracts/CredentialAttemptMatrixTest.php`: every case of `attempt()` and of the session service's
+  `signIn('password')`, each with its answer, events, timebox, rehash and slots;
+  `tests/Feature/Sessions/CredentialAttemptTest.php`: the shared steps on their own
 - `tests/Feature/Guards/AbstractGuardAttemptTest.php`
   `testAttemptDispatchesAttemptingEventBeforeValidation`
 - `tests/Feature/Guards/AbstractGuardAttemptTest.php`
@@ -339,7 +346,7 @@ Update this note when any of the following change:
 - the order or presence of `Attempting`, `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`, `PrincipalAssigned`,
   `DeviceAuthenticated`, `Refreshed`, `AuthenticationFailed`, `AdditionalFactorRequired`, `PrincipalChoiceRequired`,
   `PrincipalSwitched`, `DeviceRevoked`, or `IdentifierVerified`
-- the order of the sign-in policy checks in `attempt()`
+- the order of the sign-in policy checks in `attempt()`, or which of its steps it shares with `signIn()`
 - which credential keys are redacted from `Attempting` and `Failed`
 - the response a guest gets on a route protected by package guards
 - the decision that a bearer request binds without a sign-in and refresh as one

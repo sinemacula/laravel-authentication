@@ -87,11 +87,11 @@ final class NamespaceDependenciesTest extends TestCase
             'forbids' => ['Guards'],
             'allows'  => [],
         ],
-        'the guards name nothing of sessions but the revocations and the password sign-in method' => [
+        'the guards name nothing of sessions but the revocations, the password sign-in method and the credential attempt' => [
             'from'    => ['Guards'],
             'except'  => [],
             'forbids' => ['Sessions'],
-            'allows'  => ['Sessions\SessionRevocations', 'Sessions\Methods\PasswordSignIn'],
+            'allows'  => ['Sessions\SessionRevocations', 'Sessions\Methods\PasswordSignIn', 'Sessions\CredentialAttempt'],
         ],
         'only the composition root, the guards, the testing helpers and the console name a guard' => [
             'from'    => ['*'],
