@@ -77,9 +77,11 @@ request for a code looks the same whether or not anyone has the identifier, and 
   does not report the identifier verified `identifier_unverified`, otherwise the identity.
 - Verification by code (`CodeService::sendVerification()` / `verify()`) binds the code to the identity and its current
   identifier of the type in normal form, as the identity given reports it. An accepted code hands that identifier to
-  `IdentifierVerifier::verify()`, which records it only if it is still the identity's; a refused check returns its
-  reason unconcealed and reports it on the `identifier_verification` flow. It never signs anyone in. A machine identity
-  is refused with an `InvalidArgumentException`, an identity without `HasVerifiableIdentifiers` with a `LogicException`.
+  `IdentifierVerifier::verify()`, which records it only if it is still the identity's, and `verify()` answers the
+  verifier's outcome as a `VerificationOutcome` (`verified`, `already_verified`, `mismatch`); a refused check answers
+  `invalid`, `expired` or `exhausted`, unconcealed, and reports `invalid_credentials`, `code_expired` or
+  `code_exhausted` on the `identifier_verification` flow. It never signs anyone in. A machine identity is refused with
+  an `InvalidArgumentException`, an identity without `HasVerifiableIdentifiers` with a `LogicException`.
 
 ## Success Path
 
@@ -92,7 +94,8 @@ request for a code looks the same whether or not anyone has the identifier, and 
   `OneTimeCodes::check()`: `SELECT`, counting `UPDATE`, using `UPDATE`); admission, factor policy, device and tokens as
   for a password, with `phone_code` recorded on the device.
 - `sendVerification($identity, 'phone')` then `verify($identity, 'phone', $code)`: the same issue, delivery and check
-  for the verification binding, then `IdentifierVerifier::verify()` and `IdentifierVerified` once committed.
+  for the verification binding, then `IdentifierVerifier::verify()` and `IdentifierVerified` once committed;
+  `VerificationOutcome::VERIFIED`.
 
 ## Failure / Edge Cases
 
@@ -139,7 +142,7 @@ criterion, and the signing-in guide's "Enumeration resistance" table lists every
 ## Implementation Anchors
 
 - `src/Codes/OneTimeCodes.php` (engine), `src/Codes/CodeKeys.php`, `src/Codes/CodeBinding.php`,
-  `src/Codes/CodeSettings.php`, `src/Codes/Enums/CodeCheck.php`.
+  `src/Codes/CodeSettings.php`, `src/Codes/Enums/CodeCheck.php`, `src/Codes/Enums/VerificationOutcome.php`.
 - `src/Codes/CodeService.php` (`Auth::codes()`), `src/Codes/CodeSignIn.php` (`phone_code`, `email_code`),
   `src/Codes/SendOneTimeCode.php`, `src/Codes/CodeIdentifiers.php` (an identity's own identifier, and whether it holds
   the bound one).
@@ -157,6 +160,7 @@ criterion, and the signing-in guide's "Enumeration resistance" table lists every
   payload on a real queue, a deleted identity's job dropped, after-response delivery on `sync` and on a `failover` that
   falls back to it.
 - `tests/Integration/Codes/CodeIdentifiersTest.php`: an identity's own identifier in canonical form, and exact holding.
+- `tests/Integration/Codes/CodeVerificationOutcomesTest.php`: each outcome of a verification by code and what it wrote.
 - `tests/Integration/Codes/ReplicaOneTimeCodesTest.php`: write-connection reads, including an identity that reads its
   identifier and verification with queries of its own.
 - `tests/Feature/Codes/EmailCodeSignInTest.php`: an accented look-alike of an address gets no code and signs in no one,

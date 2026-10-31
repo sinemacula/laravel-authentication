@@ -14,12 +14,12 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Codes\CodeRequest;
 use SineMacula\Laravel\Authentication\Codes\CodeService;
 use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
+use SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Codes\SendOneTimeCode;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
-use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use Tests\Concerns\InteractsWithCodeIdentities;
 
 /**
@@ -251,7 +251,7 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
 
         $codes->sendVerification($identity, 'phone');
 
-        self::assertSame(IdentifierVerification::VERIFIED, $this->assertQueryBudget(2, 3, static fn (): mixed => $codes->verify($identity, 'phone', self::CODE)));
+        self::assertSame(VerificationOutcome::VERIFIED, $this->assertQueryBudget(2, 3, static fn (): mixed => $codes->verify($identity, 'phone', self::CODE)));
     }
 
     /**

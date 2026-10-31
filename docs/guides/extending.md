@@ -108,13 +108,27 @@ seam has a default that works alone.
   wait, so it fails as `additional_factor_required`.
 - A factor removed ends the identity's other sessions: `Auth::sessions()->factorRemoved($identity, Auth::device())`.
 - Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity)` and `verifyFactor()`, which count and
-  report nothing: the factor's outcome is the factor package's to limit and report.
+  report nothing: the factor's outcome is the factor package's to limit and report. `verifyFactor()` answers a
+  `PasskeyFactorResult` (see [Using passkeys](signing-in.md#using-passkeys)), never `null`.
 - Factor state is the factor package's, keyed by the device id (`Auth::device()?->getDeviceIdentifier()`, the `did`
   every session token carries); the device records none.
 - A factor the factor package has just verified proves a recent authentication before an identifier change:
   `Reauthentication::confirmedAt($verifiedAt)` (see [Changing identifiers](identifier-changes.md)).
 - When every sign-in requires a further factor, a password is no longer the only factor, and `passwords.min_length`
   may be lowered from 15 to 8, as NIST SP 800-63B allows (see [Password policy](passwords.md#password-policy)).
+
+`verifyFactor()` used to answer `null` once verified and the `FailureReason` otherwise. A factor package written against
+that still runs, wrongly: a `null` check, or a truthiness one, now takes every answer for a refusal. Ask the result:
+
+```php
+// Before: null once verified, else the FailureReason.
+$reason = Auth::passkeys()->verifyFactor($identity, $challenge, $credential);
+$passed = $reason === null;
+
+// After
+$result = Auth::passkeys()->verifyFactor($identity, $challenge, $credential);
+$passed = $result->isVerified();   // else $result->reason
+```
 
 ### Authorization (`laravel-authorization`)
 

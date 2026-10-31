@@ -13,10 +13,9 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationFailure;
+use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyService;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeySignIn;
-use SineMacula\Laravel\Authentication\Passkeys\PasskeySummary;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithSessions;
@@ -160,7 +159,7 @@ final class PasskeyRoutesTest extends TestCase
 
         $this->send('/passkeys', ['challenge' => $options['challenge'], 'credential' => '{}'], $access)
             ->assertUnprocessable()
-            ->assertExactJson(['error' => PasskeyRegistrationFailure::RESPONSE_INVALID->value]);
+            ->assertExactJson(['error' => PasskeyRegistrationStatus::RESPONSE_INVALID->value]);
 
         $this->send('/passkeys/options', [])->assertUnauthorized();
     }
@@ -241,11 +240,11 @@ final class PasskeyRoutesTest extends TestCase
 
         assert($identity instanceof IntegrationIdentity && (is_array($input['credential']) || is_string($input['credential'])));
 
-        $outcome = Auth::passkeys('api')->register($identity, $input['challenge'], $input['credential'], $input['name'] ?? null);
+        $result = Auth::passkeys('api')->register($identity, $input['challenge'], $input['credential'], $input['name'] ?? null);
 
-        return $outcome instanceof PasskeySummary
-            ? response()->json($outcome, 201)
-            : response()->json(['error' => $outcome->value], 422);
+        return $result->isRegistered()
+            ? response()->json($result->passkey, 201)
+            : response()->json(['error' => $result->status->value], 422);
     }
 
     /**

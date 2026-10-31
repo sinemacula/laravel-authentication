@@ -67,8 +67,8 @@ package's.
 - Registration: `registrationOptions($identity, $userName, $displayName)` writes a `register` challenge;
   `register($identity, $challenge, $credential, $name)` uses it up, parses the browser's `PublicKeyCredential` (JSON or
   decoded), runs webauthn-lib's attestation ceremony against the stored options and the relying party, inserts the
-  passkey (name cleaned and cut to 255 characters, only WebAuthn's own transports kept) and answers its
-  `PasskeySummary`; `PasskeyAdded` once committed.
+  passkey (name cleaned and cut to 255 characters, only WebAuthn's own transports kept) and answers
+  `PasskeyRegistration::registered()` with its `PasskeySummary`; `PasskeyAdded` once committed.
 - Sign-in: `signInOptions()` reserves a slot on the client's IP address under the guard's `passkey_options` limit
   (never given back; its `per_identifier` must be `null`, as there is no identifier, and `AttemptLimits` refuses any
   other value) and writes a `sign_in` challenge naming no credential. `Auth::sessions()->signIn('passkey',
@@ -80,17 +80,20 @@ package's.
   identifier type.
 - Factor (the seam for a further-factor package): `factorOptions($identity)` writes a `factor` challenge allowing only
   the identity's passkeys; `verifyFactor($identity, $challenge, $credential)` applies the same checks for that identity
-  and answers `null`, with `PasskeyUsed`. It counts nothing and reports no failure: the factor's outcome is the
-  further-factor package's.
+  and answers `PasskeyFactorResult::verified()` with the passkey's summary as its use left it, with `PasskeyUsed`. It
+  counts nothing and reports no failure: the factor's outcome is the further-factor package's.
 - Management: `passkeys($identity)` lists summaries oldest first; `remove($identity, $id)` deletes the identity's
   passkey of the relying party with one conditional `DELETE` and reports `PasskeyRemoved` from the call that removed it.
   The optional `Listeners\RevokeDevicesOnPasskeyRemoval` then ends the identity's sessions (`factor_removed`).
 
 ## Failure / Edge Cases
 
-- Registration answers `challenge_invalid` (unknown, malformed, expired, used, or another guard's, relying party's,
-  purpose's or identity's challenge), `response_invalid` (malformed or not verified, an assertion included) or
-  `already_registered` (the digest exists, for anyone).
+- Registration answers a `PasskeyRegistration` whose status (`PasskeyRegistrationStatus`) is `challenge_invalid`
+  (unknown, malformed, expired, used, or another guard's, relying party's, purpose's or identity's challenge),
+  `response_invalid` (malformed or not verified, an assertion included) or `already_registered` (the digest exists, for
+  anyone), with no passkey.
+- A factor is refused with `PasskeyFactorResult::failed()` and its reason, unconcealed: `passkey_challenge_invalid`,
+  `invalid_credentials` (malformed, not verified, or not the identity's passkey) or `passkey_counter_regressed`.
 - A sign-in fails as `passkey_challenge_invalid` when its challenge cannot be used, in the result too (it reveals no
   account; the client starts again), and otherwise as `invalid_credentials`: a malformed answer, a passkey of no or
   another relying party, an owner the provider does not return as recorded, an account with no attempts left (the event
@@ -112,6 +115,8 @@ package's.
 ## Implementation Anchors
 
 - `src/Passkeys/PasskeyService.php`, `src/Passkeys/PasskeySignIn.php`, `src/Passkeys/PasskeyAssertions.php`.
+- `src/Passkeys/PasskeyRegistration.php`, `src/Passkeys/Enums/PasskeyRegistrationStatus.php`,
+  `src/Passkeys/PasskeyFactorResult.php` (see `outcomes.md`).
 - `src/Passkeys/WebAuthn.php` (webauthn-lib: options, parsing, ceremonies), `src/Passkeys/DeferredCounterCheck.php`,
   `src/Passkeys/SignCounter.php`.
 - `src/Passkeys/PasskeyChallenges.php`, `src/Passkeys/PasskeyCredentials.php`, `src/Passkeys/PasskeyOwner.php`,
@@ -129,6 +134,8 @@ package's.
 - `tests/Feature/Passkeys/WebAuthnTest.php`, `tests/Unit/Passkeys/RelyingPartyTest.php`,
   `tests/Unit/Passkeys/SignCounterTest.php`, with the software authenticator
   `tests/Fixtures/Passkeys/VirtualAuthenticator.php`.
+- `tests/Unit/Passkeys/PasskeyRegistrationTest.php`, `tests/Unit/Passkeys/PasskeyFactorResultTest.php`,
+  `tests/Integration/Passkeys/PasskeyOutcomesTest.php` (what each outcome wrote).
 - `tests/Integration/Passkeys/ConcurrentPasskeyTest.php` (races on PostgreSQL and MySQL),
   `tests/Integration/Passkeys/ReplicaPasskeysTest.php`, `tests/Integration/Migration/PasskeyTablesSchemaTest.php`.
 - `tests/Performance/PasskeyQueryBudgetTest.php` (query budgets and the timebox),

@@ -5,13 +5,16 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Passkeys\Enums;
 
 /**
- * Why a passkey was not registered.
+ * How registering a passkey ended.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-enum PasskeyRegistrationFailure: string
+enum PasskeyRegistrationStatus: string
 {
+    // The passkey was stored for the identity
+    case REGISTERED = 'registered';
+
     // The challenge is unknown, expired, already answered, or not a
     // registration challenge of this guard and identity
     case CHALLENGE_INVALID = 'challenge_invalid';

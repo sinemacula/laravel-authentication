@@ -12,7 +12,6 @@ use SineMacula\Laravel\Authentication\Passkeys\CeremonyOptions;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyAssertions;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyService;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeySignIn;
-use SineMacula\Laravel\Authentication\Passkeys\PasskeySummary;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithSessions;
@@ -87,7 +86,7 @@ final class PasskeyQueryBudgetTest extends PerformanceContractTestCase
         $options = $this->assertQueryBudget(1, 1, static fn (): CeremonyOptions => $passkeys->registrationOptions($identity, self::USER_NAME));
         $answer  = $this->authenticator()->create($options->options);
 
-        self::assertInstanceOf(PasskeySummary::class, $this->assertQueryBudget(1, 2, static fn (): mixed => $passkeys->register($identity, $options->challengeId, $answer)));
+        self::assertTrue($this->assertQueryBudget(1, 2, static fn (): mixed => $passkeys->register($identity, $options->challengeId, $answer))->isRegistered());
     }
 
     /**
@@ -148,7 +147,7 @@ final class PasskeyQueryBudgetTest extends PerformanceContractTestCase
         $options  = $this->assertQueryBudget(1, 1, static fn (): CeremonyOptions => $passkeys->factorOptions($identity));
         $answer   = $this->authenticator()->get($options->options);
 
-        self::assertNull($this->assertQueryBudget(2, 2, static fn (): mixed => $passkeys->verifyFactor($identity, $options->challengeId, $answer)));
+        self::assertTrue($this->assertQueryBudget(2, 2, static fn (): mixed => $passkeys->verifyFactor($identity, $options->challengeId, $answer))->isVerified());
     }
 
     /**

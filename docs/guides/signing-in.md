@@ -298,7 +298,6 @@ passkey:
 
 ```php
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Passkeys\PasskeySummary;
 
 // POST /passkeys/options, behind auth:api
 $identity = Auth::identity();
@@ -312,16 +311,16 @@ $input = $request->validate([
     'name'       => ['nullable', 'string'],
 ]);
 
-$outcome = Auth::passkeys('api')->register(
+$result = Auth::passkeys('api')->register(
     Auth::identity(),
     $input['challenge'],
     $input['credential'],
     $input['name'] ?? null,
 );
 
-return $outcome instanceof PasskeySummary
-    ? response()->json($outcome, 201)
-    : response()->json(['error' => $outcome->value], 422);
+return $result->isRegistered()
+    ? response()->json($result->passkey, 201)
+    : response()->json(['error' => $result->status->value], 422);
 ```
 
 The options (`CeremonyOptions`: `challenge`, `options`, `expires_at` as JSON) ask for a discoverable credential with
@@ -332,10 +331,11 @@ and display name from the identity's own record, never from the request: the bro
 identity registers for a relying party carries the random user handle its passkeys already had when the options were
 handed out, or a new random one when it had none, so registrations whose options were handed out before the first one
 completed (on two devices, say) may each get their own; every passkey is checked against its own handle. A handle
-carries no personal data and does not depend on `app.key`. `register()` answers a `PasskeySummary`, or a
-`PasskeyRegistrationFailure`: `challenge_invalid` (not a live registration challenge of this guard for the identity),
-`response_invalid` (malformed, or it does not verify: origin, relying party, user presence and verification, challenge,
-algorithm, attestation statement) or `already_registered`. The name is stored cleaned and cut to 255 characters. Under
+carries no personal data and does not depend on `app.key`. `register()` answers a `PasskeyRegistration` whose `status`
+(`PasskeyRegistrationStatus`) is `registered`, with the passkey's `PasskeySummary` in `passkey`, or `challenge_invalid`
+(not a live registration challenge of this guard for the identity), `response_invalid` (malformed, or it does not
+verify: origin, relying party, user presence and verification, challenge, algorithm, attestation statement) or
+`already_registered`, with no passkey. The name is stored cleaned and cut to 255 characters. Under
 `attestation: none` a browser may still pass an authenticator's own statement through, so the formats the WebAuthn
 library checks on its own (`none`, `packed`, `fido-u2f`, `android-key`, `tpm`, `apple`) are accepted for their internal
 consistency, but no certificate chain or metadata is evaluated and every passkey is recorded as unattested. A machine
@@ -379,14 +379,57 @@ A further-factor package verifies one of an identity's passkeys through the same
 // Allows only the identity's passkeys.
 $options = Auth::passkeys('api')->factorOptions($identity);
 
-// null once verified, else the reason.
-$reason = Auth::passkeys('api')->verifyFactor($identity, $challenge, $credential);
+// Verified, with the passkey, or failed with the reason.
+$result = Auth::passkeys('api')->verifyFactor($identity, $challenge, $credential);
+
+if ($result->isFailed()) {
+    // $result->reason
+}
 ```
 
-`verifyFactor()` answers `null` once the identity's own passkey verified (with `PasskeyUsed`), and otherwise
+`verifyFactor()` answers a `PasskeyFactorResult`: verified once the identity's own passkey verified (with
+`PasskeyUsed`), its `passkey` the `PasskeySummary` as the use left it, or failed with its `reason`:
 `passkey_challenge_invalid`, `invalid_credentials` (malformed, not verified, or not the identity's) or
 `passkey_counter_regressed`, which the caller already holding the identity may see. It counts nothing and reports no
 failure: the factor's outcome is the further-factor package's to limit and report.
+
+Both answers changed shape, and a check written for the old ones still runs, wrongly: `verifyFactor()` answered `null`
+once verified, so a `null` or truthiness check on it now treats every answer as a failure, and `register()` answered the
+`PasskeySummary` or a `PasskeyRegistrationFailure`, so an `instanceof PasskeySummary` check is never true. Ask the
+result instead (see `docs/design/outcomes.md`):
+
+```php
+// Before
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationFailure;
+use SineMacula\Laravel\Authentication\Passkeys\PasskeySummary;
+
+if (Auth::passkeys('api')->verifyFactor($identity, $challenge, $credential) !== null) { /* refused */ }
+if (Auth::passkeys('api')->verifyFactor($identity, $challenge, $credential)) { /* refused */ }
+
+$outcome = Auth::passkeys('api')->register($identity, $challenge, $credential);
+$passkey = $outcome instanceof PasskeySummary ? $outcome : null;
+
+match ($outcome) {
+    PasskeyRegistrationFailure::ALREADY_REGISTERED => 409,
+    default                                        => 422,
+};
+
+// After
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
+
+if (Auth::passkeys('api')->verifyFactor($identity, $challenge, $credential)->isFailed()) { /* refused */ }
+
+$result  = Auth::passkeys('api')->register($identity, $challenge, $credential);
+$passkey = $result->passkey;
+
+match ($result->status) {
+    PasskeyRegistrationStatus::REGISTERED         => 201,
+    PasskeyRegistrationStatus::ALREADY_REGISTERED => 409,
+    default                                       => 422,
+};
+```
 
 `Auth::passkeys('api')->passkeys($identity)` lists the identity's passkeys for the relying party, oldest first, as
 `PasskeySummary` (id, name, transports, AAGUID, backup state, created and last used), never the credential id, public

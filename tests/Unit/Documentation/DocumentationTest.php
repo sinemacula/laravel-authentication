@@ -8,6 +8,7 @@ use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -15,11 +16,13 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
 
 /**
  * A drift guard for the README and the guides in docs/guides: every failure
- * reason, flow and revocation reason, every package event, every configuration
- * key and every method of the package's auth manager is documented, and every
+ * reason, flow and revocation reason, every outcome of a passkey registration
+ * and of a verification by code, every package event, every configuration key
+ * and every method of the package's auth manager is documented, and every
  * `Auth::` call they show exists.
  *
  * It catches an omission or a rename, not wrong prose: what the documentation
@@ -40,14 +43,14 @@ final class DocumentationTest extends TestCase
     private static ?string $documentation = null;
 
     /**
-     * Rows of `[enum value, enum]`: every failure reason, authentication flow
-     * and revocation reason.
+     * Rows of `[enum value, enum]`: every failure reason, authentication flow,
+     * revocation reason, passkey registration status and verification outcome.
      *
      * @return iterable<string, array{0: string, 1: string}>
      */
     public static function provideEnumValues(): iterable
     {
-        foreach ([FailureReason::class, AuthenticationFlow::class, RevocationReason::class] as $enum) {
+        foreach ([FailureReason::class, AuthenticationFlow::class, RevocationReason::class, PasskeyRegistrationStatus::class, VerificationOutcome::class] as $enum) {
             foreach ($enum::cases() as $case) {
                 yield $enum . '::' . $case->name => [$case->value, $enum];
             }
@@ -55,8 +58,7 @@ final class DocumentationTest extends TestCase
     }
 
     /**
-     * Every failure reason, flow and revocation reason is named in the
-     * documentation, in code type.
+     * Every value of those enums is named in the documentation, in code type.
      *
      * @param  string  $value
      * @param  string  $enum
