@@ -84,6 +84,13 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   `revokePrincipalDevices()` and the security-change methods delegate to `SessionRevocations` (see
   `device-lifecycle.md`), on the guard's context, with the guard as the `Contracts\GuardBinding` the two sign-out calls
   read and forget. The guard's `logout()` and the password writer use the same revocations without a session service.
+- Refreshing is the service's too, beside switching principal: `refresh()` and `refreshFromRequest()` delegate to
+  `SessionRefresh`, which runs the refresh exchange the service builds on the guard's context and token service,
+  schedules `Refreshed` and `SignedIn` (a refresh) for the rotation's commit, and only then binds the guard as a sign-in
+  through the binding's `loginVerified()`, with the tenant and the sign-in method the exchange established. Every
+  refusal is a failed `RefreshResult` with the exchange's or the transport's reason, `rate_limited` with its wait, never
+  a thrown 429; `refreshFromRequest()` answers `null` only for a request without a token, and says where it read one
+  (see `refresh-rotation-and-replay.md` and `refresh-token-transport.md`).
 
 ## Success Path
 
@@ -140,7 +147,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 
 - `src/Sessions/SessionService.php`: `signIn()`, `start()`, `complete()`, `choose()`, `bound()`;
   `src/Sessions/Concerns/EndsSessions.php`: the methods it delegates to `src/Sessions/SessionRevocations.php` (a trait
-  only so the service stays within phpcs's limit of methods a class may declare).
+  only so the service stays within phpcs's limit of methods a class may declare);
+  `src/Sessions/Concerns/RefreshesSessions.php`: `refresh()` and `refreshFromRequest()`, delegated to
+  `src/Sessions/SessionRefresh.php` (a trait for the same reason), and `src/Sessions/RefreshResult.php`.
 - `src/Sessions/SessionEstablishment.php`: `proceed()`, `establish()`, `complete()`, `write()`, `signedIn()`,
   `giveBack()`: the session, the factor policy and the scheduled reports, never the bind.
 - `src/Sessions/PrincipalChoices.php`: `offerChoice()`, `admissible()`, `liveChoice()`.
@@ -161,6 +170,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - `tests/Feature/Sessions/SessionEstablishmentTest.php`: establishment on its own (what it writes, returns and
   schedules, and that it never binds); `tests/Feature/Sessions/PrincipalChoicesTest.php`
 - `tests/Feature/AuthManagerTest.php`: the service built per call on the guard's context, binding and token service
+- `tests/Feature/Sessions/SessionRefreshTest.php`, `tests/Unit/Sessions/RefreshResultTest.php`: the refresh, its events
+  and bind, and every refusal returned
 - `tests/Feature/Sessions/SessionRevocationsTest.php`, `tests/Feature/Sessions/ManagesDevicesTest.php`,
   `tests/Feature/Sessions/RevokesOnSecurityChangesTest.php`: the revocations on their own and through the service
 - `tests/Feature/Sessions/SessionRoutesTest.php`: the documented sign-in and further-factor routes over HTTP, through
@@ -188,3 +199,4 @@ Update this note when any of the following change:
 - what reaches the events from the sign-in input
 - what a pending sign-in stores, how long it lives, what finds it, or what completing it checks
 - which of its methods it delegates to `SessionRevocations`, or what of the guard those need
+- what a refresh returns, binds or reports, or what it delegates to `SessionRefresh`

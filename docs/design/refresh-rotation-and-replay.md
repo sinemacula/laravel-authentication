@@ -111,13 +111,13 @@ other rotated token as a replay that revokes the device.
 ## Failure / Edge Cases
 
 - Every failure below is returned by `exchange()` as an `AuthenticationFailed` (flow `refresh`), undispatched, after it
-  is counted against the token's device and the client's IP address; `refresh()` then dispatches `Failed` and the
-  `AuthenticationFailed`, and returns `null`.
+  is counted against the token's device and the client's IP address; the session service's `refresh()` then dispatches
+  `Failed` and the `AuthenticationFailed`, and returns a failed `RefreshResult` with the reason.
 - Once the device's or the IP address's count is full, the exchange fails with `rate_limited` before the lookup,
   carrying the seconds until the full count's window ends (`retryAfter`), and that failure is not counted itself, so a
-  blocked client costs one read. `refresh()` dispatches `Failed` and then throws Laravel's `ThrottleRequestsException`,
-  rendered as a 429 with `Retry-After` and its message, `Too Many Attempts.`, translated into the application's locale:
-  `refresh()` returns only `?RefreshResult`, and a 401 would be wrong.
+  blocked client costs one read. `refresh()` dispatches `Failed` and `AuthenticationFailed` and returns `rate_limited`
+  with the same `retryAfter`, never thrown (a throttled refresh is an outcome, see `outcomes.md`); the route answers it
+  with a 429 and `Retry-After`, since a 401 would be wrong.
 - A device of another guard, or of none, produces `device_guard_mismatch` without a write to the device, even for a
   token that would be a replay, and nothing is hydrated.
 - A device whose `sign_in_method` the guard no longer allows, or which records none, produces `method_not_allowed`; an
@@ -138,7 +138,7 @@ other rotated token as a replay that revokes the device.
   token for it cannot be classified as a replay, and the device is not revoked.
 - A replay (an older id, the previous id after the window or with a grace window of 0, the previous id when the current
   digest is not its successor, or any id the device never held) revokes the device with reason `rotation_reuse` and
-  dispatches `DeviceRevoked`, the guard's `Failed`, and `AuthenticationFailed` (`rotation_reuse`). With no transaction
+  dispatches `DeviceRevoked`, the refresh's `Failed`, and `AuthenticationFailed` (`rotation_reuse`). With no transaction
   open on the device's connection they come in that order; inside one, `Failed` and `AuthenticationFailed` come first
   and `DeviceRevoked` follows the commit (the transaction Laravel's testing traits wrap around each test is not counted,
   as it never commits). Nothing is hydrated. Every token of the device then fails: access tokens on the bearer path,
@@ -240,9 +240,10 @@ other rotated token as a replay that revokes the device.
 - `src/Admission/ActivationPolicy.php`: the opt-in identity, principal, and tenant activity checks.
 - `src/Events/Enums/FailureReason.php` and `src/Events/Enums/RevocationReason.php`: failure and revocation
   taxonomies; `src/Events/AuthenticationFailed.php`, `src/Events/DeviceRevoked.php`.
-- `src/Guards/JwtGuard.php`: `refresh()` and `refreshFromRequest()` go through `exchangeRefresh()`, which runs the live
-  refresh exchange with the request's client, and `refuseRefresh()` reports a refusal and turns a `rate_limited` one
-  into the 429.
+- `src/Sessions/SessionRefresh.php`: `refresh()` runs the live refresh exchange with the request's client, `report()`
+  schedules `Refreshed` and `SignedIn`, the binding's `loginVerified()` binds, and `refuse()` reports a refusal and
+  returns it with its reason and wait; `src/Sessions/SessionService.php` builds the exchange on the guard's context and
+  token service. `src/Sessions/RefreshResult.php`: the outcome.
 - `src/Devices/OwnedDevice.php`: `refusal()`, which refuses a device of another guard on the bearer path
   (`device_guard_mismatch`) and for sign-in pins (`resolveDeviceFromHint()` in
   `src/Guards/Concerns/VerifiesPinnedContext.php`).
@@ -295,9 +296,12 @@ other rotated token as a replay that revokes the device.
   `testTheMethodThatStartedTheSessionMustStillBeAllowed`, `testThePolicyMustStillAdmitTheOwnerAsThePrincipal`,
   `testARotationMovesTheIdleDeadlineByThePrincipalsLifetimes`
 - `tests/Feature/Guards/JwtGuardTest.php`
-  `testARateLimitedRefreshFiresFailedAndThrowsA429`
-- `tests/Feature/Http/LocalisedMessagesTest.php`
-  `testAThrottledRefreshIsInTheLocale`
+  `testARateLimitedRefreshFiresFailedAndReturnsTheWait`
+- `tests/Feature/Sessions/SessionRefreshTest.php`
+  `testEveryRefusalIsReturnedWithItsReason`, `testARateLimitedRefreshIsReturnedWithItsWait`,
+  `testTheRotationIsReportedBeforeTheBind`, `testTheReportWaitsForTheCallersCommit`
+- `tests/Integration/Http/RefreshCookieSessionLifecycleTest.php`
+  `testARateLimitedRefreshIsAnsweredWithRetryAfter`
 - `tests/Feature/Guards/VerifiesPinnedContextTest.php`
   `testPinnedDeviceOfAnotherGuardFailsTheAttempt`
 - `tests/Integration/Guards/RefreshAudienceIntegrationTest.php`

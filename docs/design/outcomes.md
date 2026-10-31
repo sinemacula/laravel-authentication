@@ -18,13 +18,13 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
   that found nothing (`sessions()->pending()`, `choice()`, `apiKeys()->find()`, `identifierChanges()->pending()`),
   `apiKeys()->rotate()` when the principal has no rotatable key by that id (unknown, revoked, expired or already
   rotated, so nothing changed), or a call that reads a credential from the request when the request carries none
-  (`switchPrincipalFromRequest()`), in which case nothing was dispatched.
+  (`refreshFromRequest()`, `switchPrincipalFromRequest()`), in which case nothing was dispatched.
 - **A result object when success carries a payload or the flow can be throttled.** It is `final readonly`, made only
   through named constructors (one per outcome), and says which outcome it is through `is<Outcome>()` predicates. The
   payload is in nullable public properties, set only for the outcome that has it. A refusal is named by `status` or by
   `reason` (`?FailureReason`, the reason the flow reports, concealed where the flow conceals it), and a flow that can be
   throttled carries `retryAfter` (`?int`). A result with more than two outcomes exposes `status`, a string-backed enum
-  naming every outcome, success included. `SignInResult`, `SwitchResult`, `CodeRequest`, `ResetResult`,
+  naming every outcome, success included. `SignInResult`, `RefreshResult`, `SwitchResult`, `CodeRequest`, `ResetResult`,
   `PasswordResult`, `IdentifierChangeRequest`, `PasskeyRegistration` and `PasskeyFactorResult` take this shape.
 - **An outcome enum when success carries nothing and the flow cannot be throttled.** It is string-backed and names its
   success case (`IdentifierChangeOutcome::CHANGED`, `VerificationOutcome::VERIFIED`,
@@ -43,9 +43,12 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
 
 ## Success Path
 
-- Success is a named outcome: `isSignedIn()`, `isSwitched()`, `isSent()`, `isReset()`, `isSet()`, `isGranted()`,
-  `isRegistered()`, `isVerified()`, or the enum's success case. Its payload (the session, the passkey's summary, the
-  code's expiry) is read only once the predicate or the case says it is there.
+- Success is a named outcome: `isSignedIn()`, `isRefreshed()`, `isSwitched()`, `isSent()`, `isReset()`, `isSet()`,
+  `isGranted()`, `isRegistered()`, `isVerified()`, or the enum's success case. Its payload (the session, the passkey's
+  summary, the code's expiry) is read only once the predicate or the case says it is there.
+- `sessions()->refresh()` and `refreshFromRequest()` answer a `RefreshResult`: refreshed with the session on the same
+  device and its rotated `TokenPair`, or failed with the exchange's or the transport's reason, `rate_limited` with
+  `retryAfter`; one read from the request says where its token came from (`source`).
 - `passkeys()->verifyFactor()` answers a `PasskeyFactorResult`: verified with the passkey's summary as its use left it,
   or failed with the reason (not concealed: the caller already holds the identity).
 - `passkeys()->register()` answers a `PasskeyRegistration`: `registered` with the passkey's summary, or
@@ -74,9 +77,9 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
     delivered as Laravel's own throttle exception, as the `throttle` middleware would: it answers an anonymous ceremony
     request before any authentication, throttling is its only refusal, and a result would make every caller unwrap the
     options only to throw the same 429.
-- Not yet in the shape: the guard's `refresh()` (`?RefreshResult`, `null` for any refusal) and `refreshFromRequest()`
-  (`FailureReason|RefreshResult|null`), which both throw `ThrottleRequestsException` for `rate_limited` after the
-  events.
+- Refresh, which the guard answered with `?RefreshResult` (`null` for any refusal) from `refresh()` and
+  `FailureReason|RefreshResult|null` from `refreshFromRequest()`, both throwing `ThrottleRequestsException` for
+  `rate_limited`, now goes through the session service and returns every refusal, `rate_limited` included.
 - `Verification\Enums\IdentifierVerification` stays the `IdentifierVerifier` seam's own answer (`verified`,
   `already_verified`, `mismatch`): a verifier knows nothing of codes or links, so `codes()->verify()` and
   `VerificationLinks::consume()` each map it into their own enum. The two enums stay apart, as the convention asks a
@@ -88,16 +91,19 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
   truthiness check on `verifyFactor()` (whose `null` meant verified) or on `VerificationLinks::consume()` (whose `null`
   meant a refused link) is now always given a value, refusals included, and a check that `register()` answered a
   `PasskeySummary`, or that `codes()->verify()` or `consume()` answered an `IdentifierVerification`, is now never true.
-  The guides show each migration.
+  A call to the guard's `refresh()` or `refreshFromRequest()` now fails (the methods are gone), but a check that a
+  result is an instance of `Jwt\RefreshResult`, a class that no longer exists, is silently never true; the token pair
+  is `Jwt\TokenPair`, read from `$result->session->tokens`. The guides show each migration.
 
 ## Implementation Anchors
 
-- `src/Sessions/SignInResult.php`, `src/Sessions/SwitchResult.php`, `src/Codes/CodeRequest.php`,
-  `src/Passwords/ResetResult.php`, `src/Passwords/PasswordResult.php`,
+- `src/Sessions/SignInResult.php`, `src/Sessions/RefreshResult.php`, `src/Sessions/SwitchResult.php`,
+  `src/Codes/CodeRequest.php`, `src/Passwords/ResetResult.php`, `src/Passwords/PasswordResult.php`,
   `src/IdentifierChanges/IdentifierChangeRequest.php`, `src/ClientCredentials/ClientCredentialsResult.php`.
 - `src/Passkeys/PasskeyRegistration.php`, `src/Passkeys/Enums/PasskeyRegistrationStatus.php`,
   `src/Passkeys/PasskeyFactorResult.php`, `src/Passkeys/PasskeyService.php` (`register()`, `verifyFactor()`,
   `signInOptions()`).
+- `src/Sessions/SessionRefresh.php` (every refusal returned, `rate_limited` with its wait), `src/Jwt/TokenPair.php`.
 - `src/Codes/Enums/VerificationOutcome.php`, `src/Codes/CodeService.php` (`verify()`),
   `src/IdentifierChanges/Enums/IdentifierChangeOutcome.php`.
 - `src/Verification/Enums/VerificationLinkOutcome.php`, `src/Verification/VerificationLinks.php` (`consume()`).
@@ -112,8 +118,10 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
   `codes()->verify()` and `consume()`).
 - `tests/Integration/Passkeys/PasskeyOutcomesTest.php`, `tests/Integration/Codes/CodeVerificationOutcomesTest.php`,
   `tests/Integration/Verification/VerificationLinkOutcomesTest.php` (what each outcome wrote, on every engine).
-- `tests/Unit/Sessions/SignInResultTest.php`, `tests/Unit/Sessions/SwitchResultTest.php`,
-  `tests/Unit/Codes/CodeRequestTest.php`.
+- `tests/Unit/Sessions/SignInResultTest.php`, `tests/Unit/Sessions/RefreshResultTest.php`,
+  `tests/Unit/Sessions/SwitchResultTest.php`, `tests/Unit/Codes/CodeRequestTest.php`.
+- `tests/Feature/Sessions/SessionRefreshTest.php` (each refusal's reason, `rate_limited` with its wait and nothing
+  thrown, the source of a refresh read from the request).
 
 ## Change Triggers
 
