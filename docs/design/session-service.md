@@ -43,6 +43,14 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   would stop the later ones (another completion's events, the caller's own). The release stops at the failure, and the
   slots not given back stay counted. A handler that throws while reporting is not caught, as with Laravel's `rescue()`:
   an error that cannot be reported surfaces rather than vanishing.
+- The steps `signIn()` and the guard's `attempt()` take the same way are `Sessions\CredentialAttempt`'s, which each
+  calls in its own order: `begin()` (the method check, then the slot on the identifier and IP limits, the limiter
+  resolved only once the method is allowed), the account attempts the method's checks count against, `accountRefusal()`
+  (`account_rate_limited`, with the account's wait), `windows()` for a pending sign-in to keep and `release()` for a
+  session. What runs in the timebox and around it stays with each: `attempt()` fires `Validated` once the password is
+  accepted, rehashes and asks the factor policy inside the timebox, cuts it short only for an admitted attempt and gives
+  its slots back before the bind; `signIn()` cuts it short for an admitted sign-in or a choice, rehashes after it,
+  continues to a session, a pending factor or a choice, and gives its slots back after the bind.
 - `start()` reloads the identity through the guard's provider and requires the same class and key (`identity_unknown`),
   then runs the method check, the admission with no identifier type, the device proof, the factor policy and the write.
   It takes no slot and runs in no timebox: nothing is guessed. The principal is given as the argument or on the
@@ -153,6 +161,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - `src/Sessions/SessionEstablishment.php`: `proceed()`, `establish()`, `complete()`, `write()`, `signedIn()`,
   `giveBack()`: the session, the factor policy and the scheduled reports, never the bind.
 - `src/Sessions/PrincipalChoices.php`: `offerChoice()`, `admissible()`, `liveChoice()`.
+- `src/Sessions/CredentialAttempt.php`: the method check, the slots and their give-back, shared with `attempt()`
+  (`src/Guards/Concerns/SignsInWithCredentials.php`).
 - `src/Sessions/SignInRequest.php` (`reserveAccountAttempt()`) and `src/RateLimiting/AccountAttempts.php`: the slots a
   sign-in's method takes on the accounts it checks, held with the sign-in's own.
 - `src/Sessions/SessionWriter.php`: `create()`, `continueOn()` and the compare-and-swap.
@@ -167,6 +177,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 ## Authoritative Tests
 
 - `tests/Feature/Sessions/SessionServiceTest.php`, `tests/Unit/RateLimiting/AccountAttemptsTest.php`
+- `tests/Feature/Contracts/CredentialAttemptMatrixTest.php`: every case of `signIn('password')` beside `attempt()`'s,
+  with its answer, events, timebox, rehash and slots; `tests/Feature/Sessions/CredentialAttemptTest.php`
 - `tests/Feature/Sessions/SessionEstablishmentTest.php`: establishment on its own (what it writes, returns and
   schedules, and that it never binds); `tests/Feature/Sessions/PrincipalChoicesTest.php`
 - `tests/Feature/AuthManagerTest.php`: the service built per call on the guard's context, binding and token service
@@ -193,6 +205,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 Update this note when any of the following change:
 
 - the order of the checks, or which of them count an attempt or run in the timebox
+- which steps `Sessions\CredentialAttempt` shares between `signIn()` and `attempt()`
 - what proves a device, or what continuing one writes or keeps
 - what the session's transaction contains, or when the guard is bound, or what builds the service
 - when `DeviceCreated`, `SignedIn` and `AdditionalFactorRequired` are dispatched, or what they carry

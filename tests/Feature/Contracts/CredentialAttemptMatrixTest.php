@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
+use SineMacula\Laravel\Authentication\Sessions\CredentialAttempt;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
@@ -59,6 +60,7 @@ use Tests\TestCase;
  */
 #[CoversClass(AbstractGuard::class)]
 #[CoversClass(SessionService::class)]
+#[CoversClass(CredentialAttempt::class)]
 final class CredentialAttemptMatrixTest extends TestCase
 {
     use InteractsWithMachineClients, InteractsWithSessions, RecordsEventSequences;

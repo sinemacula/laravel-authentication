@@ -17,7 +17,6 @@ use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\PinnedPrincipal;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Admission\SignInAdmission;
-use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
@@ -39,7 +38,6 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
-use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
@@ -544,23 +542,17 @@ final readonly class SessionService
      */
     private function signInWith(SignInMethod $driver, string $method, #[\SensitiveParameter] array $input, SignInContext $context, AttemptSubject $subject): Refused|SignInResult
     {
-        if (!$this->container->make(AudiencePolicy::class)->allowsMethod($subject->guard, $method)) {
-            return new Refused(FailureReason::METHOD_NOT_ALLOWED);
+        $attempt = CredentialAttempt::begin($this->container, $subject, $method);
+
+        if ($attempt instanceof Refused) {
+            return $attempt;
         }
 
-        $limiter     = $this->container->make(AttemptLimiter::class);
-        $reservation = $limiter->acquire($subject);
-
-        if (!$reservation->granted()) {
-            return new Refused(FailureReason::RATE_LIMITED, retryAfter: $reservation->retryAfter);
-        }
-
-        $accounts = new AccountAttempts($limiter, $subject->guard);
-        $request  = new SignInRequest($subject->guard, $this->context->provider(), $input, $context->client, $accounts->reserve(...));
+        $request = new SignInRequest($subject->guard, $this->context->provider(), $input, $context->client, $attempt->accounts->reserve(...));
 
         /** @var \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused $admitted */
         $admitted = $this->context->timebox()->run(
-            fn (Timebox $timebox): Admitted|Refused => $this->verify($driver, $request, $accounts, $context, $subject->identifierType, $timebox),
+            fn (Timebox $timebox): Admitted|Refused => $this->verify($driver, $request, $attempt, $context, $subject->identifierType, $timebox),
         );
 
         $verified = $admitted instanceof Admitted || PrincipalChoices::awaitsChoice($admitted) ? $admitted->identity : null;
@@ -569,7 +561,7 @@ final readonly class SessionService
             $driver->rehash($this->context->provider(), $verified, $input);
         }
 
-        $windows = [$reservation->windows, ...$accounts->windows()];
+        $windows = $attempt->windows();
 
         $outcome = match (true) {
             $admitted instanceof Admitted => $this->bound($this->establishment->proceed($admitted, $method, $subject->identifierType, $context, $windows)),
@@ -578,8 +570,7 @@ final readonly class SessionService
         };
 
         if ($outcome instanceof SignInResult && $outcome->isSignedIn()) {
-            $limiter->release($reservation);
-            $accounts->release();
+            $attempt->release();
         }
 
         return $outcome;
@@ -598,7 +589,7 @@ final readonly class SessionService
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\SignInMethod  $driver
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
-     * @param  \SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts  $accounts
+     * @param  \SineMacula\Laravel\Authentication\Sessions\CredentialAttempt  $attempt
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  ?string  $identifierType
      * @param  \Illuminate\Support\Timebox  $timebox
@@ -612,17 +603,16 @@ final readonly class SessionService
     private function verify(
         SignInMethod $driver,
         SignInRequest $request,
-        AccountAttempts $accounts,
+        CredentialAttempt $attempt,
         SignInContext $context,
         ?string $identifierType,
         Timebox $timebox,
     ): Admitted|Refused {
         $verified = $driver->authenticate($request);
 
-        $outcome = match (true) {
-            $accounts->refusedFor() !== null => new Refused(FailureReason::ACCOUNT_RATE_LIMITED, retryAfter: $accounts->refusedFor()),
-            $verified instanceof Identity    => $this->admit($verified, $context->principal, $identifierType),
-            default                          => new Refused(SessionPreconditions::methodReason($driver, $verified)),
+        $outcome = $attempt->accountRefusal() ?? match (true) {
+            $verified instanceof Identity => $this->admit($verified, $context->principal, $identifierType),
+            default                       => new Refused(SessionPreconditions::methodReason($driver, $verified)),
         };
 
         if ($outcome instanceof Admitted || PrincipalChoices::awaitsChoice($outcome)) {

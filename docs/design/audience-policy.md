@@ -116,8 +116,8 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
 - `src/Contracts/AudiencePolicy.php`, `src/Audience/GuardAudiencePolicy.php`, `src/Audience/PrincipalType.php`.
 - `src/Jwt/JwtTokenServiceFactory.php` (`jwt.by_principal_type`) and `src/Jwt/JwtTokenService.php` (`lifetimesFor()`,
   `pty` in `issueAccessToken()`).
-- `src/Sessions/SessionService.php` and `src/Admission/SignInAdmission.php`, shared with
-  `src/Guards/Concerns/SignsInWithCredentials.php` (`attempt()`).
+- `src/Sessions/SessionService.php`, `src/Sessions/CredentialAttempt.php` (the method check) and
+  `src/Admission/SignInAdmission.php`, shared with `src/Guards/Concerns/SignsInWithCredentials.php` (`attempt()`).
 - `src/Jwt/RefreshTokenExchange.php` (`exchangeOn()`, `rotate()`), `src/Jwt/RefreshAdmission.php` (`admitByPolicy()`)
   and `src/Guards/Concerns/VerifiesPinnedContext.php` (`resolveDeviceFromHint()`).
 - `src/Contracts/AttemptLimiter.php`, `src/RateLimiting/DatabaseAttemptLimiter.php`,
