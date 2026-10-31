@@ -23,8 +23,8 @@ use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
  * still take precedence.
  *
  * The body's message is translated as it is rendered, by the translator of the
- * application serving the request (under Octane, the request's sandbox, not
- * the worker application that resolved the handler) and in its locale, so the
+ * application serving the request (under Octane, the request's sandbox, not the
+ * worker application that resolved the handler) and in its locale, so the
  * `Unauthenticated.` Laravel's own `auth` middleware raises is translated as
  * well as the package's (see `ConsumerMessages`).
  *
