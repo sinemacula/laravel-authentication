@@ -7,6 +7,7 @@ namespace Tests\Integration\Passwords;
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Events\Dispatcher;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -150,6 +151,45 @@ final class PasswordWriterTest extends TestCase
         self::assertInstanceOf(PasswordSet::class, $served);
         self::assertSame($client, $named->context->client);
         self::assertSame(self::CLIENT_IP, $served->context->client->ip);
+    }
+
+    /**
+     * `PasswordSet` goes to the dispatcher the guard had when the password was
+     * written, while the revocations' reports go to the one it has when the
+     * caller commits: a dispatcher swapped in between receives the revocations
+     * only.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testThePasswordSetKeepsTheDispatcherOfTheWriteAndTheRevocationsTakeTheOneAtTheCommit(): void
+    {
+        $identity = self::seedPasswordIdentity();
+        $kept     = $this->signInWithPassword('web')->device;
+
+        $this->signInWithPassword('admin');
+
+        $guard    = $this->freshGuard('web');
+        $swapped  = new Dispatcher(app());
+        $received = [];
+
+        foreach ([PasswordSet::class, DeviceRevoked::class, SignedOutEverywhere::class] as $class) {
+            $swapped->listen($class, static function (object $event) use (&$received): void {
+                $received[] = $event::class;
+            });
+        }
+
+        $this->recordEvents([PasswordSet::class, DeviceRevoked::class, SignedOutEverywhere::class]);
+
+        DB::transaction(static function () use ($identity, $kept, $guard, $swapped): void {
+            self::assertSame(1, Auth::passwords('web')->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE, $kept)->revoked);
+
+            $guard->setDispatcher($swapped);
+        });
+
+        self::assertSame([PasswordSet::class], $this->recordedClasses());
+        self::assertSame([DeviceRevoked::class, SignedOutEverywhere::class], $received);
     }
 
     /**
