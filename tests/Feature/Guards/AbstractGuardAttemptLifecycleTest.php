@@ -255,11 +255,11 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
     }
 
     /**
-     * When the `Config` facade is not bootstrapped (e.g. the guard is used
-     * outside a full application boot), the `catch (\Throwable)` branch of
-     * `timeboxMicroseconds()` returns the default budget rather than letting
-     * the exception propagate. Mutation guard: pins the `return
-     * self::DEFAULT_TIMEBOX_MICROSECONDS` inside the `catch` block.
+     * When the `Config` facade cannot read the budget (here a value that is not
+     * an integer), the `catch (\Throwable)` branch of
+     * `CredentialTimebox::microseconds()` returns the default budget rather
+     * than letting the exception propagate. Mutation guard: pins the
+     * `return self::DEFAULT_MICROSECONDS` inside the `catch` block.
      *
      * @return void
      *
@@ -434,7 +434,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
 
     /**
      * A non-positive `timebox.credentials_microseconds` config value falls back
-     * to the trait default budget.
+     * to the default budget.
      *
      * @return void
      *

@@ -25,10 +25,10 @@ use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
-use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 use Tests\Unit\Stubs\StubDevice;
@@ -735,9 +735,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Rebinding the guard's principal resolver must also update the refresh
-     * exchange so `refresh()` uses the replacement resolver rather than the
-     * constructor-time one.
+     * Rebinding the guard's principal resolver reaches the refresh exchange,
+     * which reads the guard's context, so `refresh()` uses the replacement
+     * resolver rather than the constructor-time one.
      *
      * @return void
      *
@@ -798,11 +798,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * `setPrincipalResolver()` must update both the parent guard and the
-     * exchange resolver. This test asserts the parent (bearer) resolver is also
-     * updated by resolving a bearer token after rebinding. Mutation guard: pins
-     * the `parent::setPrincipalResolver()` call in
-     * `JwtGuard::setPrincipalResolver()`.
+     * `setPrincipalResolver()` rebinds the resolver bearer resolution reads as
+     * well as the one refresh reads: a bearer token resolved after the rebind
+     * goes through the replacement.
      *
      * @return void
      *
@@ -847,8 +845,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * `setDispatcher()` returns the guard and rebinds the refresh exchange as
-     * well as the guard: a later failed refresh reports `Attempting`,
+     * `setDispatcher()` returns the guard and rebinds the dispatcher the
+     * refresh path reads: a later failed refresh reports `Attempting`,
      * `AuthenticationFailed` and `Failed` to the new dispatcher only.
      *
      * @return void

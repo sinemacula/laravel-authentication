@@ -7,6 +7,9 @@ namespace SineMacula\Laravel\Authentication\Guards;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
+use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
+use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyLookup;
 use SineMacula\Laravel\Authentication\ApiKeys\CredentialBinding;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
@@ -18,6 +21,8 @@ use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Devices\IdentityDevices;
+use SineMacula\Laravel\Authentication\Devices\OwnedDevice;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -25,13 +30,10 @@ use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
-use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\MachineTokens;
 use SineMacula\Laravel\Authentication\Models\ApiKey;
-use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
-use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
-use SineMacula\Laravel\Authentication\Sessions\IdentityDevices;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * Decides whom a request's access token authenticates, and why not when it does
@@ -109,15 +111,15 @@ final readonly class BearerAuthentication
         $claims = $this->tokens->parse($token, TokenType::ACCESS);
 
         if ($claims === null) {
-            return $this->failed(new RefusedSignIn(FailureReason::TOKEN_INVALID), $client, null, null);
+            return $this->failed(new Refused(FailureReason::TOKEN_INVALID), $client, null, null);
         }
 
         $credential = MachineTokens::credential($claims) ?: null;
         $deviceId   = $claims[Claims::DEVICE_ID->value] ?? null;
         $admitted   = $credential === null ? $this->admit($claims, false) : $this->admitForKey($claims, $credential[0]);
-        $admitted   = $admitted instanceof AdmittedSignIn ? $this->onDevice($admitted, $deviceId, $claims[Claims::ISSUED_AT->value]) : $admitted;
+        $admitted   = $admitted instanceof Admitted ? $this->onDevice($admitted, $deviceId, $claims[Claims::ISSUED_AT->value]) : $admitted;
 
-        return $admitted instanceof RefusedSignIn
+        return $admitted instanceof Refused
             ? $this->failed($admitted, $client, IdentifierCoercion::stringify($deviceId), $credential)
             : new AuthenticatedBearer($admitted, $credential[0] ?? null, $credential[1] ?? null);
     }
@@ -133,22 +135,22 @@ final readonly class BearerAuthentication
      *
      * @param  array<string, mixed>  $claims
      * @param  string  $credentialId
-     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    private function admitForKey(#[\SensitiveParameter] array $claims, #[\SensitiveParameter] string $credentialId): AdmittedSignIn|RefusedSignIn
+    private function admitForKey(#[\SensitiveParameter] array $claims, #[\SensitiveParameter] string $credentialId): Admitted|Refused
     {
         $key = $this->liveKey($credentialId);
 
         if ($key instanceof FailureReason) {
-            return new RefusedSignIn($key);
+            return new Refused($key);
         }
 
         $admitted = $this->admit($claims, true);
-        $binding  = $admitted instanceof AdmittedSignIn ? CredentialBinding::refusal($key, $admitted->identity, $admitted->principal, $admitted->tenant) : null;
+        $binding  = $admitted instanceof Admitted ? CredentialBinding::refusal($key, $admitted->identity, $admitted->principal, $admitted->tenant) : null;
 
-        return $admitted instanceof AdmittedSignIn && $binding !== null ? RefusedSignIn::after($binding, $admitted) : $admitted;
+        return $admitted instanceof Admitted && $binding !== null ? Refused::after($binding, $admitted) : $admitted;
     }
 
     /**
@@ -179,16 +181,16 @@ final readonly class BearerAuthentication
      *
      * @param  array<string, mixed>  $claims
      * @param  bool  $client
-     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    private function admit(#[\SensitiveParameter] array $claims, bool $client): AdmittedSignIn|RefusedSignIn
+    private function admit(#[\SensitiveParameter] array $claims, bool $client): Admitted|Refused
     {
         $identity = $this->provider->retrieveById($claims[Claims::SUBJECT->value]);
 
         if (!$identity instanceof Identity) {
-            return new RefusedSignIn(FailureReason::IDENTITY_UNKNOWN);
+            return new Refused(FailureReason::IDENTITY_UNKNOWN);
         }
 
         $refusal = match (true) {
@@ -198,7 +200,7 @@ final readonly class BearerAuthentication
             default                                           => null,
         };
 
-        return $refusal === null ? $this->admitAs($identity, $claims[Claims::PRINCIPAL_ID->value]) : new RefusedSignIn($refusal, $identity);
+        return $refusal === null ? $this->admitAs($identity, $claims[Claims::PRINCIPAL_ID->value]) : new Refused($refusal, $identity);
     }
 
     /**
@@ -208,27 +210,27 @@ final readonly class BearerAuthentication
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint
-     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    private function admitAs(Identity $identity, mixed $hint): AdmittedSignIn|RefusedSignIn
+    private function admitAs(Identity $identity, mixed $hint): Admitted|Refused
     {
         $principal = $this->resolver->resolve($identity, $hint);
 
         if (!$principal instanceof Principal || !IdentifierCoercion::matches($principal->getPrincipalIdentifier(), $hint)) {
-            return new RefusedSignIn(FailureReason::PRINCIPAL_MISMATCH, $identity);
+            return new Refused(FailureReason::PRINCIPAL_MISMATCH, $identity);
         }
 
         if (!ActivationPolicy::isActive($principal)) {
-            return new RefusedSignIn(FailureReason::PRINCIPAL_INACTIVE, $identity, $principal);
+            return new Refused(FailureReason::PRINCIPAL_INACTIVE, $identity, $principal);
         }
 
         $tenant = ActivationPolicy::activeTenant($principal);
 
         return $tenant === false
-            ? new RefusedSignIn(FailureReason::TENANT_INACTIVE, $identity, $principal)
-            : new AdmittedSignIn($identity, $principal, $tenant);
+            ? new Refused(FailureReason::TENANT_INACTIVE, $identity, $principal)
+            : new Admitted($identity, $principal, $tenant);
     }
 
     /**
@@ -242,17 +244,17 @@ final readonly class BearerAuthentication
      * valid after" time of its identity and of its principal, when they record
      * one (`issued_before_cutoff`).
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  mixed  $deviceId
      * @param  mixed  $issuedAt
-     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @throws \LogicException
      */
-    private function onDevice(AdmittedSignIn $admitted, mixed $deviceId, mixed $issuedAt): AdmittedSignIn|RefusedSignIn
+    private function onDevice(Admitted $admitted, mixed $deviceId, mixed $issuedAt): Admitted|Refused
     {
         if ($deviceId === null) {
-            return self::isIssuedAfterCutoff($admitted, $issuedAt) ? $admitted : RefusedSignIn::after(FailureReason::ISSUED_BEFORE_CUTOFF, $admitted);
+            return self::isIssuedAfterCutoff($admitted, $issuedAt) ? $admitted : Refused::after(FailureReason::ISSUED_BEFORE_CUTOFF, $admitted);
         }
 
         $device  = IdentityDevices::find($admitted->identity, $deviceId);
@@ -260,7 +262,7 @@ final readonly class BearerAuthentication
             ? FailureReason::DEVICE_UNKNOWN
             : OwnedDevice::refusal($device, $this->guard, Carbon::now()) ?? self::principalRefusal($device, $admitted->principal, $issuedAt);
 
-        return $refusal === null ? $admitted->on($device) : RefusedSignIn::after($refusal, $admitted->on($device));
+        return $refusal === null ? $admitted->on($device) : Refused::after($refusal, $admitted->on($device));
     }
 
     /**
@@ -289,13 +291,13 @@ final readonly class BearerAuthentication
      * same second before the cutoff from after it. A subject that does not
      * record a time, or records none yet, does not limit the token.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  mixed  $issuedAt
      * @return bool
      *
      * @throws \LogicException
      */
-    private static function isIssuedAfterCutoff(AdmittedSignIn $admitted, mixed $issuedAt): bool
+    private static function isIssuedAfterCutoff(Admitted $admitted, mixed $issuedAt): bool
     {
         foreach ([$admitted->identity, $admitted->principal] as $subject) {
 
@@ -319,13 +321,13 @@ final readonly class BearerAuthentication
      * when a device was found (`client_credentials` for a client credentials
      * token, with its key and scopes), and the device id the token named.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn  $refused
+     * @param  \SineMacula\Laravel\Authentication\Admission\Refused  $refused
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  ?string  $deviceId
      * @param  ?array{0: string, 1: list<string>}  $credential
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed
      */
-    private function failed(RefusedSignIn $refused, ClientContext $client, ?string $deviceId, #[\SensitiveParameter] ?array $credential): AuthenticationFailed
+    private function failed(Refused $refused, ClientContext $client, ?string $deviceId, #[\SensitiveParameter] ?array $credential): AuthenticationFailed
     {
         $device  = $refused->device;
         $method  = $credential === null ? $device?->getSignInMethod() : ClientCredentialsExchange::METHOD;

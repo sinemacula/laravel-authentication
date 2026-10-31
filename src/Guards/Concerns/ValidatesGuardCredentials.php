@@ -12,29 +12,24 @@ use Illuminate\Support\Facades\Config;
 
 /**
  * The standard Laravel `Attempting` / `Validated` / `Failed` event-firing
- * helpers and the credential timebox budget. The credentials those events carry
- * have their password-like keys removed.
+ * helpers. The credentials those events carry have their password-like keys
+ * removed.
  *
  * Credentials themselves are checked by the password sign-in method. Timing
  * safety is the caller's responsibility: the enclosing guard flow wraps the
  * retrieve -> validate -> dispatch pipeline in a single top-level timebox. Do
  * not nest another timebox here.
  *
- * Expects the using class to declare:
- * - `protected string $name`
- * - `protected \Illuminate\Contracts\Events\Dispatcher $events`
+ * Expects the using class to hold the guard's `GuardContext` in
+ * `$this->context`, whose name and dispatcher it reads.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
- * @property string $name
- * @property \Illuminate\Contracts\Events\Dispatcher $events
+ * @property \SineMacula\Laravel\Authentication\Runtime\GuardContext $context
  */
 trait ValidatesGuardCredentials
 {
-    /** @var int Default timebox budget in microseconds. */
-    protected const int DEFAULT_TIMEBOX_MICROSECONDS = 400000;
-
     /** @var string Credential key fragment that is always redacted from events. */
     protected const string REDACTED_CREDENTIAL_FRAGMENT = 'password';
 
@@ -46,28 +41,7 @@ trait ValidatesGuardCredentials
      */
     protected function fireValidatedEvent(Authenticatable $user): void
     {
-        $this->events->dispatch(new Validated($this->name, $user));
-    }
-
-    /**
-     * Resolve the configured timebox budget in microseconds. Falls back to the
-     * default when the config key is missing, non-positive, or the Config
-     * facade is not bootstrapped.
-     *
-     * @return int
-     */
-    protected function timeboxMicroseconds(): int
-    {
-        try {
-            $configured = Config::integer(
-                'authentication.timebox.credentials_microseconds',
-                self::DEFAULT_TIMEBOX_MICROSECONDS,
-            );
-        } catch (\Throwable) {
-            return self::DEFAULT_TIMEBOX_MICROSECONDS;
-        }
-
-        return $configured > 0 ? $configured : self::DEFAULT_TIMEBOX_MICROSECONDS;
+        $this->context->dispatch(new Validated($this->context->name(), $user));
     }
 
     /**
@@ -79,7 +53,7 @@ trait ValidatesGuardCredentials
      */
     protected function fireAttemptingEvent(#[\SensitiveParameter] array $credentials): void
     {
-        $this->events->dispatch(new Attempting($this->name, $this->redactCredentials($credentials), false));
+        $this->context->dispatch(new Attempting($this->context->name(), $this->redactCredentials($credentials), false));
     }
 
     /**
@@ -91,7 +65,7 @@ trait ValidatesGuardCredentials
      */
     protected function fireFailedEvent(?Authenticatable $user, #[\SensitiveParameter] array $credentials): void
     {
-        $this->events->dispatch(new Failed($this->name, $user, $this->redactCredentials($credentials)));
+        $this->context->dispatch(new Failed($this->context->name(), $user, $this->redactCredentials($credentials)));
     }
 
     /**

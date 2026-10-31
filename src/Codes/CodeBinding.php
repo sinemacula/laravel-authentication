@@ -6,7 +6,7 @@ namespace SineMacula\Laravel\Authentication\Codes;
 
 use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
+use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 
 /**
  * What a one-time code is bound to: its purpose, its guard, the identifier's

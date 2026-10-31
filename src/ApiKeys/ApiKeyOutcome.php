@@ -4,13 +4,13 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\ApiKeys;
 
+use SineMacula\Laravel\Authentication\Admission\Admitted;
+use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\ApiKey;
-use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
-use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
 
 /**
  * What presenting a key came to: the key its public part named, if any, and
@@ -28,7 +28,7 @@ final readonly class ApiKeyOutcome
      * Constructor.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Models\ApiKey  $key
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn  $admission
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused  $admission
      */
     public function __construct(
 
@@ -36,7 +36,7 @@ final readonly class ApiKeyOutcome
         public ?ApiKey $key,
 
         /** The admitted owner and principal, or why not. */
-        public AdmittedSignIn|RefusedSignIn $admission,
+        public Admitted|Refused $admission,
     ) {}
 
     /**
@@ -44,7 +44,7 @@ final readonly class ApiKeyOutcome
      * context the refusal established and, once a key was found, its id and
      * scopes. Never the key or its secret.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn  $refused
+     * @param  \SineMacula\Laravel\Authentication\Admission\Refused  $refused
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow  $flow
      * @param  string  $method
@@ -54,7 +54,7 @@ final readonly class ApiKeyOutcome
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed
      */
     public function failure(
-        RefusedSignIn $refused,
+        Refused $refused,
         string $guard,
         AuthenticationFlow $flow,
         string $method,

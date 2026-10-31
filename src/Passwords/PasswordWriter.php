@@ -15,8 +15,8 @@ use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PasswordSet;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * Writes a password the policy accepted: hashes it with Laravel's hasher, then,

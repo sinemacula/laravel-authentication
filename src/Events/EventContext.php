@@ -16,8 +16,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Concerns\SerializesLiveModels;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
-use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * Who and what a package event is about: the guard, the client the request came

@@ -115,7 +115,7 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
 - `src/Contracts/AudiencePolicy.php`, `src/Audience/GuardAudiencePolicy.php`, `src/Audience/PrincipalType.php`.
 - `src/Jwt/JwtTokenServiceFactory.php` (`jwt.by_principal_type`) and `src/Jwt/JwtTokenService.php` (`lifetimesFor()`,
   `pty` in `issueAccessToken()`).
-- `src/Sessions/SessionService.php` and `src/Sessions/Admission/SignInAdmission.php`, shared with
+- `src/Sessions/SessionService.php` and `src/Admission/SignInAdmission.php`, shared with
   `src/Guards/Concerns/SignsInWithCredentials.php` (`attempt()`).
 - `src/Jwt/RefreshTokenExchange.php` (`exchangeOn()`, `rotate()`), `src/Jwt/RefreshAdmission.php` (`admitByPolicy()`)
   and `src/Guards/Concerns/VerifiesPinnedContext.php` (`resolveDeviceFromHint()`).
@@ -127,7 +127,7 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
 ## Authoritative Tests
 
 - `tests/Integration/Sessions/SignInPolicyEndToEndTest.php` (every piece above, through the shipped bindings)
-- `tests/Unit/Sessions/Admission/SignInAdmissionTest.php` `testAnyPolicysRefusalOfTheIdentityComesBeforeItsPrincipal`
+- `tests/Unit/Admission/SignInAdmissionTest.php` `testAnyPolicysRefusalOfTheIdentityComesBeforeItsPrincipal`
 - `tests/Feature/Audience/GuardAudiencePolicyTest.php`, `tests/Integration/Guards/AudiencePolicyIntegrationTest.php`
 - `tests/Unit/Audience/PrincipalTypeTest.php`
 - `tests/Integration/Guards/RefreshAudienceIntegrationTest.php`

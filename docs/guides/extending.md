@@ -52,6 +52,114 @@ reserves the account twice), and each is given back.
 
 `AbstractGuard` is not final and may be extended for entirely new guard types.
 
+### Writing a guard type
+
+`AbstractGuard`'s constructor takes the guard's name, identity provider, principal resolver, event dispatcher, request
+and `Timebox`, and keeps them in the guard's context, `$this->context` (a `Runtime\GuardContext`): the one copy every
+flow of the guard reads, which the guard's `setRequest()`, `setDispatcher()` and `setPrincipalResolver()` rebind. A
+guard type has no `$this->name`, `$this->provider`, `$this->resolver`, `$this->events`, `$this->request` or
+`$this->timebox` of its own; it reads each collaborator from the context when it uses it, and runs a check of a secret
+in the guard's credential timebox, the one `attempt()` and `validate()` run in.
+
+`bindVerifiedContext()` binds what it is given and checks none of it, so a guard type admits what its credential named
+first, as the package's guards do: the guard's audience must allow the method it reports, the identity, the principal
+and the principal's tenant must be active (`Admission\ActivationPolicy`), and the audience policy must admit the
+identity, then the identity as the principal. The tenant the activity check loaded is the one it binds:
+
+```php
+use Illuminate\Container\Container;
+use Illuminate\Support\Timebox;
+use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
+
+final class HeaderKeyGuard extends AbstractGuard
+{
+    protected function resolveUserFromRequest(): ?Identity
+    {
+        $key = $this->context->request()->header('X-Api-Key');
+
+        if (!is_string($key) || $key === '') {
+            return null;
+        }
+
+        $identity = $this->context->timebox()->run(function (Timebox $timebox) use ($key): ?Identity {
+
+            $identity = $this->context->provider()->retrieveByCredentials(['api_key' => $key]);
+
+            if ($identity instanceof Identity) {
+                $timebox->returnEarly();
+
+                return $identity;
+            }
+
+            return null;
+        });
+
+        return $identity === null ? null : $this->admit($identity);
+    }
+
+    private function admit(Identity $identity): ?Identity
+    {
+        $guard    = $this->context->name();
+        $audience = Container::getInstance()->make(AudiencePolicy::class);
+
+        if (!$audience->allowsMethod($guard, 'header_key') || !ActivationPolicy::isActive($identity) || $audience->admitIdentifier($guard, $identity, null) !== null) {
+            return null;
+        }
+
+        $principal = $this->resolvePrincipal($identity);
+        $tenant    = $principal === null || !ActivationPolicy::isActive($principal) ? false : ActivationPolicy::activeTenant($principal);
+
+        if ($principal === null || $tenant === false || $audience->admit($guard, $identity, $principal, null) !== null) {
+            return null;
+        }
+
+        $this->bindVerifiedContext($identity, $principal, null, $tenant, 'header_key', false);
+
+        return $identity;
+    }
+}
+```
+
+The context also gives the guard's `name()`, `resolver()`, `events()` and the request's `client()`, and `dispatch()`
+sends an event to the guard's dispatcher as it is then. Read the request's client when an operation starts and build its
+events then, so a deferred event reports the request it came from (see `docs/design/guard-context.md`).
+
+The package registers the container's rebinds on the guards it builds (the `jwt` and `api_key` drivers) and on no other.
+A guard type's driver registers them itself, so the next request's `request`, `Event::fake()` and other rebinds of
+`events`, and a rebind of the global `PrincipalResolver` reach the guard's context. A guard given a resolver of its own
+leaves out the last, which would replace that resolver with the global one:
+
+```php
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Timebox;
+use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+
+Auth::extend('header_key', function ($app, string $name, array $config): HeaderKeyGuard {
+
+    $guard = new HeaderKeyGuard(
+        $name,
+        Auth::createUserProvider($config['provider']),
+        $app->make(PrincipalResolver::class),
+        $app->make('events'),
+        $app->make('request'),
+        $app->make(Timebox::class),
+    );
+
+    $app->refresh('request', $guard, 'setRequest');
+    $app->refresh('events', $guard, 'setDispatcher');
+    $app->refresh(PrincipalResolver::class, $guard, 'setPrincipalResolver');
+
+    return $guard;
+});
+```
+
+Without them the guard keeps the dispatcher and resolver it was built with for its life. A queued job's reset,
+`AuthManager::forgetGuardState()`, gives every resolved guard built on `AbstractGuard` the current request, however its
+driver was registered.
+
 ### Binding order
 
 Every default the package binds is bound only when nothing is bound yet: `PrincipalResolver`, `AudiencePolicy`,
@@ -108,13 +216,27 @@ seam has a default that works alone.
   wait, so it fails as `additional_factor_required`.
 - A factor removed ends the identity's other sessions: `Auth::sessions()->factorRemoved($identity, Auth::device())`.
 - Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity)` and `verifyFactor()`, which count and
-  report nothing: the factor's outcome is the factor package's to limit and report.
+  report nothing: the factor's outcome is the factor package's to limit and report. `verifyFactor()` answers a
+  `PasskeyFactorResult` (see [Using passkeys](signing-in.md#using-passkeys)), never `null`.
 - Factor state is the factor package's, keyed by the device id (`Auth::device()?->getDeviceIdentifier()`, the `did`
   every session token carries); the device records none.
 - A factor the factor package has just verified proves a recent authentication before an identifier change:
   `Reauthentication::confirmedAt($verifiedAt)` (see [Changing identifiers](identifier-changes.md)).
 - When every sign-in requires a further factor, a password is no longer the only factor, and `passwords.min_length`
   may be lowered from 15 to 8, as NIST SP 800-63B allows (see [Password policy](passwords.md#password-policy)).
+
+`verifyFactor()` used to answer `null` once verified and the `FailureReason` otherwise. A factor package written against
+that still runs, wrongly: a `null` check, or a truthiness one, now takes every answer for a refusal. Ask the result:
+
+```php
+// Before: null once verified, else the FailureReason.
+$reason = Auth::passkeys()->verifyFactor($identity, $challenge, $credential);
+$passed = $reason === null;
+
+// After
+$result = Auth::passkeys()->verifyFactor($identity, $challenge, $credential);
+$passed = $result->isVerified();   // else $result->reason
+```
 
 ### Authorization (`laravel-authorization`)
 

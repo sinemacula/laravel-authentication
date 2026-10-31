@@ -210,7 +210,7 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
 - `src/Passwords/PasswordService.php`
 - `src/Passwords/PasswordPolicy.php`
 - `src/Passwords/PasswordSettings.php`
-- `src/Passwords/PasswordWriter.php`, `src/Passwords/OutdatedProofs.php`, `src/Guards/JwtGuards.php`
+- `src/Passwords/PasswordWriter.php`, `src/Passwords/OutdatedProofs.php`, `src/Config/JwtGuards.php`
 - `src/Passwords/NoBreachedPasswordCheck.php`
 - `src/Contracts/BreachedPasswordChecker.php`
 - `src/Exceptions/BreachedPasswordCheckUnavailableException.php`
@@ -247,7 +247,7 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
   racing a reset either way, on PostgreSQL and MySQL), `tests/Integration/Database/IdentityLockTest.php`,
   `tests/Integration/Passwords/SeparateConnectionResetSubmissionsTest.php`,
   `tests/Feature/Database/SharedConnectionTest.php`
-- `tests/Integration/Codes/OneTimeCodesTest.php` (the token tests), `tests/Unit/Guards/JwtGuardsTest.php`
+- `tests/Integration/Codes/OneTimeCodesTest.php` (the token tests), `tests/Unit/Config/JwtGuardsTest.php`
 - `tests/Performance/PasswordResetEnumerationTest.php`, `tests/Performance/PasswordResetQueryBudgetTest.php`
 
 ## Change Triggers

@@ -11,9 +11,9 @@ deleted. Starting a session is in
 
 - A device is active while `revoked_at` is null and both `idle_expires_at` and `absolute_expires_at` are after now: a
   deadline has passed from the second it names, as on the bearer, refresh and sign-in pin paths
-  (`TokenLifetimes::hasEnded()`). The `active()` scope `ActsAsDevice` brings and the listing apply the same rule through
-  `ActiveDevices::constrain()`, with the columns of the model's name accessors, so a model without the trait is listed
-  the same way.
+  (`DeviceDeadlines::hasEnded()`). The `active()` scope `ActsAsDevice` brings and the listing apply the same rule
+  through `ActiveDevices::constrain()`, with the columns of the model's name accessors, so a model without the trait is
+  listed the same way.
 - The listing (`SessionService::devices()`, from `ManagesDevices`) reads the identity's `devices()` relation on the
   write connection (the query itself through `WriteConnection::query()`, and anything the relation reads while it is
   built inside `WriteConnection::during()` for the identity), so a revocation the primary holds is never listed as live.
@@ -149,7 +149,7 @@ deleted. Starting a session is in
   `src/Listeners/Concerns/RevokesOnceCommitted.php`, `src/Sessions/Methods/Rehashing.php`,
   `src/Listeners/TrackCredentialAttempts.php`
 - `src/Sessions/Concerns/ManagesDevices.php`, `src/Sessions/DeviceRevocations.php`, `src/Sessions/RevocationScope.php`,
-  `src/Sessions/IdentityDevices.php`, `src/Jwt/RefreshRotationStore.php` (`revoke()`), `src/Guards/JwtGuard.php`
+  `src/Devices/IdentityDevices.php`, `src/Jwt/RefreshRotationStore.php` (`revoke()`), `src/Guards/JwtGuard.php`
   (`logout()`), `src/Guards/AbstractGuard.php` (`forgetUser()`)
 
 ## Authoritative Tests

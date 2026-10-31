@@ -102,7 +102,7 @@ final class LargePasskeyPublicKeyTest extends TestCase
 
         $options = Auth::passkeys('api')->factorOptions($identity);
 
-        self::assertNull(Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $this->authenticator()->get($options->options)));
+        self::assertTrue(Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $this->authenticator()->get($options->options))->isVerified());
         self::assertNotNull(DB::table('passkeys')->value('last_used_at'));
     }
 

@@ -20,7 +20,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Models\Device;
-use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
+use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithRateLimits;

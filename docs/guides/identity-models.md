@@ -326,16 +326,16 @@ Verify by one-time code with `Auth::codes($guard)`: `sendVerification()` sends a
 identifier of the type, and `verify()` checks it and records the verification:
 
 ```php
+use SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 
 // Send it: a code to the signed-in identity's phone number, delivered by your OneTimeCodeSender.
 $request = Auth::codes('mobile')->sendVerification(Auth::identity(), 'phone');   // sent, rate_limited or identifier_invalid
 
-// Check it: verified, already_verified or mismatch, or the FailureReason why not.
-$result = Auth::codes('mobile')->verify(Auth::identity(), 'phone', $input['code']);
+// Check it: verified, already_verified, mismatch, invalid, expired or exhausted.
+$outcome = Auth::codes('mobile')->verify(Auth::identity(), 'phone', $input['code']);
 
-abort_unless(in_array($result, [IdentifierVerification::VERIFIED, IdentifierVerification::ALREADY_VERIFIED], true), 422);
+abort_unless(in_array($outcome, [VerificationOutcome::VERIFIED, VerificationOutcome::ALREADY_VERIFIED], true), 422);
 ```
 
 A verification code is bound to its purpose, its guard, its identity and the identifier in its normal form, so it
@@ -344,13 +344,43 @@ verifies nothing else, signs no one in, and stops working when the identifier ch
 and the delivery job reads the identity again from the write connection and sends nothing once its identifier is no
 longer the one the code is bound to. Requests are held to the `code_request` limits and the resend cooldown, and the
 code to the same lifetime, attempts and single use as a sign-in code (see
-[One-time codes](configuration.md#one-time-codes)). A refused check returns `invalid_credentials`, `code_expired` or
-`code_exhausted` as it is (the caller already holds the identity), and reports it with `AuthenticationFailed` on the
-`identifier_verification` flow. A right code whose identifier changed after the identity you passed was loaded is used
-up and answers `mismatch`, as a link does: nothing is recorded or reported, and the identity can request a code for its
-new identifier. An identity with no identifier of the type, or one its normaliser rejects, is `identifier_invalid`; an
-identity that cannot verify identifiers throws a `LogicException`, and a machine identity, which has none to verify, an
-`InvalidArgumentException`.
+[One-time codes](configuration.md#one-time-codes)). `verify()` answers a `VerificationOutcome`: `verified` when this
+call recorded the identifier verified, `already_verified` when it was before. A refused check answers `invalid`,
+`expired` or `exhausted` as it is (the caller already holds the identity), and reports `invalid_credentials`,
+`code_expired` or `code_exhausted` with `AuthenticationFailed` on the `identifier_verification` flow. A right code whose
+identifier changed after the identity you passed was loaded is used up and answers `mismatch`, as a link does: nothing
+is recorded or reported, and the identity can request a code for its new identifier. An identity with no identifier of
+the type, or one its normaliser rejects, is `identifier_invalid` when a code is sent and `invalid` when one is checked;
+an identity that cannot verify identifiers throws a `LogicException`, and a machine identity, which has none to verify,
+an `InvalidArgumentException`.
+
+`verify()` used to answer the verifier's `IdentifierVerification` for an accepted code and the `FailureReason` for a
+refused one. A check written for those still runs, wrongly: an `instanceof` check against either enum is now never
+true, and a `match` on their cases never matches. Match the one enum instead:
+
+```php
+// Before
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+$result = Auth::codes('mobile')->verify($identity, 'phone', $code);
+
+if ($result instanceof FailureReason) {
+    return response()->json(['error' => $result->value], 422);   // invalid_credentials, code_expired, code_exhausted
+}
+
+// After
+use SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+$outcome = Auth::codes('mobile')->verify($identity, 'phone', $code);
+
+return match ($outcome) {
+    VerificationOutcome::VERIFIED, VerificationOutcome::ALREADY_VERIFIED => response()->noContent(),
+    VerificationOutcome::EXPIRED, VerificationOutcome::EXHAUSTED         => abort(422, 'Request a new code.'),
+    VerificationOutcome::MISMATCH, VerificationOutcome::INVALID          => abort(422, 'The code is not valid.'),
+};
+```
 
 `Verification\IdentifierVerifier::verify($guard, $identity, $type, $identifier, $client)` is the step a link or a
 one-time code ends in: the proven identifier must be the identity's current one, compared in its normal form. Only

@@ -6,6 +6,9 @@ namespace SineMacula\Laravel\Authentication\Guards\Concerns;
 
 use Illuminate\Container\Container;
 use Illuminate\Support\Timebox;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
+use SineMacula\Laravel\Authentication\Admission\Refused;
+use SineMacula\Laravel\Authentication\Admission\SignInAdmission;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
@@ -15,12 +18,9 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
-use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
-use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
-use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
-use SineMacula\Laravel\Authentication\Sessions\Admission\SignInAdmission;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 
 /**
@@ -50,7 +50,7 @@ trait SignsInWithCredentials
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @throws \Throwable
      */
@@ -60,25 +60,26 @@ trait SignsInWithCredentials
         ?Principal $principal,
         ?Device $device,
         ClientContext $client,
-    ): AdmittedSignIn|RefusedSignIn {
+    ): Admitted|Refused {
+        $guard    = $this->context->name();
         $audience = self::signInCollaborator(AudiencePolicy::class);
 
-        if (!$audience->allowsMethod($this->name, PasswordSignIn::NAME)) {
-            return new RefusedSignIn(FailureReason::METHOD_NOT_ALLOWED);
+        if (!$audience->allowsMethod($guard, PasswordSignIn::NAME)) {
+            return new Refused(FailureReason::METHOD_NOT_ALLOWED);
         }
 
-        $type        = $password->identifierType($this->name);
+        $type        = $password->identifierType($guard);
         $limiter     = self::signInCollaborator(AttemptLimiter::class);
-        $reservation = $limiter->acquire(new AttemptSubject($this->name, AttemptFlow::SIGN_IN, $password->identifier($this->name, $credentials), $type, $client->ip));
+        $reservation = $limiter->acquire(new AttemptSubject($guard, AttemptFlow::SIGN_IN, $password->identifier($guard, $credentials), $type, $client->ip));
 
         if (!$reservation->granted()) {
-            return new RefusedSignIn(FailureReason::RATE_LIMITED, retryAfter: $reservation->retryAfter);
+            return new Refused(FailureReason::RATE_LIMITED, retryAfter: $reservation->retryAfter);
         }
 
-        $accounts = new AccountAttempts($limiter, $this->name);
+        $accounts = new AccountAttempts($limiter, $guard);
 
-        $outcome = $this->withinTimebox(
-            function (Timebox $timebox) use ($password, $credentials, $principal, $device, $client, $audience, $type, $accounts): AdmittedSignIn|RefusedSignIn {
+        $outcome = $this->context->timebox()->run(
+            function (Timebox $timebox) use ($password, $credentials, $principal, $device, $client, $audience, $type, $accounts): Admitted|Refused {
 
                 $user = $this->verifyAttemptedCredentials($password, $credentials, $accounts);
 
@@ -90,14 +91,14 @@ trait SignsInWithCredentials
 
                 $outcome = $this->admitVerifiedIdentity(new SignInAdmission($audience), $user, $principal, $device, $type);
 
-                if ($outcome instanceof AdmittedSignIn) {
+                if ($outcome instanceof Admitted) {
 
-                    $password->rehash($this->provider, $user, $credentials);
+                    $password->rehash($this->context->provider(), $user, $credentials);
 
                     $outcome = $this->refuseIfAFactorIsRequired($outcome, $client);
                 }
 
-                if ($outcome instanceof AdmittedSignIn) {
+                if ($outcome instanceof Admitted) {
                     $timebox->returnEarly();
                 }
 
@@ -105,7 +106,7 @@ trait SignsInWithCredentials
             },
         );
 
-        if ($outcome instanceof AdmittedSignIn) {
+        if ($outcome instanceof Admitted) {
             $limiter->release($reservation);
             $accounts->release();
         }
@@ -123,24 +124,24 @@ trait SignsInWithCredentials
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn  $password
      * @param  array<string, mixed>  $credentials
-     * @param  \SineMacula\Laravel\Authentication\Sessions\AccountAttempts  $accounts
+     * @param  \SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts  $accounts
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      *
      * @throws \InvalidArgumentException
      */
     private function verifyAttemptedCredentials(PasswordSignIn $password, #[\SensitiveParameter] array $credentials, AccountAttempts $accounts): ?Identity
     {
-        $lookup = $password->lookupCredentials($this->name, $credentials);
+        $lookup = $password->lookupCredentials($this->context->name(), $credentials);
 
         if ($lookup === null) {
             return null;
         }
 
-        $user = $password->retrieve($this->provider, $lookup);
+        $user = $password->retrieve($this->context->provider(), $lookup);
 
         $this->lastRetrievedUser = $user;
 
-        return $user instanceof Identity && $password->verifyPassword($accounts, $this->provider, $user, $lookup) ? $user : null;
+        return $user instanceof Identity && $password->verifyPassword($accounts, $this->context->provider(), $user, $lookup) ? $user : null;
     }
 
     /**
@@ -148,16 +149,16 @@ trait SignsInWithCredentials
      * the account they found had no attempts left, as refused by the account's
      * own limit with its wait, which only the failure events report.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\AccountAttempts  $accounts
-     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
+     * @param  \SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts  $accounts
+     * @return \SineMacula\Laravel\Authentication\Admission\Refused
      */
-    private static function refuseCredentials(AccountAttempts $accounts): RefusedSignIn
+    private static function refuseCredentials(AccountAttempts $accounts): Refused
     {
         $wait = $accounts->refusedFor();
 
         return $wait === null
-            ? new RefusedSignIn(FailureReason::INVALID_CREDENTIALS)
-            : new RefusedSignIn(FailureReason::ACCOUNT_RATE_LIMITED, retryAfter: $wait);
+            ? new Refused(FailureReason::INVALID_CREDENTIALS)
+            : new Refused(FailureReason::ACCOUNT_RATE_LIMITED, retryAfter: $wait);
     }
 
     /**
@@ -165,33 +166,28 @@ trait SignsInWithCredentials
      * (the pinned one, or the resolver's default), the audience policy, and the
      * pinned device.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\SignInAdmission  $admission
+     * @param  \SineMacula\Laravel\Authentication\Admission\SignInAdmission  $admission
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  string  $identifierType
-     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    private function admitVerifiedIdentity(
-        SignInAdmission $admission,
-        Identity $identity,
-        ?Principal $principal,
-        ?Device $device,
-        string $identifierType,
-    ): AdmittedSignIn|RefusedSignIn {
+    private function admitVerifiedIdentity(SignInAdmission $admission, Identity $identity, ?Principal $principal, ?Device $device, string $identifierType): Admitted|Refused
+    {
         $admitted = $admission->admit(
-            $this->name,
+            $this->context->name(),
             $identity,
             fn (): ?Principal => $principal === null ? $this->resolvePrincipal($identity) : $this->resolvePinnedPrincipal($identity, $principal),
             $principal === null ? FailureReason::PRINCIPAL_UNRESOLVED : FailureReason::PRINCIPAL_MISMATCH,
             $identifierType,
         );
 
-        if ($admitted instanceof RefusedSignIn) {
+        if ($admitted instanceof Refused) {
             return $admitted;
         }
 
@@ -202,7 +198,7 @@ trait SignsInWithCredentials
         $resolvedDevice = $this->resolvePinnedDevice($identity, $admitted->principal, $device);
 
         return $resolvedDevice === null
-            ? RefusedSignIn::after(FailureReason::DEVICE_MISMATCH, $admitted)
+            ? Refused::after(FailureReason::DEVICE_MISMATCH, $admitted)
             : $admitted->on($resolvedDevice);
     }
 
@@ -212,16 +208,16 @@ trait SignsInWithCredentials
      * proves nothing about who holds the client, so the policy is never told of
      * one.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    private function refuseIfAFactorIsRequired(AdmittedSignIn $admitted, ClientContext $client): AdmittedSignIn|RefusedSignIn
+    private function refuseIfAFactorIsRequired(Admitted $admitted, ClientContext $client): Admitted|Refused
     {
         $required = self::signInCollaborator(AdditionalFactorPolicy::class)->requiresAdditionalFactor(new AdditionalFactorContext(
-            $this->name,
+            $this->context->name(),
             $admitted->identity,
             $admitted->principal,
             $admitted->tenant,
@@ -232,7 +228,7 @@ trait SignsInWithCredentials
             null,
         ));
 
-        return $required ? RefusedSignIn::after(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $admitted) : $admitted;
+        return $required ? Refused::after(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $admitted) : $admitted;
     }
 
     /**

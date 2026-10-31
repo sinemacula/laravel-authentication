@@ -77,7 +77,7 @@ trait InteractsWithPasskeys
     {
         $passkeys = Auth::passkeys($guard);
         $options  = $passkeys->registrationOptions($identity, self::USER_NAME);
-        $summary  = $passkeys->register($identity, $options->challengeId, ($authenticator ?? $this->authenticator())->create($options->options), 'Laptop');
+        $summary  = $passkeys->register($identity, $options->challengeId, ($authenticator ?? $this->authenticator())->create($options->options), 'Laptop')->passkey;
 
         self::assertInstanceOf(PasskeySummary::class, $summary);
 

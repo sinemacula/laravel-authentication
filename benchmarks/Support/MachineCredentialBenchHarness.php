@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use Tests\Integration\Fixtures\MachineClient;
 
@@ -279,16 +280,6 @@ final class MachineCredentialBenchHarness
      */
     private function tokenGuard(#[\SensitiveParameter] ?string $token): JwtGuard
     {
-        $exchange = new RefreshTokenExchange(
-            $this->tokens,
-            $this->provider,
-            BenchDatabase::connectionResolver(),
-            static fn (): null => null,
-            $this->events,
-            $this->resolver,
-            self::TOKEN_GUARD,
-        );
-
         return new JwtGuard(
             self::TOKEN_GUARD,
             $this->provider,
@@ -297,7 +288,12 @@ final class MachineCredentialBenchHarness
             self::request($token),
             $this->timebox,
             $this->tokens,
-            $exchange,
+            fn (GuardContext $context): RefreshTokenExchange => new RefreshTokenExchange(
+                $this->tokens,
+                $context,
+                BenchDatabase::connectionResolver(),
+                static fn (): null => null,
+            ),
             fn (JwtGuard $guard, \Closure $timebox): SessionService => new SessionService(
                 $guard,
                 $timebox,

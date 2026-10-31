@@ -13,13 +13,13 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Queue\Attributes\DeleteWhenMissingModels;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
 use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
-use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 

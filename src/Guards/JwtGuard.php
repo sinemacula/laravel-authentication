@@ -38,14 +38,19 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  *
  * Exposes `refreshFromRequest()`, which reads the refresh token through the
  * guard's `RefreshTokenTransport`, and `refresh()` for a token the caller read
- * itself; the round trip is delegated to `RefreshTokenExchange`. `sessions()`
- * returns the guard's session service, which starts sessions.
+ * itself; the round trip is delegated to `RefreshTokenExchange`, which the
+ * guard builds on its own context, so the exchange reads the provider, resolver
+ * and dispatcher the guard does, rebinds included. `sessions()` returns the
+ * guard's session service, which starts sessions.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
 final class JwtGuard extends AbstractGuard
 {
+    /** @var \SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange The refresh-token exchange, bound to the guard's own context. */
+    private readonly RefreshTokenExchange $exchange;
+
     /** @var ?\SineMacula\Laravel\Authentication\Sessions\SessionService The guard's session service, once built. */
     private ?SessionService $sessions = null;
 
@@ -63,7 +68,7 @@ final class JwtGuard extends AbstractGuard
      * @param  \Illuminate\Http\Request  $request
      * @param  \Illuminate\Support\Timebox  $timebox
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $tokens
-     * @param  \SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange  $exchange
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Runtime\GuardContext): \SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange  $exchangeFactory
      * @param  \Closure(\SineMacula\Laravel\Authentication\Guards\JwtGuard, \Closure(\Closure(\Illuminate\Support\Timebox): mixed): mixed): \SineMacula\Laravel\Authentication\Sessions\SessionService  $sessionFactory
      * @param  \Closure(): \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transportFactory
      *
@@ -94,8 +99,8 @@ final class JwtGuard extends AbstractGuard
         /** JWT token service for access and refresh tokens. */
         protected JwtTokenService $tokens,
 
-        /** Refresh-token exchange for credential rotation. */
-        protected RefreshTokenExchange $exchange,
+        // Builds the guard's refresh-token exchange, given the guard's context.
+        \Closure $exchangeFactory,
 
         /** Builds the guard's session service, given the guard and its credential timebox, the first time it is asked for. */
         private readonly \Closure $sessionFactory,
@@ -104,6 +109,8 @@ final class JwtGuard extends AbstractGuard
         private readonly \Closure $transportFactory,
     ) {
         parent::__construct($name, $provider, $resolver, $events, $request, $timebox);
+
+        $this->exchange = $exchangeFactory($this->context);
     }
 
     /**
@@ -117,7 +124,7 @@ final class JwtGuard extends AbstractGuard
      */
     public function sessions(): SessionService
     {
-        return $this->sessions ??= ($this->sessionFactory)($this, $this->timeboxed(...));
+        return $this->sessions ??= ($this->sessionFactory)($this, $this->context->timebox()->run(...));
     }
 
     /**
@@ -137,7 +144,7 @@ final class JwtGuard extends AbstractGuard
      */
     public function timeboxed(\Closure $callback): mixed
     {
-        return $this->withinTimebox($callback);
+        return $this->context->timebox()->run($callback);
     }
 
     /**
@@ -220,7 +227,7 @@ final class JwtGuard extends AbstractGuard
      */
     public function refreshFromRequest(): FailureReason|RefreshResult|null
     {
-        $presented = $this->refreshTransport()->read($this->request);
+        $presented = $this->refreshTransport()->read($this->context->request());
 
         if ($presented instanceof PresentedRefreshToken) {
 
@@ -231,7 +238,7 @@ final class JwtGuard extends AbstractGuard
 
         if ($presented !== null) {
             $this->fireAttemptingEvent([]);
-            $this->refuseRefresh(new AuthenticationFailed(new EventContext($this->name, ClientContext::fromRequest($this->request)), AuthenticationFlow::REFRESH, $presented));
+            $this->refuseRefresh(new AuthenticationFailed(new EventContext($this->context->name(), $this->context->client()), AuthenticationFlow::REFRESH, $presented));
         }
 
         return $presented;
@@ -247,39 +254,6 @@ final class JwtGuard extends AbstractGuard
     public function refreshTransport(): RefreshTokenTransport
     {
         return ($this->transportFactory)();
-    }
-
-    /**
-     * Rebind the principal resolver onto both the guard and its refresh
-     * exchange so bearer and refresh flows continue to share the same policy.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver  $resolver
-     * @return static
-     */
-    #[\Override]
-    public function setPrincipalResolver(PrincipalResolver $resolver): static
-    {
-        parent::setPrincipalResolver($resolver);
-        $this->exchange->setPrincipalResolver($resolver);
-
-        return $this;
-    }
-
-    /**
-     * Rebind the event dispatcher onto both the guard and its refresh exchange,
-     * so a dispatcher swapped in after the guard resolved (e.g.
-     * `Event::fake()`) receives `DeviceRevoked` as well as the guard's events.
-     *
-     * @param  \Illuminate\Contracts\Events\Dispatcher  $events
-     * @return static
-     */
-    #[\Override]
-    public function setDispatcher(Dispatcher $events): static
-    {
-        parent::setDispatcher($events);
-        $this->exchange->setDispatcher($events);
-
-        return $this;
     }
 
     /**
@@ -299,7 +273,7 @@ final class JwtGuard extends AbstractGuard
     #[\Override]
     protected function resolveUserFromRequest(): ?Identity
     {
-        $token = $this->request->bearerToken();
+        $token = $this->context->request()->bearerToken();
 
         if ($token === null || $token === '') {
             return null;
@@ -324,7 +298,7 @@ final class JwtGuard extends AbstractGuard
     {
         $this->fireAttemptingEvent([]);
 
-        $client = ClientContext::fromRequest($this->request);
+        $client = $this->context->client();
         $result = $this->exchange->exchange($refreshToken, $client);
 
         if ($result instanceof AuthenticationFailed) {
@@ -360,7 +334,7 @@ final class JwtGuard extends AbstractGuard
     {
         $this->fireFailedEvent(null, []);
 
-        $this->events->dispatch($failure);
+        $this->context->dispatch($failure);
 
         if ($failure->retryAfter !== null) {
             throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $failure->retryAfter]);
@@ -379,13 +353,13 @@ final class JwtGuard extends AbstractGuard
      */
     private function reportRefresh(ExchangedRefresh $result, ClientContext $client): void
     {
-        $context   = new EventContext($this->name, $client, $result->identity, $result->principal, $result->tenant, $result->device, $result->method);
+        $context   = new EventContext($this->context->name(), $client, $result->identity, $result->principal, $result->tenant, $result->device, $result->method);
         $container = Container::getInstance();
 
         (new AfterCommit(static fn (): mixed => $container->bound('db.transactions') ? $container->make('db.transactions') : null))
             ->run($result->device, function () use ($context): void {
-                $this->events->dispatch(new Refreshed($context));
-                $this->events->dispatch(new SignedIn($context, false, true));
+                $this->context->dispatch(new Refreshed($context));
+                $this->context->dispatch(new SignedIn($context, false, true));
             });
     }
 
@@ -405,12 +379,12 @@ final class JwtGuard extends AbstractGuard
      */
     private function resolveBearerToken(#[\SensitiveParameter] string $token): ?Identity
     {
-        $outcome = (new BearerAuthentication($this->name, $this->tokens, $this->provider, $this->resolver))
-            ->authenticate($token, ClientContext::fromRequest($this->request));
+        $outcome = (new BearerAuthentication($this->context->name(), $this->tokens, $this->context->provider(), $this->context->resolver()))
+            ->authenticate($token, $this->context->client());
 
         if ($outcome instanceof AuthenticationFailed) {
 
-            $this->events->dispatch($outcome);
+            $this->context->dispatch($outcome);
 
             return null;
         }

@@ -18,11 +18,11 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Codes\CodeService;
 use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodeRequestStatus;
+use SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome;
 use SineMacula\Laravel\Authentication\Codes\SendOneTimeCode;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
-use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use Tests\Concerns\InteractsWithCodeIdentities;
 use Tests\Integration\Fixtures\CodeIdentity;
 use Tests\TestCase;
@@ -322,11 +322,11 @@ final class CodeRoutesTest extends TestCase
 
         abort_unless($identity instanceof Identity, 401);
 
-        $result = Auth::codes('mobile')->verify($identity, 'phone', $input['code']);
+        $outcome = Auth::codes('mobile')->verify($identity, 'phone', $input['code']);
 
-        abort_unless($result instanceof IdentifierVerification, 422);
+        abort_unless(in_array($outcome, [VerificationOutcome::VERIFIED, VerificationOutcome::ALREADY_VERIFIED], true), 422);
 
-        return ['verified' => $result->value];
+        return ['verified' => $outcome->value];
     }
 
     /**

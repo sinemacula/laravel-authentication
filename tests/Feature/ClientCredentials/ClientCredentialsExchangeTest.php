@@ -26,7 +26,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
-use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithMachineCredentials;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\MachineClient;

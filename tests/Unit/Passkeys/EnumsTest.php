@@ -7,12 +7,12 @@ namespace Tests\Unit\Passkeys;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose;
-use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationFailure;
+use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
 
 /**
  * Pins the values the passkey enums are stored and reported with: a challenge
- * row records its purpose, and an application answers a registration failure by
- * its value.
+ * row records its purpose, and an application answers a registration by its
+ * status's value.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -30,6 +30,6 @@ final class EnumsTest extends TestCase
     public function testTheValuesAreFixed(): void
     {
         self::assertSame(['register', 'sign_in', 'factor'], array_column(ChallengePurpose::cases(), 'value'));
-        self::assertSame(['challenge_invalid', 'response_invalid', 'already_registered'], array_column(PasskeyRegistrationFailure::cases(), 'value'));
+        self::assertSame(['registered', 'challenge_invalid', 'response_invalid', 'already_registered'], array_column(PasskeyRegistrationStatus::cases(), 'value'));
     }
 }

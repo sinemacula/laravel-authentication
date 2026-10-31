@@ -7,27 +7,28 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 use Carbon\CarbonImmutable;
 use Illuminate\Container\Container;
 use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
+use SineMacula\Laravel\Authentication\Admission\PinnedPrincipal;
+use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Devices\DeviceLookup;
+use SineMacula\Laravel\Authentication\Devices\DeviceOwnership;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Guards\PinnedPrincipal;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
-use SineMacula\Laravel\Authentication\Jwt\DeviceOwnership;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh;
-use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
 use SineMacula\Laravel\Authentication\Jwt\RefreshJudgement;
@@ -36,8 +37,8 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
-use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
-use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * Switches a device's session to another principal of the same identity, proven
@@ -192,20 +193,20 @@ final readonly class PrincipalSwitch
      * session's sign-in could have chosen, with no further factor asked.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Events\AuthenticationFailed
      *
      * @throws \Throwable
      */
-    private function admit(EloquentDevice&Model $device): AdmittedSignIn|AuthenticationFailed
+    private function admit(EloquentDevice&Model $device): Admitted|AuthenticationFailed
     {
         $admitted = (new RefreshAdmission($this->guard->getName(), $this->guard->getProvider(), $this->guard->getPrincipalResolver()))
             ->admit($device, $this->target->getPrincipalIdentifier() ?? '');
 
-        if ($admitted instanceof AdmittedSignIn) {
+        if ($admitted instanceof Admitted) {
             $admitted = $this->admitAsTarget($admitted, $device);
         }
 
-        return $admitted instanceof RefusedSignIn
+        return $admitted instanceof Refused
             ? self::refused($admitted->reason, $this->context($device, $admitted))
             : $admitted;
     }
@@ -222,16 +223,16 @@ final readonly class PrincipalSwitch
      * identifier is not held to an identifier type. The type is read on the
      * write connection.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @throws \Throwable
      */
-    private function admitAsTarget(AdmittedSignIn $admitted, EloquentDevice&Model $device): AdmittedSignIn|RefusedSignIn
+    private function admitAsTarget(Admitted $admitted, EloquentDevice&Model $device): Admitted|Refused
     {
         if (!$this->isTarget($admitted)) {
-            return new RefusedSignIn(FailureReason::PRINCIPAL_MISMATCH, $admitted->identity);
+            return new Refused(FailureReason::PRINCIPAL_MISMATCH, $admitted->identity);
         }
 
         $type    = WriteConnection::during($device, static fn (): ?string => $device->getSignInIdentifierType());
@@ -239,7 +240,7 @@ final readonly class PrincipalSwitch
 
         $refusal ??= $this->requiresAdditionalFactor($admitted, $device) ? FailureReason::ADDITIONAL_FACTOR_REQUIRED : null;
 
-        return $refusal === null ? $admitted : RefusedSignIn::after($refusal, $admitted);
+        return $refusal === null ? $admitted : Refused::after($refusal, $admitted);
     }
 
     /**
@@ -247,7 +248,7 @@ final readonly class PrincipalSwitch
      * identifier type, if any: first for the identity as a whole, as its
      * sign-in was asked, then for the target.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  string  $type
      * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      *
@@ -255,7 +256,7 @@ final readonly class PrincipalSwitch
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    private function admitWithType(AdmittedSignIn $admitted, string $type): ?FailureReason
+    private function admitWithType(Admitted $admitted, string $type): ?FailureReason
     {
         $audience = Container::getInstance()->make(AudiencePolicy::class);
         $guard    = $this->guard->getName();
@@ -270,10 +271,10 @@ final readonly class PrincipalSwitch
      * class, and owned by the device's owner, read from the principal's own
      * stored key rather than trusted to the resolver.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @return bool
      */
-    private function isTarget(AdmittedSignIn $admitted): bool
+    private function isTarget(Admitted $admitted): bool
     {
         return $admitted->principal::class === $this->target::class
             && PinnedPrincipal::isOwnedBy($admitted->principal, $admitted->identity);
@@ -283,13 +284,13 @@ final readonly class PrincipalSwitch
      * Whether the additional-factor policy asks a further factor of the target
      * on the device.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @return bool
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    private function requiresAdditionalFactor(AdmittedSignIn $admitted, EloquentDevice&Model $device): bool
+    private function requiresAdditionalFactor(Admitted $admitted, EloquentDevice&Model $device): bool
     {
         return Container::getInstance()->make(AdditionalFactorPolicy::class)->requiresAdditionalFactor(new AdditionalFactorContext(
             $this->guard->getName(),
@@ -310,7 +311,7 @@ final readonly class PrincipalSwitch
      * be live under the target type's lifetimes.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  array{0: string, 1: mixed}  $presented
      * @param  \Carbon\CarbonImmutable  $now
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
@@ -319,7 +320,7 @@ final readonly class PrincipalSwitch
      */
     private function switchCurrent(
         EloquentDevice&Model $device,
-        AdmittedSignIn $admitted,
+        Admitted $admitted,
         #[\SensitiveParameter] array $presented,
         CarbonImmutable $now,
     ): AuthenticationFailed|SwitchedPrincipal {
@@ -342,7 +343,7 @@ final readonly class PrincipalSwitch
      * records the switch, the rotation and the deadlines.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  array{0: string, 1: mixed}  $presented
      * @param  array{0: \Carbon\CarbonImmutable, 1: \Carbon\CarbonImmutable}  $deadlines
      * @param  \Carbon\CarbonImmutable  $now
@@ -352,7 +353,7 @@ final readonly class PrincipalSwitch
      */
     private function rotateTo(
         EloquentDevice&Model $device,
-        AdmittedSignIn $admitted,
+        Admitted $admitted,
         #[\SensitiveParameter] array $presented,
         array $deadlines,
         CarbonImmutable $now,
@@ -384,13 +385,13 @@ final readonly class PrincipalSwitch
      * client can retry, not a replay.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  array{0: string, 1: mixed}  $presented
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
      *
      * @throws \Throwable
      */
-    private function retry(EloquentDevice&Model $device, AdmittedSignIn $admitted, #[\SensitiveParameter] array $presented): AuthenticationFailed|SwitchedPrincipal
+    private function retry(EloquentDevice&Model $device, Admitted $admitted, #[\SensitiveParameter] array $presented): AuthenticationFailed|SwitchedPrincipal
     {
         $honoured = PrincipalReference::isRecordedOn($device, $admitted->principal)
             && (self::isLastRotationASwitch($device) || IdentifierCoercion::matches($admitted->principal->getPrincipalIdentifier(), $presented[1]));
@@ -415,7 +416,7 @@ final readonly class PrincipalSwitch
      * replay revoking the device. There is never a second swap.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  array{0: string, 1: mixed}  $presented
      * @param  \Carbon\CarbonImmutable  $now
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
@@ -424,7 +425,7 @@ final readonly class PrincipalSwitch
      */
     private function afterLostSwitch(
         EloquentDevice&Model $device,
-        AdmittedSignIn $admitted,
+        Admitted $admitted,
         #[\SensitiveParameter] array $presented,
         CarbonImmutable $now,
     ): AuthenticationFailed|SwitchedPrincipal {
@@ -481,7 +482,7 @@ final readonly class PrincipalSwitch
      * Issue the pair for the admitted target on the device at `$now`, the
      * refresh token carrying the rotation id.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  string  $rotationId
      * @param  \Carbon\CarbonImmutable  $now
@@ -491,7 +492,7 @@ final readonly class PrincipalSwitch
      * @throws \LogicException
      * @throws \Random\RandomException
      */
-    private function issue(AdmittedSignIn $admitted, EloquentDevice&Model $device, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): RefreshResult
+    private function issue(Admitted $admitted, EloquentDevice&Model $device, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): RefreshResult
     {
         return new RefreshResult(
             $this->tokens->issueAccessToken($admitted->identity, $admitted->principal, $device, $now),
@@ -527,10 +528,10 @@ final readonly class PrincipalSwitch
      * device acts as.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn|null  $outcome
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused|null  $outcome
      * @return \SineMacula\Laravel\Authentication\Events\EventContext
      */
-    private function context(EloquentDevice&Model $device, AdmittedSignIn|RefusedSignIn|null $outcome = null): EventContext
+    private function context(EloquentDevice&Model $device, Admitted|Refused|null $outcome = null): EventContext
     {
         return new EventContext(
             $this->guard->getName(),
@@ -564,12 +565,12 @@ final readonly class PrincipalSwitch
      * The exchanged session on the device, as the admitted target, with its new
      * pair.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  \SineMacula\Laravel\Authentication\Jwt\RefreshResult  $tokens
      * @return \SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
      */
-    private static function exchanged(AdmittedSignIn $admitted, EloquentDevice&Model $device, RefreshResult $tokens): ExchangedRefresh
+    private static function exchanged(Admitted $admitted, EloquentDevice&Model $device, RefreshResult $tokens): ExchangedRefresh
     {
         return new ExchangedRefresh($admitted->identity, $admitted->principal, $device, $tokens, $admitted->tenant, $device->getSignInMethod());
     }

@@ -5,12 +5,12 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Guards\Concerns;
 
 use Illuminate\Support\Carbon;
+use SineMacula\Laravel\Authentication\Admission\PinnedPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Guards\OwnedDevice;
-use SineMacula\Laravel\Authentication\Guards\PinnedPrincipal;
-use SineMacula\Laravel\Authentication\Sessions\IdentityDevices;
+use SineMacula\Laravel\Authentication\Devices\IdentityDevices;
+use SineMacula\Laravel\Authentication\Devices\OwnedDevice;
 
 /**
  * Proves that a principal or device pinned on `attempt()` belongs to the
@@ -38,7 +38,7 @@ trait VerifiesPinnedContext
      */
     protected function resolvePinnedPrincipal(Identity $identity, Principal $pinned): ?Principal
     {
-        return PinnedPrincipal::resolve($this->resolver, $identity, $pinned);
+        return PinnedPrincipal::resolve($this->context->resolver(), $identity, $pinned);
     }
 
     /**
@@ -85,6 +85,6 @@ trait VerifiesPinnedContext
     {
         $device = IdentityDevices::find($identity, $hint);
 
-        return $device !== null && OwnedDevice::refusal($device, $this->name, Carbon::now()) === null ? $device : null;
+        return $device !== null && OwnedDevice::refusal($device, $this->context->name(), Carbon::now()) === null ? $device : null;
     }
 }

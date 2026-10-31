@@ -20,9 +20,8 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose;
-use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationFailure;
+use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyChallenges;
-use SineMacula\Laravel\Authentication\Passkeys\PasskeySummary;
 use SineMacula\Laravel\Authentication\Passkeys\RelyingParty;
 use Tests\Concerns\InteractsWithFoldingCollations;
 use Tests\Concerns\InteractsWithPasskeys;
@@ -371,13 +370,13 @@ final class PasskeyChallengesTest extends TestCase
 
         Event::fake([PasskeyAdded::class]);
 
-        self::assertSame(PasskeyRegistrationFailure::CHALLENGE_INVALID, $passkeys->register(self::namedIdentity($folded), $options->challengeId, $answer));
+        self::assertSame(PasskeyRegistrationStatus::CHALLENGE_INVALID, $passkeys->register(self::namedIdentity($folded), $options->challengeId, $answer)->status);
         self::assertSame(1, DB::table('passkey_challenges')->count());
         self::assertSame(0, DB::table('passkeys')->count());
 
         Event::assertNotDispatched(PasskeyAdded::class);
 
-        self::assertInstanceOf(PasskeySummary::class, $passkeys->register($owner, $options->challengeId, $answer));
+        self::assertTrue($passkeys->register($owner, $options->challengeId, $answer)->isRegistered());
         self::assertSame(self::NAMED, DB::table('passkeys')->value('authenticatable_id'));
     }
 
@@ -410,12 +409,12 @@ final class PasskeyChallengesTest extends TestCase
 
         Event::fake([PasskeyUsed::class]);
 
-        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, $passkeys->verifyFactor(self::namedIdentity($folded), $options->challengeId, $answer));
+        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, $passkeys->verifyFactor(self::namedIdentity($folded), $options->challengeId, $answer)->reason);
         self::assertSame(1, DB::table('passkey_challenges')->count());
 
         Event::assertNotDispatched(PasskeyUsed::class);
 
-        self::assertNull($passkeys->verifyFactor($owner, $options->challengeId, $answer));
+        self::assertTrue($passkeys->verifyFactor($owner, $options->challengeId, $answer)->isVerified());
     }
 
     /**
@@ -485,13 +484,13 @@ final class PasskeyChallengesTest extends TestCase
 
         Event::fake([PasskeyAdded::class]);
 
-        self::assertSame(PasskeyRegistrationFailure::CHALLENGE_INVALID, Auth::passkeys('API')->register($identity, $options->challengeId, $answer));
+        self::assertSame(PasskeyRegistrationStatus::CHALLENGE_INVALID, Auth::passkeys('API')->register($identity, $options->challengeId, $answer)->status);
         self::assertSame(1, DB::table('passkey_challenges')->count());
         self::assertSame(0, DB::table('passkeys')->count());
 
         Event::assertNotDispatched(PasskeyAdded::class);
 
-        self::assertInstanceOf(PasskeySummary::class, Auth::passkeys('api')->register($identity, $options->challengeId, $answer));
+        self::assertTrue(Auth::passkeys('api')->register($identity, $options->challengeId, $answer)->isRegistered());
     }
 
     /**
@@ -552,12 +551,12 @@ final class PasskeyChallengesTest extends TestCase
 
         Event::fake([PasskeyUsed::class]);
 
-        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, Auth::passkeys('API')->verifyFactor($identity, $options->challengeId, $answer));
+        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, Auth::passkeys('API')->verifyFactor($identity, $options->challengeId, $answer)->reason);
         self::assertSame(1, DB::table('passkey_challenges')->count());
 
         Event::assertNotDispatched(PasskeyUsed::class);
 
-        self::assertNull(Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $answer));
+        self::assertTrue(Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $answer)->isVerified());
     }
 
     /**
