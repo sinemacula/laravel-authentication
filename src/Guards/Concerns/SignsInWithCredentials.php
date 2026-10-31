@@ -10,6 +10,7 @@ use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Admission\SignInAdmission;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -73,8 +74,9 @@ trait SignsInWithCredentials
         }
 
         $type    = $password->identifierType($guard);
+        $limiter = self::signInCollaborator(AttemptLimiter::class);
         $subject = new AttemptSubject($guard, AttemptFlow::SIGN_IN, $password->identifier($guard, $credentials), $type, $client->ip);
-        $attempt = CredentialAttempt::begin(Container::getInstance(), $audience, $subject);
+        $attempt = CredentialAttempt::begin($limiter, $audience, $subject);
 
         if ($attempt instanceof Refused) {
             return $attempt;

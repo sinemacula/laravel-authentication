@@ -19,10 +19,11 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
  * them in its own order.
  *
  * `checkMethod()` asks the audience policy whether it allows the method, and
- * `begin()` then takes the sign-in's slot on the identifier and IP limits, so
- * an entry point can leave the identifier unread for the limits until the
- * method is allowed. The attempt holds that slot and the account attempts the
- * secret checks count against, refuses a sign-in an account had no attempts
+ * `begin()` then takes the sign-in's slot on the identifier and IP limits from
+ * the limiter the entry point resolved, so each entry point keeps its own order
+ * between the two: when it reads the identifier for the limits and when it
+ * resolves the limiter. The attempt holds that slot and the account attempts
+ * the secret checks count against, refuses a sign-in an account had no attempts
  * left for (`accountRefusal()`), hands a pending sign-in the windows it keeps
  * until it completes (`windows()`), and gives every slot back for a sign-in
  * that started its session (`release()`).
@@ -82,19 +83,16 @@ final readonly class CredentialAttempt
 
     /**
      * Begin a sign-in the audience policy allowed: the identifier and the IP
-     * address must have attempts left (`rate_limited`, with the wait). The
-     * limiter is resolved from the container then.
+     * address must have attempts left on the limiter (`rate_limited`, with the
+     * wait).
      *
-     * @param  \Illuminate\Contracts\Container\Container  $container
+     * @param  \SineMacula\Laravel\Authentication\Contracts\AttemptLimiter  $limiter
      * @param  \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy  $audience
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject  $subject
      * @return self|\SineMacula\Laravel\Authentication\Admission\Refused
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public static function begin(Container $container, AudiencePolicy $audience, AttemptSubject $subject): Refused|self
+    public static function begin(AttemptLimiter $limiter, AudiencePolicy $audience, AttemptSubject $subject): Refused|self
     {
-        $limiter     = $container->make(AttemptLimiter::class);
         $reservation = $limiter->acquire($subject);
 
         if (!$reservation->granted()) {

@@ -117,9 +117,7 @@ final class CredentialAttemptTest extends TestCase
         $limiter = new RecordingAttemptLimiter(refuse: static fn (AttemptSubject $subject): ?int => $subject->account === null ? 45 : null);
         $subject = self::subject();
 
-        app()->instance(AttemptLimiter::class, $limiter);
-
-        $refused = CredentialAttempt::begin(app(), app(AudiencePolicy::class), $subject);
+        $refused = CredentialAttempt::begin($limiter, app(AudiencePolicy::class), $subject);
 
         self::assertInstanceOf(Refused::class, $refused);
         self::assertSame([FailureReason::RATE_LIMITED, 45], [$refused->reason, $refused->retryAfter]);
@@ -141,9 +139,7 @@ final class CredentialAttemptTest extends TestCase
         $limiter  = new RecordingAttemptLimiter;
         $audience = \Mockery::mock(AudiencePolicy::class);
 
-        app()->instance(AttemptLimiter::class, $limiter);
-
-        $attempt = CredentialAttempt::begin(app(), $audience, self::subject());
+        $attempt = CredentialAttempt::begin($limiter, $audience, self::subject());
 
         self::assertInstanceOf(CredentialAttempt::class, $attempt);
         self::assertSame($audience, $attempt->audience);
@@ -170,9 +166,8 @@ final class CredentialAttemptTest extends TestCase
      */
     public function testAnAccountWithNoAttemptsLeftRefusesTheSignInWithItsWait(): void
     {
-        app()->instance(AttemptLimiter::class, new RecordingAttemptLimiter(refuse: static fn (AttemptSubject $subject): ?int => $subject->account === null ? null : 90));
-
-        $attempt = CredentialAttempt::begin(app(), app(AudiencePolicy::class), self::subject());
+        $limiter = new RecordingAttemptLimiter(refuse: static fn (AttemptSubject $subject): ?int => $subject->account === null ? null : 90);
+        $attempt = CredentialAttempt::begin($limiter, app(AudiencePolicy::class), self::subject());
 
         self::assertInstanceOf(CredentialAttempt::class, $attempt);
         self::assertFalse($attempt->accounts->reserve($this->seedIdentity()));
@@ -196,9 +191,7 @@ final class CredentialAttemptTest extends TestCase
     {
         $limiter = new RecordingAttemptLimiter;
 
-        app()->instance(AttemptLimiter::class, $limiter);
-
-        $attempt = CredentialAttempt::begin(app(), app(AudiencePolicy::class), self::subject());
+        $attempt = CredentialAttempt::begin($limiter, app(AudiencePolicy::class), self::subject());
 
         self::assertInstanceOf(CredentialAttempt::class, $attempt);
 

@@ -277,6 +277,69 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
+     * The limiter is resolved once the method is allowed and before the
+     * identifier is read for the limits, so the slot is taken from the limiter
+     * bound then: an identifier whose read for the limits binds another limiter
+     * is refused with the wait of the one bound before it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheLimiterIsResolvedBeforeTheIdentifierIsReadForTheLimits(): void
+    {
+        $this->audience->shouldReceive('allowsMethod')->once()->andReturnTrue();
+        $this->limiter->shouldReceive('acquire')->once()->andReturnUsing(static fn (AttemptSubject $subject): AttemptReservation => new AttemptReservation($subject, 42));
+        $this->provider->shouldNotReceive('retrieveByCredentials');
+
+        $later = \Mockery::mock(AttemptLimiter::class);
+        $later->shouldReceive('acquire')->andReturnUsing(static fn (AttemptSubject $subject): AttemptReservation => new AttemptReservation($subject, 99));
+
+        $identifier = new class ($later) implements \Stringable {
+            /** @var int The times the identifier has been read. */
+            private int $reads = 0;
+
+            /**
+             * Constructor.
+             *
+             * @param  \SineMacula\Laravel\Authentication\Contracts\AttemptLimiter  $later
+             */
+            public function __construct(
+
+                /** The limiter bound when the identifier is read for the limits. */
+                private readonly AttemptLimiter $later,
+            ) {}
+
+            /**
+             * Read the identifier, binding the later limiter on the read for
+             * the limits, the second.
+             *
+             * @return string
+             */
+            #[\Override]
+            public function __toString(): string
+            {
+                if (++$this->reads === 2) {
+                    app()->instance(AttemptLimiter::class, $this->later);
+                }
+
+                return 'ada@example.test';
+            }
+        };
+
+        $events = $this->recordEvents();
+
+        self::assertFalse($this->makeGuard()->attempt(['email' => $identifier, 'password' => 'secret']));
+
+        $failures = array_values(array_filter($events->getArrayCopy(), static fn (object $event): bool => $event instanceof AuthenticationFailed));
+
+        self::assertSame(
+            [[FailureReason::RATE_LIMITED, 42]],
+            array_map(static fn (AuthenticationFailed $event): array => [$event->reason, $event->retryAfter], $failures),
+        );
+    }
+
+    /**
      * An attempt over its limit is refused without checking the credentials,
      * reports the wait, and gives nothing back.
      *

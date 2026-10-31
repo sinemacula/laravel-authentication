@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\PinnedPrincipal;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Admission\SignInAdmission;
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
@@ -548,7 +549,7 @@ final readonly class SessionService
             return $audience;
         }
 
-        $attempt = CredentialAttempt::begin($this->container, $audience, $subject);
+        $attempt = CredentialAttempt::begin($this->container->make(AttemptLimiter::class), $audience, $subject);
 
         if ($attempt instanceof Refused) {
             return $attempt;
