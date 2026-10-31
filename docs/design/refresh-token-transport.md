@@ -82,7 +82,8 @@ request may carry the token in only one place; and the cookie that carries a bro
 ## Implementation Anchors
 
 - `src/Http/RefreshTokenTransport.php`: `read()`, `isSameSiteRequest()`, `cookie()`, `forgetCookie()`.
-- `src/Sessions/Concerns/ChoosesPrincipals.php`: `switchPrincipalFromRequest()`.
+- `src/Sessions/SessionService.php`: `switchPrincipalFromRequest()`, which builds the guard's transport from the
+  configuration (`RefreshTokenTransport::forGuard()`), as the guard's own factory does.
 - `src/Http/RefreshTokenSettings.php`: `forGuard()`.
 - `src/Guards/JwtGuard.php`: `refreshFromRequest()`, `refreshTransport()`, `exchangeRefresh()`, `refuseRefresh()`.
 - `src/AuthManager.php`: `refreshTransport()`.

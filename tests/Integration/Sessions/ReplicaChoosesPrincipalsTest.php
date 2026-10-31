@@ -7,9 +7,10 @@ namespace Tests\Integration\Sessions;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
-use PHPUnit\Framework\Attributes\CoversTrait;
+use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Sessions\Concerns\ChoosesPrincipals;
+use SineMacula\Laravel\Authentication\Sessions\PrincipalChoices;
+use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
@@ -27,7 +28,8 @@ use Tests\TestCase;
  *
  * @internal
  */
-#[CoversTrait(ChoosesPrincipals::class)]
+#[CoversClass(PrincipalChoices::class)]
+#[CoversClass(SessionService::class)]
 final class ReplicaChoosesPrincipalsTest extends TestCase
 {
     use InteractsWithLaggingReplica, InteractsWithSessions;

@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use Tests\Concerns\InteractsWithSessions;
@@ -42,6 +43,7 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(SessionService::class)]
+#[CoversClass(SessionEstablishment::class)]
 #[CoversClass(AuthManager::class)]
 final class SessionRoutesTest extends TestCase
 {

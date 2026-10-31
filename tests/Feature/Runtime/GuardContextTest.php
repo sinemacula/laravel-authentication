@@ -175,11 +175,11 @@ final class GuardContextTest extends TestCase
         $identity = $this->seedIdentity();
         $passkey  = $this->registerPasskey($identity);
         $guard    = $this->freshGuard();
-        $session  = $guard->sessions()->signIn('password', self::credentials())->session;
+        $session  = self::sessionsOf($guard)->signIn('password', self::credentials())->session;
 
         self::assertNotNull($session);
 
-        $sessions  = $guard->sessions();
+        $sessions  = self::sessionsOf($guard);
         $codes     = Auth::codes('api');
         $passkeys  = Auth::passkeys('api');
         $passwords = Auth::passwords('api');
@@ -255,7 +255,7 @@ final class GuardContextTest extends TestCase
         $this->seedIdentity();
 
         $guard    = $this->freshGuard();
-        $sessions = $guard->sessions();
+        $sessions = self::sessionsOf($guard);
 
         $this->recordEvents([SignedIn::class, AuthenticationFailed::class]);
 
@@ -286,7 +286,7 @@ final class GuardContextTest extends TestCase
         $this->seedIdentity();
 
         $guard   = $this->freshGuard();
-        $session = $guard->sessions()->signIn('password', self::credentials())->session;
+        $session = self::sessionsOf($guard)->signIn('password', self::credentials())->session;
 
         self::assertNotNull($session);
 
@@ -313,7 +313,7 @@ final class GuardContextTest extends TestCase
 
         $guard   = $this->freshGuard('local');
         $local   = $guard->context()->resolver();
-        $session = $guard->sessions()->signIn('password', self::credentials())->session;
+        $session = self::sessionsOf($guard)->signIn('password', self::credentials())->session;
 
         self::assertInstanceOf(IdentityAsPrincipalResolver::class, $local);
         self::assertNotNull($session);
@@ -353,8 +353,8 @@ final class GuardContextTest extends TestCase
         self::assertSame($api->context()->request(), $admin->context()->request());
         self::assertNotSame($api->context()->timebox(), $admin->context()->timebox());
 
-        $apiSession   = $api->sessions()->signIn('password', self::credentials())->session;
-        $adminSession = $admin->sessions()->signIn('password', self::credentials())->session;
+        $apiSession   = self::sessionsOf($api)->signIn('password', self::credentials())->session;
+        $adminSession = self::sessionsOf($admin)->signIn('password', self::credentials())->session;
 
         self::assertNotNull($apiSession);
         self::assertNotNull($adminSession);

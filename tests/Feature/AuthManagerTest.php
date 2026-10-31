@@ -9,6 +9,7 @@ use Illuminate\Auth\GenericUser;
 use Illuminate\Auth\RequestGuard;
 use Illuminate\Contracts\Auth\Guard;
 use Illuminate\Contracts\Auth\UserProvider;
+use Illuminate\Database\DatabaseTransactionsManager;
 use Illuminate\Http\Request;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -73,12 +74,15 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * `sessions()` hands out the named JWT guard's own session service, or the
-     * default guard's when no name is given.
+     * `sessions()` builds a session service of the named JWT guard, or of the
+     * default guard when no name is given, on each call: on the guard's context
+     * and token service, with the guard as the binding it signs in.
      *
      * @return void
+     *
+     * @throws \ReflectionException
      */
-    public function testSessionsReturnsTheJwtGuardsSessionService(): void
+    public function testSessionsBuildsAServiceOnTheJwtGuardOnEachCall(): void
     {
         $this->configureJwtGuard();
 
@@ -89,8 +93,48 @@ final class AuthManagerTest extends TestCase
         $guard   = $manager->guard('test_jwt');
 
         self::assertInstanceOf(JwtGuard::class, $guard);
-        self::assertSame($guard->sessions(), $manager->sessions('test_jwt'));
-        self::assertSame($guard->sessions(), $manager->sessions());
+
+        foreach ([$manager->sessions('test_jwt'), $manager->sessions()] as $sessions) {
+            self::assertSame($guard->context(), self::readProperty($sessions, 'context'));
+            self::assertSame($guard, self::readProperty($sessions, 'binding'));
+            self::assertSame($guard->tokens(), self::readProperty($sessions, 'tokens'));
+        }
+
+        self::assertNotSame($manager->sessions(), $manager->sessions());
+    }
+
+    /**
+     * A JWT guard's session service is built on the application container, and
+     * resolves the database transactions manager each time it defers its
+     * events, so a manager bound later is the one consulted and none is used
+     * when the container has none.
+     *
+     * @return void
+     *
+     * @throws \ReflectionException
+     */
+    public function testSessionsAreBuiltOnTheContainerAndItsCurrentTransactionsManager(): void
+    {
+        $this->configureJwtGuard();
+
+        /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+        $manager      = app('auth');
+        $sessions     = $manager->sessions('test_jwt');
+        $transactions = self::readProperty(self::readProperty($sessions, 'afterCommit'), 'transactions');
+
+        self::assertSame(app(), self::readProperty($sessions, 'container'));
+        self::assertInstanceOf(\Closure::class, $transactions);
+        self::assertSame(app('db.transactions'), $transactions());
+
+        $replacement = new DatabaseTransactionsManager;
+
+        app()->instance('db.transactions', $replacement);
+
+        self::assertSame($replacement, $transactions());
+
+        app()->offsetUnset('db.transactions');
+
+        self::assertNull($transactions());
     }
 
     /**

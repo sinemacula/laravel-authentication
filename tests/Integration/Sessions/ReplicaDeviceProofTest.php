@@ -169,7 +169,7 @@ final class ReplicaDeviceProofTest extends TestCase
 
         $this->revokeOnThePrimary($first);
 
-        $completed = $this->signedIn($this->guard()->sessions()->complete($pending->token));
+        $completed = $this->signedIn(Auth::sessions($this->guard()->getName())->complete($pending->token));
 
         self::assertTrue($completed->deviceCreated);
         self::assertNotSame($first->device->getDeviceIdentifier(), $completed->device->getDeviceIdentifier());
@@ -223,7 +223,7 @@ final class ReplicaDeviceProofTest extends TestCase
     {
         $context = new SignInContext(new ClientContext('203.0.113.7', 'ReplicaTest/1.0'), refreshToken: $refreshToken);
 
-        return $this->guard()->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => self::PASSWORD], $context);
+        return Auth::sessions($this->guard()->getName())->signIn('password', ['email' => 'ada@example.test', 'password' => self::PASSWORD], $context);
     }
 
     /**

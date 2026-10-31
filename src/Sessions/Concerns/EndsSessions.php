@@ -16,8 +16,12 @@ use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 /**
  * The session service's device list, and its sign-out, revocation and
  * security-change methods, which `SessionRevocations` carries out: signing out
- * and signing out everywhere for the guard the service binds, the rest for
+ * and signing out everywhere for the binding the service is given, the rest for
  * whatever identity, principal or tenant they are given.
+ *
+ * They are delegations with no state of their own but the revocations; they sit
+ * in a trait only so the service stays within the number of methods one class
+ * may declare.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -48,7 +52,7 @@ trait EndsSessions
      */
     public function devices(Identity $identity, int $perPage = 15, ?int $page = null): LengthAwarePaginator
     {
-        return ActiveDevices::page($identity, $this->guard->device(), $perPage, $page);
+        return ActiveDevices::page($identity, $this->binding->device(), $perPage, $page);
     }
 
     /**
@@ -70,7 +74,7 @@ trait EndsSessions
      */
     public function signOut(): bool
     {
-        return $this->revocations->signOut($this->guard);
+        return $this->revocations->signOut($this->binding);
     }
 
     /**
@@ -100,7 +104,7 @@ trait EndsSessions
      */
     public function signOutEverywhere(bool $keepCurrentDevice = false): int
     {
-        return $this->revocations->signOutEverywhere($this->guard, $keepCurrentDevice);
+        return $this->revocations->signOutEverywhere($this->binding, $keepCurrentDevice);
     }
 
     /**

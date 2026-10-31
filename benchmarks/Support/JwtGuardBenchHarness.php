@@ -27,7 +27,6 @@ use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
-use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use Tests\Integration\Fixtures\Coexist2dIdentity;
 use Tests\Integration\Fixtures\Coexist3dIdentity;
 use Tests\Integration\Fixtures\Coexist3dPrincipal;
@@ -567,14 +566,6 @@ final class JwtGuardBenchHarness
                 $context,
                 new DeviceRevocations(BenchDatabase::connectionResolver(), static fn (): null => null),
                 new Container,
-            ),
-            fn (JwtGuard $guard, \Closure $timebox): SessionService => new SessionService(
-                $guard,
-                $timebox,
-                $this->tokens,
-                new Container,
-                BenchDatabase::connectionResolver(),
-                static fn (): null => null,
             ),
             BenchRequest::refreshTransport(...),
         );

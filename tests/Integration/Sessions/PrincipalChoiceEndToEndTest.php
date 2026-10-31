@@ -13,13 +13,13 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
-use SineMacula\Laravel\Authentication\Sessions\Concerns\ChoosesPrincipals;
+use SineMacula\Laravel\Authentication\Sessions\PrincipalChoices;
+use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithRateLimits;
@@ -41,7 +41,8 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(SessionService::class)]
-#[CoversTrait(ChoosesPrincipals::class)]
+#[CoversClass(SessionEstablishment::class)]
+#[CoversClass(PrincipalChoices::class)]
 final class PrincipalChoiceEndToEndTest extends TestCase
 {
     use InteractsWithRateLimits, InteractsWithSessions;

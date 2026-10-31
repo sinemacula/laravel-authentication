@@ -106,8 +106,11 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
 
 ## Implementation Anchors
 
-- `src/Sessions/Concerns/ChoosesPrincipals.php`: `principals()`, `choice()`, `choose()`, `switchPrincipal()`,
-  `switchPrincipalFromRequest()`, `offerChoice()`, `switched()`, `previousPrincipal()`.
+- `src/Sessions/SessionService.php`: `principals()`, `choice()`, `choose()`, `switchPrincipal()`,
+  `switchPrincipalFromRequest()`, `switched()`, `previousPrincipal()`; a chosen session is established by
+  `src/Sessions/SessionEstablishment.php` (`establish()`) and then bound by the service.
+- `src/Sessions/PrincipalChoices.php`: `offerChoice()`, `admissible()`, `candidates()`, `refusalOf()`, `liveChoice()`,
+  `awaitsChoice()`.
 - `src/Sessions/PrincipalSwitch.php`: one switch, built per call; `switch()` (the limiter), `switchOn()`, `admit()`,
   `isTarget()`, `switchCurrent()`, `rotateTo()`, `retry()`, `afterLostSwitch()`, `deadlines()`.
 - `src/Jwt/RefreshRotationStore.php`: `switchPrincipal()` and `reload()`.
@@ -121,6 +124,8 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
 
 ## Authoritative Tests
 
+- `tests/Feature/Sessions/PrincipalChoicesTest.php` (the choices on their own: the admissible principals, a choice
+  offered and reported once committed, an identity with none, a live choice until it is used up)
 - `tests/Feature/Sessions/ChoosesPrincipalsTest.php` (the choice over HTTP and through the service, choose then factor
   then complete, discard, the token purposes, the proven device, the slots, no choice for an unverified identifier, the
   listing with an identifier type, a choice under Eloquent strict mode, a choice or switch whose bind listener throws,

@@ -32,6 +32,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
+use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
@@ -69,6 +70,7 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(SessionService::class)]
+#[CoversClass(SessionEstablishment::class)]
 #[CoversClass(GuardAudiencePolicy::class)]
 #[CoversClass(DatabaseAttemptLimiter::class)]
 #[CoversClass(RefreshTokenExchange::class)]

@@ -100,7 +100,7 @@ final class DeviceRevocationQueryBudgetTest extends PerformanceContractTestCase
 
         $guard->login($identity, $identity, $session->device);
 
-        self::assertTrue($this->assertQueryBudget(0, 1, static fn (): bool => $guard->sessions()->signOut()));
+        self::assertTrue($this->assertQueryBudget(0, 1, static fn (): bool => self::sessionsOf($guard)->signOut()));
     }
 
     /**
@@ -306,7 +306,7 @@ final class DeviceRevocationQueryBudgetTest extends PerformanceContractTestCase
 
         $guard->login($identity, $identity, $current->device);
 
-        $sessions = $guard->sessions();
+        $sessions = self::sessionsOf($guard);
 
         self::assertSame(2, $this->assertQueryBudget(1, 3, static fn (): int => $sessions->signOutEverywhere(true)));
     }
@@ -350,7 +350,7 @@ final class DeviceRevocationQueryBudgetTest extends PerformanceContractTestCase
 
         $guard->login($identity, $identity);
 
-        $sessions = $guard->sessions();
+        $sessions = self::sessionsOf($guard);
 
         self::assertSame(2, $this->assertQueryBudget(1, 3, static fn (): int => $sessions->signOutEverywhere(true)));
         self::assertNull($identity->fresh()?->getTokensValidAfter());

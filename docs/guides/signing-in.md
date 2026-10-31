@@ -84,8 +84,9 @@ deleted) fails the attempt.
 
 ## Signing in: the session service
 
-Each JWT guard has a session service, `Auth::sessions('api')` (or `Auth::guard('api')->sessions()`), that signs in,
-creates the device, issues the first token pair and binds the guard in one call:
+Each JWT guard has a session service, `Auth::sessions('api')`, that signs in, creates the device, issues the first
+token pair and binds the guard in one call. The manager builds a new one from the guard on each call; the guard itself
+has no `sessions()` method, so code written as `Auth::guard('api')->sessions()` becomes `Auth::sessions('api')`:
 
 ```php
 use Illuminate\Http\Exceptions\ThrottleRequestsException;

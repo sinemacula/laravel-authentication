@@ -204,7 +204,7 @@ final class ActiveDevicesTest extends TestCase
 
         $guard->authenticateAs($session->identity, $session->principal, $session->device);
 
-        self::assertTrue($guard->sessions()->devices($identity)->items()[0]->current);
+        self::assertTrue(self::sessionsOf($guard)->devices($identity)->items()[0]->current);
 
         $other = new class extends Device {};
         $other->setRawAttributes($session->device->getAttributes(), true);
@@ -212,7 +212,7 @@ final class ActiveDevicesTest extends TestCase
 
         $guard->authenticateAs($session->identity, $session->principal, $other);
 
-        $listed = $guard->sessions()->devices($identity)->items();
+        $listed = self::sessionsOf($guard)->devices($identity)->items();
 
         self::assertSame([self::idOf($session)], array_map(static fn (DeviceSummary $summary): string => $summary->id, $listed));
         self::assertFalse($listed[0]->current);

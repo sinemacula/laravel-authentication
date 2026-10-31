@@ -63,7 +63,7 @@ final class SharedCredentialTimeboxTest extends TestCase
         config()->set('authentication.timebox.credentials_microseconds', self::BUDGET);
 
         $guard    = $this->freshGuard('web');
-        $sessions = $guard->sessions();
+        $sessions = self::sessionsOf($guard);
         $identity = PasswordIdentity::query()->sole();
         $recent   = new RecentAuthentication($guard->context(), app(), 300, CarbonImmutable::now());
 

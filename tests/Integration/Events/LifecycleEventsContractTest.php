@@ -142,8 +142,8 @@ final class LifecycleEventsContractTest extends TestCase
 
         $guard->login($member, $second, $session->device);
 
-        self::assertSame(0, $guard->sessions()->signOutEverywhere(true));
-        self::assertTrue($guard->sessions()->signOut());
+        self::assertSame(0, self::sessionsOf($guard)->signOutEverywhere(true));
+        self::assertTrue(self::sessionsOf($guard)->signOut());
 
         $chooser = ChoosingMember::query()->create(['email' => 'chooser@example.test', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
 

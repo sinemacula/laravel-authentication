@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
@@ -50,6 +51,7 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(SessionService::class)]
+#[CoversClass(SessionEstablishment::class)]
 #[CoversClass(JwtGuard::class)]
 #[CoversClass(AfterCommit::class)]
 final class EventSequenceTest extends TestCase
@@ -159,7 +161,7 @@ final class EventSequenceTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue($guard->sessions()->signIn('password', self::credentials())->isSignedIn());
+        self::assertTrue(self::sessionsOf($guard)->signIn('password', self::credentials())->isSignedIn());
 
         DB::rollBack();
 
@@ -212,7 +214,7 @@ final class EventSequenceTest extends TestCase
         $this->recordSequence();
         $this->throwOn(Login::class);
 
-        self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => $guard->sessions()->signIn('password', self::credentials())));
+        self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => self::sessionsOf($guard)->signIn('password', self::credentials())));
         self::assertSame(['Attempting api', ...self::REPORT, 'Validated api i1', 'Login api i1'], $this->recordedSequence());
         self::assertSame([1, 1], self::slotsTaken());
         self::assertSame(1, Device::query()->count());
@@ -261,7 +263,7 @@ final class EventSequenceTest extends TestCase
         $this->recordSequence();
         $this->throwOn(SignedIn::class);
 
-        self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => $guard->sessions()->signIn('password', self::credentials())));
+        self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => self::sessionsOf($guard)->signIn('password', self::credentials())));
         self::assertSame(['Attempting api', ...self::REPORT], $this->recordedSequence());
         self::assertSame([1, 1], self::slotsTaken());
         self::assertSame(1, Device::query()->count());
@@ -312,7 +314,7 @@ final class EventSequenceTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue($guard->sessions()->signIn('password', self::credentials())->isSignedIn());
+        self::assertTrue(self::sessionsOf($guard)->signIn('password', self::credentials())->isSignedIn());
 
         app()->instance('request', Request::create('/elsewhere', 'GET', server: ['REMOTE_ADDR' => '198.51.100.9']));
 

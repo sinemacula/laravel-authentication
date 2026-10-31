@@ -16,7 +16,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
@@ -37,7 +36,6 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
-use SineMacula\Laravel\Authentication\Sessions\Concerns\ChoosesPrincipals;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -71,7 +69,6 @@ use Tests\TestCase;
 #[CoversClass(SwitchedPrincipal::class)]
 #[CoversClass(SwitchResult::class)]
 #[CoversClass(PrincipalSwitched::class)]
-#[CoversTrait(ChoosesPrincipals::class)]
 final class PrincipalSwitchTest extends TestCase
 {
     use InteractsWithSessions;

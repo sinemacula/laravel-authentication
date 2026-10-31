@@ -28,7 +28,6 @@ use SineMacula\Laravel\Authentication\Models\Device as DeviceModel;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
-use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithChangeableIdentities;
@@ -422,7 +421,7 @@ final class SessionRevocationsTest extends TestCase
 
         $eager = EagerTenantMembership::query()->findOrFail($membership->getKey());
 
-        $this->freshGuard('members')->sessions()->signIn('password', self::credentials('member@example.test'));
+        self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('member@example.test'));
 
         $revocations = SessionRevocations::forContext($this->freshGuard('members')->context(), app());
 
@@ -494,7 +493,7 @@ final class SessionRevocationsTest extends TestCase
     {
         [, $membership, $tenant] = $this->seedMember();
 
-        $this->freshGuard('members')->sessions()->signIn('password', self::credentials('member@example.test'));
+        self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('member@example.test'));
 
         $revocations = SessionRevocations::forContext($this->freshGuard('members')->context(), app());
         $deactivated = $tenantOf($tenant);
@@ -546,9 +545,8 @@ final class SessionRevocationsTest extends TestCase
 
     /**
      * A JWT guard's `logout()` signs the session out through session
-     * revocations it builds on its own context for the sign-out: it never
-     * builds a session service, and the device is revoked and reported before
-     * `Logout`.
+     * revocations it builds on its own context for the sign-out, with no
+     * session service, and the device is revoked and reported before `Logout`.
      *
      * @return void
      *
@@ -583,9 +581,6 @@ final class SessionRevocationsTest extends TestCase
                     new DeviceRevocations(app(ConnectionResolverInterface::class), static fn (): mixed => app('db.transactions')),
                     app(),
                 );
-            },
-            static function (): SessionService {
-                throw new \LogicException('The guard built a session service.');
             },
             static fn (): RefreshTokenTransport => RefreshTokenTransport::forGuard('api', config()),
         );
