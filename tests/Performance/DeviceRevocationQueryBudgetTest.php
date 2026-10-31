@@ -14,9 +14,9 @@ use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
-use SineMacula\Laravel\Authentication\Sessions\Concerns\ManagesDevices;
-use SineMacula\Laravel\Authentication\Sessions\Concerns\RevokesOnSecurityChanges;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
+use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -41,8 +41,8 @@ use Tests\Integration\Fixtures\CutoffIdentity;
  */
 #[CoversClass(SessionService::class)]
 #[CoversClass(DeviceRevocations::class)]
-#[CoversTrait(ManagesDevices::class)]
-#[CoversTrait(RevokesOnSecurityChanges::class)]
+#[CoversClass(SessionRevocations::class)]
+#[CoversTrait(EndsSessions::class)]
 final class DeviceRevocationQueryBudgetTest extends PerformanceContractTestCase
 {
     use InteractsWithSessions;

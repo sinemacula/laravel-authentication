@@ -29,6 +29,7 @@ use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
 use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalChoice;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalSwitch;
@@ -68,6 +69,9 @@ trait ChoosesPrincipals
 
     /** @var \SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore The guarded switch write and its locking re-read. */
     private readonly RefreshRotationStore $rotations;
+
+    /** @var \SineMacula\Laravel\Authentication\Sessions\DeviceRevocations Revokes the device a switch finds its refresh token replayed on. */
+    private readonly DeviceRevocations $switchRevocations;
 
     /**
      * The principals the identity may sign in as on this guard, for a choice or
@@ -210,7 +214,7 @@ trait ChoosesPrincipals
                 RevocationReason::ROTATION_REUSE,
             );
 
-            return $this->revocations->revoke($device, RevocationReason::ROTATION_REUSE, $now, fn () => $this->dispatch($event));
+            return $this->switchRevocations->revoke($device, RevocationReason::ROTATION_REUSE, $now, fn () => $this->dispatch($event));
         };
 
         $outcome = (new PrincipalSwitch($this->switchTokens, $this->rotations, $this->guard, $client, $principal, $revoke))

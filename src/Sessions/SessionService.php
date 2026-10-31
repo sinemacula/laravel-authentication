@@ -42,8 +42,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\ChoosesPrincipals;
-use SineMacula\Laravel\Authentication\Sessions\Concerns\ManagesDevices;
-use SineMacula\Laravel\Authentication\Sessions\Concerns\RevokesOnSecurityChanges;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 
 /**
@@ -59,10 +58,11 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * session of this guard for the same identity and principal continues on that
  * device; otherwise a device is created.
  *
- * It also lists, signs out and revokes devices (`ManagesDevices`), ends
- * sessions on security changes (`RevokesOnSecurityChanges`), and lets an
- * identity without a default principal choose one, and a session switch the
- * principal it acts as (`ChoosesPrincipals`).
+ * It also lists devices, and signs out, revokes devices and ends sessions on
+ * security changes through `SessionRevocations` (`EndsSessions`), which the
+ * guard's `logout()` and password changes use too; and it lets an identity
+ * without a default principal choose one, and a session switch the principal it
+ * acts as (`ChoosesPrincipals`).
  *
  * Failures are results, not exceptions: Laravel's `Failed` and the package's
  * `AuthenticationFailed` report them. Exceptions are kept for misconfiguration
@@ -77,7 +77,7 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  */
 final readonly class SessionService
 {
-    use ChoosesPrincipals, ManagesDevices, RevokesOnSecurityChanges;
+    use ChoosesPrincipals, EndsSessions;
 
     /** @var \SineMacula\Laravel\Authentication\Sessions\SessionWriter Writes the device and issues the pair. */
     private SessionWriter $writer;
@@ -123,13 +123,16 @@ final readonly class SessionService
         // Returns the current transactions manager, if any, when called.
         \Closure $transactions,
     ) {
-        $this->writer       = new SessionWriter($guard->getName(), $tokens, $connections);
-        $this->proof        = new DeviceProof($tokens);
-        $this->afterCommit  = new AfterCommit($transactions);
-        $this->pendings     = new PendingSignIns($container->make(Repository::class));
-        $this->revocations  = new DeviceRevocations($connections, $transactions);
-        $this->switchTokens = $tokens;
-        $this->rotations    = new RefreshRotationStore($connections);
+        $devices = new DeviceRevocations($connections, $transactions);
+
+        $this->writer            = new SessionWriter($guard->getName(), $tokens, $connections);
+        $this->proof             = new DeviceProof($tokens);
+        $this->afterCommit       = new AfterCommit($transactions);
+        $this->pendings          = new PendingSignIns($container->make(Repository::class));
+        $this->revocations       = new SessionRevocations($guard->context(), $devices, $container);
+        $this->switchRevocations = $devices;
+        $this->switchTokens      = $tokens;
+        $this->rotations         = new RefreshRotationStore($connections);
     }
 
     /**

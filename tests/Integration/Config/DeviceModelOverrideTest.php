@@ -20,6 +20,8 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
+use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
+use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\TestCase;
@@ -225,6 +227,11 @@ final class DeviceModelOverrideTest extends TestCase
                 $context,
                 app(ConnectionResolverInterface::class),
                 static fn (): mixed => app('db.transactions'),
+            ),
+            static fn (GuardContext $context): SessionRevocations => new SessionRevocations(
+                $context,
+                new DeviceRevocations(app(ConnectionResolverInterface::class), static fn (): mixed => app('db.transactions')),
+                app(),
             ),
             static fn (JwtGuard $guard, \Closure $timebox): SessionService => new SessionService(
                 $guard,

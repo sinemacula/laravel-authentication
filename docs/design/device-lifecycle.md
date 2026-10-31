@@ -14,7 +14,7 @@ deleted. Starting a session is in
   (`DeviceDeadlines::hasEnded()`). The `active()` scope `ActsAsDevice` brings and the listing apply the same rule
   through `ActiveDevices::constrain()`, with the columns of the model's name accessors, so a model without the trait is
   listed the same way.
-- The listing (`SessionService::devices()`, from `ManagesDevices`) reads the identity's `devices()` relation on the
+- The listing (`SessionService::devices()`, from `EndsSessions`) reads the identity's `devices()` relation on the
   write connection (the query itself through `WriteConnection::query()`, and anything the relation reads while it is
   built inside `WriteConnection::during()` for the identity), so a revocation the primary holds is never listed as live.
   It covers every guard: a device list shows every session the identity has.
@@ -27,6 +27,10 @@ deleted. Starting a session is in
   WHERE pk AND revoked_at IS NULL` on the device's own connection (`RefreshRotationStore::revoke()`), mirrored in memory
   only when it changed the row. It is idempotent, the first revocation's time and reason are kept, and only the call
   that changed the row reports `DeviceRevoked`, through `AfterCommit` on the device's connection.
+- Sign-out, revocation and the security changes are `Sessions\SessionRevocations`, on the guard's context; the session
+  service's methods delegate to it, and `JwtGuard::logout()` and the password writer use it without a session service.
+  Only `signOut()` and `signOutEverywhere()` read or change the guard's bound state, through the
+  `Contracts\GuardBinding` they are given, whose readers resolve the request's credential on first access.
 - `signOut()` (and `JwtGuard::logout()`) revokes the guard's bound persisted device as `signed_out`, then dispatches
   `Logout` when an identity was bound, then `forgetUser()`. A device that is not an Eloquent `EloquentDevice` is only
   forgotten.
@@ -51,9 +55,9 @@ deleted. Starting a session is in
 - `signOutEverywhere(keepCurrentDevice: true)` keeps the request's device; a request without one (a device-less token)
   is kept by leaving the identity's cutoff unmoved, so the identity's other device-less tokens survive too, until they
   expire.
-- The security-change methods (`RevokesOnSecurityChanges`: `passwordChanged()`, `passwordReset()`, `factorRemoved()`,
-  `identityDeactivated()`, `principalDeactivated()`, `tenantDeactivated()`) are bulk revocations with their own reason.
-  `tenantDeactivated()` checks every listed principal acts within the tenant (`getTenant()` on the writer, through
+- The security-change methods (`passwordChanged()`, `passwordReset()`, `factorRemoved()`, `identityDeactivated()`,
+  `principalDeactivated()`, `tenantDeactivated()`) are bulk revocations with their own reason. `tenantDeactivated()`
+  checks every listed principal acts within the tenant (`getTenant()` on the writer, through
   `WriteConnection::stored()`, so a `tenant` relation whoever loaded the principal set does not decide and Eloquent's
   strict mode does not stop the read; same class and identifier; for a `CanBeActive` tenant that can no longer be
   loaded, the class and key the `TenantUnavailableException` carries, so a deleted or soft-deleted one still ends its
@@ -141,16 +145,16 @@ deleted. Starting a session is in
 
 ## Implementation Anchors
 
-- `src/Sessions/ActiveDevices.php`, `src/Sessions/DeviceSummary.php`, `src/Sessions/Concerns/ManagesDevices.php`
+- `src/Sessions/ActiveDevices.php`, `src/Sessions/DeviceSummary.php`, `src/Sessions/Concerns/EndsSessions.php`
   (`devices()`)
 - `src/Concerns/ScopesActiveDevices.php` (`scopeActive()`, composed by `ActsAsDevice`), `src/Concerns/PrunesDevices.php`,
   `src/Database/DeviceRetention.php`, `src/Models/Device.php`
-- `src/Sessions/Concerns/RevokesOnSecurityChanges.php`, `src/Listeners/RevokeDevicesOn*.php`,
+- `src/Sessions/SessionRevocations.php` (the security changes), `src/Listeners/RevokeDevicesOn*.php`,
   `src/Listeners/Concerns/RevokesOnceCommitted.php`, `src/Sessions/Methods/Rehashing.php`,
   `src/Listeners/TrackCredentialAttempts.php`
-- `src/Sessions/Concerns/ManagesDevices.php`, `src/Sessions/DeviceRevocations.php`, `src/Sessions/RevocationScope.php`,
+- `src/Sessions/SessionRevocations.php`, `src/Sessions/DeviceRevocations.php`, `src/Sessions/RevocationScope.php`,
   `src/Devices/IdentityDevices.php`, `src/Jwt/RefreshRotationStore.php` (`revoke()`), `src/Guards/JwtGuard.php`
-  (`logout()`), `src/Guards/AbstractGuard.php` (`forgetUser()`)
+  (`logout()`), `src/Contracts/GuardBinding.php`, `src/Guards/AbstractGuard.php` (`forgetUser()`)
 
 ## Authoritative Tests
 
@@ -159,6 +163,8 @@ deleted. Starting a session is in
 - `tests/Integration/Sessions/DeviceListingIntegrationTest.php`, `tests/Integration/Sessions/ReplicaDeviceListingTest.php`
 - `tests/Unit/Sessions/DeviceSummaryTest.php`
 - `tests/Feature/Sessions/ManagesDevicesTest.php`: logout, sign out everywhere and a device list's revoke over HTTP
+- `tests/Feature/Sessions/SessionRevocationsTest.php`: the revocations without a session service, the binding they are
+  given, the dispatcher a deferred report reaches, and `logout()` through them alone
 - `tests/Integration/Http/RefreshCookieSessionLifecycleTest.php`: logout from outside the refresh cookie's path revokes
   the device and clears the cookie
 - `tests/Integration/Sessions/ConcurrentSwitchAndRevocationTest.php`: two revocations in two processes on PostgreSQL

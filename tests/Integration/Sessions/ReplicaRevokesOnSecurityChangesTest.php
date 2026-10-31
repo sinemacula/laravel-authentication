@@ -7,10 +7,12 @@ namespace Tests\Integration\Sessions;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Event;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Sessions\Concerns\RevokesOnSecurityChanges;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
+use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Integration\Fixtures\TenantAware3dIdentity;
 use Tests\Integration\Fixtures\TenantAware3dPrincipal;
@@ -29,7 +31,8 @@ use Tests\TestCase;
  *
  * @internal
  */
-#[CoversTrait(RevokesOnSecurityChanges::class)]
+#[CoversClass(SessionRevocations::class)]
+#[CoversTrait(EndsSessions::class)]
 final class ReplicaRevokesOnSecurityChangesTest extends TestCase
 {
     use InteractsWithLaggingReplica;

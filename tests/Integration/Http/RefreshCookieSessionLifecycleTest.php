@@ -26,7 +26,8 @@ use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\ChoosesPrincipals;
-use SineMacula\Laravel\Authentication\Sessions\Concerns\ManagesDevices;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
+use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use Symfony\Component\HttpFoundation\Cookie;
 use Tests\Concerns\InteractsWithSessions;
@@ -48,8 +49,9 @@ use Tests\TestCase;
  */
 #[CoversClass(RefreshTokenTransport::class)]
 #[CoversClass(JwtGuard::class)]
+#[CoversClass(SessionRevocations::class)]
 #[CoversTrait(ChoosesPrincipals::class)]
-#[CoversTrait(ManagesDevices::class)]
+#[CoversTrait(EndsSessions::class)]
 final class RefreshCookieSessionLifecycleTest extends TestCase
 {
     use InteractsWithSessions;

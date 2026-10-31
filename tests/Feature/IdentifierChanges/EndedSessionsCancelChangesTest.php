@@ -18,11 +18,11 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordReset;
-use SineMacula\Laravel\Authentication\Sessions\Concerns\ManagesDevices;
-use SineMacula\Laravel\Authentication\Sessions\Concerns\RevokesOnSecurityChanges;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Sessions\RevocationScope;
+use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use Tests\Concerns\ChangesIdentifiers;
 use Tests\Integration\Fixtures\ChangeableIdentity;
@@ -45,8 +45,8 @@ use Tests\TestCase;
 #[CoversClass(RevocationScope::class)]
 #[CoversClass(PendingChanges::class)]
 #[CoversClass(SessionService::class)]
-#[CoversTrait(ManagesDevices::class)]
-#[CoversTrait(RevokesOnSecurityChanges::class)]
+#[CoversClass(SessionRevocations::class)]
+#[CoversTrait(EndsSessions::class)]
 final class EndedSessionsCancelChangesTest extends TestCase
 {
     use ChangesIdentifiers;

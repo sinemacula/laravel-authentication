@@ -4,50 +4,30 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions\Concerns;
 
-use Carbon\CarbonImmutable;
-use Illuminate\Auth\Events\Logout;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
 use SineMacula\Laravel\Authentication\Contracts\Device;
-use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
-use SineMacula\Laravel\Authentication\Contracts\HasChangeableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
-use SineMacula\Laravel\Authentication\Devices\IdentityDevices;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
-use SineMacula\Laravel\Authentication\Events\EventContext;
-use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
-use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
-use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
 use SineMacula\Laravel\Authentication\Sessions\ActiveDevices;
-use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
-use SineMacula\Laravel\Authentication\Sessions\RevocationScope;
+use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 
 /**
- * The session service's device management: listing an identity's active
- * devices, signing the current session out, and revoking one device or every
- * device of an identity or a principal.
- *
- * Every revocation marks the device (`revoked_at`, `revoked_reason`) with one
- * conditional update that only applies while it is not revoked yet: idempotent,
- * the first revocation's time and reason kept, and only the call that changed
- * the row reporting `DeviceRevoked`, once the revocation is committed on the
- * device's own connection. A bulk revocation reports each device it revoked and
- * then `SignedOutEverywhere`, also when it revoked none. The service builds the
- * revocations in its constructor.
+ * The session service's device list, and its sign-out, revocation and
+ * security-change methods, which `SessionRevocations` carries out: signing out
+ * and signing out everywhere for the guard the service binds, the rest for
+ * whatever identity, principal or tenant they are given.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-trait ManagesDevices
+trait EndsSessions
 {
-    /** @var \SineMacula\Laravel\Authentication\Sessions\DeviceRevocations Revokes one device or every device of a scope, and reports it once committed. */
-    private readonly DeviceRevocations $revocations;
+    /** @var \SineMacula\Laravel\Authentication\Sessions\SessionRevocations Signs sessions out and ends them, on the guard's context. */
+    private readonly SessionRevocations $revocations;
 
     /**
      * One page of the identity's active devices, of every guard, for a device
@@ -90,36 +70,7 @@ trait ManagesDevices
      */
     public function signOut(): bool
     {
-        $identity = $this->guard->user();
-        $device   = $this->guard->device();
-        $revoked  = false;
-
-        if ($device instanceof EloquentDevice && $device instanceof Model) {
-
-            $event = new DeviceRevoked(
-                new EventContext(
-                    $device->getGuard(),
-                    $this->client(),
-                    $identity,
-                    $this->guard->principal(),
-                    $this->boundTenant(),
-                    $device,
-                    $device->getSignInMethod(),
-                    fromDevice: true,
-                ),
-                RevocationReason::SIGNED_OUT,
-            );
-
-            $revoked = $this->revocations->revoke($device, RevocationReason::SIGNED_OUT, CarbonImmutable::now()->startOfSecond(), fn () => $this->dispatch($event));
-        }
-
-        if ($identity !== null) {
-            $this->dispatch(new Logout($this->guard->getName(), $identity));
-        }
-
-        $this->guard->forgetUser();
-
-        return $revoked;
+        return $this->revocations->signOut($this->guard);
     }
 
     /**
@@ -149,16 +100,7 @@ trait ManagesDevices
      */
     public function signOutEverywhere(bool $keepCurrentDevice = false): int
     {
-        $identity = $this->guard->user();
-
-        if ($identity === null) {
-            return 0;
-        }
-
-        $device = $keepCurrentDevice ? $this->guard->device() : null;
-        $scope  = $this->identityScope($identity);
-
-        return $this->endSessions([$keepCurrentDevice && $device === null ? $scope->keepingCutoff() : $scope], RevocationReason::SIGNED_OUT_EVERYWHERE, $device);
+        return $this->revocations->signOutEverywhere($this->guard, $keepCurrentDevice);
     }
 
     /**
@@ -178,15 +120,7 @@ trait ManagesDevices
      */
     public function revokeDevice(Identity $owner, mixed $deviceId, RevocationReason $reason): bool
     {
-        $device = IdentityDevices::find($owner, $deviceId);
-
-        if ($device === null) {
-            return false;
-        }
-
-        $event = new DeviceRevoked(new EventContext($device->getGuard(), $this->client(), $owner, device: $device, method: $device->getSignInMethod(), fromDevice: true), $reason);
-
-        return $this->revocations->revoke($device, $reason, CarbonImmutable::now()->startOfSecond(), fn () => $this->dispatch($event));
+        return $this->revocations->revokeDevice($owner, $deviceId, $reason);
     }
 
     /**
@@ -209,7 +143,7 @@ trait ManagesDevices
      */
     public function revokeDevices(Identity $identity, RevocationReason $reason, ?Device $except = null): int
     {
-        return $this->endSessions([$this->identityScope($identity)], $reason, $except);
+        return $this->revocations->revokeDevices($identity, $reason, $except);
     }
 
     /**
@@ -228,90 +162,122 @@ trait ManagesDevices
      */
     public function revokePrincipalDevices(Principal $principal, RevocationReason $reason, ?Device $except = null): int
     {
-        return $this->endSessions([RevocationScope::principal($principal)], $reason, $except);
+        return $this->revocations->revokePrincipalDevices($principal, $reason, $except);
     }
 
     /**
-     * Every session of the identity, with its pending identifier changes of
-     * every type that has a normaliser (a change needs one), when its
-     * identifiers can be changed.
+     * The identity's password was changed: end its sessions
+     * (`password_changed`), except on the given device, the one the change was
+     * made from when the application keeps it signed in. Never call it for an
+     * automatic rehash.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @return \SineMacula\Laravel\Authentication\Sessions\RevocationScope
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $except
+     * @return int
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
+     * @throws \Throwable
      */
-    private function identityScope(Identity $identity): RevocationScope
+    public function passwordChanged(Identity $identity, ?Device $except = null): int
     {
-        $types = $identity instanceof HasChangeableIdentifiers ? $this->collaborator(IdentifierNormalisers::class)->types() : [];
-
-        return RevocationScope::identity($identity, $types);
+        return $this->revocations->passwordChanged($identity, $except);
     }
 
     /**
-     * End every session of the scopes, reporting each revoked device and then
-     * each scope once the revocations commit.
+     * The identity's password was reset: end every session it has
+     * (`password_reset`).
      *
-     * @param  non-empty-list<\SineMacula\Laravel\Authentication\Sessions\RevocationScope>  $scopes
-     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return int
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Throwable
+     */
+    public function passwordReset(Identity $identity): int
+    {
+        return $this->revocations->passwordReset($identity);
+    }
+
+    /**
+     * A factor the identity signs in with was removed: end its sessions
+     * (`factor_removed`), except on the given device. The seam a further-factor
+     * package calls when a factor is removed.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $except
+     * @return int
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Throwable
+     */
+    public function factorRemoved(Identity $identity, ?Device $except = null): int
+    {
+        return $this->revocations->factorRemoved($identity, $except);
+    }
+
+    /**
+     * The identity was deactivated: end every session it has
+     * (`identity_deactivated`).
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return int
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Throwable
+     */
+    public function identityDeactivated(Identity $identity): int
+    {
+        return $this->revocations->identityDeactivated($identity);
+    }
+
+    /**
+     * The principal was deactivated: end every session acting as it
+     * (`principal_deactivated`).
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return int
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      * @throws \Throwable
      */
-    private function endSessions(array $scopes, RevocationReason $reason, ?Device $except): int
+    public function principalDeactivated(Principal $principal): int
     {
-        $client = $this->client();
-        $guard  = $this->guard->getName();
-
-        return $this->revocations->revokeScopes(
-            $scopes,
-            $reason,
-            $except,
-            CarbonImmutable::now()->startOfSecond(),
-            function (EloquentDevice&Model $device, RevocationScope $scope) use ($client, $reason): void {
-                $method  = $device->getSignInMethod();
-                $context = new EventContext($device->getGuard(), $client, $scope->identity, $scope->principal, $scope->tenant, $device, $method, fromDevice: true);
-
-                $this->dispatch(new DeviceRevoked($context, $reason));
-            },
-            function (RevocationScope $scope, int $revoked, ?CarbonImmutable $cutoff) use ($client, $guard, $reason, $except): void {
-                $context = new EventContext($guard, $client, $scope->identity, $scope->principal, $scope->tenant, $except);
-
-                $this->dispatch(new SignedOutEverywhere($context, $reason, $revoked, $cutoff));
-            },
-        );
+        return $this->revocations->principalDeactivated($principal);
     }
 
     /**
-     * The tenant the guard's bound principal acts within, or `null` when there
-     * is none or it cannot be loaded. A principal loaded without the tenant's
-     * key is a misconfiguration, and its `LogicException` propagates.
+     * The tenant was deactivated: end every session acting as one of the
+     * principals the application lists for it (`tenant_deactivated`), since
+     * devices record principals, not tenants. Every principal must act within
+     * the tenant (the same class and identifier, read on the write connection),
+     * or nothing is written and an `InvalidArgumentException` is thrown; a
+     * principal listed twice counts once. A tenant that opts into activation
+     * (`CanBeActive`) and is already deleted or soft-deleted works too: a
+     * principal whose `getTenant()` throws the `TenantUnavailableException`
+     * naming it (its class, key name and key, as `ActsAsPrincipal` does) acts
+     * within it. A tenant that does not opt in reads as no tenant once it
+     * cannot be loaded, so call this before deleting it. All devices and
+     * pending sign-ins are ended in one transaction, after each principal's
+     * cutoff moved, with one `SignedOutEverywhere` per principal.
      *
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  iterable<\SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
+     * @return int
      *
-     * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     * @throws \InvalidArgumentException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \Throwable
      */
-    private function boundTenant(): ?Tenant
+    public function tenantDeactivated(Tenant $tenant, iterable $principals): int
     {
-        try {
-            return $this->guard->tenant();
-        } catch (TenantUnavailableException) {
-            return null;
-        }
-    }
-
-    /**
-     * The client of the request the guard serves.
-     *
-     * @return \SineMacula\Laravel\Authentication\Http\ClientContext
-     */
-    private function client(): ClientContext
-    {
-        return ClientContext::fromRequest($this->guard->getRequest());
+        return $this->revocations->tenantDeactivated($tenant, $principals);
     }
 }

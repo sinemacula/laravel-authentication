@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\PasswordWriter;
+use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use Tests\Concerns\InteractsWithPasswords;
 use Tests\TestCase;
 
@@ -138,7 +139,8 @@ final class PasswordWriterTest extends TestCase
     {
         $identity = self::seedPasswordIdentity();
         $client   = new ClientContext('198.51.100.9', 'Kiosk/2.0');
-        $writer   = new PasswordWriter($this->freshGuard('web'), app());
+        $context  = $this->freshGuard('web')->context();
+        $writer   = new PasswordWriter($context, SessionRevocations::forContext($context, app()), app());
 
         $this->recordEvents([PasswordSet::class]);
 

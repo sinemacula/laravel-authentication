@@ -15,8 +15,14 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
 - There is one copy of each collaborator. The guard's getters (`getName()`, `getProvider()`, `getPrincipalResolver()`,
   `getDispatcher()`, `getRequest()`) read the context, and its setters (`setRequest()`, `setDispatcher()`,
   `setPrincipalResolver()`) rebind it. A JWT guard builds its refresh exchange on its own context, through a factory it
-  calls with it, so the exchange reads the provider, the resolver and the dispatcher the guard reads; the exchange keeps
-  no copy of them and has no setters.
+  calls with it once, and the session revocations its `logout()` signs out through (`Sessions\SessionRevocations`)
+  through another it calls with it on each sign-out, so both read the provider, the resolver and the dispatcher the
+  guard reads; neither keeps a copy of them, and neither has setters.
+- What a session flow may do to its guard's bound state is the internal port `Contracts\GuardBinding` (`user()`,
+  `principal()`, `device()`, `tenant()`, `login()`, `authenticateAs()`, `forgetUser()`), which `AbstractGuard`
+  implements. Its four readers resolve the request's credential on first access, as the guard's accessors do, so a
+  sign-out given the guard reads the session the request carries. The session revocations take the binding per call,
+  only for `signOut()` and `signOutEverywhere()`, and otherwise need nothing of the guard but its context.
 - Only the owning guard rebinds a context: `rebindRequest()`, `rebindEvents()` and `rebindResolver()` are internal, and
   the architecture test fails a call of any of them outside `Guards`. The container's rebinds (`wireGuardRebinds()`:
   `request`, `events`, and the global `PrincipalResolver` unless the guard has a resolver of its own), `Event::fake()`,
@@ -31,8 +37,8 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   (the guard's session service, its refresh exchange, a service the manager handed out) follows the rebind. An operation
   captures what it reports when it starts: the client of the request (`client()`) and its events' payload. A callback
   deferred to a commit that dispatches through the context (`dispatch()`) reaches the dispatcher as it is when the
-  callback runs, so a dispatcher swapped in between still receives the event: the guard's own deferred events and the
-  refresh exchange's `DeviceRevoked` do.
+  callback runs, so a dispatcher swapped in between still receives the event: the guard's own deferred events, the
+  refresh exchange's `DeviceRevoked`, and the session revocations' `DeviceRevoked` and `SignedOutEverywhere` do.
 - The credential timebox, `Runtime\CredentialTimebox`, is one per guard and wraps the guard's `Timebox`: `attempt()`,
   `validate()`, the session service's sign-ins, a password reset and a password reauthentication all run in it. Before
   every call it tells the box that it may not return early, so a check that fails after one that succeeded on the same
@@ -63,9 +69,11 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   resolver for its life, on refresh as on bearer requests.
 - A deferred event scheduled before a request rebind carries the client its operation started from, not the new
   request's.
-- The services that still take the guard and read its dispatcher themselves take it when they schedule a deferred event
-  (a password set, a passkey's use, addition or removal, an API key's issue, rotation or revocation, an identifier
-  change), so a dispatcher swapped between the scheduling and the commit does not receive that event.
+- The services that read the dispatcher themselves take it when they schedule a deferred event (a password set, whose
+  writer reads it from the context when the write starts, a passkey's use, addition or removal, an API key's issue,
+  rotation or revocation, an identifier change), so a dispatcher swapped between the scheduling and the commit does not
+  receive that event. A password change's revocations still reach the swapped dispatcher: they dispatch through the
+  context when the commit runs them.
 - A flow that copied a collaborator out of the context would freeze it at that moment; none does, and the rebind tests
   hold every long-lived holder to reading per use.
 - A subclass that read the protected properties a guard had before the context (`$this->name`, `$this->provider`,
@@ -73,11 +81,13 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
 
 ## Implementation Anchors
 
-- `src/Runtime/GuardContext.php`, `src/Runtime/CredentialTimebox.php`, `src/Contracts/HasGuardContext.php`.
+- `src/Runtime/GuardContext.php`, `src/Runtime/CredentialTimebox.php`, `src/Contracts/HasGuardContext.php`,
+  `src/Contracts/GuardBinding.php`.
 - `src/Guards/AbstractGuard.php`: the constructor, `context()`; `src/Guards/Concerns/ExposesCollaborators.php` and
   `src/Guards/Concerns/RebindsCollaborators.php`: the getters and setters.
-- `src/Guards/JwtGuard.php`: the constructor (the exchange factory), `sessions()`, `timeboxed()`;
-  `src/Jwt/RefreshTokenExchange.php`: the constructor.
+- `src/Guards/JwtGuard.php`: the constructor (the exchange and revocations factories), `sessions()`, `timeboxed()`,
+  `logout()`; `src/Jwt/RefreshTokenExchange.php`: the constructor; `src/Sessions/SessionRevocations.php`;
+  `src/Passwords/PasswordWriter.php`: `write()`.
 - `src/AuthenticationServiceProvider.php`: `createJwtGuard()`, `wireGuardRebinds()`.
 
 ## Authoritative Tests
@@ -92,6 +102,10 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php` `testARebindOfTheContextsDispatcherRoutesLaterRevocationsToIt`
 - `tests/Integration/Contracts/EventSequenceTest.php` `testARequestReboundBeforeTheCommit`,
   `testADispatcherSwappedBeforeTheCommitReceivesTheEvents`
+- `tests/Feature/Sessions/SessionRevocationsTest.php` `testADeferredReportReachesTheDispatcherAsItIsAtTheCommit`,
+  `testTheGuardsLogoutNeedsNoSessionService`
+- `tests/Integration/Passwords/PasswordWriterTest.php`
+  `testThePasswordSetKeepsTheDispatcherOfTheWriteAndTheRevocationsTakeTheOneAtTheCommit`
 - `tests/Integration/Octane/JwtGuardRequestsTest.php`, `tests/Integration/Process/QueueWorkerGuardStateTest.php`,
   `tests/Integration/Process/ForgetGuardStateBeforeJobTest.php`
 - `tests/Unit/Architecture/NamespaceDependenciesTest.php` `testOnlyTheGuardsRebindAGuardContext`

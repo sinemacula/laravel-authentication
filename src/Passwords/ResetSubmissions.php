@@ -31,6 +31,7 @@ use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
+use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 
 /**
@@ -273,7 +274,9 @@ final readonly class ResetSubmissions
                 return [ResetResult::invalid(), $recipient];
             }
 
-            $revoked = (new PasswordWriter($this->guard, $this->container))->write($recipient, $password, PasswordFlow::RESET, null, $client);
+            $context = $this->guard->context();
+            $writer  = new PasswordWriter($context, SessionRevocations::forContext($context, $this->container), $this->container);
+            $revoked = $writer->write($recipient, $password, PasswordFlow::RESET, null, $client);
 
             $connection->commit();
         } catch (\Throwable $exception) {
