@@ -123,7 +123,7 @@ final class SignInPolicyEndToEndTest extends TestCase
             return ['refresh_token' => $pair->refreshToken];
         });
 
-        Route::get('/verify', static fn (Request $request): array => ['outcome' => app(VerificationLinks::class)->consume($request)?->value])->name('verify');
+        Route::get('/verify', static fn (Request $request): array => ['outcome' => app(VerificationLinks::class)->consume($request)->value])->name('verify');
     }
 
     /**

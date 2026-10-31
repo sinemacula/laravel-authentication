@@ -29,7 +29,7 @@ enum AuthenticationFlow: string
     // verification code
     case CODE_REQUEST = 'code_request';
 
-    // A check of an identifier verification code
+    // A check of an identifier verification code or link
     case IDENTIFIER_VERIFICATION = 'identifier_verification';
 
     // A request's API key

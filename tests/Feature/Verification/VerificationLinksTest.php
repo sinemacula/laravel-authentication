@@ -17,6 +17,9 @@ use Illuminate\Support\Facades\URL;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\IdentifierVerified;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
@@ -28,7 +31,8 @@ use Tests\Unit\Stubs\StubPrincipal;
 
 /**
  * Feature tests for verifying identifiers by signed link, through a route of
- * the application's that consumes the link.
+ * the application's that consumes the link: every outcome, and the
+ * `AuthenticationFailed` each refusal reports.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -45,6 +49,9 @@ final class VerificationLinksTest extends TestCase
 
     /** @var string Name of the application's verification route. */
     private const string ROUTE = 'verification.verify';
+
+    /** @var list<object> The failure and verification events dispatched. */
+    private array $events = [];
 
     /**
      * Create the identities table and the route that consumes links.
@@ -68,9 +75,13 @@ final class VerificationLinksTest extends TestCase
         });
 
         Route::get('/verify/{channel}', fn (Request $request): array => [
-            'outcome' => $this->links()->consume($request)?->value,
+            'outcome' => $this->links()->consume($request)->value,
             'user'    => Auth::guard(self::GUARD)->hasUser(),
         ])->name(self::ROUTE);
+
+        Event::listen([AuthenticationFailed::class, IdentifierVerified::class], function (object $event): void {
+            $this->events[] = $event;
+        });
     }
 
     /**
@@ -120,8 +131,6 @@ final class VerificationLinksTest extends TestCase
      */
     public function testFollowingTheLinkVerifiesTheIdentifierOnce(): void
     {
-        Event::fake([IdentifierVerified::class]);
-
         $identity = self::seedVerifiableIdentity();
         $link     = $this->link($identity, ['channel' => 'mail']);
 
@@ -130,42 +139,57 @@ final class VerificationLinksTest extends TestCase
 
         self::assertNotNull(DB::table('verifiable_identities')->value('email_verified_at'));
         self::assertSame(0, DB::table('devices')->count());
-
-        Event::assertDispatchedTimes(IdentifierVerified::class, 1);
-        Event::assertDispatched(
-            IdentifierVerified::class,
-            static fn (IdentifierVerified $event): bool => $event->context->client->userAgent === 'Mail/1.0' && $event->context->guard === self::GUARD,
-        );
+        self::assertCount(1, $this->events);
+        self::assertInstanceOf(IdentifierVerified::class, $this->events[0]);
+        self::assertSame(['Mail/1.0', self::GUARD, 'email'], [$this->events[0]->context->client->userAgent, $this->events[0]->context->guard, $this->events[0]->type]);
     }
 
     /**
-     * A link whose identifier has since changed or been removed, or whose
-     * identity is gone, verifies nothing.
+     * Ways an authentic link stops proving its identity's current identifier.
      *
+     * @return iterable<string, array{0: \Closure(\Tests\Integration\Fixtures\VerifiableIdentity): mixed, 1: bool}>
+     */
+    public static function provideLinksThatNoLongerProveTheIdentifier(): iterable
+    {
+        yield from [
+            'a changed identifier'         => [static fn (VerifiableIdentity $identity): bool => $identity->update(['email' => 'New@Example.com']), true],
+            'a removed identifier'         => [static fn (VerifiableIdentity $identity): bool => $identity->update(['email' => null]), true],
+            'an identifier now unreadable' => [static fn (VerifiableIdentity $identity): int => DB::table('verifiable_identities')->update(['email' => '   ']), true],
+            'a deleted identity'           => [static fn (VerifiableIdentity $identity): ?bool => $identity->delete(), false],
+        ];
+    }
+
+    /**
+     * An authentic link whose identifier has since changed, been removed or
+     * become one its normaliser rejects, or whose identity is gone, is
+     * `invalid`, as a tampered link is, so the answer says nothing about the
+     * account. The event names the guard the link was signed for, and the
+     * identity once it was loaded.
+     *
+     * @param  \Closure(\Tests\Integration\Fixtures\VerifiableIdentity): mixed  $change
+     * @param  bool  $loaded
      * @return void
      */
-    public function testLinkForAnIdentifierThatChangedVerifiesNothing(): void
+    #[DataProvider('provideLinksThatNoLongerProveTheIdentifier')]
+    public function testLinkThatNoLongerProvesTheIdentifierIsInvalid(\Closure $change, bool $loaded): void
     {
         $identity = self::seedVerifiableIdentity();
         $link     = $this->link($identity, ['channel' => 'mail']);
 
-        $identity->update(['email' => 'New@Example.com']);
+        $change($identity);
 
-        $this->getJson($link)->assertOk()->assertExactJson(['outcome' => null, 'user' => false]);
+        $this->getJson($link)->assertOk()->assertExactJson(['outcome' => 'invalid', 'user' => false]);
 
-        $identity->update(['email' => null]);
+        $failed = $this->failure(FailureReason::INVALID_CREDENTIALS);
 
-        $this->getJson($link)->assertOk()->assertExactJson(['outcome' => null, 'user' => false]);
-
-        $identity->delete();
-
-        $this->getJson($link)->assertOk()->assertExactJson(['outcome' => null, 'user' => false]);
+        self::assertSame(self::GUARD, $failed->context->guard);
+        self::assertSame($loaded ? (string) $identity->id : null, $failed->context->identityId);
         self::assertSame(0, DB::table('verifiable_identities')->whereNotNull('email_verified_at')->count());
     }
 
     /**
-     * A link past its lifetime verifies nothing; one with a lifetime of its own
-     * lasts that long.
+     * A link past its lifetime is `expired`, reported as `link_expired` for the
+     * guard it was signed for; one with a lifetime of its own lasts that long.
      *
      * @return void
      */
@@ -177,15 +201,110 @@ final class VerificationLinksTest extends TestCase
 
         Carbon::setTestNow(Carbon::now()->addHour()->addSecond());
 
-        $this->getJson($hour)->assertOk()->assertExactJson(['outcome' => null, 'user' => false]);
+        $this->withHeader('User-Agent', 'Mail/1.0')->getJson($hour)->assertOk()->assertExactJson(['outcome' => 'expired', 'user' => false]);
+
+        $failed = $this->failure(FailureReason::LINK_EXPIRED);
+
+        self::assertSame([self::GUARD, null, 'Mail/1.0'], [$failed->context->guard, $failed->context->identity, $failed->context->client->userAgent]);
+
+        $this->events = [];
+
         $this->getJson($day)->assertOk()->assertExactJson(['outcome' => 'verified', 'user' => false]);
     }
 
     /**
-     * Links that were tampered with, signed for another purpose, or that name
-     * no usable guard, type or identity.
+     * Its signature is checked before its expiry, and both before any identity
+     * is read: an expired link that was tampered with is `invalid`, naming no
+     * guard, and an authentic expired one is `expired` without a query, even
+     * once its identity is gone or for a guard no longer configured.
      *
-     * @return iterable<string, array{0: \Closure(string, \Tests\Integration\Fixtures\VerifiableIdentity): string}>
+     * @return void
+     */
+    public function testSignatureIsCheckedBeforeExpiryAndBothBeforeTheIdentity(): void
+    {
+        $identity = self::seedVerifiableIdentity();
+        $link     = $this->link($identity, ['channel' => 'mail']);
+
+        Carbon::setTestNow(Carbon::now()->addDay());
+
+        $this->getJson(str_replace('identity=', 'identity=9', $link))->assertOk()->assertExactJson(['outcome' => 'invalid', 'user' => false]);
+
+        self::assertNull($this->failure(FailureReason::INVALID_CREDENTIALS)->context->guard);
+
+        $identity->delete();
+        $this->events = [];
+
+        $queries = 0;
+
+        DB::listen(static function () use (&$queries): void {
+            $queries++;
+        });
+
+        $this->getJson($link)->assertOk()->assertExactJson(['outcome' => 'expired', 'user' => false]);
+
+        self::assertSame(0, $queries);
+        self::assertSame(self::GUARD, $this->failure(FailureReason::LINK_EXPIRED)->context->guard);
+
+        config()->set('auth.guards.' . self::GUARD, null);
+        $this->events = [];
+
+        $this->getJson($link)->assertOk()->assertExactJson(['outcome' => 'expired', 'user' => false]);
+
+        self::assertNull($this->failure(FailureReason::LINK_EXPIRED)->context->guard);
+    }
+
+    /**
+     * When the identifier changes while the link is being verified, the
+     * verifier records nothing and answers `mismatch`, which the link answers
+     * as it is: the link was accepted, so no failure is reported, and nothing
+     * is verified.
+     *
+     * @return void
+     */
+    public function testTheVerifiersMismatchIsAnsweredAsItIs(): void
+    {
+        $identity = self::seedVerifiableIdentity();
+        $link     = $this->link($identity, ['channel' => 'mail']);
+
+        Event::listen('eloquent.retrieved: ' . VerifiableIdentity::class, static function (): void {
+            DB::table('verifiable_identities')->update(['email' => 'eve@example.com']);
+        });
+
+        $this->getJson($link)->assertOk()->assertExactJson(['outcome' => 'mismatch', 'user' => false]);
+
+        self::assertSame([], $this->events);
+        self::assertNull(DB::table('verifiable_identities')->value('email_verified_at'));
+    }
+
+    /**
+     * A link signed by hand, as the malformed expiries below are, verifies when
+     * its expiry is well formed, so each of them is refused for its expiry
+     * alone.
+     *
+     * @return void
+     */
+    public function testAHandSignedLinkWithAWellFormedExpiryVerifies(): void
+    {
+        $identity = self::seedVerifiableIdentity();
+
+        $link = self::handSigned([
+            'guard'    => self::GUARD,
+            'identity' => $identity->getKey(),
+            'type'     => 'email',
+            'purpose'  => VerificationLinks::PURPOSE,
+            'hash'     => hash('sha256', 'ben@example.com'),
+        ], Carbon::now()->addHour()->getTimestamp());
+
+        $this->getJson($link)->assertOk()->assertExactJson(['outcome' => 'verified', 'user' => false]);
+    }
+
+    /**
+     * Links that were tampered with, signed for another purpose or without a
+     * well-formed expiry, or that name no usable guard, type or identity, with
+     * the guard their refusal names, none until the link is known authentic and
+     * its guard a configured JWT guard, and whether it names the identity.
+     *
+     * @return iterable<string, array{0: \Closure(string, \Tests\Integration\Fixtures\VerifiableIdentity): string, 1: ?string, 2: bool}>
      */
     public static function provideInvalidLinks(): iterable
     {
@@ -205,42 +324,67 @@ final class VerificationLinksTest extends TestCase
             array_diff_key($valid($identity), [$key => true]),
         );
 
+        $unexpiring = static fn (string $link, VerifiableIdentity $identity): string => URL::signedRoute(self::ROUTE, ['channel' => 'mail', ...$valid($identity)]);
+
+        $expiring = static fn (mixed $expires): \Closure => static fn (string $link, VerifiableIdentity $identity): string => self::handSigned($valid($identity), $expires);
+
+        $padded = static fn (string $link, VerifiableIdentity $identity): string => self::handSigned($valid($identity), '0' . Carbon::now()->addHour()->getTimestamp());
+
         yield from [
-            'a changed identity'           => [static fn (string $link): string => str_replace('identity=', 'identity=9', $link)],
-            'a changed signature'          => [static fn (string $link): string => substr($link, 0, -1) . (str_ends_with($link, 'a') ? 'b' : 'a')],
-            'no signature'                 => [static fn (string $link): string => (string) preg_replace('/&signature=[^&]+/', '', $link)],
-            'another purpose'              => [$with(['purpose' => 'reset_password'])],
-            'no purpose'                   => [$without('purpose')],
-            'a session guard'              => [$with(['guard' => 'web'])],
-            'an unknown guard'             => [$with(['guard' => 'nope'])],
-            'a malformed type'             => [$with(['type' => 'Email'])],
-            'an array type'                => [$with(['type' => ['email']])],
-            'no hash'                      => [$without('hash')],
-            'another hash'                 => [$with(['hash' => hash('sha256', 'eve@example.com')])],
-            'an array identity'            => [static fn (string $link, VerifiableIdentity $identity): string => $signed(['identity' => [$identity->id]] + $valid($identity))],
-            'an identity of another guard' => [$with(['guard' => 'plain'])],
+            'a changed identity'           => [static fn (string $link): string => str_replace('identity=', 'identity=9', $link), null, false],
+            'a changed signature'          => [static fn (string $link): string => substr($link, 0, -1) . (str_ends_with($link, 'a') ? 'b' : 'a'), null, false],
+            'no signature'                 => [static fn (string $link): string => (string) preg_replace('/&signature=[^&]+/', '', $link), null, false],
+            'another purpose'              => [$with(['purpose' => 'reset_password']), null, false],
+            'no purpose'                   => [$without('purpose'), null, false],
+            'no expiry'                    => [$unexpiring, null, false],
+            'an expiry that is no time'    => [$expiring('soon'), null, false],
+            'an empty expiry'              => [$expiring(''), null, false],
+            'an array expiry'              => [$expiring([Carbon::now()->addHour()->getTimestamp()]), null, false],
+            'a zero expiry'                => [$expiring('0'), null, false],
+            'a padded expiry'              => [$padded, null, false],
+            'a session guard'              => [$with(['guard' => 'web']), null, false],
+            'an unknown guard'             => [$with(['guard' => 'nope']), null, false],
+            'a guard with no provider'     => [$with(['guard' => 'providerless']), null, false],
+            'an array guard'               => [$with(['guard' => [self::GUARD]]), null, false],
+            'a malformed type'             => [$with(['type' => 'Email']), null, false],
+            'an array type'                => [$with(['type' => ['email']]), null, false],
+            'no hash'                      => [$without('hash'), null, false],
+            'an array hash'                => [$with(['hash' => [hash('sha256', 'ben@example.com')]]), null, false],
+            'an array identity'            => [$with(['identity' => ['1']]), null, false],
+            'another hash'                 => [$with(['hash' => hash('sha256', 'eve@example.com')]), self::GUARD, true],
+            'an unknown identity'          => [$with(['identity' => '999']), self::GUARD, false],
+            'an identity of another guard' => [$with(['guard' => 'plain']), 'plain', false],
         ];
     }
 
     /**
-     * An invalid link verifies nothing and signs nobody in. The other guard's
-     * identity model has a row under the same key, which cannot verify
-     * identifiers.
+     * An invalid link verifies nothing, signs nobody in, and is reported as
+     * `invalid_credentials` on the `identifier_verification` flow, naming no
+     * identity it did not load. The other guard's identity model has a row
+     * under the same key, which cannot verify identifiers.
      *
      * @param  \Closure(string, \Tests\Integration\Fixtures\VerifiableIdentity): string  $tamper
+     * @param  ?string  $guard
+     * @param  bool  $loaded
      * @return void
      */
     #[DataProvider('provideInvalidLinks')]
-    public function testInvalidLinkVerifiesNothing(\Closure $tamper): void
+    public function testInvalidLinkVerifiesNothing(\Closure $tamper, ?string $guard, bool $loaded): void
     {
         $identity = self::seedVerifiableIdentity();
 
         StubPrincipal::query()->create(['id' => $identity->getKey(), 'email' => 'ben@example.com', 'password' => 'unused']);
 
-        $this->getJson($tamper($this->link($identity, ['channel' => 'mail']), $identity))
+        $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.9'])
+            ->getJson($tamper($this->link($identity, ['channel' => 'mail']), $identity))
             ->assertOk()
-            ->assertExactJson(['outcome' => null, 'user' => false]);
+            ->assertExactJson(['outcome' => 'invalid', 'user' => false]);
 
+        $failed = $this->failure(FailureReason::INVALID_CREDENTIALS);
+
+        self::assertSame($guard, $failed->context->guard);
+        self::assertSame('203.0.113.9', $failed->context->client->ip);
+        self::assertSame($loaded ? (string) $identity->id : null, $failed->context->identityId);
         self::assertNull(DB::table('verifiable_identities')->value('email_verified_at'));
     }
 
@@ -288,7 +432,7 @@ final class VerificationLinksTest extends TestCase
      */
     public function testRefusesARouteThatTakesReservedNamesAsPlaceholders(): void
     {
-        Route::get('/verify/{type}/{hash}', fn (Request $request): array => ['outcome' => $this->links()->consume($request)?->value])->name('verification.placeholders');
+        Route::get('/verify/{type}/{hash}', fn (Request $request): array => ['outcome' => $this->links()->consume($request)->value])->name('verification.placeholders');
 
         $identity = self::seedVerifiableIdentity();
 
@@ -306,7 +450,7 @@ final class VerificationLinksTest extends TestCase
             'hash'     => hash('sha256', 'ben@example.com'),
         ]);
 
-        $this->getJson($signed)->assertOk()->assertExactJson(['outcome' => null]);
+        $this->getJson($signed)->assertOk()->assertExactJson(['outcome' => 'invalid']);
         self::assertNull(DB::table('verifiable_identities')->value('email_verified_at'));
     }
 
@@ -368,8 +512,8 @@ final class VerificationLinksTest extends TestCase
     }
 
     /**
-     * Configure a JWT guard over the identities, a session guard, and a JWT
-     * guard over another identity model.
+     * Configure a JWT guard over the identities, a session guard, a JWT guard
+     * over another identity model, and one with no identity provider.
      *
      * @param  mixed  $app
      * @return void
@@ -388,9 +532,29 @@ final class VerificationLinksTest extends TestCase
 
         $config->set('auth.guards.' . self::GUARD, ['driver' => 'jwt', 'provider' => 'verifiable']);
         $config->set('auth.guards.plain', ['driver' => 'jwt', 'provider' => 'plain']);
+        $config->set('auth.guards.providerless', ['driver' => 'jwt']);
         $config->set('auth.guards.web', ['driver' => 'session', 'provider' => 'verifiable']);
         $config->set('auth.providers.verifiable', ['driver' => 'model', 'model' => VerifiableIdentity::class]);
         $config->set('auth.providers.plain', ['driver' => 'model', 'model' => StubPrincipal::class]);
+    }
+
+    /**
+     * The one event dispatched, a failure on the `identifier_verification` flow
+     * for the reason.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed
+     */
+    private function failure(FailureReason $reason): AuthenticationFailed
+    {
+        self::assertCount(1, $this->events);
+
+        $failed = $this->events[0];
+
+        self::assertInstanceOf(AuthenticationFailed::class, $failed);
+        self::assertSame([AuthenticationFlow::IDENTIFIER_VERIFICATION, $reason, null, null], [$failed->flow, $failed->reason, $failed->identifier, $failed->retryAfter]);
+
+        return $failed;
     }
 
     /**
@@ -419,6 +583,22 @@ final class VerificationLinksTest extends TestCase
     private function link(VerifiableIdentity $identity, array $parameters, string $type = 'email'): string
     {
         return $this->links()->create(self::GUARD, $identity, $type, self::ROUTE, $parameters);
+    }
+
+    /**
+     * A link to the route with the fields and the expiry as given, signed with
+     * the application key as Laravel signs one, so an expiry its URL generator
+     * would refuse to sign can be tried.
+     *
+     * @param  array<string, mixed>  $fields
+     * @param  mixed  $expires
+     * @return string
+     */
+    private static function handSigned(array $fields, mixed $expires): string
+    {
+        $url = URL::route(self::ROUTE, ['channel' => 'mail', ...$fields, 'expires' => $expires]);
+
+        return $url . '&signature=' . hash_hmac('sha256', $url, config()->string('app.key'));
     }
 
     /**

@@ -109,7 +109,7 @@ final readonly class EventContext implements Arrayable
      */
     public function __construct(
 
-        /** Name of the guard the event is about; `null` only for a device that records none. */
+        /** Name of the guard the event is about; `null` only for a device that records none, or a verification link refused before its guard could be trusted. */
         public ?string $guard,
 
         /** Client of the request being served (in a queue job or a console command, that process's request). */
