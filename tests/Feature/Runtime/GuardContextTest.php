@@ -292,7 +292,8 @@ final class GuardContextTest extends TestCase
      * Two guards resolved in one process have a context each: a rebind of one
      * guard's dispatcher does not reach the other, and each guard's refresh
      * exchange is bound to that guard's context and token service, so one guard
-     * does not take another's refresh token and reports its own name.
+     * does not take another's refresh token, takes its own, and reports its own
+     * name.
      *
      * @return void
      *
@@ -324,6 +325,11 @@ final class GuardContextTest extends TestCase
         self::assertNull($api->refresh($adminSession->tokens->refreshToken));
         self::assertNull($admin->refresh($apiSession->tokens->refreshToken));
         self::assertSame(['api', 'admin'], array_map(static fn (AuthenticationFailed $event): ?string => $event->context->guard, $this->recorded));
+
+        $this->recordEvents([Refreshed::class]);
+
+        self::assertInstanceOf(RefreshResult::class, $api->refresh($apiSession->tokens->refreshToken));
+        self::assertSame(['api'], array_map(static fn (Refreshed $event): ?string => $event->context->guard, $this->recorded));
 
         $silent = \Mockery::mock(Dispatcher::class);
         $silent->shouldNotReceive('dispatch');
