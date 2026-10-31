@@ -21,6 +21,10 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   the architecture test fails a call of any of them outside `Guards`. The container's rebinds (`wireGuardRebinds()`:
   `request`, `events`, and the global `PrincipalResolver` unless the guard has a resolver of its own), `Event::fake()`,
   Octane's request rebind and `AuthManager::forgetGuardState()` all reach the context through the guard's setters.
+- The package registers the container's rebinds only on the guards its own drivers build. A guard type's driver
+  registers the same `refresh()` calls itself (`docs/guides/extending.md`); without them its context keeps the
+  dispatcher and resolver it was built with for its life, and the request until `forgetGuardState()`, which gives every
+  resolved `AbstractGuard` the current request.
 - `setRequest()` rebinds the context and keeps all of its reset: the bound context, the last retrieved identity and
   whether the request was resolved.
 - A flow reads a collaborator from the context each time it uses one and keeps no copy, so a flow built before a rebind
