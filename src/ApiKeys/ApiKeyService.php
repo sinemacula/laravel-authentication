@@ -26,9 +26,8 @@ use SineMacula\Laravel\Authentication\Events\ApiKeyRevoked;
 use SineMacula\Laravel\Authentication\Events\ApiKeyRotated;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
-use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
-use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\ApiKey;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Scopes\Scopes;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
@@ -54,8 +53,8 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * failed authentication. Each write is one conditional statement on the key's
  * own connection, and its event is dispatched once it is committed there.
  *
- * Holds the guard and reads its provider, resolver, dispatcher and request each
- * time it runs, so it keeps nothing between calls.
+ * Holds the guard's context and reads the provider, resolver, dispatcher and
+ * request from it each time it runs, so it keeps nothing between calls.
  *
  * @api
  *
@@ -70,14 +69,14 @@ final readonly class ApiKeyService
     /**
      * Constructor.
      *
-     * @param  \SineMacula\Laravel\Authentication\Guards\AbstractGuard  $guard
+     * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
      * @param  \Illuminate\Contracts\Container\Container  $container
      * @param  ?\Closure(string): string  $publicParts
      */
     public function __construct(
 
-        /** The guard whose keys these are. */
-        private AbstractGuard $guard,
+        /** The context of the guard whose keys these are. */
+        private GuardContext $context,
 
         /** Container the audience policy, the scope registry and the transactions manager are resolved from. */
         private Container $container,
@@ -111,11 +110,11 @@ final readonly class ApiKeyService
     {
         $now       = CarbonImmutable::now()->startOfSecond();
         $principal = $this->actingPrincipal($identity, $principal);
-        $granted   = Scopes::grantable($this->scopeRegistry(), $this->guard->getName(), $principal, $scopes);
+        $granted   = Scopes::grantable($this->scopeRegistry(), $this->context->name(), $principal, $scopes);
         $tenant    = WriteConnection::during($principal, static fn (): ?Tenant => $principal->getTenant());
 
         [$key, $issued] = $this->insert([
-            'guard'                => $this->guard->getName(),
+            'guard'                => $this->context->name(),
             'name'                 => ApiKeyRules::name($name),
             'authenticatable_type' => CredentialBinding::ownerType($identity),
             'authenticatable_id'   => IdentifierCoercion::stringify($identity->getAuthIdentifier()),
@@ -127,7 +126,7 @@ final readonly class ApiKeyService
             'expires_at'           => ApiKeyRules::expiry($expiresAt, $now),
         ], $now);
 
-        $this->report($key, new ApiKeyIssued($this->context($key, $identity, $principal, $tenant)));
+        $this->report($key, new ApiKeyIssued($this->eventContext($key, $identity, $principal, $tenant)));
 
         return $issued;
     }
@@ -159,11 +158,11 @@ final readonly class ApiKeyService
         $expiry   = ApiKeyRules::expiry($expiresAt, $now);
         $previous = $this->owned($principal, $keyId);
 
-        if ($previous === null || ApiKeyLookup::refusal($previous, $this->guard->getName(), $now) !== null || $previous->rotated_at !== null) {
+        if ($previous === null || ApiKeyLookup::refusal($previous, $this->context->name(), $now) !== null || $previous->rotated_at !== null) {
             return null;
         }
 
-        $granted = Scopes::grantable($this->scopeRegistry(), $this->guard->getName(), $principal, $previous->scopes);
+        $granted = Scopes::grantable($this->scopeRegistry(), $this->context->name(), $principal, $previous->scopes);
         $rotated = $previous->getConnection()->transaction(fn (): ?array => $this->replace($previous, $deadline, $now, [
             'guard'                => $previous->guard,
             'name'                 => $previous->name,
@@ -183,7 +182,7 @@ final readonly class ApiKeyService
 
         [$key, $issued] = $rotated;
 
-        $this->report($key, new ApiKeyRotated($this->context($key, $this->owner($key), $principal, self::tenantOf($principal)), $previous->id));
+        $this->report($key, new ApiKeyRotated($this->eventContext($key, $this->owner($key), $principal, self::tenantOf($principal)), $previous->id));
 
         return $issued;
     }
@@ -223,7 +222,7 @@ final readonly class ApiKeyService
             return false;
         }
 
-        $this->report($key, new ApiKeyRevoked($this->context($key, $this->owner($key), $principal, self::tenantOf($principal))));
+        $this->report($key, new ApiKeyRevoked($this->eventContext($key, $this->owner($key), $principal, self::tenantOf($principal))));
 
         return true;
     }
@@ -259,7 +258,7 @@ final readonly class ApiKeyService
         }
 
         $type  = PrincipalReference::type($principal);
-        $guard = $this->guard->getName();
+        $guard = $this->context->name();
 
         /** @var list<\SineMacula\Laravel\Authentication\ApiKeys\ApiKeySummary> */
         return $this->ofPrincipal($type, $id)
@@ -386,8 +385,8 @@ final readonly class ApiKeyService
      */
     private function actingPrincipal(MachineIdentity $identity, Principal $principal): Principal
     {
-        $name     = $this->guard->getName();
-        $resolved = PinnedPrincipal::resolve($this->guard->getPrincipalResolver(), $identity, $principal);
+        $name     = $this->context->name();
+        $resolved = PinnedPrincipal::resolve($this->context->resolver(), $identity, $principal);
 
         /** @var \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy $audience */
         $audience = $this->container->make(AudiencePolicy::class);
@@ -406,7 +405,7 @@ final readonly class ApiKeyService
     private function ofPrincipal(string $type, string $id): Builder
     {
         return WriteConnection::query((new ApiKey)->newQuery())
-            ->where('guard', $this->guard->getName())
+            ->where('guard', $this->context->name())
             ->where('principal_type', $type)
             ->where('principal_id', $id);
     }
@@ -431,7 +430,7 @@ final readonly class ApiKeyService
         $type = PrincipalReference::type($principal);
         $key  = $this->ofPrincipal($type, $id)->where('id', $keyId)->first();
 
-        return $key instanceof ApiKey && self::isOf($key, $this->guard->getName(), $type, $id) ? $key : null;
+        return $key instanceof ApiKey && self::isOf($key, $this->context->name(), $type, $id) ? $key : null;
     }
 
     /**
@@ -460,7 +459,7 @@ final readonly class ApiKeyService
      */
     private function owner(ApiKey $key): ?Identity
     {
-        $identity = $this->guard->getProvider()->retrieveById($key->authenticatable_id);
+        $identity = $this->context->provider()->retrieveById($key->authenticatable_id);
 
         return $identity instanceof Identity && CredentialBinding::isOwnedBy($key, $identity) ? $identity : null;
     }
@@ -474,16 +473,16 @@ final readonly class ApiKeyService
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @return \SineMacula\Laravel\Authentication\Events\EventContext
      */
-    private function context(ApiKey $key, ?Identity $identity, Principal $principal, ?Tenant $tenant): EventContext
+    private function eventContext(ApiKey $key, ?Identity $identity, Principal $principal, ?Tenant $tenant): EventContext
     {
-        $client = ClientContext::fromRequest($this->guard->getRequest());
+        $client = $this->context->client();
 
         return new EventContext($key->guard, $client, $identity, $principal, $tenant, credentialId: $key->id, scopes: $key->scopes);
     }
 
     /**
-     * Dispatch the event once the key's writes are committed on its own
-     * connection.
+     * Dispatch the event, once the key's writes are committed on its own
+     * connection, to the dispatcher the guard has now.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\ApiKey  $key
      * @param  \SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent  $event
@@ -492,7 +491,7 @@ final readonly class ApiKeyService
     private function report(ApiKey $key, AuthenticationEvent $event): void
     {
         $container  = $this->container;
-        $dispatcher = $this->guard->getDispatcher();
+        $dispatcher = $this->context->events();
 
         (new AfterCommit(static fn (): mixed => $container->bound('db.transactions') ? $container->make('db.transactions') : null))
             ->run($key, static function () use ($dispatcher, $event): void {

@@ -137,7 +137,7 @@ class AuthManager extends IlluminateAuthManager
      */
     public function codes(?string $guard = null): CodeService
     {
-        return new CodeService($this->jwtGuard($guard, 'one-time code service'), $this->app);
+        return new CodeService($this->jwtGuard($guard, 'one-time code service')->context(), $this->app);
     }
 
     /**
@@ -183,7 +183,7 @@ class AuthManager extends IlluminateAuthManager
      */
     public function passkeys(?string $guard = null): PasskeyService
     {
-        return new PasskeyService($this->jwtGuard($guard, 'passkey service'), $this->app);
+        return new PasskeyService($this->jwtGuard($guard, 'passkey service')->context(), $this->app);
     }
 
     /**
@@ -219,7 +219,7 @@ class AuthManager extends IlluminateAuthManager
             throw new \InvalidArgumentException(sprintf('Auth guard [%s] is neither an api_key nor a jwt guard, so it has no API keys.', $guard ?? $this->getDefaultDriver()));
         }
 
-        return new ApiKeyService($resolved, $this->app);
+        return new ApiKeyService($resolved->context(), $this->app);
     }
 
     /**
@@ -235,7 +235,7 @@ class AuthManager extends IlluminateAuthManager
      */
     public function clientCredentials(?string $guard = null): ClientCredentialsExchange
     {
-        return new ClientCredentialsExchange($this->jwtGuard($guard, 'client credentials exchange'), $this->app);
+        return new ClientCredentialsExchange($this->jwtGuard($guard, 'client credentials exchange')->context(), $this->app);
     }
 
     /**

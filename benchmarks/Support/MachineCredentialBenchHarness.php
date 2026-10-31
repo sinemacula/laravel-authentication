@@ -180,7 +180,7 @@ final class MachineCredentialBenchHarness
     private function seedFixtures(): void
     {
         $machine = MachineClient::query()->firstOrCreate(['email' => 'bench-machine@example.test'], ['is_active' => true]);
-        $keys    = new ApiKeyService($this->keyGuard(null), $this->app);
+        $keys    = new ApiKeyService($this->keyGuard(null)->context(), $this->app);
 
         $this->usedKey = $keys->issue($machine, $machine, ['reports'])->key();
 
@@ -194,11 +194,11 @@ final class MachineCredentialBenchHarness
 
         $this->unusedCheckKey = $keys->issue($machine, $machine, ['reports'])->key();
 
-        $client = (new ApiKeyService($this->tokenGuard(null), $this->app))->issue($machine, $machine, ['reports'])->key();
+        $client = (new ApiKeyService($this->tokenGuard(null)->context(), $this->app))->issue($machine, $machine, ['reports'])->key();
 
         [$clientId, $clientSecret] = self::clientCredentialsOf($client);
 
-        $granted = (new ClientCredentialsExchange($this->tokenGuard(null), $this->app))->exchange($clientId, $clientSecret);
+        $granted = (new ClientCredentialsExchange($this->tokenGuard(null)->context(), $this->app))->exchange($clientId, $clientSecret);
 
         $this->clientToken = $granted->accessToken ?? '';
     }

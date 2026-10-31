@@ -1270,7 +1270,7 @@ final class ApiKeyServiceTest extends TestCase
         self::assertInstanceOf(ApiKeyGuard::class, $guard);
         self::assertNotNull($this->app);
 
-        return new ApiKeyService($guard, $this->app, $draw);
+        return new ApiKeyService($guard->context(), $this->app, $draw);
     }
 
     /**

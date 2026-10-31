@@ -17,12 +17,12 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
-use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 use SineMacula\Laravel\Authentication\Models\OneTimeCode;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
@@ -50,8 +50,9 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  *
  * Failures are results, reported by `AuthenticationFailed`; exceptions are kept
  * for misconfiguration and server errors. The service keeps no state between
- * calls: it reads the guard's request and dispatcher, and resolves the methods,
- * policies, limiter and engine from the container, each time.
+ * calls: it reads the request and dispatcher from the guard's context, and
+ * resolves the methods, policies, limiter and engine from the container, each
+ * time.
  *
  * @api
  *
@@ -63,13 +64,13 @@ final readonly class CodeService
     /**
      * Constructor.
      *
-     * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
+     * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
      * @param  \Illuminate\Contracts\Container\Container  $container
      */
     public function __construct(
 
-        /** The guard whose codes the service sends and checks. */
-        private JwtGuard $guard,
+        /** The context of the guard whose codes the service sends and checks. */
+        private GuardContext $context,
 
         /** Container the methods, policies, limiter, engine and queue are resolved from. */
         private Container $container,
@@ -95,8 +96,8 @@ final readonly class CodeService
     public function send(string $method, #[\SensitiveParameter] array $input, ?ClientContext $client = null): CodeRequest
     {
         $driver  = $this->codeMethod($method);
-        $guard   = $this->guard->getName();
-        $context = new EventContext($guard, $client ?? $this->servedClient(), method: $method);
+        $guard   = $this->context->name();
+        $context = new EventContext($guard, $client ?? $this->context->client(), method: $method);
         $given   = $driver->identifier($guard, $input);
 
         if (!$this->collaborator(AudiencePolicy::class)->allowsMethod($guard, $method)) {
@@ -132,7 +133,7 @@ final readonly class CodeService
     public function sendVerification(Identity $identity, string $type, ?ClientContext $client = null): CodeRequest
     {
         $binding = $this->verificationBinding($identity, $type);
-        $context = new EventContext($this->guard->getName(), $client ?? $this->servedClient(), $identity);
+        $context = new EventContext($this->context->name(), $client ?? $this->context->client(), $identity);
 
         return $binding === null
             ? $this->refuse(CodeRequest::identifierInvalid(), FailureReason::INVALID_CREDENTIALS, $context, null)
@@ -164,7 +165,7 @@ final readonly class CodeService
     public function verify(Identity $identity, string $type, #[\SensitiveParameter] string $code, ?ClientContext $client = null): VerificationOutcome
     {
         $binding = $this->verificationBinding($identity, $type);
-        $context = new EventContext($this->guard->getName(), $client ?? $this->servedClient(), $identity);
+        $context = new EventContext($this->context->name(), $client ?? $this->context->client(), $identity);
         $codes   = $this->collaborator(OneTimeCodes::class);
 
         if ($binding === null || !$codes->isWellFormed($code)) {
@@ -174,7 +175,7 @@ final readonly class CodeService
         $failure = $codes->check($binding, $code, CarbonImmutable::now()->startOfSecond())->failure();
 
         return $failure === null
-            ? self::verifierOutcome($this->collaborator(IdentifierVerifier::class)->verify($this->guard->getName(), $identity, $type, $binding->identifier, $context->client))
+            ? self::verifierOutcome($this->collaborator(IdentifierVerifier::class)->verify($this->context->name(), $identity, $type, $binding->identifier, $context->client))
             : $this->refuseVerification($context, $failure);
     }
 
@@ -242,7 +243,7 @@ final readonly class CodeService
 
         $identifier = CodeIdentifiers::of(IdentifierVerifier::verifiable($identity), IdentifierType::assertValid($type), $this->collaborator(IdentifierVerifier::class));
 
-        return $identifier === null ? null : CodeBinding::verification($this->guard->getName(), $type, $identifier, $identity);
+        return $identifier === null ? null : CodeBinding::verification($this->context->name(), $type, $identifier, $identity);
     }
 
     /**
@@ -308,7 +309,7 @@ final readonly class CodeService
      */
     private function report(EventContext $context, AuthenticationFlow $flow, FailureReason $reason, ?string $identifier, ?int $retryAfter): void
     {
-        $this->guard->getDispatcher()->dispatch(new AuthenticationFailed($context, $flow, $reason, $identifier, $retryAfter));
+        $this->context->dispatch(new AuthenticationFailed($context, $flow, $reason, $identifier, $retryAfter));
     }
 
     /**
@@ -328,16 +329,6 @@ final readonly class CodeService
         }
 
         return $driver;
-    }
-
-    /**
-     * The client of the request the guard is serving.
-     *
-     * @return \SineMacula\Laravel\Authentication\Http\ClientContext
-     */
-    private function servedClient(): ClientContext
-    {
-        return ClientContext::fromRequest($this->guard->getRequest());
     }
 
     /**
