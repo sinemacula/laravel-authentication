@@ -17,12 +17,12 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRequests;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeRequestStatus;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Sessions\RecentAuthentication;
 use Tests\Concerns\ChangesIdentifiers;
@@ -149,7 +149,7 @@ final class RecentAuthenticationTest extends TestCase
     public function testTheConfiguredWindowApplies(): void
     {
         $identity = self::seedChangeable();
-        $check    = new RecentAuthentication($this->guard(), $this->app, 60, $this->now);
+        $check    = new RecentAuthentication($this->guardContext(), $this->app, 60, $this->now);
 
         self::assertNull($check->refusal($identity, Reauthentication::confirmedAt($this->now->subSeconds(59)), null));
         self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $check->refusal($identity, Reauthentication::confirmedAt($this->now->subSeconds(60)), null));
@@ -256,7 +256,7 @@ final class RecentAuthenticationTest extends TestCase
         self::assertNotNull($this->freshGuard('web')->refresh($session->tokens->refreshToken));
 
         $refreshed = Device::query()->findOrFail($session->device->getKey());
-        $check     = new RecentAuthentication($this->guard(), $this->app, 900, CarbonImmutable::now());
+        $check     = new RecentAuthentication($this->guardContext(), $this->app, 900, CarbonImmutable::now());
 
         self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $check->refusal($identity, Reauthentication::device($refreshed), null));
 
@@ -462,16 +462,17 @@ final class RecentAuthenticationTest extends TestCase
      */
     private function check(): RecentAuthentication
     {
-        return new RecentAuthentication($this->guard(), $this->app, 900, $this->now);
+        return new RecentAuthentication($this->guardContext(), $this->app, 900, $this->now);
     }
 
     /**
-     * The `web` guard, resolved afresh for a request from the test client.
+     * The context of the `web` guard, resolved afresh for a request from the
+     * test client.
      *
-     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     * @return \SineMacula\Laravel\Authentication\Runtime\GuardContext
      */
-    private function guard(): JwtGuard
+    private function guardContext(): GuardContext
     {
-        return $this->freshGuard('web');
+        return $this->freshGuard('web')->context();
     }
 }

@@ -79,7 +79,7 @@ final class SendPasswordReset implements ShouldBeEncrypted, ShouldQueue
             return;
         }
 
-        $recipient = ResetRecipient::find($guard, $binding, $container);
+        $recipient = ResetRecipient::find($guard->getName(), $guard->getProvider(), $binding, $container);
 
         if (!$recipient instanceof Identity) {
             return;

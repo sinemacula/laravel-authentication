@@ -19,10 +19,10 @@ use SineMacula\Laravel\Authentication\Devices\DeviceLookup;
 use SineMacula\Laravel\Authentication\Devices\DeviceOwnership;
 use SineMacula\Laravel\Authentication\Devices\OwnedDevice;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 
 /**
@@ -64,15 +64,15 @@ final readonly class RecentAuthentication
     /**
      * Constructor.
      *
-     * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
+     * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
      * @param  \Illuminate\Contracts\Container\Container  $container
      * @param  int  $window
      * @param  \Carbon\CarbonImmutable  $now
      */
     public function __construct(
 
-        /** The guard the identity authenticated through. */
-        private JwtGuard $guard,
+        /** The context of the guard the identity authenticated through. */
+        private GuardContext $context,
 
         /** Container the attempt limiter is resolved from. */
         private Container $container,
@@ -155,7 +155,7 @@ final readonly class RecentAuthentication
     {
         return $stored !== null
             && DeviceOwnership::isOwner($stored, $identity)
-            && OwnedDevice::refusal($stored, $this->guard->getName(), $this->now) === null
+            && OwnedDevice::refusal($stored, $this->context->name(), $this->now) === null
             && $this->isRecent(WriteConnection::during($stored, static fn (): ?CarbonInterface => $stored->getSignedInAt()));
     }
 
@@ -177,7 +177,7 @@ final readonly class RecentAuthentication
      */
     private function isCurrentPassword(Identity $identity, #[\SensitiveParameter] string $password, ?string $ip): bool|int
     {
-        if (!$this->container->make(AudiencePolicy::class)->allowsMethod($this->guard->getName(), PasswordSignIn::NAME)) {
+        if (!$this->container->make(AudiencePolicy::class)->allowsMethod($this->context->name(), PasswordSignIn::NAME)) {
             return false;
         }
 
@@ -187,15 +187,15 @@ final readonly class RecentAuthentication
         // which a dump of the trace shows.
         $secret = new \SensitiveParameterValue($password);
 
-        return $this->guard->timeboxed(function (Timebox $timebox) use ($identity, $secret, $ip, $limiter): bool|int {
+        return $this->context->timebox()->run(function (Timebox $timebox) use ($identity, $secret, $ip, $limiter): bool|int {
 
-            $reservation = $limiter->acquire(new AttemptSubject($this->guard->getName(), AttemptFlow::SIGN_IN, null, null, $ip, AccountAttempts::account($identity)));
+            $reservation = $limiter->acquire(new AttemptSubject($this->context->name(), AttemptFlow::SIGN_IN, null, null, $ip, AccountAttempts::account($identity)));
 
             if ($reservation->retryAfter !== null) {
                 return $reservation->retryAfter;
             }
 
-            $provider = $this->guard->getProvider();
+            $provider = $this->context->provider();
             $stored   = $provider->retrieveById($identity->getAuthIdentifier());
 
             $isSameRow = $stored instanceof Identity && AccountAttempts::account($stored) === AccountAttempts::account($identity);

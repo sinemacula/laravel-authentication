@@ -23,13 +23,13 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
-use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
 use SineMacula\Laravel\Authentication\Models\OneTimeCode;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
@@ -74,13 +74,17 @@ final readonly class ResetSubmissions
     /**
      * Constructor.
      *
-     * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
+     * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SessionRevocations  $revocations
      * @param  \Illuminate\Contracts\Container\Container  $container
      */
     public function __construct(
 
-        /** The guard whose identities reset their passwords. */
-        private JwtGuard $guard,
+        /** The context of the guard whose identities reset their passwords. */
+        private GuardContext $context,
+
+        /** Ends every session of an identity whose password is reset. */
+        private SessionRevocations $revocations,
 
         /** Container the settings, policies, limiter, engine and hasher are resolved from. */
         private Container $container,
@@ -98,7 +102,7 @@ final readonly class ResetSubmissions
      */
     public function link(#[\SensitiveParameter] array $input, ?ClientContext $client): ResetResult
     {
-        $type = $this->container->make(PasswordSignIn::class)->identifierType($this->guard->getName());
+        $type = $this->container->make(PasswordSignIn::class)->identifierType($this->context->name());
 
         return $this->reset(CodePurpose::PASSWORD_RESET_LINK, $type, ResetInput::TOKEN_KEY, $input, $client);
     }
@@ -138,10 +142,10 @@ final readonly class ResetSubmissions
     {
         $this->validate();
 
-        $context     = new EventContext($this->guard->getName(), $client ?? ClientContext::fromRequest($this->guard->getRequest()));
+        $context     = new EventContext($this->context->name(), $client ?? $this->context->client());
         $given       = ResetInput::identifier($input, $type);
         $limiter     = $this->container->make(AttemptLimiter::class);
-        $reservation = $limiter->acquire(new AttemptSubject($this->guard->getName(), AttemptFlow::PASSWORD_RESET, $given, $type, $context->client->ip));
+        $reservation = $limiter->acquire(new AttemptSubject($this->context->name(), AttemptFlow::PASSWORD_RESET, $given, $type, $context->client->ip));
 
         if ($reservation->retryAfter !== null) {
             return $this->refuse(ResetResult::rateLimited($reservation->retryAfter), FailureReason::RATE_LIMITED, $context, $given, $reservation->retryAfter);
@@ -155,7 +159,9 @@ final readonly class ResetSubmissions
         $client = $context->client;
 
         /** @var array{0: \SineMacula\Laravel\Authentication\Passwords\ResetResult, 1: ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason} $outcome */
-        $outcome = $this->guard->timeboxed(fn (Timebox $timebox): array => $this->attempt($purpose, $type, $given, $proof->getValue(), $password->getValue(), $client, $timebox));
+        $outcome = $this->context->timebox()->run(
+            fn (Timebox $timebox): array => $this->attempt($purpose, $type, $given, $proof->getValue(), $password->getValue(), $client, $timebox),
+        );
 
         [$result, $reason] = $outcome;
 
@@ -204,11 +210,11 @@ final readonly class ResetSubmissions
             return [ResetResult::passwordRejected($check->violations), null];
         }
 
-        $guard   = $this->guard->getName();
+        $guard   = $this->context->name();
         $binding = $purpose === CodePurpose::PASSWORD_RESET_LINK
             ? CodeBinding::passwordResetLink($guard, $type, $identifier)
             : CodeBinding::passwordReset($guard, $type, $identifier);
-        $recipient = ResetRecipient::find($this->guard, $binding, $this->container);
+        $recipient = ResetRecipient::find($guard, $this->context->provider(), $binding, $this->container);
         $outcome   = $this->spend($binding, $proof, $recipient, $password, $client);
 
         if ($outcome[0]->isReset()) {
@@ -251,7 +257,7 @@ final readonly class ResetSubmissions
 
         try {
             if ($recipient instanceof Model) {
-                $recipient = ResetRecipient::eligible($this->guard, IdentityLock::acquire($recipient), $binding, $this->container);
+                $recipient = ResetRecipient::eligible($this->context->name(), IdentityLock::acquire($recipient), $binding, $this->container);
             }
 
             $check = $this->checkProof($binding, $proof);
@@ -274,8 +280,7 @@ final readonly class ResetSubmissions
                 return [ResetResult::invalid(), $recipient];
             }
 
-            $context = $this->guard->context();
-            $writer  = new PasswordWriter($context, SessionRevocations::forContext($context, $this->container), $this->container);
+            $writer  = new PasswordWriter($this->context, $this->revocations, $this->container);
             $revoked = $writer->write($recipient, $password, PasswordFlow::RESET, null, $client);
 
             $connection->commit();
@@ -343,7 +348,7 @@ final readonly class ResetSubmissions
         (new CodeKeys($config))->validate();
         (new PasswordPolicy($this->container))->settings();
 
-        SharedConnection::assertForGuard($this->guard->getName(), self::FLOW, $config);
+        SharedConnection::assertForGuard($this->context->name(), self::FLOW, $config);
     }
 
     /**
@@ -358,7 +363,7 @@ final readonly class ResetSubmissions
      */
     private function refuse(ResetResult $result, FailureReason $reason, EventContext $context, ?string $given, ?int $retryAfter = null): ResetResult
     {
-        $this->guard->getDispatcher()->dispatch(new AuthenticationFailed($context, AuthenticationFlow::PASSWORD_RESET, $reason, $given, $retryAfter));
+        $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::PASSWORD_RESET, $reason, $given, $retryAfter));
 
         return $result;
     }

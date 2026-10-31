@@ -135,26 +135,6 @@ final class JwtGuard extends AbstractGuard
     }
 
     /**
-     * Run the callback inside the guard's credential timebox, the one its
-     * sign-ins run in, so a check of a secret outside a sign-in (a password
-     * reset, a reauthentication) takes as long whatever it found. The callback
-     * may end the wait early through the `Timebox` it is given.
-     *
-     * @template TResult
-     *
-     * @param  \Closure(\Illuminate\Support\Timebox): TResult  $callback
-     * @return TResult
-     *
-     * @throws \Throwable
-     *
-     * @internal
-     */
-    public function timeboxed(\Closure $callback): mixed
-    {
-        return $this->context->timebox()->run($callback);
-    }
-
-    /**
      * Sign the request's session out through the guard's session revocations,
      * as the session service's `signOut()` does: the device the guard is bound
      * to is revoked (`signed_out`) and `DeviceRevoked` reported once committed,

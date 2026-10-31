@@ -217,7 +217,7 @@ trait ChoosesPrincipals
             return $this->switchRevocations->revoke($device, RevocationReason::ROTATION_REUSE, $now, fn () => $this->dispatch($event));
         };
 
-        $outcome = (new PrincipalSwitch($this->switchTokens, $this->rotations, $this->guard, $client, $principal, $revoke))
+        $outcome = (new PrincipalSwitch($this->switchTokens, $this->rotations, $this->guard->context(), $client, $principal, $revoke))
             ->switch($refreshToken);
 
         if ($outcome instanceof AuthenticationFailed) {

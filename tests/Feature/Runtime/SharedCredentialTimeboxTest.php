@@ -65,7 +65,7 @@ final class SharedCredentialTimeboxTest extends TestCase
         $guard    = $this->freshGuard('web');
         $sessions = $guard->sessions();
         $identity = PasswordIdentity::query()->sole();
-        $recent   = new RecentAuthentication($guard, app(), 300, CarbonImmutable::now());
+        $recent   = new RecentAuthentication($guard->context(), app(), 300, CarbonImmutable::now());
 
         self::assertTrue($guard->attempt(self::credentials(self::EMAIL)));
         self::assertNull($sessions->signIn('password', ['email' => self::EMAIL, 'password' => self::WRONG_PASSWORD])->session);

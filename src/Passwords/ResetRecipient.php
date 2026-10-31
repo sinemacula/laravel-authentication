@@ -12,10 +12,10 @@ use SineMacula\Laravel\Authentication\Codes\CodeIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 
 /**
@@ -50,7 +50,8 @@ final class ResetRecipient
      * identifier), `machine_identity`, `identity_inactive` or
      * `identifier_unverified`.
      *
-     * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
      * @param  \Illuminate\Contracts\Container\Container  $container
      * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity)|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
@@ -59,9 +60,9 @@ final class ResetRecipient
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public static function find(JwtGuard $guard, CodeBinding $binding, Container $container): FailureReason|(Identity&Model)
+    public static function find(string $guard, IdentityProvider $provider, CodeBinding $binding, Container $container): FailureReason|(Identity&Model)
     {
-        return self::eligible($guard, $guard->getProvider()->retrieveByCredentials([$binding->type => $binding->identifier]), $binding, $container);
+        return self::eligible($guard, $provider->retrieveByCredentials([$binding->type => $binding->identifier]), $binding, $container);
     }
 
     /**
@@ -69,7 +70,7 @@ final class ResetRecipient
      * why it may not (see `find()`): a reset calls it again on the row it
      * locked, so a deactivation committed since the lookup is not missed.
      *
-     * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
+     * @param  string  $guard
      * @param  mixed  $found
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
      * @param  \Illuminate\Contracts\Container\Container  $container
@@ -79,7 +80,7 @@ final class ResetRecipient
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public static function eligible(JwtGuard $guard, mixed $found, CodeBinding $binding, Container $container): FailureReason|(Identity&Model)
+    public static function eligible(string $guard, mixed $found, CodeBinding $binding, Container $container): FailureReason|(Identity&Model)
     {
         return match (true) {
             !$found instanceof Identity || !$found instanceof Model                     => FailureReason::INVALID_CREDENTIALS,
@@ -145,7 +146,7 @@ final class ResetRecipient
      * The identity, unless the guard requires the identifier verified and the
      * identity, able to report it, has not verified it.
      *
-     * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
+     * @param  string  $guard
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
      * @param  \Illuminate\Contracts\Container\Container  $container
@@ -155,12 +156,12 @@ final class ResetRecipient
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    private static function verified(JwtGuard $guard, Identity&Model $identity, string $type, Container $container): FailureReason|(Identity&Model)
+    private static function verified(string $guard, Identity&Model $identity, string $type, Container $container): FailureReason|(Identity&Model)
     {
         if (!$identity instanceof HasVerifiableIdentifiers) {
             return $identity;
         }
 
-        return $container->make(AudiencePolicy::class)->admitIdentifier($guard->getName(), $identity, $type) ?? $identity;
+        return $container->make(AudiencePolicy::class)->admitIdentifier($guard, $identity, $type) ?? $identity;
     }
 }

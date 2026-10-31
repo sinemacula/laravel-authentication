@@ -25,12 +25,12 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\IdentifierChangeRequested;
-use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Sessions\RecentAuthentication;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -78,13 +78,13 @@ final readonly class ChangeRequests
     /**
      * Constructor.
      *
-     * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
+     * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
      * @param  \Illuminate\Contracts\Container\Container  $container
      */
     public function __construct(
 
-        /** The guard the change is requested through. */
-        private JwtGuard $guard,
+        /** The context of the guard the change is requested through. */
+        private GuardContext $context,
 
         /** Container the settings, limiter, engine, URL generator and delivery are resolved from. */
         private Container $container,
@@ -127,7 +127,7 @@ final readonly class ChangeRequests
     ): IdentifierChangeRequest {
         $now      = CarbonImmutable::now()->startOfSecond();
         $settings = new IdentifierChangeSettings($this->container->make(Repository::class));
-        $recent   = new RecentAuthentication($this->guard, $this->container, $settings->recentAuthenticationSeconds(), $now);
+        $recent   = new RecentAuthentication($this->context, $this->container, $settings->recentAuthenticationSeconds(), $now);
         $before   = self::stored($identity);
         $checked  = $this->checked($identity, $before, $type, $identifier, $proof, $recent, $context);
 
@@ -320,7 +320,7 @@ final readonly class ChangeRequests
         #[\SensitiveParameter] string $identifier,
     ): AttemptReservation|IdentifierChangeRequest {
         $reservation = $this->container->make(AttemptLimiter::class)->acquire(
-            new AttemptSubject($this->guard->getName(), AttemptFlow::IDENTIFIER_CHANGE, $normalised, $type, $context->client->ip, AccountAttempts::account($identity)),
+            new AttemptSubject($this->context->name(), AttemptFlow::IDENTIFIER_CHANGE, $normalised, $type, $context->client->ip, AccountAttempts::account($identity)),
         );
 
         $retryAfter = $reservation->retryAfter;
@@ -350,7 +350,7 @@ final readonly class ChangeRequests
      */
     private function write(Identity&Model $identity, RequestedChange $change, ?array $link, EventContext $context): IdentifierChangeRequest|int
     {
-        $guard   = $this->guard->getName();
+        $guard   = $this->context->name();
         $codes   = $this->container->make(OneTimeCodes::class);
         $binding = CodeBinding::identifierChange($guard, $change->type, $change->identifier, $identity, $change->requestId);
         $issued  = $link === null ? $codes->issueFirst($binding, $change->requestedAt) : null;
@@ -395,7 +395,7 @@ final readonly class ChangeRequests
     private function deliver(Identity&Model $identity, CodeBinding $binding, ?IssuedCode $issued, RequestedChange $change, EventContext $context): void
     {
         $container = $this->container;
-        $events    = $this->guard->getDispatcher();
+        $events    = $this->context->events();
         $event     = new IdentifierChangeRequested($context, $change->type, $change->identifier, $change->expiresAt);
 
         if ($issued !== null) {
@@ -425,7 +425,7 @@ final readonly class ChangeRequests
         #[\SensitiveParameter] string $identifier,
         ?int $retryAfter = null,
     ): IdentifierChangeRequest {
-        $this->guard->getDispatcher()->dispatch(new AuthenticationFailed($context, AuthenticationFlow::IDENTIFIER_CHANGE, $reason, $identifier, $retryAfter));
+        $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::IDENTIFIER_CHANGE, $reason, $identifier, $retryAfter));
 
         return $request;
     }

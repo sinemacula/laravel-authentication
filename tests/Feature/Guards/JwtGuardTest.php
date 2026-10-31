@@ -172,15 +172,15 @@ final class JwtGuardTest extends JwtGuardTestCase
     }
 
     /**
-     * `timeboxed()` runs the callback in the guard's own credential timebox,
-     * with the configured budget, hands it that timebox, and returns what it
-     * returns; an exception from the callback propagates.
+     * The context's timebox runs the callback in the guard's own credential
+     * timebox, with the configured budget, hands it that timebox, and returns
+     * what it returns; an exception from the callback propagates.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testTimeboxedRunsTheCallbackInTheCredentialTimebox(): void
+    public function testTheContextsTimeboxRunsTheCallbackInTheCredentialTimebox(): void
     {
         config()->set('authentication.timebox.credentials_microseconds', 650000);
 
@@ -194,7 +194,7 @@ final class JwtGuardTest extends JwtGuardTestCase
         $guard    = $this->makeGuard(Request::create('/'));
         $received = null;
 
-        self::assertSame(42, $guard->timeboxed(static function (Timebox $timebox) use (&$received): int {
+        self::assertSame(42, $guard->context()->timebox()->run(static function (Timebox $timebox) use (&$received): int {
             $received = $timebox;
 
             return 42;
@@ -204,7 +204,7 @@ final class JwtGuardTest extends JwtGuardTestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('inside the timebox');
 
-        $guard->timeboxed(static function (): never {
+        $guard->context()->timebox()->run(static function (): never {
             throw new \RuntimeException('inside the timebox');
         });
     }

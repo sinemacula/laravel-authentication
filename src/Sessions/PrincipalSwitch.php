@@ -23,7 +23,6 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
-use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch;
@@ -37,6 +36,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
@@ -57,8 +57,8 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * A switch keeps the session's absolute clock, restarts the idle one, and
  * writes in one compare-and-swap.
  *
- * One switch is one instance, built with the guard, the client and the target
- * when the switch runs.
+ * One switch is one instance, built with the guard's context, the client and
+ * the target when the switch runs.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -72,7 +72,7 @@ final readonly class PrincipalSwitch
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $tokens
      * @param  \SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore  $store
-     * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
+     * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $target
      * @param  \Closure(\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice, \Carbon\CarbonImmutable): bool  $revoke
@@ -85,8 +85,8 @@ final readonly class PrincipalSwitch
         /** The guarded switch write and the locking re-read. */
         private RefreshRotationStore $store,
 
-        /** The guard whose session switches. */
-        private JwtGuard $guard,
+        /** The context of the guard whose session switches. */
+        private GuardContext $context,
 
         /** The client of the request asking for the switch. */
         private ClientContext $client,
@@ -114,12 +114,12 @@ final readonly class PrincipalSwitch
     {
         $claims   = $this->tokens->parse($refreshToken, TokenType::REFRESH);
         $deviceId = IdentifierCoercion::stringify($claims[Claims::DEVICE_ID->value] ?? null);
-        $subject  = new AttemptSubject($this->guard->getName(), AttemptFlow::REFRESH, $deviceId, null, $this->client->ip);
+        $subject  = new AttemptSubject($this->context->name(), AttemptFlow::REFRESH, $deviceId, null, $this->client->ip);
         $limiter  = Container::getInstance()->make(AttemptLimiter::class);
         $wait     = $limiter->blocked($subject);
 
         if ($wait !== null) {
-            return self::refused(FailureReason::RATE_LIMITED, new EventContext($this->guard->getName(), $this->client, deviceId: $deviceId), $wait);
+            return self::refused(FailureReason::RATE_LIMITED, new EventContext($this->context->name(), $this->client, deviceId: $deviceId), $wait);
         }
 
         $outcome = $this->switchClaims($claims);
@@ -144,14 +144,14 @@ final readonly class PrincipalSwitch
         $rotationId = $claims[Claims::JWT_ID->value] ?? null;
 
         if ($claims === null || !is_string($rotationId)) {
-            return self::refused(FailureReason::TOKEN_INVALID, new EventContext($this->guard->getName(), $this->client));
+            return self::refused(FailureReason::TOKEN_INVALID, new EventContext($this->context->name(), $this->client));
         }
 
         $deviceId = $claims[Claims::DEVICE_ID->value];
         $device   = DeviceLookup::find($deviceId);
 
         return $device === null
-            ? self::refused(FailureReason::DEVICE_UNKNOWN, new EventContext($this->guard->getName(), $this->client, deviceId: IdentifierCoercion::stringify($deviceId)))
+            ? self::refused(FailureReason::DEVICE_UNKNOWN, new EventContext($this->context->name(), $this->client, deviceId: IdentifierCoercion::stringify($deviceId)))
             : $this->switchOn($device, [$rotationId, $claims[Claims::PRINCIPAL_ID->value] ?? null]);
     }
 
@@ -168,7 +168,7 @@ final readonly class PrincipalSwitch
     private function switchOn(EloquentDevice&Model $device, #[\SensitiveParameter] array $presented): AuthenticationFailed|SwitchedPrincipal
     {
         $now     = CarbonImmutable::now()->startOfSecond();
-        $verdict = WriteConnection::during($device, static fn (): ?string => $device->getGuard()) === $this->guard->getName()
+        $verdict = WriteConnection::during($device, static fn (): ?string => $device->getGuard()) === $this->context->name()
             ? RefreshJudgement::classify($device, $presented[0], $now, $this->tokens->lifetimes())
             : FailureReason::DEVICE_GUARD_MISMATCH;
 
@@ -199,7 +199,7 @@ final readonly class PrincipalSwitch
      */
     private function admit(EloquentDevice&Model $device): Admitted|AuthenticationFailed
     {
-        $admitted = (new RefreshAdmission($this->guard->getName(), $this->guard->getProvider(), $this->guard->getPrincipalResolver()))
+        $admitted = (new RefreshAdmission($this->context->name(), $this->context->provider(), $this->context->resolver()))
             ->admit($device, $this->target->getPrincipalIdentifier() ?? '');
 
         if ($admitted instanceof Admitted) {
@@ -207,7 +207,7 @@ final readonly class PrincipalSwitch
         }
 
         return $admitted instanceof Refused
-            ? self::refused($admitted->reason, $this->context($device, $admitted))
+            ? self::refused($admitted->reason, $this->eventContext($device, $admitted))
             : $admitted;
     }
 
@@ -259,7 +259,7 @@ final readonly class PrincipalSwitch
     private function admitWithType(Admitted $admitted, string $type): ?FailureReason
     {
         $audience = Container::getInstance()->make(AudiencePolicy::class);
-        $guard    = $this->guard->getName();
+        $guard    = $this->context->name();
 
         return $audience->admitIdentifier($guard, $admitted->identity, $type)
             ?? $audience->admit($guard, $admitted->identity, $admitted->principal, $type);
@@ -293,7 +293,7 @@ final readonly class PrincipalSwitch
     private function requiresAdditionalFactor(Admitted $admitted, EloquentDevice&Model $device): bool
     {
         return Container::getInstance()->make(AdditionalFactorPolicy::class)->requiresAdditionalFactor(new AdditionalFactorContext(
-            $this->guard->getName(),
+            $this->context->name(),
             $admitted->identity,
             $admitted->principal,
             $admitted->tenant,
@@ -335,7 +335,7 @@ final readonly class PrincipalSwitch
 
         return $refusal === null
             ? $this->rotateTo($device, $admitted, $presented, $deadlines, $now)
-            : self::refused($refusal, $this->context($device, $admitted));
+            : self::refused($refusal, $this->eventContext($device, $admitted));
     }
 
     /**
@@ -397,7 +397,7 @@ final readonly class PrincipalSwitch
             && (self::isLastRotationASwitch($device) || IdentifierCoercion::matches($admitted->principal->getPrincipalIdentifier(), $presented[1]));
 
         if (!$honoured) {
-            return self::refused(FailureReason::ROTATION_CONFLICT, $this->context($device, $admitted));
+            return self::refused(FailureReason::ROTATION_CONFLICT, $this->eventContext($device, $admitted));
         }
 
         $now    = CarbonImmutable::now()->startOfSecond();
@@ -433,7 +433,7 @@ final readonly class PrincipalSwitch
 
         if ($fresh === null) {
             return self::refused(FailureReason::DEVICE_UNKNOWN, new EventContext(
-                $this->guard->getName(),
+                $this->context->name(),
                 $this->client,
                 deviceId: IdentifierCoercion::stringify($device->getDeviceIdentifier()),
             ));
@@ -453,7 +453,7 @@ final readonly class PrincipalSwitch
 
         return $refusal === null
             ? $this->retry($fresh, $admitted->on($fresh), $presented)
-            : self::refused($refusal, $this->context($fresh, $admitted));
+            : self::refused($refusal, $this->eventContext($fresh, $admitted));
     }
 
     /**
@@ -470,7 +470,7 @@ final readonly class PrincipalSwitch
      */
     private function deadlines(EloquentDevice&Model $device, Principal $target, CarbonImmutable $now): array
     {
-        $lifetimes = Container::getInstance()->make(AudiencePolicy::class)->lifetimes($this->guard->getName(), $target);
+        $lifetimes = Container::getInstance()->make(AudiencePolicy::class)->lifetimes($this->context->name(), $target);
         $stored    = CarbonImmutable::instance($device->getAbsoluteExpiresAt() ?? $now);
         $signedIn  = $device->getSignedInAt();
         $absolute  = $signedIn === null ? $stored : $stored->min($lifetimes->absoluteDeadline($signedIn));
@@ -515,7 +515,7 @@ final readonly class PrincipalSwitch
             ($this->revoke)($device, $now);
         }
 
-        return self::refused($reason, $this->context($device));
+        return self::refused($reason, $this->eventContext($device));
     }
 
     /**
@@ -531,10 +531,10 @@ final readonly class PrincipalSwitch
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused|null  $outcome
      * @return \SineMacula\Laravel\Authentication\Events\EventContext
      */
-    private function context(EloquentDevice&Model $device, Admitted|Refused|null $outcome = null): EventContext
+    private function eventContext(EloquentDevice&Model $device, Admitted|Refused|null $outcome = null): EventContext
     {
         return new EventContext(
-            $this->guard->getName(),
+            $this->context->name(),
             $this->client,
             $outcome?->identity,
             $outcome?->principal,

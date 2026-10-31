@@ -19,8 +19,8 @@ use Tests\TestCase;
  * Feature tests of the credential timebox of one guard instance, which serves a
  * whole request, console command or queue worker: a check that succeeds ends
  * its own wait early, and every check after it waits out the box again when it
- * fails, whether it is `validate()`, `attempt()` or a check run through
- * `timeboxed()` (a password reset, a reauthentication).
+ * fails, whether it is `validate()`, `attempt()` or a check run in the
+ * context's timebox (a password reset, a reauthentication).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -114,8 +114,9 @@ final class CredentialTimeboxTest extends TestCase
     }
 
     /**
-     * A check run through `timeboxed()` that does not end the box early waits
-     * it out, though an earlier one on the same guard ended its own early.
+     * A check run in the context's timebox that does not end the box early
+     * waits it out, though an earlier one on the same guard ended its own
+     * early.
      *
      * @return void
      *
@@ -125,8 +126,8 @@ final class CredentialTimeboxTest extends TestCase
     {
         $guard = $this->freshGuard('web');
 
-        self::assertSame('reset', $guard->timeboxed(static fn (Timebox $timebox): string => $timebox->returnEarly() === $timebox ? 'reset' : 'not reset'));
-        self::assertSame('invalid', $guard->timeboxed(static fn (): string => 'invalid'));
+        self::assertSame('reset', $guard->context()->timebox()->run(static fn (Timebox $timebox): string => $timebox->returnEarly() === $timebox ? 'reset' : 'not reset'));
+        self::assertSame('invalid', $guard->context()->timebox()->run(static fn (): string => 'invalid'));
 
         self::assertSame([true, false], $this->box->endedEarly);
         self::assertCount(1, $this->box->waits);

@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyService;
 use SineMacula\Laravel\Authentication\Passwords\PasswordService;
+use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 
 /**
@@ -148,11 +149,14 @@ class AuthManager extends IlluminateAuthManager
      * @param  ?string  $guard
      * @return \SineMacula\Laravel\Authentication\Passwords\PasswordService
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
     public function passwords(?string $guard = null): PasswordService
     {
-        return new PasswordService($this->jwtGuard($guard, 'password service'), $this->app);
+        $context = $this->jwtGuard($guard, 'password service')->context();
+
+        return new PasswordService($context, SessionRevocations::forContext($context, $this->app), $this->app);
     }
 
     /**
@@ -198,7 +202,7 @@ class AuthManager extends IlluminateAuthManager
      */
     public function identifierChanges(?string $guard = null): IdentifierChangeService
     {
-        return new IdentifierChangeService($this->jwtGuard($guard, 'identifier change service'), $this->app);
+        return new IdentifierChangeService($this->jwtGuard($guard, 'identifier change service')->context(), $this->app);
     }
 
     /**
