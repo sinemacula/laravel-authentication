@@ -4,12 +4,15 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Runtime;
 
+use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
@@ -26,6 +29,7 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Resolvers\CountingPrincipalResolver;
 use Tests\Fixtures\Resolvers\IdentityAsPrincipalResolver;
 use Tests\TestCase;
+use Tests\Unit\Stubs\StubCredentialGuard;
 
 /**
  * Feature tests of a guard's execution context: the one copy of the guard's
@@ -121,6 +125,35 @@ final class GuardContextTest extends TestCase
         $guard->context()->dispatch($event);
 
         self::assertSame($after, $guard->context()->events());
+    }
+
+    /**
+     * A guard type built on the base guard runs on its context too: an identity
+     * it binds itself is announced to the dispatcher the context holds then,
+     * and a principal it resolves comes from the context's resolver as it is
+     * then.
+     *
+     * @return void
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    public function testAGuardTypeRunsOnItsContextAsItIsThen(): void
+    {
+        $identity  = $this->seedIdentity();
+        $guard     = new StubCredentialGuard('custom', \Mockery::mock(IdentityProvider::class), new CountingPrincipalResolver, app('events'), Request::create('/'), new Timebox);
+        $resolver  = new CountingPrincipalResolver;
+        $announced = \Mockery::mock(Dispatcher::class);
+
+        $announced->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof Authenticated && $event->guard === 'custom' && $event->user === $identity));
+
+        $guard->setDispatcher($announced);
+        $guard->setPrincipalResolver($resolver);
+        $guard->bindIdentity($identity);
+
+        self::assertSame($identity, $guard->principalFor($identity));
+        self::assertSame(1, $resolver->calls);
     }
 
     /**

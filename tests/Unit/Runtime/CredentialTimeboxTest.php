@@ -182,7 +182,7 @@ final class CredentialTimeboxTest extends TestCase
 
     /**
      * A budget that is not positive, or not an integer, falls back to the
-     * default.
+     * default, quietly: reading it raises no warning.
      *
      * @param  mixed  $configured
      * @param  int  $budget
@@ -193,7 +193,15 @@ final class CredentialTimeboxTest extends TestCase
     {
         self::configure(['credentials_microseconds' => $configured]);
 
-        self::assertSame($budget, (new CredentialTimebox(new Timebox))->microseconds());
+        set_error_handler(static function (int $level, string $message): never {
+            throw new \ErrorException($message, 0, $level);
+        });
+
+        try {
+            self::assertSame($budget, (new CredentialTimebox(new Timebox))->microseconds());
+        } finally {
+            restore_error_handler();
+        }
     }
 
     /**
