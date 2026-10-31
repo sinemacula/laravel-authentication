@@ -28,7 +28,7 @@ final readonly class ExchangedRefresh
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @param  \SineMacula\Laravel\Authentication\Jwt\RefreshResult  $tokens
+     * @param  \SineMacula\Laravel\Authentication\Jwt\TokenPair  $tokens
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?string  $method
      */
@@ -44,7 +44,7 @@ final readonly class ExchangedRefresh
         public EloquentDevice&Model $device,
 
         /** Newly issued access + refresh token pair. */
-        public RefreshResult $tokens,
+        public TokenPair $tokens,
 
         /** Tenant the principal acts within, as its activity check loaded it, if any. */
         public ?Tenant $tenant = null,

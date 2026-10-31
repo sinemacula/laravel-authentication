@@ -14,10 +14,11 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
@@ -150,9 +151,9 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
         $refreshToken = $jwtService->issueRefreshToken($device, $plainRotationId);
 
         $staffGuard = $this->guard(self::STAFF_GUARD);
-        $result     = $staffGuard->refresh($refreshToken);
+        $result     = GuardSessions::of($staffGuard)->refresh($refreshToken)->session?->tokens;
 
-        self::assertInstanceOf(RefreshResult::class, $result);
+        self::assertInstanceOf(TokenPair::class, $result);
         self::assertTrue($this->guardForBearer(self::STAFF_GUARD, $result->accessToken)->check());
         self::assertFalse($this->guardForBearer(self::CUSTOMER_GUARD, $result->accessToken)->check());
     }

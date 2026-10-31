@@ -23,7 +23,6 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
-use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Models\Device as DeviceModel;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
@@ -567,12 +566,6 @@ final class SessionRevocationsTest extends TestCase
             Request::create('/logout', 'POST', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $session->tokens->accessToken]),
             new Timebox,
             Auth::jwt('api'),
-            static fn (GuardContext $context): RefreshTokenExchange => new RefreshTokenExchange(
-                Auth::jwt('api'),
-                $context,
-                app(ConnectionResolverInterface::class),
-                static fn (): mixed => app('db.transactions'),
-            ),
             static function (GuardContext $context) use (&$built): SessionRevocations {
                 $built[] = $context;
 

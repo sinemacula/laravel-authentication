@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\PrefixedKeyDevice;
 use Tests\Integration\Fixtures\PrefixedKeyDeviceIdentity;
 use Tests\TestCase;
@@ -151,8 +152,8 @@ final class DeviceKeyValidationIntegrationTest extends TestCase
             $reasons[] = $event->reason;
         });
 
-        self::assertNotNull($this->refreshGuard()->refresh($this->authManager()->jwt('api')->issueRefreshToken($valid, self::ROTATION_ID, $identity)));
-        self::assertNull($this->refreshGuard()->refresh($this->authManager()->jwt('api')->issueRefreshToken($legacy, self::ROTATION_ID, $identity)));
+        self::assertNotNull(GuardSessions::of($this->refreshGuard())->refresh($this->authManager()->jwt('api')->issueRefreshToken($valid, self::ROTATION_ID, $identity))->session);
+        self::assertNull(GuardSessions::of($this->refreshGuard())->refresh($this->authManager()->jwt('api')->issueRefreshToken($legacy, self::ROTATION_ID, $identity))->session);
         self::assertSame([FailureReason::DEVICE_UNKNOWN], $reasons);
 
         self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), PrefixedKeyDevice::query()->findOrFail(self::LEGACY_KEY)->getRefreshKey());

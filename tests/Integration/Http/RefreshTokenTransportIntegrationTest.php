@@ -21,7 +21,6 @@ use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
@@ -68,16 +67,12 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
         $this->createSessionTables();
 
         Route::post('/auth/{guard}/refresh', static function (string $guard): JsonResponse {
-            $jwt = Auth::manager()->guard($guard);
-
-            assert($jwt instanceof JwtGuard);
-
-            $result = $jwt->refreshFromRequest();
+            $result = Auth::sessions($guard)->refreshFromRequest();
 
             return match (true) {
-                $result instanceof RefreshResult => new JsonResponse(['source' => $result->source?->value, 'refresh_token' => $result->refreshToken]),
-                $result === null                 => new JsonResponse(['reason' => null], 400),
-                default                          => new JsonResponse(['reason' => $result->value], 401),
+                $result === null          => new JsonResponse(['reason' => null], 400),
+                $result->session !== null => new JsonResponse(['source' => $result->source?->value, 'refresh_token' => $result->session->tokens->refreshToken]),
+                default                   => new JsonResponse(['reason' => $result->reason?->value], 401),
             };
         });
     }

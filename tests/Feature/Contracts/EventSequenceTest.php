@@ -9,7 +9,6 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Application;
-use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyService;
@@ -28,7 +27,6 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\Enums\ResetStatus;
 use SineMacula\Laravel\Authentication\Passwords\PasswordService;
@@ -693,7 +691,7 @@ final class EventSequenceTest extends TestCase
         $this->nameKeys($identity, $identity, $session->device);
         $this->recordSequence();
 
-        self::assertInstanceOf(RefreshResult::class, $guard->refresh($refresh));
+        self::assertTrue(self::sessionsOf($guard)->refresh($refresh)->isRefreshed());
         self::assertSame([
             'Attempting api',
             'Refreshed api i1/p1/d1',
@@ -725,9 +723,12 @@ final class EventSequenceTest extends TestCase
         $this->nameKeys($identity, $identity, $session->device);
         $this->recordSequence();
 
-        self::assertNull($this->freshGuard()->refreshFromRequest());
-        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, $this->refreshGuard(['HTTP_X_REFRESH_TOKEN' => $refresh], ['refresh_token' => $refresh])->refreshFromRequest());
-        self::assertInstanceOf(RefreshResult::class, $this->refreshGuard(['HTTP_X_REFRESH_TOKEN' => $refresh])->refreshFromRequest());
+        self::assertNull(self::sessionsOf($this->freshGuard())->refreshFromRequest());
+        self::assertSame(
+            FailureReason::REFRESH_TOKEN_CONFLICT,
+            self::sessionsOf($this->refreshGuard(['HTTP_X_REFRESH_TOKEN' => $refresh], ['refresh_token' => $refresh]))->refreshFromRequest()?->reason,
+        );
+        self::assertTrue(self::sessionsOf($this->refreshGuard(['HTTP_X_REFRESH_TOKEN' => $refresh]))->refreshFromRequest()?->isRefreshed());
         self::assertSame([
             'Attempting api',
             'Failed api -',
@@ -759,7 +760,7 @@ final class EventSequenceTest extends TestCase
         $device  = $session->device;
         $refresh = $session->tokens->refreshToken;
 
-        self::assertNotNull($this->freshGuard()->refresh($refresh));
+        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($refresh)->session);
 
         $this->moveTo($this->now->addMinute());
 
@@ -768,7 +769,7 @@ final class EventSequenceTest extends TestCase
         $this->nameKeys($identity, $identity, $device);
         $this->recordSequence();
 
-        self::assertNull($guard->refresh($refresh));
+        self::assertNull(self::sessionsOf($guard)->refresh($refresh)->session);
         self::assertSame('rotation_reuse', $device->fresh()?->getRevokedReason());
         self::assertSame([
             'Attempting api',
@@ -779,7 +780,7 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * A refresh over the client's limit is reported and answered with a 429.
+     * A refresh over the client's limit is reported and answered with its wait.
      *
      * @return void
      *
@@ -789,18 +790,15 @@ final class EventSequenceTest extends TestCase
     {
         config()->set('authentication.rate_limits.refresh.per_ip.max', 1);
 
-        self::assertNull($this->freshGuard()->refresh('not-a-token'));
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh('not-a-token')->session);
 
         $guard = $this->freshGuard();
 
         $this->recordSequence();
 
-        try {
-            $guard->refresh('not-a-token');
-            self::fail('Expected the refresh to be throttled.');
-        } catch (ThrottleRequestsException $exception) {
-            self::assertSame(429, $exception->getStatusCode());
-        }
+        $result = self::sessionsOf($guard)->refresh('not-a-token');
+
+        self::assertSame([FailureReason::RATE_LIMITED, 60], [$result->reason, $result->retryAfter]);
 
         self::assertSame([
             'Attempting api',

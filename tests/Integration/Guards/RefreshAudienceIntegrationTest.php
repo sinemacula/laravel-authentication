@@ -9,6 +9,7 @@ use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Route;
@@ -74,11 +75,13 @@ final class RefreshAudienceIntegrationTest extends TestCase
 
         Route::post('/refresh', static function (Request $request): array {
 
-            $guard = app('auth')->guard('api');
+            $result = Auth::sessions('api')->refresh($request->string('refresh_token')->toString());
 
-            assert($guard instanceof JwtGuard);
+            if ($result->reason === FailureReason::RATE_LIMITED) {
+                throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $result->retryAfter]);
+            }
 
-            return ['refreshed' => $guard->refresh($request->string('refresh_token')->toString()) !== null];
+            return ['refreshed' => $result->isRefreshed()];
         });
     }
 
@@ -115,7 +118,7 @@ final class RefreshAudienceIntegrationTest extends TestCase
         $this->seedIdentity();
 
         $session = $this->signIn();
-        $replay  = $this->freshGuard()->refresh($session->tokens->refreshToken);
+        $replay  = self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session?->tokens;
 
         self::assertNotNull($replay);
 
@@ -123,7 +126,7 @@ final class RefreshAudienceIntegrationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class, DeviceRevoked::class]);
 
-        self::assertNull($this->freshGuard()->refresh($session->tokens->refreshToken));
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
         self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
         self::assertSame(FailureReason::DEVICE_GUARD_MISMATCH, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertNull($this->stored($session)->getRevokedAt());
@@ -134,7 +137,7 @@ final class RefreshAudienceIntegrationTest extends TestCase
 
         $this->bearer($replay->accessToken)->assertOk()->assertJson(['device' => $session->device->getKey()]);
 
-        self::assertNotNull($this->freshGuard()->refresh($replay->refreshToken));
+        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($replay->refreshToken)->session);
     }
 
     /**
@@ -156,12 +159,12 @@ final class RefreshAudienceIntegrationTest extends TestCase
         $this->bindAudience(allowsMethod: false);
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertNull($this->freshGuard()->refresh($session->tokens->refreshToken));
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
         self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->recordedEvent(AuthenticationFailed::class)->reason);
 
         app()->instance(AudiencePolicy::class, $allowed);
 
-        self::assertNotNull($this->freshGuard()->refresh($session->tokens->refreshToken));
+        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
     }
 
     /**
@@ -181,7 +184,7 @@ final class RefreshAudienceIntegrationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertNull($this->freshGuard()->refresh($session->tokens->refreshToken));
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
         self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->recordedEvent(AuthenticationFailed::class)->reason);
     }
 
@@ -202,7 +205,7 @@ final class RefreshAudienceIntegrationTest extends TestCase
         $this->bindAudience(admit: FailureReason::PRINCIPAL_INELIGIBLE);
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertNull($this->freshGuard()->refresh($session->tokens->refreshToken));
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertNull($this->stored($session)->getRevokedAt());
     }
@@ -223,7 +226,7 @@ final class RefreshAudienceIntegrationTest extends TestCase
 
         $this->bindAudience(lifetimes: new TokenLifetimes(5, 30, 60 * 24, 30));
 
-        self::assertNotNull($this->freshGuard()->refresh($session->tokens->refreshToken));
+        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
         self::assertSame(
             CarbonImmutable::now()->addMinutes(30)->getTimestamp(),
             $this->stored($session)->getIdleExpiresAt()?->getTimestamp(),
@@ -255,8 +258,8 @@ final class RefreshAudienceIntegrationTest extends TestCase
 
         app()->instance(AttemptLimiter::class, $limiter);
 
-        self::assertNotNull($this->freshGuard()->refresh($session->tokens->refreshToken));
-        self::assertNull($this->freshGuard()->refresh('not-a-refresh-token'));
+        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh('not-a-refresh-token')->session);
         self::assertCount(1, $counted);
         self::assertSame('api', $counted[0]->guard);
         self::assertSame(AttemptFlow::REFRESH, $counted[0]->flow);

@@ -140,7 +140,7 @@ final class ManagesDevicesTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertNull($this->freshGuard()->refresh($session->tokens->refreshToken));
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
         self::assertSame(FailureReason::DEVICE_REVOKED, $this->recordedEvent(AuthenticationFailed::class)->reason);
     }
 

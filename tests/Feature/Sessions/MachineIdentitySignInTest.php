@@ -260,7 +260,7 @@ final class MachineIdentitySignInTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertNull($this->freshGuard()->refresh($session->tokens->refreshToken));
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
         self::assertSame(FailureReason::MACHINE_IDENTITY, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertSame(AuthenticationFlow::REFRESH, $this->recordedEvent(AuthenticationFailed::class)->flow);
 

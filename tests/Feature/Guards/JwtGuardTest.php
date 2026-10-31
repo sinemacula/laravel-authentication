@@ -9,7 +9,6 @@ use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
-use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Timebox;
@@ -31,9 +30,9 @@ use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
 
@@ -101,16 +100,16 @@ final class JwtGuardTest extends JwtGuardTestCase
 
     /**
      * A refresh the limits refuse is counted against the request's IP address,
-     * dispatches `Attempting`, `AuthenticationFailed` (`rate_limited`) and
-     * `Failed` in that order, and then lets the 429 through instead of
-     * returning `null`.
+     * dispatches `Attempting`, `Failed` and `AuthenticationFailed`
+     * (`rate_limited`) in that order, and is returned with the wait, not
+     * thrown.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testARateLimitedRefreshFiresFailedAndThrowsA429(): void
+    public function testARateLimitedRefreshFiresFailedAndReturnsTheWait(): void
     {
         $limiter = \Mockery::mock(AttemptLimiter::class);
         $limiter->shouldReceive('blocked')
@@ -129,12 +128,9 @@ final class JwtGuardTest extends JwtGuardTestCase
 
         $guard = $this->makeGuard(Request::create('/refresh', 'POST', server: ['REMOTE_ADDR' => '203.0.113.9']));
 
-        try {
-            $guard->refresh('not-a-jwt');
-            self::fail('Expected a rate-limited refresh to throw.');
-        } catch (ThrottleRequestsException $exception) {
-            self::assertSame(['Retry-After' => 30], $exception->getHeaders());
-        }
+        $result = GuardSessions::of($guard)->refresh('not-a-jwt');
+
+        self::assertSame([FailureReason::RATE_LIMITED, 30], [$result->reason, $result->retryAfter]);
 
         self::assertSame([Attempting::class, Failed::class, AuthenticationFailed::class], array_map(static fn (object $event): string => $event::class, $dispatched));
         self::assertInstanceOf(Failed::class, $dispatched[1]);
@@ -196,7 +192,7 @@ final class JwtGuardTest extends JwtGuardTestCase
 
         $this->events->shouldNotReceive('dispatch');
 
-        self::assertNull($this->makeGuard(Request::create('/auth/refresh', 'POST'))->refreshFromRequest());
+        self::assertNull(GuardSessions::of($this->makeGuard(Request::create('/auth/refresh', 'POST')))->refreshFromRequest());
     }
 
     /**
@@ -218,7 +214,7 @@ final class JwtGuardTest extends JwtGuardTestCase
         $request    = Request::create('/auth/refresh', 'POST', ['refresh_token' => 'a'], server: $server);
         $guard      = $this->makeGuard($request);
 
-        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, $guard->refreshFromRequest());
+        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, GuardSessions::of($guard)->refreshFromRequest()?->reason);
         self::assertSame([Attempting::class, Failed::class, AuthenticationFailed::class], self::classesOf($dispatched));
 
         $failure = $dispatched[2];
@@ -250,7 +246,7 @@ final class JwtGuardTest extends JwtGuardTestCase
 
         $guard = $this->makeGuard(Request::create('/auth/refresh', 'POST', ['refresh_token' => 'not-a-jwt']));
 
-        self::assertSame(FailureReason::TOKEN_INVALID, $guard->refreshFromRequest());
+        self::assertSame(FailureReason::TOKEN_INVALID, GuardSessions::of($guard)->refreshFromRequest()?->reason);
         self::assertSame([Attempting::class, Failed::class, AuthenticationFailed::class], self::classesOf($dispatched));
     }
 
@@ -269,14 +265,15 @@ final class JwtGuardTest extends JwtGuardTestCase
 
         $this->events->shouldReceive('dispatch');
 
-        $read   = $this->makeGuard(Request::create('/auth/refresh', 'POST', server: ['HTTP_X_REFRESH_TOKEN' => $this->liveRefreshToken('first')]))->refreshFromRequest();
-        $passed = $this->makeGuard(Request::create('/auth/refresh', 'POST'))->refresh($this->liveRefreshToken('second'));
+        $header = Request::create('/auth/refresh', 'POST', server: ['HTTP_X_REFRESH_TOKEN' => $this->liveRefreshToken('first')]);
+        $read   = GuardSessions::of($this->makeGuard($header))->refreshFromRequest();
+        $passed = GuardSessions::of($this->makeGuard(Request::create('/auth/refresh', 'POST')))->refresh($this->liveRefreshToken('second'));
 
-        self::assertInstanceOf(RefreshResult::class, $read);
+        self::assertTrue($read?->isRefreshed());
         self::assertSame(RefreshTokenSource::HEADER, $read->source);
-        self::assertNotSame('', $read->accessToken);
-        self::assertSame(TokenType::REFRESH->value, $this->tokens->parse($read->refreshToken, TokenType::REFRESH)[Claims::TYPE->value] ?? null);
-        self::assertInstanceOf(RefreshResult::class, $passed);
+        self::assertNotSame('', $read->session?->tokens->accessToken);
+        self::assertSame(TokenType::REFRESH->value, $this->tokens->parse((string) $read->session?->tokens->refreshToken, TokenType::REFRESH)[Claims::TYPE->value] ?? null);
+        self::assertTrue($passed->isRefreshed());
         self::assertNull($passed->source);
     }
 
@@ -301,7 +298,7 @@ final class JwtGuardTest extends JwtGuardTestCase
         $before     = [];
 
         DB::transaction(static function () use ($guard, $dispatched, &$before): void {
-            self::assertInstanceOf(RefreshResult::class, $guard->refreshFromRequest());
+            self::assertTrue(GuardSessions::of($guard)->refreshFromRequest()?->isRefreshed());
 
             $before = self::classesOf($dispatched);
         });
@@ -345,6 +342,7 @@ final class JwtGuardTest extends JwtGuardTestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
+     * @throws \Throwable
      */
     #[DataProvider('provideBindEvents')]
     public function testARefreshWhoseBindListenerThrowsIsStillReported(string $bindEvent): void
@@ -365,7 +363,7 @@ final class JwtGuardTest extends JwtGuardTestCase
         $token = $this->liveRefreshToken('rotation');
 
         try {
-            $guard->refresh($token);
+            GuardSessions::of($guard)->refresh($token);
             self::fail('Expected the listener to throw.');
         } catch (\RuntimeException $exception) {
             self::assertSame('listener failed', $exception->getMessage());

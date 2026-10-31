@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\RenamedKeyDevice;
 use Tests\Integration\Fixtures\RenamedKeyDeviceIdentity;
 use Tests\TestCase;
@@ -114,7 +115,7 @@ final class DeviceIdentifierRoundTripIntegrationTest extends TestCase
     {
         [$identity, $device] = $this->seedIdentityWithDevice();
 
-        $tokens = $this->guard()->refresh($this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity));
+        $tokens = GuardSessions::of($this->guard())->refresh($this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity))->session?->tokens;
 
         self::assertNotNull($tokens);
         self::assertNotSame(RefreshTokenHasher::hash(self::ROTATION_ID), RenamedKeyDevice::query()->whereKey($device->getKey())->firstOrFail()->getRefreshKey());

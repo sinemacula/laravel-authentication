@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Concerns\InteractsWithTypedPrincipals;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\TypedIdentity;
 use Tests\Integration\Fixtures\TypedMembership;
 use Tests\Integration\Fixtures\TypedTenant;
@@ -180,7 +181,7 @@ final class PrincipalTypeIntegrationTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $guard);
 
-        $result = $guard->refresh($refreshToken);
+        $result = GuardSessions::of($guard)->refresh($refreshToken)->session?->tokens;
 
         self::assertNotNull($result);
         self::assertSame('client_staff', $this->claims($result->accessToken)[Claims::PRINCIPAL_TYPE->value]);

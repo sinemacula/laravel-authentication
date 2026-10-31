@@ -190,12 +190,12 @@ final class EventSequenceTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertNotNull($guard->refresh($refresh));
+        self::assertNotNull(self::sessionsOf($guard)->refresh($refresh)->session);
 
         DB::rollBack();
 
         self::assertSame(['Attempting api', ...self::BIND], $this->recordedSequence());
-        self::assertNotNull($this->freshGuard()->refresh($refresh));
+        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($refresh)->session);
     }
 
     /**

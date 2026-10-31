@@ -26,12 +26,13 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
@@ -123,13 +124,13 @@ final class RefreshReplayIntegrationTest extends TestCase
         $winner = null;
 
         $this->beforeTheSwap(function () use ($token, &$winner): void {
-            $winner = $this->guard()->refresh($token);
+            $winner = GuardSessions::of($this->guard())->refresh($token)->session?->tokens;
         });
 
-        $loser = $this->guard()->refresh($token);
+        $loser = GuardSessions::of($this->guard())->refresh($token)->session?->tokens;
 
-        self::assertInstanceOf(RefreshResult::class, $winner);
-        self::assertInstanceOf(RefreshResult::class, $loser);
+        self::assertInstanceOf(TokenPair::class, $winner);
+        self::assertInstanceOf(TokenPair::class, $loser);
         self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->claims($winner->refreshToken)[Claims::JWT_ID->value]);
         self::assertSame($this->claims($winner->refreshToken)[Claims::JWT_ID->value], $this->claims($loser->refreshToken)[Claims::JWT_ID->value]);
         self::assertNull($this->stored($device)->getRevokedAt());
@@ -154,11 +155,11 @@ final class RefreshReplayIntegrationTest extends TestCase
         $winner = null;
 
         $this->beforeTheSwap(function () use ($token, &$winner): void {
-            $winner = $this->guard()->refresh($token);
+            $winner = GuardSessions::of($this->guard())->refresh($token)->session?->tokens;
         });
 
-        self::assertNull($this->guard()->refresh($token));
-        self::assertInstanceOf(RefreshResult::class, $winner);
+        self::assertNull(GuardSessions::of($this->guard())->refresh($token)->session);
+        self::assertInstanceOf(TokenPair::class, $winner);
         self::assertSame('rotation_reuse', $this->stored($device)->getRevokedReason());
     }
 
@@ -178,7 +179,7 @@ final class RefreshReplayIntegrationTest extends TestCase
         [$identity, $device] = $this->signIn();
 
         $stolen = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
-        $pair   = $this->guard()->refresh($stolen);
+        $pair   = GuardSessions::of($this->guard())->refresh($stolen)->session?->tokens;
 
         self::assertNotNull($pair);
 
@@ -199,14 +200,14 @@ final class RefreshReplayIntegrationTest extends TestCase
             $failed->append([$event->flow, $event->reason]);
         });
 
-        self::assertNull($this->guard()->refresh($stolen));
+        self::assertNull(GuardSessions::of($this->guard())->refresh($stolen)->session);
         self::assertCount(1, $revoked);
         self::assertSame($device->getKey(), $revoked->getArrayCopy()[0]->context->device?->getDeviceIdentifier());
         self::assertSame([[AuthenticationFlow::REFRESH, FailureReason::ROTATION_REUSE]], $failed->getArrayCopy());
 
         $this->bearer($pair->accessToken)->assertUnauthorized();
 
-        self::assertNull($this->guard()->refresh($pair->refreshToken));
+        self::assertNull(GuardSessions::of($this->guard())->refresh($pair->refreshToken)->session);
         self::assertSame([
             [AuthenticationFlow::REFRESH, FailureReason::ROTATION_REUSE],
             [AuthenticationFlow::BEARER, FailureReason::DEVICE_REVOKED],
@@ -237,12 +238,12 @@ final class RefreshReplayIntegrationTest extends TestCase
 
         $stolen = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
 
-        self::assertNotNull($this->guard()->refresh($stolen));
+        self::assertNotNull(GuardSessions::of($this->guard())->refresh($stolen)->session);
         self::assertSame($before, array_map($this->rawRow(...), $others));
 
         $this->moveClockTo($this->now->copy()->addMinute());
 
-        self::assertNull($this->guard()->refresh($stolen));
+        self::assertNull(GuardSessions::of($this->guard())->refresh($stolen)->session);
         self::assertSame('rotation_reuse', $this->stored($device)->getRevokedReason());
         self::assertSame($before, array_map($this->rawRow(...), $others));
 
@@ -250,7 +251,7 @@ final class RefreshReplayIntegrationTest extends TestCase
 
             $this->bearer($this->tokens()->issueAccessToken($owner, $owner, $other))->assertOk()->assertJson(['device' => $other->getKey()]);
 
-            self::assertNotNull($this->guard()->refresh($this->tokens()->issueRefreshToken($other, $rotationId, $owner)));
+            self::assertNotNull(GuardSessions::of($this->guard())->refresh($this->tokens()->issueRefreshToken($other, $rotationId, $owner))->session);
             self::assertNull($this->stored($other)->getRevokedAt());
         }
     }
@@ -264,6 +265,7 @@ final class RefreshReplayIntegrationTest extends TestCase
      * @return void
      *
      * @throws \Random\RandomException
+     * @throws \Throwable
      */
     public function testLostResponseIsRecoverableInsideTheGraceWindowOnly(): void
     {
@@ -281,7 +283,7 @@ final class RefreshReplayIntegrationTest extends TestCase
         });
 
         try {
-            $this->guard()->refresh($token);
+            GuardSessions::of($this->guard())->refresh($token);
 
             self::fail('The listener failure should have propagated.');
         } catch (\RuntimeException $exception) {
@@ -290,14 +292,14 @@ final class RefreshReplayIntegrationTest extends TestCase
 
         $this->moveClockTo($this->now->copy()->addSeconds(20));
 
-        $retry = $this->guard()->refresh($token);
+        $retry = GuardSessions::of($this->guard())->refresh($token)->session?->tokens;
 
         self::assertNotNull($retry);
         self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->claims($retry->refreshToken)[Claims::JWT_ID->value]);
 
         $this->moveClockTo($this->now->copy()->addSeconds(30));
 
-        self::assertNull($this->guard()->refresh($token));
+        self::assertNull(GuardSessions::of($this->guard())->refresh($token)->session);
         self::assertSame('rotation_reuse', $this->stored($device)->getRevokedReason());
     }
 
@@ -328,7 +330,7 @@ final class RefreshReplayIntegrationTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertNull($this->guard()->refresh($replay));
+        self::assertNull(GuardSessions::of($this->guard())->refresh($replay)->session);
         self::assertCount(0, $revoked);
 
         DB::rollBack();
@@ -336,7 +338,7 @@ final class RefreshReplayIntegrationTest extends TestCase
         self::assertCount(0, $revoked);
         self::assertNull($this->stored($device)->getRevokedAt());
 
-        DB::transaction(fn () => $this->guard()->refresh($replay));
+        DB::transaction(fn () => GuardSessions::of($this->guard())->refresh($replay));
 
         self::assertCount(1, $revoked);
         self::assertSame('rotation_reuse', $this->stored($device)->getRevokedReason());
@@ -382,7 +384,7 @@ final class RefreshReplayIntegrationTest extends TestCase
         }
 
         try {
-            $result = $this->guard()->refresh($token);
+            $result = GuardSessions::of($this->guard())->refresh($token)->session?->tokens;
 
             DB::commit();
         } catch (QueryException $exception) {

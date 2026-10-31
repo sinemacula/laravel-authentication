@@ -11,6 +11,7 @@ use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -23,7 +24,6 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -114,15 +114,15 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         Route::post('/refresh', static function (Request $request): array {
 
-            $guard = app('auth')->guard('members');
+            $result = Auth::sessions('members')->refresh($request->string('refresh_token')->toString());
 
-            assert($guard instanceof JwtGuard);
+            if ($result->reason === FailureReason::RATE_LIMITED) {
+                throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $result->retryAfter]);
+            }
 
-            $pair = $guard->refresh($request->string('refresh_token')->toString());
+            abort_if($result->session === null, 401);
 
-            abort_if($pair === null, 401);
-
-            return ['refresh_token' => $pair->refreshToken];
+            return ['refresh_token' => $result->session->tokens->refreshToken];
         });
 
         Route::get('/verify', static fn (Request $request): array => ['outcome' => app(VerificationLinks::class)->consume($request)->value])->name('verify');
@@ -603,7 +603,7 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertNull($this->freshGuard('members')->refresh($session->tokens->refreshToken));
+        self::assertNull(self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken)->session);
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertNull(self::stored($session)->getRevokedAt());
     }

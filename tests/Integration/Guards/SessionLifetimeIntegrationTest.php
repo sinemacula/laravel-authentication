@@ -31,6 +31,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
@@ -219,7 +220,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
         $this->moveClockTo($later);
 
-        $pair = $this->guard()->refresh($token);
+        $pair = GuardSessions::of($this->guard())->refresh($token)->session?->tokens;
 
         self::assertNotNull($pair);
 
@@ -259,7 +260,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
         $this->bearer($access, '/brief')->assertOk()->assertExactJson(['device' => $device->getKey()]);
 
-        $pair = $this->guard(self::BRIEF)->refresh($refresh);
+        $pair = GuardSessions::of($this->guard(self::BRIEF))->refresh($refresh)->session?->tokens;
 
         self::assertNotNull($pair);
         self::assertSame($refreshedAt->getTimestamp() + 120, $this->claims($pair->accessToken, TokenType::ACCESS, self::BRIEF)[Claims::EXPIRES_AT->value]);
@@ -294,7 +295,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
             $this->moveClockTo($this->signedInAt->copy()->addMinutes($minutes));
 
-            $pair = $this->guard()->refresh($token);
+            $pair = GuardSessions::of($this->guard())->refresh($token)->session?->tokens;
 
             self::assertNotNull($pair);
 
@@ -305,7 +306,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
         $this->moveClockTo($nearTheEnd);
 
-        $pair = $this->guard()->refresh($token);
+        $pair = GuardSessions::of($this->guard())->refresh($token)->session?->tokens;
 
         self::assertNotNull($pair);
         self::assertSame($absolute->getTimestamp(), $this->stored($device)->getIdleExpiresAt()?->getTimestamp());
@@ -363,7 +364,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
         $before = $this->storedRow($device);
 
         if ($succeeds) {
-            self::assertNotNull($this->guard()->refresh($token));
+            self::assertNotNull(GuardSessions::of($this->guard())->refresh($token)->session);
 
             return;
         }
@@ -468,7 +469,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
         self::assertNull($this->stored($device)->getRevokedAt());
         self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), $this->stored($device)->getRefreshKey());
 
-        $pair = $this->guard()->refresh($token);
+        $pair = GuardSessions::of($this->guard())->refresh($token)->session?->tokens;
 
         self::assertNotNull($pair);
         self::assertSame($shortened->getTimestamp(), $this->stored($device)->getAbsoluteExpiresAt()?->getTimestamp());
@@ -604,7 +605,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
             $reasons[] = $event->reason;
         });
 
-        self::assertNull($this->guard()->refresh($token));
+        self::assertNull(GuardSessions::of($this->guard())->refresh($token)->session);
 
         return $reasons[0] ?? null;
     }

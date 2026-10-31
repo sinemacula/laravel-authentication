@@ -21,7 +21,6 @@ use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use Symfony\Component\HttpFoundation\Cookie;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
@@ -246,22 +245,16 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
      */
     private static function refreshRoute(string $guard): JsonResponse
     {
-        $jwt = Auth::manager()->guard($guard);
+        $result = Auth::sessions($guard)->refreshFromRequest();
 
-        assert($jwt instanceof JwtGuard);
-
-        $result = $jwt->refreshFromRequest();
-
-        if (!$result instanceof RefreshResult) {
-            return new JsonResponse(['reason' => $result?->value], 401);
+        if ($result?->session === null) {
+            return new JsonResponse(['reason' => $result?->reason?->value], 401);
         }
 
-        $device = $jwt->device();
+        assert($result->source === RefreshTokenSource::COOKIE);
 
-        assert($device !== null && $result->source === RefreshTokenSource::COOKIE);
-
-        return (new JsonResponse(['access_token' => $result->accessToken, 'source' => $result->source->value]))
-            ->withCookie(Auth::refreshTransport($guard)->cookie($result->refreshToken, $device));
+        return (new JsonResponse(['access_token' => $result->session->tokens->accessToken, 'source' => $result->source->value]))
+            ->withCookie(Auth::refreshTransport($guard)->cookie($result->session->tokens->refreshToken, $result->session->device));
     }
 
     /**

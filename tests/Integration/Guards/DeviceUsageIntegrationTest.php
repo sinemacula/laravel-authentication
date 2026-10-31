@@ -25,6 +25,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
@@ -190,7 +191,7 @@ final class DeviceUsageIntegrationTest extends TestCase
         [$identity, $device] = $this->seedIdentityWithDevice();
 
         Route::post('/refresh', function (): array {
-            $tokens = $this->guard()->refresh(request()->string('refresh_token')->toString());
+            $tokens = GuardSessions::of($this->guard())->refresh(request()->string('refresh_token')->toString())->session?->tokens;
 
             return ['refreshed' => $tokens !== null];
         });
@@ -226,7 +227,7 @@ final class DeviceUsageIntegrationTest extends TestCase
 
         $before = array_map($this->storedUsage(...), $others);
 
-        Route::post('/refresh', fn (): array => ['refreshed' => $this->guard()->refresh(request()->string('refresh_token')->toString()) !== null]);
+        Route::post('/refresh', fn (): array => ['refreshed' => GuardSessions::of($this->guard())->refresh(request()->string('refresh_token')->toString())->isRefreshed()]);
 
         $this->bearerRequest($identity, $device, '203.0.113.7', 'Client/1.0')->assertOk();
 
@@ -284,7 +285,7 @@ final class DeviceUsageIntegrationTest extends TestCase
 
         $this->withHeaders(['Authorization' => 'Bearer ' . $access])->getJson('/device')->assertOk()->assertJsonPath('id', $response->json('device'));
 
-        self::assertNotNull($this->guard()->refresh($refresh));
+        self::assertNotNull(GuardSessions::of($this->guard())->refresh($refresh)->session);
     }
 
     /**

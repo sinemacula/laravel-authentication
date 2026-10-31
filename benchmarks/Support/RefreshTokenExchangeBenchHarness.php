@@ -8,6 +8,7 @@ use Carbon\Carbon;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Container\Container;
+use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Events\Dispatcher as DispatcherContract;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Events\Dispatcher;
@@ -24,7 +25,6 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
-use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
@@ -34,6 +34,7 @@ use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
+use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 use Tests\Fixtures\Sessions\PermissiveAudiencePolicy;
 use Tests\Fixtures\Sessions\UnlimitedAttemptLimiter;
@@ -149,6 +150,7 @@ final class RefreshTokenExchangeBenchHarness
 
         $container = new Container;
         $container->instance('config', $config);
+        $container->instance(Repository::class, $config);
         Facade::setFacadeApplication($container);
         Container::setInstance($container);
 
@@ -193,7 +195,7 @@ final class RefreshTokenExchangeBenchHarness
         $token = $this->successTokens[$this->successIndex % count($this->successTokens)];
         $this->successIndex++;
 
-        $this->makeGuard()->refresh($token);
+        $this->sessionsOf($this->makeGuard())->refresh($token);
     }
 
     /**
@@ -205,7 +207,7 @@ final class RefreshTokenExchangeBenchHarness
      */
     public function runUnknownDeviceFailure(): void
     {
-        $this->makeGuard()->refresh($this->unknownDeviceToken);
+        $this->sessionsOf($this->makeGuard())->refresh($this->unknownDeviceToken);
     }
 
     /**
@@ -220,7 +222,7 @@ final class RefreshTokenExchangeBenchHarness
         $token = $this->rotationMismatchTokens[$this->rotationMismatchIndex % count($this->rotationMismatchTokens)];
         $this->rotationMismatchIndex++;
 
-        $this->makeGuard()->refresh($token);
+        $this->sessionsOf($this->makeGuard())->refresh($token);
     }
 
     /**
@@ -237,7 +239,7 @@ final class RefreshTokenExchangeBenchHarness
 
         $guard = $this->makeGuard($this->tenantAwareProvider);
 
-        $guard->refresh($token);
+        $this->sessionsOf($guard)->refresh($token);
         $guard->principal()?->getIdentity();
         $guard->tenant();
         $guard->type();
@@ -257,7 +259,7 @@ final class RefreshTokenExchangeBenchHarness
 
         $guard = $this->makeGuard($this->tenantAwareProvider);
 
-        $guard->refresh($token);
+        $this->sessionsOf($guard)->refresh($token);
         $guard->principal()?->getIdentity();
         $guard->tenant();
         $guard->type();
@@ -518,13 +520,13 @@ final class RefreshTokenExchangeBenchHarness
      */
     private function assertEachPathReachesItsOutcome(): void
     {
-        BenchOutcome::assert('refresh success', $this->makeGuard()->refresh($this->successCheckToken) !== null);
+        BenchOutcome::assert('refresh success', $this->sessionsOf($this->makeGuard())->refresh($this->successCheckToken)->isRefreshed());
 
         foreach ([$this->tenantAwareCheckToken, $this->tenantAwareSecondaryCheckToken] as $token) {
 
             $guard = $this->makeGuard($this->tenantAwareProvider);
 
-            BenchOutcome::assert('tenant-aware 3D refresh', $guard->refresh($token) !== null && $guard->tenant() !== null);
+            BenchOutcome::assert('tenant-aware 3D refresh', $this->sessionsOf($guard)->refresh($token)->isRefreshed() && $guard->tenant() !== null);
         }
 
         $reasons = [];
@@ -533,8 +535,8 @@ final class RefreshTokenExchangeBenchHarness
             $reasons[] = $failed->reason;
         });
 
-        $this->makeGuard()->refresh($this->unknownDeviceToken);
-        $this->makeGuard()->refresh($this->rotationMismatchCheckToken);
+        $this->sessionsOf($this->makeGuard())->refresh($this->unknownDeviceToken);
+        $this->sessionsOf($this->makeGuard())->refresh($this->rotationMismatchCheckToken);
 
         $this->events->forget(AuthenticationFailed::class);
 
@@ -560,12 +562,6 @@ final class RefreshTokenExchangeBenchHarness
             Request::create('/bench/refresh', 'POST'),
             $this->timebox,
             $this->tokens,
-            fn (GuardContext $context): RefreshTokenExchange => new RefreshTokenExchange(
-                $this->tokens,
-                $context,
-                BenchDatabase::connectionResolver(),
-                static fn (): null => null,
-            ),
             static fn (GuardContext $context): SessionRevocations => new SessionRevocations(
                 $context,
                 new DeviceRevocations(BenchDatabase::connectionResolver(), static fn (): null => null),
@@ -573,5 +569,17 @@ final class RefreshTokenExchangeBenchHarness
             ),
             BenchRequest::refreshTransport(...),
         );
+    }
+
+    /**
+     * The session service of the guard, which a refresh goes through, built as
+     * the auth manager builds one.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
+     * @return \SineMacula\Laravel\Authentication\Sessions\SessionService
+     */
+    private function sessionsOf(JwtGuard $guard): SessionService
+    {
+        return new SessionService($guard->context(), $guard, $this->tokens, Container::getInstance(), BenchDatabase::connectionResolver(), static fn (): null => null);
     }
 }

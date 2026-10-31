@@ -15,10 +15,11 @@ use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
 use Tests\Unit\Stubs\StubMappedPrincipalResolver;
@@ -126,11 +127,11 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
         $jwt = PackageAuth::jwt(self::GUARD);
 
         $guard  = $this->freshGuard();
-        $result = $guard->refresh(
+        $result = GuardSessions::of($guard)->refresh(
             $jwt->issueRefreshToken($device, $plainRotationId, $staffPrincipal),
-        );
+        )->session?->tokens;
 
-        self::assertInstanceOf(RefreshResult::class, $result);
+        self::assertInstanceOf(TokenPair::class, $result);
         self::assertSame('staff-actor', $guard->principal()?->getPrincipalIdentifier());
         self::assertSame($staffTenant, $guard->tenant());
         self::assertSame('staff', $guard->type());

@@ -17,7 +17,6 @@ use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
-use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
@@ -261,7 +260,6 @@ final class SignInBenchHarness
             BenchRequest::client()->duplicate(server: ['REQUEST_URI' => '/bench/sign-in', 'REQUEST_METHOD' => Request::METHOD_POST]),
             $this->timebox,
             $tokens,
-            static fn (GuardContext $context): RefreshTokenExchange => new RefreshTokenExchange($tokens, $context, BenchDatabase::connectionResolver(), static fn (): null => null),
             static fn (GuardContext $context): SessionRevocations => new SessionRevocations(
                 $context,
                 new DeviceRevocations(BenchDatabase::connectionResolver(), static fn (): null => null),

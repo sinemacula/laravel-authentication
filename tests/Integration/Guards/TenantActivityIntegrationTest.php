@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -205,7 +206,7 @@ final class TenantActivityIntegrationTest extends TestCase
             $reasons[] = $event->reason;
         });
 
-        self::assertNull($this->freshGuard()->refresh($refreshToken));
+        self::assertNull(GuardSessions::of($this->freshGuard())->refresh($refreshToken)->session);
         self::assertSame([FailureReason::TENANT_INACTIVE], $reasons);
 
         $fresh = Device::query()->findOrFail($device->getKey());
@@ -455,7 +456,7 @@ final class TenantActivityIntegrationTest extends TestCase
 
         $guard = $this->freshGuard()->setPrincipalResolver(new StubFixedPrincipalResolver(MorphTenantMembership::query()->findOrFail($membership->getKey())));
 
-        self::assertNull($guard->refresh($refreshToken));
+        self::assertNull(GuardSessions::of($guard)->refresh($refreshToken)->session);
         self::assertSame([FailureReason::TENANT_INACTIVE], $reasons);
 
         $fresh = Device::query()->findOrFail($device->getKey());
@@ -517,7 +518,7 @@ final class TenantActivityIntegrationTest extends TestCase
             $reasons[] = $event->reason;
         });
 
-        self::assertNull($this->freshGuard()->refresh($refreshToken));
+        self::assertNull(GuardSessions::of($this->freshGuard())->refresh($refreshToken)->session);
         self::assertSame([FailureReason::TENANT_INACTIVE], $reasons);
     }
 

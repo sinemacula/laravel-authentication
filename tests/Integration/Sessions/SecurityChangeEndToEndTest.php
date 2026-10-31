@@ -75,7 +75,7 @@ final class SecurityChangeEndToEndTest extends TestCase
 
             assert($guard instanceof JwtGuard);
 
-            return ['refreshed' => $guard->refresh($request->string('refresh_token')->toString()) !== null];
+            return ['refreshed' => self::sessionsOf($guard)->refresh($request->string('refresh_token')->toString())->isRefreshed()];
         });
 
         IntegrationIdentity::observe([RevokeDevicesOnPasswordChange::class, RevokeDevicesOnDeactivation::class]);

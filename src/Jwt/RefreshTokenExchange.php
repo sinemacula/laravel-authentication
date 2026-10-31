@@ -444,7 +444,7 @@ final readonly class RefreshTokenExchange
 
         $device->setAttribute($device->getIdleExpiresAtName(), $idle);
 
-        $tokens = new RefreshResult(
+        $tokens = new TokenPair(
             $this->tokens->issueAccessToken($session->identity, $session->principal, $device, $now),
             $this->tokens->issueRefreshToken($device, $next, $session->principal, $now),
         );
@@ -548,7 +548,7 @@ final readonly class RefreshTokenExchange
      */
     private function reissue(EloquentDevice&Model $device, Admitted $session, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): ExchangedRefresh
     {
-        $tokens = new RefreshResult(
+        $tokens = new TokenPair(
             $this->tokens->issueAccessToken($session->identity, $session->principal, $device, $now),
             $this->tokens->issueRefreshToken($device, RefreshTokenHasher::successor($rotationId), $session->principal, $now),
         );
@@ -563,10 +563,10 @@ final readonly class RefreshTokenExchange
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $session
-     * @param  \SineMacula\Laravel\Authentication\Jwt\RefreshResult  $tokens
+     * @param  \SineMacula\Laravel\Authentication\Jwt\TokenPair  $tokens
      * @return \SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
      */
-    private static function exchanged(EloquentDevice&Model $device, Admitted $session, RefreshResult $tokens): ExchangedRefresh
+    private static function exchanged(EloquentDevice&Model $device, Admitted $session, TokenPair $tokens): ExchangedRefresh
     {
         return new ExchangedRefresh($session->identity, $session->principal, $device, $tokens, $session->tenant, $device->getSignInMethod());
     }

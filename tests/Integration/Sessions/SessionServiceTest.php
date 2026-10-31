@@ -121,7 +121,7 @@ final class SessionServiceTest extends TestCase
             ->assertOk()
             ->assertJson(['identity' => $identity->getKey(), 'device' => $session->device->getKey()]);
 
-        $refreshed = $this->freshGuard()->refresh($session->tokens->refreshToken);
+        $refreshed = self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session?->tokens;
 
         self::assertNotNull($refreshed);
         $this->bearer($refreshed->accessToken)->assertOk();
@@ -145,11 +145,11 @@ final class SessionServiceTest extends TestCase
 
         $first = $this->signIn(clientName: 'Laptop', platform: 'macOS');
 
-        $rotated = $this->freshGuard()->refresh($first->tokens->refreshToken);
+        $rotated = self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken)->session?->tokens;
 
         self::assertNotNull($rotated);
 
-        $current = $this->freshGuard()->refresh($rotated->refreshToken);
+        $current = self::sessionsOf($this->freshGuard())->refresh($rotated->refreshToken)->session?->tokens;
 
         self::assertNotNull($current);
         self::assertNotNull(Device::query()->whereKey($first->device->getKey())->firstOrFail()->getPreviousRefreshKey());
@@ -188,7 +188,7 @@ final class SessionServiceTest extends TestCase
 
         Event::fake([DeviceRevoked::class]);
 
-        self::assertNull($this->freshGuard()->refresh($current->refreshToken));
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($current->refreshToken)->session);
         self::assertNotNull(Device::query()->whereKey($device->getKey())->firstOrFail()->getRevokedAt());
         Event::assertDispatched(DeviceRevoked::class);
     }
@@ -210,7 +210,7 @@ final class SessionServiceTest extends TestCase
 
         $this->advance(200 * 86400);
 
-        self::assertNull($this->freshGuard()->refresh($first->tokens->refreshToken));
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken)->session);
 
         $again = $this->signIn(refreshToken: $first->tokens->refreshToken);
 
@@ -232,7 +232,7 @@ final class SessionServiceTest extends TestCase
         $this->seedIdentity();
 
         $first     = $this->signIn();
-        $refreshed = $this->freshGuard()->refresh($first->tokens->refreshToken);
+        $refreshed = self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken)->session?->tokens;
 
         self::assertNotNull($refreshed);
 
@@ -240,7 +240,7 @@ final class SessionServiceTest extends TestCase
 
         $this->advance(3600);
 
-        $this->freshGuard()->refresh($refreshed->refreshToken);
+        self::sessionsOf($this->freshGuard())->refresh($refreshed->refreshToken);
 
         $older = $this->signIn(refreshToken: $first->tokens->refreshToken);
 
@@ -469,7 +469,7 @@ final class SessionServiceTest extends TestCase
 
         self::assertSame($key, $device->getRefreshKey());
         self::assertNull($device->getRevokedAt());
-        self::assertNotNull($this->freshGuard()->refresh($first->tokens->refreshToken));
+        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken)->session);
         self::assertNull(Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRevokedAt());
     }
 
@@ -714,7 +714,7 @@ final class SessionServiceTest extends TestCase
     private function failedRefresh(#[\SensitiveParameter] string $refreshToken): string
     {
         try {
-            $this->freshGuard()->refresh($refreshToken);
+            self::sessionsOf($this->freshGuard())->refresh($refreshToken);
         } catch (\RuntimeException $exception) {
             return $exception->getMessage();
         }

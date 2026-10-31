@@ -4,6 +4,9 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Guards;
 
+use Illuminate\Auth\Events\Authenticated;
+use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Validated;
 use Illuminate\Contracts\Events\Dispatcher;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversTrait;
@@ -439,6 +442,52 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
         $guard->setPrincipal($this->principal);
 
         self::assertNull($this->contextsOf($events, PrincipalAssigned::class)[0]->credentialId);
+    }
+
+    /**
+     * `loginVerified()` binds as a sign-in, `Validated` and then `Login` before
+     * the bind events, which carry the tenant and the method it is given rather
+     * than the principal's tenant and the device's method, and it clears what
+     * was bound before.
+     *
+     * @return void
+     */
+    public function testLoginVerifiedBindsAsASignInWithTheTenantAndMethodGiven(): void
+    {
+        $this->device->shouldReceive('getSignInMethod')->andReturn('password');
+
+        $verified = \Mockery::mock(Tenant::class);
+        $verified->shouldReceive('getTenantIdentifier')->andReturn('tenant-2');
+        $events = $this->recordEvents();
+        $guard  = $this->makeGuard();
+
+        $guard->authenticateAs($this->mockIdentity(), $this->mockPrincipal(), $this->mockDevice());
+        $events->exchangeArray([]);
+
+        $guard->loginVerified($this->identity, $this->principal, $this->device, $verified, 'passkey');
+
+        self::assertSame(
+            [Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class, DeviceAuthenticated::class],
+            array_map(static fn (object $event): string => $event::class, $events->getArrayCopy()),
+        );
+        self::assertSame($this->identity, $events[0]->user ?? null);
+        self::assertSame($this->identity, $events[1]->user ?? null);
+
+        foreach ([...$this->contextsOf($events, PrincipalAssigned::class), ...$this->contextsOf($events, DeviceAuthenticated::class)] as $context) {
+            self::assertSame($verified, $context->tenant);
+            self::assertSame('passkey', $context->method);
+            self::assertSame($this->device, $context->device);
+        }
+
+        self::assertSame([$this->identity, $this->principal, $this->device], [$guard->user(), $guard->principal(), $guard->device()]);
+
+        $events->exchangeArray([]);
+
+        $guard->loginVerified($this->identity, $this->principal, null, null, null);
+
+        self::assertNull($guard->device());
+        self::assertSame([], $this->contextsOf($events, DeviceAuthenticated::class));
+        self::assertNull($this->contextsOf($events, PrincipalAssigned::class)[0]->tenant);
     }
 
     /**

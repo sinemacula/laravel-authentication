@@ -19,8 +19,8 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
+use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
@@ -107,7 +107,7 @@ final class PrincipalSwitchTest extends TestCase
         $refreshed = null;
 
         $this->beforeTheSwap(function () use ($session, &$refreshed): void {
-            $refreshed = $this->freshGuard(self::GUARD)->refresh($session->tokens->refreshToken);
+            $refreshed = self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken)->session?->tokens;
         });
 
         $this->recordEvents([PrincipalSwitched::class, DeviceRevoked::class]);
@@ -334,7 +334,7 @@ final class PrincipalSwitchTest extends TestCase
         $refreshed = [];
 
         $this->beforeTheSwap(function () use ($session, &$refreshed): void {
-            $refreshed[] = $this->freshGuard(self::GUARD)->refresh($session->tokens->refreshToken);
+            $refreshed[] = self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken)->session?->tokens;
         });
 
         $this->assertALostSwapRevokesTheDevice($session, $second, $refreshed);
@@ -361,11 +361,11 @@ final class PrincipalSwitchTest extends TestCase
 
         $this->beforeTheSwap(function () use ($session, &$refreshed): void {
 
-            $refreshed[] = $first = $this->freshGuard(self::GUARD)->refresh($session->tokens->refreshToken);
+            $refreshed[] = $first = self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken)->session?->tokens;
 
             self::assertNotNull($first);
 
-            $refreshed[] = $this->freshGuard(self::GUARD)->refresh($first->refreshToken);
+            $refreshed[] = self::sessionsOf($this->freshGuard(self::GUARD))->refresh($first->refreshToken)->session?->tokens;
         });
 
         $this->assertALostSwapRevokesTheDevice($session, $second, $refreshed);
@@ -449,7 +449,7 @@ final class PrincipalSwitchTest extends TestCase
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
      * @param  \Tests\Integration\Fixtures\ActivatableTenantMembership  $target
-     * @param  list<?\SineMacula\Laravel\Authentication\Jwt\RefreshResult>  $refreshed
+     * @param  list<?\SineMacula\Laravel\Authentication\Jwt\TokenPair>  $refreshed
      * @return void
      *
      * @throws \Throwable
@@ -479,7 +479,7 @@ final class PrincipalSwitchTest extends TestCase
         self::assertNull($row->previous_refresh_key);
         self::assertNull($row->principal_switched_at);
 
-        $tokens = array_map(static function (?RefreshResult $tokens): RefreshResult {
+        $tokens = array_map(static function (?TokenPair $tokens): TokenPair {
 
             self::assertNotNull($tokens);
 
@@ -490,7 +490,7 @@ final class PrincipalSwitchTest extends TestCase
 
         foreach ([$session->tokens, ...$tokens] as $pair) {
             $this->bearer($pair->accessToken)->assertUnauthorized();
-            self::assertNull($this->freshGuard(self::GUARD)->refresh($pair->refreshToken));
+            self::assertNull(self::sessionsOf($this->freshGuard(self::GUARD))->refresh($pair->refreshToken)->session);
         }
     }
 

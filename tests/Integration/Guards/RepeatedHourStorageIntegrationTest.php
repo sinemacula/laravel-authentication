@@ -31,6 +31,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
@@ -192,7 +193,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     {
         [$token, $device] = $this->rotateAtTheEndOfTheRepeatedHourAndRetry('UTC');
 
-        self::assertNotNull($this->guard()->refresh($token));
+        self::assertNotNull(GuardSessions::of($this->guard())->refresh($token)->session);
         self::assertNull($this->stored($device)->getRevokedAt());
     }
 
@@ -251,6 +252,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
      * @return void
      *
      * @throws \Random\RandomException
+     * @throws \Throwable
      */
     public function testWithDaylightSavingARefreshSettingAnIdleDeadlineInTheSecondPassFailsWithoutWriting(): void
     {
@@ -261,7 +263,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
         $token = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
 
         try {
-            $this->guard()->refresh($token);
+            GuardSessions::of($this->guard())->refresh($token);
 
             self::fail('The refresh should not have been able to issue tokens.');
         } catch (\InvalidArgumentException $exception) {
@@ -458,7 +460,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
             $reasons[] = $event->reason;
         });
 
-        self::assertNull($this->guard()->refresh($token));
+        self::assertNull(GuardSessions::of($this->guard())->refresh($token)->session);
 
         return $reasons[0] ?? null;
     }

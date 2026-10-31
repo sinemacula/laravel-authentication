@@ -325,7 +325,7 @@ final class PendingFactorSessionServiceTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertNull($this->freshGuard()->refresh($pending->token));
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($pending->token)->session);
         self::assertSame(FailureReason::TOKEN_INVALID, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertSame(1, PendingSignIn::query()->count());
     }
@@ -445,7 +445,7 @@ final class PendingFactorSessionServiceTest extends TestCase
 
         $first   = $this->signedInWithoutAFactor();
         $before  = $this->pendingFor(refreshToken: $first->tokens->refreshToken);
-        $rotated = $this->freshGuard()->refresh($first->tokens->refreshToken);
+        $rotated = self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken)->session?->tokens;
 
         self::assertNotNull($rotated);
         self::assertNull($this->sessions()->pending($before->token)?->provenDevice);

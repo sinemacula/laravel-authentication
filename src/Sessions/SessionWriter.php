@@ -13,9 +13,9 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Devices\DeviceLookup;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
@@ -291,7 +291,7 @@ final readonly class SessionWriter
         CarbonImmutable $now,
         bool $created,
     ): SignedInSession {
-        $tokens = new RefreshResult(
+        $tokens = new TokenPair(
             $this->tokens->issueAccessToken($admitted->identity, $admitted->principal, $device, $now),
             $this->tokens->issueRefreshToken($device, $rotationId, $admitted->principal, $now),
         );

@@ -25,6 +25,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\SeparateConnectionDevice;
 use Tests\Integration\Fixtures\SeparateConnectionDeviceIdentity;
 use Tests\TestCase;
@@ -123,7 +124,7 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
     {
         [$identity, $device] = $this->signIn();
 
-        $pair = $this->guard()->refresh($this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity));
+        $pair = GuardSessions::of($this->guard())->refresh($this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity))->session?->tokens;
 
         self::assertNotNull($pair);
         self::assertSame(RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)), $this->row($device)['refresh_key']);
@@ -152,7 +153,7 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertNull($this->guard()->refresh($replay));
+        self::assertNull(GuardSessions::of($this->guard())->refresh($replay)->session);
         self::assertSame(['DeviceRevoked', 'Failed', 'AuthenticationFailed'], $this->dispatched->getArrayCopy());
 
         DB::rollBack();
@@ -179,7 +180,7 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
 
         $connection->beginTransaction();
 
-        self::assertNull($this->guard()->refresh($replay));
+        self::assertNull(GuardSessions::of($this->guard())->refresh($replay)->session);
 
         $connection->rollBack();
 
@@ -190,7 +191,7 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
 
         $connection->beginTransaction();
 
-        self::assertNull($this->guard()->refresh($replay));
+        self::assertNull(GuardSessions::of($this->guard())->refresh($replay)->session);
         self::assertSame(['Failed', 'AuthenticationFailed'], $this->dispatched->getArrayCopy());
 
         $connection->commit();
@@ -217,7 +218,7 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
         $connection->beginTransaction();
         $connection->beginTransaction();
 
-        self::assertNull($this->guard()->refresh($replay));
+        self::assertNull(GuardSessions::of($this->guard())->refresh($replay)->session);
 
         $connection->rollBack();
         $connection->commit();
@@ -242,7 +243,7 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertNotNull($this->guard()->refresh($this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity)));
+        self::assertNotNull(GuardSessions::of($this->guard())->refresh($this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity))->session);
         self::assertSame(['Refreshed'], $this->dispatched->getArrayCopy());
 
         DB::rollBack();
@@ -269,7 +270,7 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
 
         $connection->beginTransaction();
 
-        self::assertNotNull($this->guard()->refresh($token));
+        self::assertNotNull(GuardSessions::of($this->guard())->refresh($token)->session);
 
         $connection->rollBack();
 
@@ -278,7 +279,7 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
 
         $connection->beginTransaction();
 
-        self::assertNotNull($this->guard()->refresh($token));
+        self::assertNotNull(GuardSessions::of($this->guard())->refresh($token)->session);
         self::assertSame([], $this->dispatched->getArrayCopy());
 
         $connection->commit();
