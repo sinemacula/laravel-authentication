@@ -6,6 +6,7 @@ namespace Tests\Integration\ApiKeys;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Events\Dispatcher;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -528,6 +529,46 @@ final class ApiKeyServiceTest extends TestCase
         });
 
         self::assertCount(1, $this->machineEventsOf(ApiKeyIssued::class));
+    }
+
+    /**
+     * Each report goes, once committed, to the dispatcher the guard had when
+     * its write was made: a dispatcher swapped in before the commit receives
+     * only the reports of the writes made after the swap.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testEachReportKeepsTheDispatcherOfItsWrite(): void
+    {
+        $machine  = $this->seedMachine();
+        $keys     = $this->apiKeys();
+        $guard    = Auth::manager()->guard('machine');
+        $swapped  = new Dispatcher(app());
+        $received = [];
+
+        self::assertInstanceOf(ApiKeyGuard::class, $guard);
+
+        $swapped->listen([ApiKeyIssued::class, ApiKeyRotated::class, ApiKeyRevoked::class], static function (object $event) use (&$received): void {
+            $received[] = $event::class;
+        });
+
+        $this->recordMachineEvents([ApiKeyIssued::class, ApiKeyRotated::class, ApiKeyRevoked::class]);
+
+        DB::transaction(static function () use ($keys, $machine, $guard, $swapped): void {
+            $issued = $keys->issue($machine, $machine);
+
+            $guard->setDispatcher($swapped);
+
+            $rotated = $keys->rotate($machine, $issued->id);
+
+            self::assertNotNull($rotated);
+            self::assertTrue($keys->revoke($machine, $rotated->id));
+        });
+
+        self::assertSame([ApiKeyIssued::class], $this->machineEventClasses());
+        self::assertSame([ApiKeyRotated::class, ApiKeyRevoked::class], $received);
     }
 
     /**
