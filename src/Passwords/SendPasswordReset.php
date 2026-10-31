@@ -18,7 +18,8 @@ use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
-use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
+use SineMacula\Laravel\Authentication\Runtime\JwtGuardContexts;
 
 /**
  * Delivers a password reset link or code outside the request that asked for it,
@@ -73,13 +74,13 @@ final class SendPasswordReset implements ShouldBeEncrypted, ShouldQueue
     public function handle(Container $container): void
     {
         $binding = $this->binding;
-        $guard   = self::guard($container, $binding);
+        $context = self::guardContext($container, $binding);
 
         if (!$container->make(OneTimeCodes::class)->isCurrent($binding, $this->issued->issueId, CarbonImmutable::now()->startOfSecond())) {
             return;
         }
 
-        $recipient = ResetRecipient::find($guard->getName(), $guard->getProvider(), $binding, $container);
+        $recipient = ResetRecipient::find($context->name(), $context->provider(), $binding, $container);
 
         if (!$recipient instanceof Identity) {
             return;
@@ -100,28 +101,21 @@ final class SendPasswordReset implements ShouldBeEncrypted, ShouldQueue
     }
 
     /**
-     * The guard the reset was requested through, which must be a jwt guard, for
-     * a binding of a reset purpose.
+     * The context of the guard the reset was requested through, which must be a
+     * jwt guard (see `JwtGuardContexts`), for a binding of a reset purpose.
      *
      * @param  \Illuminate\Contracts\Container\Container  $container
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
-     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     * @return \SineMacula\Laravel\Authentication\Runtime\GuardContext
      *
-     * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    private static function guard(Container $container, CodeBinding $binding): JwtGuard
+    private static function guardContext(Container $container, CodeBinding $binding): GuardContext
     {
         if ($binding->purpose !== CodePurpose::PASSWORD_RESET && $binding->purpose !== CodePurpose::PASSWORD_RESET_LINK) {
             throw new \LogicException(sprintf('%s delivers only password reset links and codes, not [%s] codes.', self::class, $binding->purpose->value));
         }
 
-        $guard = $container->make('auth')->guard($binding->guard);
-
-        if (!$guard instanceof JwtGuard) {
-            throw new \InvalidArgumentException(sprintf('Auth guard [%s] is not a jwt guard, so it sends no password resets.', $binding->guard));
-        }
-
-        return $guard;
+        return JwtGuardContexts::named($container, $binding->guard, 'password resets');
     }
 }
