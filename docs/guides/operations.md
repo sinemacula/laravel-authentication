@@ -244,6 +244,8 @@ the storage connection, or, for resets, a password identifier other than `email`
 reset link sender (see [Password reset](passwords.md#password-reset)). Only the named guards are checked with
 `--guard=api --guard=admin`; a named guard that is not configured, or neither a `jwt` nor an `api_key` guard, is a
 problem. The `[codes]` sender check still asks every `jwt` guard's application whether it allows a code sign-in method,
-and an exception a policy of your own throws for a guard left out of the run is a `[codes]` problem naming that guard.
-The command reads configuration only: it opens no database connection and never prints a key. The package does not run
-these checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
+and an exception the policy throws for a guard left out of the run, whether the package's over settings it cannot read
+or one of your own, is a `[codes]` problem naming that guard. The package's checks read configuration only: they open
+no database connection and never print a key, though a policy of your own that reads the database when asked whether
+it allows a method opens a connection. The package does not run these checks at boot; a misconfiguration otherwise
+surfaces when a guard first uses the setting.

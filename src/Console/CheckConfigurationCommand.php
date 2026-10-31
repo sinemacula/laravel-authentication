@@ -56,19 +56,21 @@ use Symfony\Component\Console\Attribute\AsCommand;
  * sign-in lifetime), `[passwords]` (the password policy settings), `[codes]`
  * (the one-time code settings and key, a sender bound when a guard allows a
  * code sign-in method, the package's or an application's own `CodeSignIn`, and
- * an exception a guard's application policy throws when asked so, for a guard
- * `--guard` leaves out; a checked guard reports it as its own problem),
- * `[delivery]` (the delivery queue, with a warning, not a problem, when a `jwt`
- * guard is configured and deliveries run on a `sync` queue connection, or a
- * `failover` one that can fall back to `sync`), `[passkeys]` (the passkey
- * challenge lifetime), `[api_keys]` (the key prefix, the rotation overlaps, the
- * last-use throttle and the pruning retention) and `[identifier_changes]` (the
- * pending change lifetime and the recent-authentication window). It also warns
- * about a `jwt` guard whose package application settings allow no sign-in
- * method or machine credential (see `ApplicationChecks::warnings()`), and one
- * whose password resets and identifier changes would refuse to run (see
- * `PasswordChecks::warnings()`). The command reads configuration only: it opens
- * no database connection and prints no secret.
+ * an exception a guard's application policy throws when asked whether it allows
+ * one, for a guard `--guard` leaves out; a checked guard reports it as its own
+ * problem), `[delivery]` (the delivery queue, with a warning, not a problem,
+ * when a `jwt` guard is configured and deliveries run on a `sync` queue
+ * connection, or a `failover` one that can fall back to `sync`), `[passkeys]`
+ * (the passkey challenge lifetime), `[api_keys]` (the key prefix, the rotation
+ * overlaps, the last-use throttle and the pruning retention) and
+ * `[identifier_changes]` (the pending change lifetime and the
+ * recent-authentication window). It also warns about a `jwt` guard whose
+ * package application settings allow no sign-in method or machine credential
+ * (see `ApplicationChecks::warnings()`), and one whose password resets and
+ * identifier changes would refuse to run (see `PasswordChecks::warnings()`).
+ * The command reads configuration only: its own checks open no database
+ * connection, though a policy of the application's own may open one when asked,
+ * and it prints no secret.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -225,9 +227,8 @@ final class CheckConfigurationCommand extends Command
     /**
      * The checks of the one-time code settings, each of which otherwise fails
      * only when a code is first issued: the numbers, the key, a sender bound
-     * when a guard allows a code sign-in method, and an answer from each
-     * guard's application policy on whether it does, reported here for a guard
-     * whose own checks do not run (one `--guard` leaves out).
+     * when a guard allows a code sign-in method, and the exception a policy
+     * throws when asked whether a guard `--guard` leaves out does.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @param  list<string>  $checked
@@ -490,9 +491,8 @@ final class CheckConfigurationCommand extends Command
     /**
      * The passkey check of a `jwt` guard: its relying party, resolved as its
      * passkeys would resolve it, when it sets a `passkeys` block or the bound
-     * application policy, the package's or one of the application's own, allows
-     * it the `passkey` method. An exception the policy throws when asked is
-     * reported by the application check alone.
+     * application policy allows it the `passkey` method. An exception the
+     * policy throws when asked is reported by the application check alone.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  string  $guard

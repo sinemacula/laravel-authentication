@@ -762,6 +762,27 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
+     * The package's policy throws over settings it cannot read, so a `jwt`
+     * guard left out of the run with `--guard` whose `methods` names a method
+     * no sign-in method can have is a `[codes]` problem for that guard, and the
+     * run fails, though no check of the guard's own runs.
+     *
+     * @return void
+     */
+    public function testThePackagePolicyOverUnreadableSettingsOfAGuardLeftOutIsACodesProblem(): void
+    {
+        config()->set('auth.guards.admin.application.methods', ['Password']);
+
+        $problem = '[codes] Guard [admin]\'s application policy could not say whether it allows a code sign-in method: Application `methods` for'
+            . ' guard [admin] must be a list of lower-case sign-in method names: set `authentication.application.methods` or the guard\'s'
+            . ' `application.methods` override.';
+
+        $before = ['[storage] OK', '[device] OK', '[sign_in] OK', '[passwords] OK', '[delivery] OK', '[passkeys] OK', '[api_keys] OK', '[identifier_changes] OK'];
+
+        self::assertSame([1, [...$before, '[machine] OK', $problem]], $this->check(['--guard' => ['machine']]));
+    }
+
+    /**
      * Rows of `[whether a policy of the application's own allows the api_key
      * guard `api_key`, the exit code, what the run prints]`.
      *
