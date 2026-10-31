@@ -65,7 +65,7 @@ final readonly class PasswordWriter
         /** The context of the guard the change is made through, whose dispatcher reports it. */
         private GuardContext $context,
 
-        /** Ends the sessions the flow ends. */
+        /** Ends every session but the kept device's on a change, and every session on a reset; a registration ends none. */
         private SessionRevocations $revocations,
 
         /** Container the hasher and the transactions manager are resolved from. */
