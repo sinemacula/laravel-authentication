@@ -13,8 +13,10 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Timebox;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use Orchestra\Testbench\TestCase;
@@ -47,6 +49,8 @@ use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
+use SineMacula\Laravel\Authentication\Runtime\CredentialTimebox;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
@@ -127,6 +131,9 @@ final class RefreshTokenExchangeTest extends TestCase
     /** @var \SineMacula\Laravel\Authentication\Jwt\JwtTokenService */
     private JwtTokenService $tokens;
 
+    /** @var \SineMacula\Laravel\Authentication\Runtime\GuardContext The context of the guard every exchange is bound to. */
+    private GuardContext $context;
+
     /** @var \Carbon\Carbon Frozen clock reference. */
     private Carbon $now;
 
@@ -163,6 +170,8 @@ final class RefreshTokenExchangeTest extends TestCase
             30,
         );
 
+        $this->context = new GuardContext(self::GUARD_NAME, $this->provider, $this->resolver, $this->events, Request::create('/'), new CredentialTimebox(new Timebox));
+
         $this->audience = \Mockery::mock(AudiencePolicy::class);
         $this->audience->shouldReceive('allowsMethod')->andReturn(true)->byDefault();
         $this->audience->shouldReceive('admit')->andReturn(null)->byDefault();
@@ -196,15 +205,16 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * After `setDispatcher()`, the revocation of a replayed device goes to the
-     * new dispatcher and no longer reaches the one the exchange was built with.
+     * After the guard's context is rebound to another dispatcher, the
+     * revocation of a replayed device goes to the new dispatcher and no longer
+     * reaches the one the exchange was built with.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testSetDispatcherRoutesLaterRevocationsToTheNewDispatcher(): void
+    public function testARebindOfTheContextsDispatcherRoutesLaterRevocationsToIt(): void
     {
         $device   = $this->seedRotatedDevice(42, rotatedSecondsAgo: 5);
         $exchange = $this->makeExchange();
@@ -218,7 +228,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $this->events->shouldNotReceive('dispatch');
 
-        self::assertSame($exchange, $exchange->setDispatcher($replacement));
+        $this->context->rebindEvents($replacement);
 
         $failure = $this->refused($exchange->exchange($this->tokenFor($device, 'a-replayed-rotation-id'), self::client()));
 
@@ -1682,12 +1692,9 @@ final class RefreshTokenExchangeTest extends TestCase
 
         return new RefreshTokenExchange(
             $tokens,
-            $this->provider,
+            $this->context,
             $app->make(ConnectionResolverInterface::class),
             static fn (): mixed => $app->make('db.transactions'),
-            $this->events,
-            $this->resolver,
-            self::GUARD_NAME,
         );
     }
 

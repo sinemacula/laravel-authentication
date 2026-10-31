@@ -26,6 +26,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use Tests\Concerns\BindsSignInPolicyDoubles;
 use Tests\Concerns\InteractsWithDevices;
@@ -189,16 +190,6 @@ abstract class JwtGuardTestCase extends TestCase
 
         assert($app !== null);
 
-        $exchange = new RefreshTokenExchange(
-            $this->tokens,
-            $this->provider,
-            $app->make(ConnectionResolverInterface::class),
-            static fn (): mixed => $app->make('db.transactions'),
-            $this->events,
-            $this->resolver,
-            self::GUARD_NAME,
-        );
-
         return new JwtGuard(
             self::GUARD_NAME,
             $this->provider,
@@ -207,7 +198,12 @@ abstract class JwtGuardTestCase extends TestCase
             $request,
             $this->timebox,
             $this->tokens,
-            $exchange,
+            fn (GuardContext $context): RefreshTokenExchange => new RefreshTokenExchange(
+                $this->tokens,
+                $context,
+                $app->make(ConnectionResolverInterface::class),
+                static fn (): mixed => $app->make('db.transactions'),
+            ),
             fn (JwtGuard $guard, \Closure $timebox): SessionService => new SessionService(
                 $guard,
                 $timebox,

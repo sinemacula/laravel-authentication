@@ -38,14 +38,19 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  *
  * Exposes `refreshFromRequest()`, which reads the refresh token through the
  * guard's `RefreshTokenTransport`, and `refresh()` for a token the caller read
- * itself; the round trip is delegated to `RefreshTokenExchange`. `sessions()`
- * returns the guard's session service, which starts sessions.
+ * itself; the round trip is delegated to `RefreshTokenExchange`, which the
+ * guard builds on its own context, so the exchange reads the provider, resolver
+ * and dispatcher the guard does, rebinds included. `sessions()` returns the
+ * guard's session service, which starts sessions.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
 final class JwtGuard extends AbstractGuard
 {
+    /** @var \SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange The refresh-token exchange, bound to the guard's own context. */
+    private readonly RefreshTokenExchange $exchange;
+
     /** @var ?\SineMacula\Laravel\Authentication\Sessions\SessionService The guard's session service, once built. */
     private ?SessionService $sessions = null;
 
@@ -63,7 +68,7 @@ final class JwtGuard extends AbstractGuard
      * @param  \Illuminate\Http\Request  $request
      * @param  \Illuminate\Support\Timebox  $timebox
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $tokens
-     * @param  \SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange  $exchange
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Runtime\GuardContext): \SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange  $exchangeFactory
      * @param  \Closure(\SineMacula\Laravel\Authentication\Guards\JwtGuard, \Closure(\Closure(\Illuminate\Support\Timebox): mixed): mixed): \SineMacula\Laravel\Authentication\Sessions\SessionService  $sessionFactory
      * @param  \Closure(): \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transportFactory
      *
@@ -94,8 +99,8 @@ final class JwtGuard extends AbstractGuard
         /** JWT token service for access and refresh tokens. */
         protected JwtTokenService $tokens,
 
-        /** Refresh-token exchange for credential rotation. */
-        protected RefreshTokenExchange $exchange,
+        // Builds the guard's refresh-token exchange, given the guard's context.
+        \Closure $exchangeFactory,
 
         /** Builds the guard's session service, given the guard and its credential timebox, the first time it is asked for. */
         private readonly \Closure $sessionFactory,
@@ -104,6 +109,8 @@ final class JwtGuard extends AbstractGuard
         private readonly \Closure $transportFactory,
     ) {
         parent::__construct($name, $provider, $resolver, $events, $request, $timebox);
+
+        $this->exchange = $exchangeFactory($this->context);
     }
 
     /**
@@ -247,39 +254,6 @@ final class JwtGuard extends AbstractGuard
     public function refreshTransport(): RefreshTokenTransport
     {
         return ($this->transportFactory)();
-    }
-
-    /**
-     * Rebind the principal resolver onto both the guard and its refresh
-     * exchange so bearer and refresh flows continue to share the same policy.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver  $resolver
-     * @return static
-     */
-    #[\Override]
-    public function setPrincipalResolver(PrincipalResolver $resolver): static
-    {
-        parent::setPrincipalResolver($resolver);
-        $this->exchange->setPrincipalResolver($resolver);
-
-        return $this;
-    }
-
-    /**
-     * Rebind the event dispatcher onto both the guard and its refresh exchange,
-     * so a dispatcher swapped in after the guard resolved (e.g.
-     * `Event::fake()`) receives `DeviceRevoked` as well as the guard's events.
-     *
-     * @param  \Illuminate\Contracts\Events\Dispatcher  $events
-     * @return static
-     */
-    #[\Override]
-    public function setDispatcher(Dispatcher $events): static
-    {
-        parent::setDispatcher($events);
-        $this->exchange->setDispatcher($events);
-
-        return $this;
     }
 
     /**

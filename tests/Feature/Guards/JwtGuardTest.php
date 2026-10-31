@@ -37,6 +37,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
@@ -66,16 +67,7 @@ final class JwtGuardTest extends JwtGuardTestCase
 
         assert($app !== null);
 
-        $built    = [];
-        $exchange = new RefreshTokenExchange(
-            $this->tokens,
-            $this->provider,
-            $app->make(ConnectionResolverInterface::class),
-            static fn (): null => null,
-            $this->events,
-            $this->resolver,
-            self::GUARD_NAME,
-        );
+        $built = [];
 
         $guard = new JwtGuard(
             self::GUARD_NAME,
@@ -85,7 +77,12 @@ final class JwtGuardTest extends JwtGuardTestCase
             Request::create('/'),
             $this->timebox,
             $this->tokens,
-            $exchange,
+            fn (GuardContext $context): RefreshTokenExchange => new RefreshTokenExchange(
+                $this->tokens,
+                $context,
+                $app->make(ConnectionResolverInterface::class),
+                static fn (): null => null,
+            ),
             function (JwtGuard $guard, \Closure $timebox) use (&$built, $app): SessionService {
                 $built[] = [$guard, $timebox];
 
@@ -134,14 +131,11 @@ final class JwtGuardTest extends JwtGuardTestCase
             Request::create('/'),
             $this->timebox,
             $this->tokens,
-            new RefreshTokenExchange(
+            fn (GuardContext $context): RefreshTokenExchange => new RefreshTokenExchange(
                 $this->tokens,
-                $this->provider,
+                $context,
                 $app->make(ConnectionResolverInterface::class),
                 static fn (): null => null,
-                $this->events,
-                $this->resolver,
-                self::GUARD_NAME,
             ),
             function (JwtGuard $guard, \Closure $timebox) use (&$runner, $app): SessionService {
                 $runner = $timebox;

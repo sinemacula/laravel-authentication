@@ -57,6 +57,7 @@ use SineMacula\Laravel\Authentication\Passwords\NotifyingResetLinkSender;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Scopes\AcceptAnyScope;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -171,16 +172,6 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $tokenFactory = $app->make(JwtTokenServiceFactory::class);
         $tokens       = $tokenFactory->forGuard($name);
 
-        $exchange = new RefreshTokenExchange(
-            $tokens,
-            $provider,
-            $app->make(ConnectionResolverInterface::class),
-            static fn (): mixed => $app->bound('db.transactions') ? $app->make('db.transactions') : null,
-            $events,
-            $resolver,
-            $name,
-        );
-
         $guard = new JwtGuard(
             $name,
             $provider,
@@ -189,7 +180,12 @@ final class AuthenticationServiceProvider extends ServiceProvider
             $app->make('request'),
             $app->make(Timebox::class),
             $tokens,
-            $exchange,
+            static fn (GuardContext $context): RefreshTokenExchange => new RefreshTokenExchange(
+                $tokens,
+                $context,
+                $app->make(ConnectionResolverInterface::class),
+                static fn (): mixed => $app->bound('db.transactions') ? $app->make('db.transactions') : null,
+            ),
             static fn (JwtGuard $guard, \Closure $timebox): SessionService => new SessionService(
                 $guard,
                 $timebox,
