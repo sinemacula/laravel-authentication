@@ -533,8 +533,9 @@ final class ApiKeyServiceTest extends TestCase
 
     /**
      * Each report goes, once committed, to the dispatcher the guard had when
-     * its write was made: a dispatcher swapped in before the commit receives
-     * only the reports of the writes made after the swap.
+     * its write was made: a dispatcher swapped in between the writes receives
+     * only the reports of the writes made after the swap, and one swapped in
+     * after the last write, before the commit, receives none.
      *
      * @return void
      *
@@ -546,7 +547,9 @@ final class ApiKeyServiceTest extends TestCase
         $keys     = $this->apiKeys();
         $guard    = Auth::manager()->guard('machine');
         $swapped  = new Dispatcher(app());
+        $last     = new Dispatcher(app());
         $received = [];
+        $late     = [];
 
         self::assertInstanceOf(ApiKeyGuard::class, $guard);
 
@@ -554,9 +557,13 @@ final class ApiKeyServiceTest extends TestCase
             $received[] = $event::class;
         });
 
+        $last->listen([ApiKeyIssued::class, ApiKeyRotated::class, ApiKeyRevoked::class], static function (object $event) use (&$late): void {
+            $late[] = $event::class;
+        });
+
         $this->recordMachineEvents([ApiKeyIssued::class, ApiKeyRotated::class, ApiKeyRevoked::class]);
 
-        DB::transaction(static function () use ($keys, $machine, $guard, $swapped): void {
+        DB::transaction(static function () use ($keys, $machine, $guard, $swapped, $last): void {
             $issued = $keys->issue($machine, $machine);
 
             $guard->setDispatcher($swapped);
@@ -565,10 +572,13 @@ final class ApiKeyServiceTest extends TestCase
 
             self::assertNotNull($rotated);
             self::assertTrue($keys->revoke($machine, $rotated->id));
+
+            $guard->setDispatcher($last);
         });
 
         self::assertSame([ApiKeyIssued::class], $this->machineEventClasses());
         self::assertSame([ApiKeyRotated::class, ApiKeyRevoked::class], $received);
+        self::assertSame([], $late);
     }
 
     /**
