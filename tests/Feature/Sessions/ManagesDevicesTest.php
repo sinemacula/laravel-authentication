@@ -163,7 +163,7 @@ final class ManagesDevicesTest extends TestCase
 
         $this->recordEvents([DeviceRevoked::class, Logout::class]);
 
-        self::assertTrue($guard->sessions()->signOut());
+        self::assertTrue(self::sessionsOf($guard)->signOut());
         self::assertSame([DeviceRevoked::class], $this->recordedClasses());
 
         $context = $this->recordedEvent(DeviceRevoked::class)->context;
@@ -317,7 +317,7 @@ final class ManagesDevicesTest extends TestCase
         $guard = $this->freshGuard();
         $guard->login($identity, $identity, $session->device);
 
-        $page = $guard->sessions()->devices($identity);
+        $page = self::sessionsOf($guard)->devices($identity);
 
         self::assertSame(15, $page->perPage());
         self::assertTrue($page->items()[0]->current);

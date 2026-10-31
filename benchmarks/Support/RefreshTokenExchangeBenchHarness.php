@@ -34,7 +34,6 @@ use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
-use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 use Tests\Fixtures\Sessions\PermissiveAudiencePolicy;
 use Tests\Fixtures\Sessions\UnlimitedAttemptLimiter;
@@ -571,14 +570,6 @@ final class RefreshTokenExchangeBenchHarness
                 $context,
                 new DeviceRevocations(BenchDatabase::connectionResolver(), static fn (): null => null),
                 new Container,
-            ),
-            fn (JwtGuard $guard, \Closure $timebox): SessionService => new SessionService(
-                $guard,
-                $timebox,
-                $this->tokens,
-                new Container,
-                BenchDatabase::connectionResolver(),
-                static fn (): null => null,
             ),
             BenchRequest::refreshTransport(...),
         );

@@ -61,7 +61,6 @@ use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Scopes\AcceptAnyScope;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
-use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 
 /**
@@ -188,14 +187,6 @@ final class AuthenticationServiceProvider extends ServiceProvider
                 static fn (): mixed => $app->bound('db.transactions') ? $app->make('db.transactions') : null,
             ),
             static fn (GuardContext $context): SessionRevocations => SessionRevocations::forContext($context, $app),
-            static fn (JwtGuard $guard, \Closure $timebox): SessionService => new SessionService(
-                $guard,
-                $timebox,
-                $tokens,
-                $app,
-                $app->make(ConnectionResolverInterface::class),
-                static fn (): mixed => $app->bound('db.transactions') ? $app->make('db.transactions') : null,
-            ),
             static fn (): RefreshTokenTransport => RefreshTokenTransport::forGuard($name, $app->make(ConfigRepository::class)),
         );
 

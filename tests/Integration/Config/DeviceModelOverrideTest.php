@@ -22,7 +22,6 @@ use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
-use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubLookupIdentityProvider;
@@ -232,14 +231,6 @@ final class DeviceModelOverrideTest extends TestCase
                 $context,
                 new DeviceRevocations(app(ConnectionResolverInterface::class), static fn (): mixed => app('db.transactions')),
                 app(),
-            ),
-            static fn (JwtGuard $guard, \Closure $timebox): SessionService => new SessionService(
-                $guard,
-                $timebox,
-                $tokens,
-                app(),
-                app(ConnectionResolverInterface::class),
-                static fn (): mixed => app('db.transactions'),
             ),
             static fn (): RefreshTokenTransport => RefreshTokenTransport::forGuard('custom-jwt', config()),
         );

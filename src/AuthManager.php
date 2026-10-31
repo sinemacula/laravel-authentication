@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication;
 
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
+use Illuminate\Database\ConnectionResolverInterface;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyService;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
 use SineMacula\Laravel\Authentication\Codes\CodeService;
@@ -114,16 +115,31 @@ class AuthManager extends IlluminateAuthManager
 
     /**
      * Return the session service of the named JWT guard, or of the current
-     * default guard when the name is omitted.
+     * default guard when the name is omitted: built on each call, on the
+     * guard's context and token service, with the guard as the binding its
+     * sign-ins bind, on the container's database connections and transactions
+     * manager. It holds nothing between calls and reads the context each time,
+     * so one handed out earlier follows the guard's rebinds as a new one would.
      *
      * @param  ?string  $guard
      * @return \SineMacula\Laravel\Authentication\Sessions\SessionService
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
     public function sessions(?string $guard = null): SessionService
     {
-        return $this->jwtGuard($guard, 'session service')->sessions();
+        $resolved = $this->jwtGuard($guard, 'session service');
+        $app      = $this->app;
+
+        return new SessionService(
+            $resolved->context(),
+            $resolved,
+            $resolved->tokens(),
+            $app,
+            $app->make(ConnectionResolverInterface::class),
+            static fn (): mixed => $app->bound('db.transactions') ? $app->make('db.transactions') : null,
+        );
     }
 
     /**

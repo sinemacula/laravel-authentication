@@ -310,7 +310,7 @@ final class RequestSequenceTest extends TestCase
 
         self::assertNull($guard->refresh($session->tokens->refreshToken));
 
-        $guard->sessions()->signIn('password', self::credentials('ada@example.test'));
+        self::sessionsOf($guard)->signIn('password', self::credentials('ada@example.test'));
 
         Event::assertDispatched(AuthenticationFailed::class, static fn (AuthenticationFailed $event): bool => $event->reason === FailureReason::ROTATION_REUSE);
         Event::assertDispatched(DeviceRevoked::class);
@@ -358,14 +358,14 @@ final class RequestSequenceTest extends TestCase
         [$first, $second] = $this->seedMemberships();
 
         $guard   = $this->membersGuard();
-        $session = $guard->sessions()->signIn('password', self::credentials('member@example.test'))->session;
+        $session = self::sessionsOf($guard)->signIn('password', self::credentials('member@example.test'))->session;
 
         self::assertNotNull($session);
 
         Event::fake([PrincipalSwitched::class, DeviceRevoked::class, SignedOutEverywhere::class]);
 
-        self::assertTrue($guard->sessions()->switchPrincipal($session->tokens->refreshToken, $second)->isSwitched());
-        self::assertSame(1, $guard->sessions()->signOutEverywhere());
+        self::assertTrue(self::sessionsOf($guard)->switchPrincipal($session->tokens->refreshToken, $second)->isSwitched());
+        self::assertSame(1, self::sessionsOf($guard)->signOutEverywhere());
 
         Event::assertDispatched(PrincipalSwitched::class, static fn (PrincipalSwitched $event): bool => $event->previousPrincipalId === (string) $first->id);
         Event::assertDispatched(DeviceRevoked::class, static fn (DeviceRevoked $event): bool => $event->reason === RevocationReason::SIGNED_OUT_EVERYWHERE);
@@ -385,7 +385,7 @@ final class RequestSequenceTest extends TestCase
         [, $second] = $this->seedMemberships();
 
         $guard   = $this->membersGuard();
-        $session = $guard->sessions()->signIn('password', self::credentials('member@example.test'))->session;
+        $session = self::sessionsOf($guard)->signIn('password', self::credentials('member@example.test'))->session;
 
         self::assertNotNull($session);
 
@@ -394,7 +394,7 @@ final class RequestSequenceTest extends TestCase
 
         $this->app?->instance(PrincipalResolver::class, $resolver);
 
-        $result = $guard->sessions()->switchPrincipal($session->tokens->refreshToken, $second);
+        $result = self::sessionsOf($guard)->switchPrincipal($session->tokens->refreshToken, $second);
 
         self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $result->reason);
     }
@@ -428,7 +428,7 @@ final class RequestSequenceTest extends TestCase
     private function signedIn(string $email): array
     {
         $identity = $this->seedIdentity($email);
-        $session  = $this->apiGuard()->sessions()->signIn('password', self::credentials($email))->session;
+        $session  = self::sessionsOf($this->apiGuard())->signIn('password', self::credentials($email))->session;
 
         self::assertNotNull($session);
 

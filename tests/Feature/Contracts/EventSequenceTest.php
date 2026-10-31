@@ -473,7 +473,7 @@ final class EventSequenceTest extends TestCase
         $this->nameKeys($identity, $identity);
         $this->recordSequence();
 
-        $result = $guard->sessions()->signIn('password', self::credentials());
+        $result = self::sessionsOf($guard)->signIn('password', self::credentials());
 
         self::assertSame(SignInStatus::FACTOR_REQUIRED, $result->status);
         self::assertSame([
@@ -500,7 +500,7 @@ final class EventSequenceTest extends TestCase
         $this->nameKeys($chooser, null);
         $this->recordSequence();
 
-        $result = $guard->sessions()->signIn('password', self::credentials('chooser@example.test'));
+        $result = self::sessionsOf($guard)->signIn('password', self::credentials('chooser@example.test'));
 
         self::assertSame(SignInStatus::PRINCIPAL_REQUIRED, $result->status);
         self::assertSame([
@@ -853,7 +853,7 @@ final class EventSequenceTest extends TestCase
         $this->nameKeys($identity, $identity, $device);
         $this->recordSequence();
 
-        self::assertTrue($guard->sessions()->signOut());
+        self::assertTrue(self::sessionsOf($guard)->signOut());
         self::assertSame([
             'DeviceRevoked api signed_out i1/p1/d1',
             'Logout api i1',
@@ -912,7 +912,7 @@ final class EventSequenceTest extends TestCase
 
         $this->recordSequence();
 
-        self::assertSame(1, $guard->sessions()->signOutEverywhere(true));
+        self::assertSame(1, self::sessionsOf($guard)->signOutEverywhere(true));
         self::assertSame([
             'DeviceRevoked api signed_out_everywhere i1/p1/d2',
             'SignedOutEverywhere api signed_out_everywhere:1 i1/-/d1',

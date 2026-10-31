@@ -146,7 +146,7 @@ final class DeviceRevocationsTest extends TestCase
 
         $this->recordEvents([DeviceRevoked::class, Logout::class]);
 
-        self::assertFalse($guard->sessions()->signOut());
+        self::assertFalse(self::sessionsOf($guard)->signOut());
         self::assertSame([Logout::class], $this->recordedClasses());
         self::assertTrue($guard->guest());
         self::assertNull($guard->device());
@@ -169,11 +169,11 @@ final class DeviceRevocationsTest extends TestCase
 
         $this->recordEvents([DeviceRevoked::class]);
 
-        self::assertTrue($guard->sessions()->signOut());
+        self::assertTrue(self::sessionsOf($guard)->signOut());
 
         $guard->login($identity, $identity, $session->device);
 
-        self::assertFalse($guard->sessions()->signOut());
+        self::assertFalse(self::sessionsOf($guard)->signOut());
         self::assertCount(1, $this->recorded);
         self::assertSame(self::NOW, DB::table('devices')->value('revoked_at'));
     }
@@ -206,7 +206,7 @@ final class DeviceRevocationsTest extends TestCase
 
             $guard->login($member, $membership, $session->device);
 
-            self::assertTrue($guard->sessions()->signOut());
+            self::assertTrue(self::sessionsOf($guard)->signOut());
         }
 
         [$loading, $unloadable] = $this->recorded;
@@ -257,7 +257,7 @@ final class DeviceRevocationsTest extends TestCase
 
         $guard->login($identity, $identity, $device);
 
-        self::assertFalse($guard->sessions()->signOut());
+        self::assertFalse(self::sessionsOf($guard)->signOut());
         self::assertTrue($guard->guest());
     }
 
@@ -277,7 +277,7 @@ final class DeviceRevocationsTest extends TestCase
 
         $guard->login($identity, $identity, $session->device);
 
-        self::assertSame(1, $guard->sessions()->signOutEverywhere());
+        self::assertSame(1, self::sessionsOf($guard)->signOutEverywhere());
         self::assertSame(self::NOW, self::revokedAt($session));
     }
 

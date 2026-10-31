@@ -103,7 +103,7 @@ final class PartiallySelectedPrincipalTypeIntegrationTest extends TestCase
 
         $credentials = ['email' => 'typed@example.test', 'password' => self::PASSWORD];
 
-        $this->assertUnloadedType(fn (): mixed => $this->guard()->sessions()->signIn('password', $credentials));
+        $this->assertUnloadedType(fn (): mixed => Auth::sessions($this->guard()->getName())->signIn('password', $credentials));
         $this->assertUnloadedType(fn (): mixed => $this->guard()->attempt($credentials));
 
         self::assertSame(0, Device::query()->count());

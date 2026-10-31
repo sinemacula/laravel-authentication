@@ -175,7 +175,21 @@ trait InteractsWithSessions
      */
     protected function sessions(string $guard = 'api'): SessionService
     {
-        return $this->freshGuard($guard)->sessions();
+        return self::sessionsOf($this->freshGuard($guard));
+    }
+
+    /**
+     * The session service the auth manager builds for the guard, which must be
+     * the guard the manager holds under its name.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
+     * @return \SineMacula\Laravel\Authentication\Sessions\SessionService
+     */
+    protected static function sessionsOf(JwtGuard $guard): SessionService
+    {
+        self::assertSame($guard, app('auth')->guard($guard->getName()));
+
+        return Auth::sessions($guard->getName());
     }
 
     /**

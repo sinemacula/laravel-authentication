@@ -141,7 +141,7 @@ final class SessionServiceTest extends TestCase
         $identity = $this->seedIdentity();
         $guard    = $this->freshGuard();
 
-        $result = $guard->sessions()->signIn('password', self::credentials(), SignInContext::fromRequest(app('request'), 'Work laptop', 'macOS'));
+        $result = self::sessionsOf($guard)->signIn('password', self::credentials(), SignInContext::fromRequest(app('request'), 'Work laptop', 'macOS'));
 
         self::assertTrue($result->isSignedIn());
         self::assertFalse($result->isFailed());
@@ -650,7 +650,7 @@ final class SessionServiceTest extends TestCase
 
         $guard   = $this->freshGuard();
         $context = SignInContext::fromRequest(app('request'), 'Phone', 'iOS');
-        $result  = $guard->sessions()->signIn('password', self::credentials(), $context);
+        $result  = self::sessionsOf($guard)->signIn('password', self::credentials(), $context);
 
         self::assertTrue($result->requiresFactor());
         self::assertFalse($result->isSignedIn());
@@ -1261,7 +1261,7 @@ final class SessionServiceTest extends TestCase
 
         $guard = $this->freshGuard();
 
-        self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => $guard->sessions()->signIn('password', self::credentials())));
+        self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => self::sessionsOf($guard)->signIn('password', self::credentials())));
         self::assertSame([], $this->recordedClasses());
         self::assertFalse($guard->hasUser());
         self::assertSame(1, Device::query()->count());

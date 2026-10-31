@@ -69,7 +69,7 @@ final class ForgetGuardStateBeforeJobTest extends TestCase
         $identity = $this->seedIdentity();
         $guard    = $this->freshGuard();
 
-        self::assertTrue($guard->sessions()->signIn('password', self::credentials())->isSignedIn());
+        self::assertTrue(self::sessionsOf($guard)->signIn('password', self::credentials())->isSignedIn());
 
         $device = $guard->device();
 
@@ -117,7 +117,7 @@ final class ForgetGuardStateBeforeJobTest extends TestCase
         $identity = $this->seedIdentity();
         $guard    = $this->freshGuard();
 
-        self::assertTrue($guard->sessions()->signIn('password', self::credentials())->isSignedIn());
+        self::assertTrue(self::sessionsOf($guard)->signIn('password', self::credentials())->isSignedIn());
 
         dispatch(new ObserveGuardJob);
 

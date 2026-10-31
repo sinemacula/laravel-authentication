@@ -9,10 +9,8 @@ use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Sessions\Concerns\ChoosesPrincipals;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalChoice;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -41,7 +39,6 @@ use Tests\Integration\Fixtures\ChoosingMembership;
  */
 #[CoversClass(SessionService::class)]
 #[CoversClass(PrincipalSwitch::class)]
-#[CoversTrait(ChoosesPrincipals::class)]
 final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
 {
     use InteractsWithSessions;
@@ -177,7 +174,7 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
     {
         [$session, $second] = $this->signInWithASecondMembership();
 
-        $sessions = $this->guardForRequest(['refresh_token' => $session->tokens->refreshToken])->sessions();
+        $sessions = self::sessionsOf($this->guardForRequest(['refresh_token' => $session->tokens->refreshToken]));
         $result   = $this->assertQueryBudget(7, 1, static fn (): ?SwitchResult => $sessions->switchPrincipalFromRequest($second));
 
         self::assertTrue($result?->isSwitched());

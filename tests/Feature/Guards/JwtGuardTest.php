@@ -9,7 +9,6 @@ use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
-use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -30,17 +29,11 @@ use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
-use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
-use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
-use SineMacula\Laravel\Authentication\Runtime\GuardContext;
-use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
-use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
-use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
 
@@ -58,117 +51,14 @@ use Tests\Unit\Stubs\StubIdentity;
 final class JwtGuardTest extends JwtGuardTestCase
 {
     /**
-     * The guard builds its session service once, from its factory, given the
-     * guard itself, and hands out the same service thereafter.
+     * The guard hands out the token service it was built with, the one a
+     * session service built for it issues and parses with.
      *
      * @return void
      */
-    public function testBuildsItsSessionServiceOnceFromItsFactory(): void
+    public function testTokensIsTheTokenServiceTheGuardWasBuiltWith(): void
     {
-        $app = $this->app;
-
-        assert($app !== null);
-
-        $built = [];
-
-        $guard = new JwtGuard(
-            self::GUARD_NAME,
-            $this->provider,
-            $this->resolver,
-            $this->events,
-            Request::create('/'),
-            $this->timebox,
-            $this->tokens,
-            fn (GuardContext $context): RefreshTokenExchange => new RefreshTokenExchange(
-                $this->tokens,
-                $context,
-                $app->make(ConnectionResolverInterface::class),
-                static fn (): null => null,
-            ),
-            static fn (GuardContext $context): SessionRevocations => new SessionRevocations(
-                $context,
-                new DeviceRevocations($app->make(ConnectionResolverInterface::class), static fn (): null => null),
-                $app,
-            ),
-            function (JwtGuard $guard, \Closure $timebox) use (&$built, $app): SessionService {
-                $built[] = [$guard, $timebox];
-
-                return new SessionService($guard, $timebox, $this->tokens, $app, $app->make(ConnectionResolverInterface::class), static fn (): null => null);
-            },
-            static fn (): RefreshTokenTransport => RefreshTokenTransport::forGuard(self::GUARD_NAME, config()),
-        );
-
-        $sessions = $guard->sessions();
-
-        self::assertSame($sessions, $guard->sessions());
-        self::assertCount(1, $built);
-        self::assertSame($guard, $built[0][0]);
-    }
-
-    /**
-     * The session service is handed a runner for the guard's own credential
-     * timebox, with the configured budget, which returns what the callback
-     * returns.
-     *
-     * @return void
-     *
-     * @throws \Throwable
-     */
-    public function testHandsItsSessionServiceItsCredentialTimebox(): void
-    {
-        config()->set('authentication.timebox.credentials_microseconds', 750000);
-
-        $app = $this->app;
-
-        assert($app !== null);
-
-        $given  = new Timebox;
-        $runner = null;
-
-        $this->timebox->shouldReceive('call')
-            ->once()
-            ->with(\Mockery::type(\Closure::class), 750000)
-            ->andReturnUsing(static fn (\Closure $callback): mixed => $callback($given));
-
-        $guard = new JwtGuard(
-            self::GUARD_NAME,
-            $this->provider,
-            $this->resolver,
-            $this->events,
-            Request::create('/'),
-            $this->timebox,
-            $this->tokens,
-            fn (GuardContext $context): RefreshTokenExchange => new RefreshTokenExchange(
-                $this->tokens,
-                $context,
-                $app->make(ConnectionResolverInterface::class),
-                static fn (): null => null,
-            ),
-            static fn (GuardContext $context): SessionRevocations => new SessionRevocations(
-                $context,
-                new DeviceRevocations($app->make(ConnectionResolverInterface::class), static fn (): null => null),
-                $app,
-            ),
-            function (JwtGuard $guard, \Closure $timebox) use (&$runner, $app): SessionService {
-                $runner = $timebox;
-
-                return new SessionService($guard, $timebox, $this->tokens, $app, $app->make(ConnectionResolverInterface::class), static fn (): null => null);
-            },
-            static fn (): RefreshTokenTransport => RefreshTokenTransport::forGuard(self::GUARD_NAME, config()),
-        );
-
-        $guard->sessions();
-
-        self::assertInstanceOf(\Closure::class, $runner);
-
-        $received = null;
-
-        self::assertSame('outcome', $runner(static function (Timebox $timebox) use (&$received): string {
-            $received = $timebox;
-
-            return 'outcome';
-        }));
-        self::assertSame($given, $received);
+        self::assertSame($this->tokens, $this->makeGuard(Request::create('/'))->tokens());
     }
 
     /**

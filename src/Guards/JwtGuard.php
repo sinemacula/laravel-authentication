@@ -28,7 +28,6 @@ use SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
-use SineMacula\Laravel\Authentication\Sessions\SessionService;
 
 /**
  * Sessionless JWT bearer-token guard.
@@ -42,9 +41,10 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  * guard's `RefreshTokenTransport`, and `refresh()` for a token the caller read
  * itself; the round trip is delegated to `RefreshTokenExchange`, which the
  * guard builds on its own context, so the exchange reads the provider, resolver
- * and dispatcher the guard does, rebinds included. `sessions()` returns the
- * guard's session service, which starts sessions; `logout()` signs the session
- * out through the guard's session revocations, also built on its context.
+ * and dispatcher the guard does, rebinds included. `logout()` signs the session
+ * out through the guard's session revocations, also built on its context. The
+ * guard neither builds nor holds a session service: `Auth::sessions()` builds
+ * one on the guard's context, with the guard as the binding it signs in.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -53,9 +53,6 @@ final class JwtGuard extends AbstractGuard
 {
     /** @var \SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange The refresh-token exchange, bound to the guard's own context. */
     private readonly RefreshTokenExchange $exchange;
-
-    /** @var ?\SineMacula\Laravel\Authentication\Sessions\SessionService The guard's session service, once built. */
-    private ?SessionService $sessions = null;
 
     /**
      * Constructor.
@@ -73,7 +70,6 @@ final class JwtGuard extends AbstractGuard
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $tokens
      * @param  \Closure(\SineMacula\Laravel\Authentication\Runtime\GuardContext): \SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange  $exchangeFactory
      * @param  \Closure(\SineMacula\Laravel\Authentication\Runtime\GuardContext): \SineMacula\Laravel\Authentication\Sessions\SessionRevocations  $revocationsFactory
-     * @param  \Closure(\SineMacula\Laravel\Authentication\Guards\JwtGuard, \Closure(\Closure(\Illuminate\Support\Timebox): mixed): mixed): \SineMacula\Laravel\Authentication\Sessions\SessionService  $sessionFactory
      * @param  \Closure(): \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transportFactory
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
@@ -109,9 +105,6 @@ final class JwtGuard extends AbstractGuard
         /** Builds the session revocations the guard signs out through, given the guard's context, each time it signs out. */
         private readonly \Closure $revocationsFactory,
 
-        /** Builds the guard's session service, given the guard and its credential timebox, the first time it is asked for. */
-        private readonly \Closure $sessionFactory,
-
         /** Builds the guard's refresh token transport from the configuration as it is now. */
         private readonly \Closure $transportFactory,
     ) {
@@ -121,17 +114,16 @@ final class JwtGuard extends AbstractGuard
     }
 
     /**
-     * Return the guard's session service, which signs in, creates or continues
-     * the device, and issues the first token pair. Built once per guard and
-     * handed the guard's credential timebox, so its sign-ins take as long as
-     * `attempt()`'s; it reads the guard's request, dispatcher, provider and
-     * resolver each time it runs, so it follows their rebinds.
+     * The guard's token service, which a session service built for the guard
+     * issues and parses with, as the guard does.
      *
-     * @return \SineMacula\Laravel\Authentication\Sessions\SessionService
+     * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
+     *
+     * @internal
      */
-    public function sessions(): SessionService
+    public function tokens(): JwtTokenService
     {
-        return $this->sessions ??= ($this->sessionFactory)($this, $this->context->timebox()->run(...));
+        return $this->tokens;
     }
 
     /**

@@ -20,7 +20,6 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
@@ -39,9 +38,9 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
-use SineMacula\Laravel\Authentication\Sessions\Concerns\ChoosesPrincipals;
 use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalChoice;
+use SineMacula\Laravel\Authentication\Sessions\PrincipalChoices;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
@@ -73,7 +72,7 @@ use Tests\TestCase;
 #[CoversClass(PrincipalChoice::class)]
 #[CoversClass(PrincipalChoiceRequired::class)]
 #[CoversClass(SignInResult::class)]
-#[CoversTrait(ChoosesPrincipals::class)]
+#[CoversClass(PrincipalChoices::class)]
 final class ChoosesPrincipalsTest extends TestCase
 {
     use InteractsWithSessions;
@@ -784,7 +783,7 @@ final class ChoosesPrincipalsTest extends TestCase
 
         app()->instance(AudiencePolicy::class, $audience);
 
-        self::assertSame([], $this->freshGuard()->setPrincipalResolver($resolver)->sessions()->principals($identity));
+        self::assertSame([], self::sessionsOf($this->freshGuard()->setPrincipalResolver($resolver))->principals($identity));
     }
 
     /**

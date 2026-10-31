@@ -157,7 +157,7 @@ final class PendingFactorSessionServiceTest extends TestCase
         $this->recordEvents([Attempting::class, Validated::class, Login::class, DeviceCreated::class, SignedIn::class, Failed::class, AuthenticationFailed::class]);
 
         $guard  = $this->completionGuard();
-        $result = $guard->sessions()->complete($pending->token);
+        $result = self::sessionsOf($guard)->complete($pending->token);
 
         self::assertTrue($result->isSignedIn());
         self::assertSame([DeviceCreated::class, SignedIn::class, Validated::class, Login::class], $this->recordedClasses());
@@ -205,7 +205,7 @@ final class PendingFactorSessionServiceTest extends TestCase
 
         $this->recordEvents([Failed::class, AuthenticationFailed::class]);
 
-        $again = $this->completionGuard()->sessions()->complete($pending->token);
+        $again = self::sessionsOf($this->completionGuard())->complete($pending->token);
 
         self::assertSame(FailureReason::PENDING_INVALID, $again->reason);
         self::assertNull($this->sessions()->pending($pending->token));
@@ -237,7 +237,7 @@ final class PendingFactorSessionServiceTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame(FailureReason::IDENTITY_INACTIVE, $this->completionGuard()->sessions()->complete($pending->token)->reason);
+        self::assertSame(FailureReason::IDENTITY_INACTIVE, self::sessionsOf($this->completionGuard())->complete($pending->token)->reason);
         self::assertSame(self::COMPLETION_IP, $this->recordedEvent(AuthenticationFailed::class)->context->client->ip);
     }
 
@@ -616,7 +616,7 @@ final class PendingFactorSessionServiceTest extends TestCase
         self::assertFalse($this->sessions()->discard('not-a-pending-token'));
         self::assertFalse($this->sessions()->discard(explode('.', $pending->token, 2)[0] . '.wrong-secret'));
         self::assertSame([], $this->recordedClasses());
-        self::assertTrue($this->completionGuard()->sessions()->discard($pending->token));
+        self::assertTrue(self::sessionsOf($this->completionGuard())->discard($pending->token));
         self::assertSame([Failed::class, AuthenticationFailed::class], $this->recordedClasses());
 
         $failed = $this->recordedEvent(AuthenticationFailed::class);

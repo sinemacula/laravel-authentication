@@ -225,9 +225,7 @@ final class SignInBenchHarness
      */
     private function passwordSignIn(): SignInResult
     {
-        $guard = $this->guard(self::PASSWORD_GUARD, IntegrationIdentity::class);
-
-        return $guard->sessions()->signIn('password', ['email' => self::EMAIL, 'password' => self::PASSWORD]);
+        return $this->sessions(self::PASSWORD_GUARD, IntegrationIdentity::class)->signIn('password', ['email' => self::EMAIL, 'password' => self::PASSWORD]);
     }
 
     /**
@@ -238,23 +236,24 @@ final class SignInBenchHarness
      */
     private function codeSignIn(string $phone): SignInResult
     {
-        return $this->guard(self::CODE_GUARD, CodeIdentity::class)->sessions()->signIn('phone_code', ['phone' => $phone, 'code' => self::CODE]);
+        return $this->sessions(self::CODE_GUARD, CodeIdentity::class)->signIn('phone_code', ['phone' => $phone, 'code' => self::CODE]);
     }
 
     /**
-     * A fresh `jwt` guard over the model, serving a sign-in request from the
-     * benchmark's client.
+     * The session service of a fresh `jwt` guard over the model, serving a
+     * sign-in request from the benchmark's client, built as the auth manager
+     * builds one.
      *
      * @param  string  $name
      * @param  class-string<\Illuminate\Database\Eloquent\Model>  $model
-     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     * @return \SineMacula\Laravel\Authentication\Sessions\SessionService
      */
-    private function guard(string $name, string $model): JwtGuard
+    private function sessions(string $name, string $model): SessionService
     {
         $provider = new ModelProvider($this->app->make('hash'), $model);
         $tokens   = $this->app->make(JwtTokenServiceFactory::class)->forGuard($name);
 
-        return new JwtGuard(
+        $guard = new JwtGuard(
             $name,
             $provider,
             $this->resolver,
@@ -268,15 +267,9 @@ final class SignInBenchHarness
                 new DeviceRevocations(BenchDatabase::connectionResolver(), static fn (): null => null),
                 Container::getInstance(),
             ),
-            static fn (JwtGuard $guard, \Closure $timebox): SessionService => new SessionService(
-                $guard,
-                $timebox,
-                $tokens,
-                Container::getInstance(),
-                BenchDatabase::connectionResolver(),
-                static fn (): null => null,
-            ),
             BenchRequest::refreshTransport(...),
         );
+
+        return new SessionService($guard->context(), $guard, $tokens, Container::getInstance(), BenchDatabase::connectionResolver(), static fn (): null => null);
     }
 }
