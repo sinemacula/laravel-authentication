@@ -624,8 +624,9 @@ until the window ends, and the sign-in fails as `invalid_credentials`, as a wron
 not reveal that the account exists. Only your own listeners are told why: `AuthenticationFailed` carries
 `account_rate_limited` and the wait, so a lockout notice or a SIEM can tell a locked account from a wrong password. A
 refresh cannot guess a secret (its tokens are signed and its rotation ids random), so it counts only its failures, per
-device and per IP address, and a successful refresh costs one read. A refresh refused for its failures answers `429`
-with a `Retry-After` header. A request for a one-time code costs a message whoever has the number, so every request for
+device and per IP address, and a successful refresh costs one read. A refresh refused for its failures is returned as
+`rate_limited` with the wait in `retryAfter`, for the route to answer with a `429` and `Retry-After` (see
+[Refreshing](refreshing.md)). A request for a one-time code costs a message whoever has the number, so every request for
 a valid number counts, whether a code is sent or the resend cooldown holds it back, and no slot is given back; the
 number is counted in its normal form, whether or not anyone has it.
 

@@ -119,10 +119,10 @@ Device tracking and refresh are opt-in. For simple backends or short-lived sessi
 
 1. Do not implement `HasDevices` on your identity model.
 2. Issue access tokens with `Auth::jwt('api')->issueAccessToken($identity, $principal, null)`.
-3. Do not call `$guard->refresh(...)` or start sessions through the session service (`signIn()`, `start()`), which
-   throws a `LogicException` for an identity without `HasDevices`. Clients re-authenticate when the access token
-   expires. To end an identity's tokens before they expire, give the identity (or the principal) a "tokens valid after"
-   time (below): the session service's revocation methods (`revokeDevices()`, `signOutEverywhere()`,
+3. Do not refresh (`Auth::sessions('api')->refresh(...)`) or start sessions through the session service (`signIn()`,
+   `start()`), which throws a `LogicException` for an identity without `HasDevices`. Clients re-authenticate when the
+   access token expires. To end an identity's tokens before they expire, give the identity (or the principal) a "tokens
+   valid after" time (below): the session service's revocation methods (`revokeDevices()`, `signOutEverywhere()`,
    `passwordChanged()` and the other security changes, `principalDeactivated()`, `revokePrincipalDevices()`) move it,
    and need none of the package's tables for such an identity, except `identifier_changes` for one that implements
    `HasChangeableIdentifiers`, whose pending changes they cancel, or call `invalidateTokensIssuedBefore()` yourself.

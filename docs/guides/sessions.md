@@ -35,26 +35,26 @@ return $result->source === RefreshTokenSource::COOKIE
 ```
 
 The refresh token proves the session, never an access token: a stolen access token lives minutes and must not mint a
-refresh credential. `switchPrincipalFromRequest()` reads it as `refreshFromRequest()` does, through the guard's refresh
-token transport, so it comes from the one source the guard allows and a token from the refresh cookie gets the cookie's
-cross-site checks; put the switch route under the cookie's path. It returns `null` when the request carries no token,
-and a token the transport refuses fails with its reason (`refresh_token_conflict`, `cross_site_request`,
-`token_invalid`, reported as an `AuthenticationFailed` of flow `principal_switch`) without the device being touched. The
-result's `source` says where the token came from, so a switch read from the cookie answers with the new refresh token
-in the cookie, as a refresh does. `switchPrincipal($refreshToken, $target)` remains for a token your code reads itself;
-never pass it one read from the refresh cookie.
+refresh credential. `switchPrincipalFromRequest()` reads it as the session service's `refreshFromRequest()` does (see
+[Refreshing](refreshing.md)), through the guard's refresh token transport, so it comes from the one source the guard
+allows and a token from the refresh cookie gets the cookie's cross-site checks; put the switch route under the cookie's
+path. It returns `null` when the request carries no token, and a token the transport refuses fails with its reason
+(`refresh_token_conflict`, `cross_site_request`, `token_invalid`, reported as an `AuthenticationFailed` of flow
+`principal_switch`) without the device being touched. The result's `source` says where the token came from, so a switch
+read from the cookie answers with the new refresh token in the cookie, as a refresh does.
+`switchPrincipal($refreshToken, $target)` remains for a token your code reads itself; never pass it one read from the
+refresh cookie.
 
 A switch is judged as a refresh is: counted against the same refresh limits (`rate_limited`, with the wait in the
-result's `retryAfter`: unlike `refreshFromRequest()`, which throws the 429 itself, a switch returns its refusal, so
-answer it with `Retry-After` as above), the token parsed for this guard, the device found, of this guard, live, and the
-rotation id current, or the previous one inside the grace window; any other id is a replay and revokes the device
-(`rotation_reuse`). On every path the device's owner must still be returned by the guard's provider and be active, the
-target must resolve through the resolver's hinted path as the very principal named, of its class, owned by that identity
-(read from the principal's own key, not trusted to the resolver), active, in an active tenant and admitted by the
-audience policy, also with the type of identifier the session's sign-in used (which the device records), so a principal
-your policy refuses to that identifier cannot be reached by switching to it, the session's sign-in method must still be
-allowed, and the additional-factor policy must not ask for a further factor (`additional_factor_required`: sign in again
-as the target).
+result's `retryAfter`: a switch returns its refusal, as a refresh does, so answer it with `Retry-After` as above), the
+token parsed for this guard, the device found, of this guard, live, and the rotation id current, or the previous one
+inside the grace window; any other id is a replay and revokes the device (`rotation_reuse`). On every path the device's
+owner must still be returned by the guard's provider and be active, the target must resolve through the resolver's
+hinted path as the very principal named, of its class, owned by that identity (read from the principal's own key, not
+trusted to the resolver), active, in an active tenant and admitted by the audience policy, also with the type of
+identifier the session's sign-in used (which the device records), so a principal your policy refuses to that identifier
+cannot be reached by switching to it, the session's sign-in method must still be allowed, and the additional-factor
+policy must not ask for a further factor (`additional_factor_required`: sign in again as the target).
 
 With the current rotation id, the token's principal must be the one the device records (`device_principal_mismatch`).
 The switch keeps the session's absolute deadline, held to the target type's absolute lifetime counted from the sign-in
