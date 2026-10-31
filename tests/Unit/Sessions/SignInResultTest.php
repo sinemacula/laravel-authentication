@@ -14,7 +14,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
+use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingFactor;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalChoice;
@@ -47,7 +47,7 @@ final class SignInResultTest extends TestCase
         $identity  = \Mockery::mock(Identity::class);
         $principal = \Mockery::mock(Principal::class);
         $device    = \Mockery::mock(Model::class, EloquentDevice::class);
-        $tokens    = new RefreshResult('access', 'refresh');
+        $tokens    = new TokenPair('access', 'refresh');
         $session   = new SignedInSession($identity, $principal, $device, $tokens, 'password', true);
         $result    = SignInResult::signedIn($session);
 

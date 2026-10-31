@@ -18,17 +18,18 @@ use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
 
 /**
- * Feature tests for the token-level and device-level validation paths within
- * JwtGuard's refresh-token exchange, including rotation integrity checks.
+ * Feature tests for the token-level and device-level validation paths within a
+ * JWT guard's refresh-token exchange, including rotation integrity checks.
  *
  * Covers token parsing failures, device lookup, replay detection and the grace
  * window, and device revocation. Identity and principal resolution tests live
@@ -47,8 +48,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     use InteractsWithDevices;
 
     /**
-     * When the refresh token cannot be parsed, `refresh()` returns null and
-     * fires `AuthenticationFailed` with reason `token_invalid`.
+     * When the refresh token cannot be parsed, `refresh()` fails and fires
+     * `AuthenticationFailed` with reason `token_invalid`.
      *
      * @return void
      *
@@ -67,11 +68,11 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
                     && $event->reason === FailureReason::TOKEN_INVALID),
             );
 
-        self::assertNull($guard->refresh('not-a-jwt'));
+        self::assertNull(GuardSessions::of($guard)->refresh('not-a-jwt')->session);
     }
 
     /**
-     * A refresh token without a `did` claim returns null and fires
+     * A refresh token without a `did` claim fails and fires
      * `AuthenticationFailed` with reason `token_invalid`.
      *
      * @return void
@@ -93,11 +94,11 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
                     && $event->reason === FailureReason::TOKEN_INVALID),
             );
 
-        self::assertNull($guard->refresh($token));
+        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
     }
 
     /**
-     * When the device lookup returns null, `refresh()` returns null and fires
+     * When the device lookup returns null, `refresh()` fails and fires
      * `AuthenticationFailed` with reason `device_unknown`.
      *
      * @return void
@@ -123,12 +124,12 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
                     && $event->context->deviceId === '01HZZZZZZZZZZZZZZZZZZZZZZZ'),
             );
 
-        self::assertNull($guard->refresh($token));
+        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
     }
 
     /**
      * A refresh token for a live device whose rotation id the device never held
-     * as current or previous is a replay: `refresh()` returns null, revokes the
+     * as current or previous is a replay: `refresh()` fails, revokes the
      * device, and dispatches `DeviceRevoked`, `AuthenticationFailed` with
      * reason `rotation_reuse`, and Laravel's `Failed`.
      *
@@ -151,7 +152,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         $dispatched = $this->recordDispatchedEvents();
 
-        self::assertNull($guard->refresh($token));
+        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
 
         $events = $dispatched->getArrayCopy();
 
@@ -196,7 +197,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
                     && $event->context->deviceId === null),
             );
 
-        self::assertNull($guard->refresh($token));
+        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
     }
 
     /**
@@ -226,14 +227,13 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
                     && $event->context->deviceId === 'device-non-string-jti'),
             );
 
-        self::assertNull($guard->refresh($token));
+        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
     }
 
     /**
-     * A refresh attempt against a device whose `revoked_at` column is set
-     * returns null and fires `AuthenticationFailed` with reason
-     * `device_revoked`, regardless of whether the rotation id verifies against
-     * the stored digest.
+     * A refresh attempt against a device whose `revoked_at` column is set fails
+     * and fires `AuthenticationFailed` with reason `device_revoked`, regardless
+     * of whether the rotation id verifies against the stored digest.
      *
      * @return void
      *
@@ -270,7 +270,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
                     && $event->reason === FailureReason::DEVICE_REVOKED),
             );
 
-        self::assertNull($guard->refresh($token));
+        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
     }
 
     /**
@@ -334,7 +334,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         $dispatched = $this->recordDispatchedEvents();
 
-        self::assertNull($guard->refresh($token));
+        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
         self::assertContains(DeviceRevoked::class, array_map(static fn (object $event): string => $event::class, $dispatched->getArrayCopy()));
 
         $fresh = StubDevice::query()->findOrFail($device->id);
@@ -394,15 +394,15 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         $dispatched = $this->recordDispatchedEvents();
 
-        $rotated = $this->makeGuard($this->makeRequest(null))->refresh($oldToken);
+        $rotated = GuardSessions::of($this->makeGuard($this->makeRequest(null)))->refresh($oldToken)->session?->tokens;
 
-        self::assertInstanceOf(RefreshResult::class, $rotated);
+        self::assertInstanceOf(TokenPair::class, $rotated);
 
         Carbon::setTestNow($this->now->copy()->addSeconds(29));
 
-        $retried = $this->makeGuard($this->makeRequest(null))->refresh($oldToken);
+        $retried = GuardSessions::of($this->makeGuard($this->makeRequest(null)))->refresh($oldToken)->session?->tokens;
 
-        self::assertInstanceOf(RefreshResult::class, $retried);
+        self::assertInstanceOf(TokenPair::class, $retried);
         self::assertSame(
             $this->tokens->parse($rotated->refreshToken, TokenType::REFRESH)[Claims::JWT_ID->value] ?? null,
             $this->tokens->parse($retried->refreshToken, TokenType::REFRESH)[Claims::JWT_ID->value] ?? null,
@@ -411,14 +411,14 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         Carbon::setTestNow($this->now->copy()->addSeconds(30));
 
-        self::assertNull($this->makeGuard($this->makeRequest(null))->refresh($oldToken));
+        self::assertNull(GuardSessions::of($this->makeGuard($this->makeRequest(null)))->refresh($oldToken)->session);
         self::assertSame('rotation_reuse', StubDevice::query()->findOrFail($device->id)->revoked_reason);
     }
 
     /**
      * A failed refresh dispatches the standard Laravel `Failed` event in
      * addition to the package-specific `AuthenticationFailed`. Mutation guard:
-     * pins the `$this->fireFailedEvent(null, [])` call in `refresh()`.
+     * pins the `Failed` the refresh dispatches with no user and no credentials.
      *
      * @return void
      *
@@ -440,7 +440,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
                 $failedEvent = $event;
             });
 
-        $guard->refresh('not-a-jwt');
+        GuardSessions::of($guard)->refresh('not-a-jwt');
 
         self::assertInstanceOf(Failed::class, $failedEvent);
         self::assertSame(self::GUARD_NAME, $failedEvent->guard);
@@ -449,7 +449,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
     /**
      * Allow the standard `Attempting` + `Failed` events that every failed
-     * `JwtGuard::refresh()` call now dispatches (alongside the package-specific
+     * refresh now dispatches (alongside the package-specific
      * `AuthenticationFailed` event). Tests that assert a specific
      * `AuthenticationFailed` reason call this helper first to permit the
      * standard events without constraining them.

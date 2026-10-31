@@ -123,7 +123,8 @@ to these events, so the shape and the timing are a contract.
 - A switch failure follows the same rule up to its target: once the owner is read, a refusal of the target (not the
   principal named, inactive, ineligible, a factor required) names the principal resolved for it, if any, never the
   one the device acts as.
-- A refresh refused by the limits (`rate_limited`) carries the wait in `retryAfter`, and the guard then throws its 429.
+- A refresh refused by the limits (`rate_limited`) carries the wait in `retryAfter`, which the refresh's result carries
+  too.
 - A queued listener of an event whose device, identity, principal or tenant was deleted before it ran (a pruned device,
   an erased account) still gets the event, with that model `null` and the snapshot naming it as it was.
 
@@ -137,7 +138,7 @@ to these events, so the shape and the timing are a contract.
 - `src/Guards/Concerns/BindsContextualState.php`: `bindContext()`, `boundContext()`, `boundTenant()`, and the context
   `setPrincipal()` and `setDevice()` report.
 - `src/Guards/AbstractGuard.php`: `bindVerifiedContext()`, `authenticateAs()`, and the `attempt()` failure.
-- `src/Guards/JwtGuard.php`: `refresh()`, `refuseRefresh()` and `reportRefresh()`; `src/Guards/BearerAuthentication.php`:
+- `src/Sessions/SessionRefresh.php`: `refresh()`, `refuse()` and `report()`; `src/Guards/BearerAuthentication.php`:
   `failed()`, the bearer failure's context.
 - `src/Jwt/RefreshTokenExchange.php`: `refused()`, `deviceContext()`, and the `DeviceRevoked` dispatch;
   `src/Sessions/PrincipalSwitch.php`: `eventContext()`.

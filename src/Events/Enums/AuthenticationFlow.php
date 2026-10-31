@@ -19,7 +19,8 @@ enum AuthenticationFlow: string
     // A request's access token
     case BEARER = 'bearer';
 
-    // A refresh-token exchange: refresh() and refreshFromRequest()
+    // A refresh-token exchange: the session service's refresh() and
+    // refreshFromRequest()
     case REFRESH = 'refresh';
 
     // A switch of the principal a device's session acts as

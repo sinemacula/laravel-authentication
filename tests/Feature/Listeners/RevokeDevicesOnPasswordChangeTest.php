@@ -184,7 +184,7 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
 
         $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken])->getJson('/me')->assertUnauthorized();
 
-        self::assertNull($this->freshGuard()->refresh($session->tokens->refreshToken));
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
     }
 
     /**
@@ -266,7 +266,7 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
 
         $this->withHeaders(['Authorization' => 'Bearer ' . $between->tokens->accessToken])->getJson('/me')->assertUnauthorized();
 
-        self::assertNull($this->freshGuard()->refresh($between->tokens->refreshToken));
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($between->tokens->refreshToken)->session);
 
         Auth::forgetGuards();
 
@@ -652,7 +652,7 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
 
         $this->withHeaders(['Authorization' => 'Bearer ' . $between->tokens->accessToken])->getJson('/me')->assertUnauthorized();
 
-        self::assertNull($this->freshGuard()->refresh($between->tokens->refreshToken));
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($between->tokens->refreshToken)->session);
     }
 
     /**
@@ -721,7 +721,7 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
 
         $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken])->getJson('/me')->assertOk();
 
-        self::assertNotNull($this->freshGuard()->refresh($session->tokens->refreshToken));
+        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
     }
 
     /**
@@ -846,7 +846,7 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
 
         $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken])->getJson('/me')->assertUnauthorized();
 
-        self::assertNull($this->freshGuard()->refresh($session->tokens->refreshToken));
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
     }
 
     /**

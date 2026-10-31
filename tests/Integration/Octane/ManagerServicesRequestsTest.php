@@ -19,7 +19,6 @@ use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -296,14 +295,11 @@ final class ManagerServicesRequestsTest extends TestCase
         });
 
         Route::post('/members/refresh', function (): array {
-            $guard = Auth::manager()->guard('members');
-
-            self::assertInstanceOf(JwtGuard::class, $guard);
-
+            $sessions = Auth::sessions('members');
             $this->recordInThisRequest(self::LIFECYCLE);
-            $pair = $guard->refresh(request()->string('refresh')->value());
+            $session = $sessions->refresh(request()->string('refresh')->value())->session;
 
-            return ['refresh' => $pair?->refreshToken];
+            return ['refresh' => $session?->tokens->refreshToken];
         });
 
         Route::post('/members/switch', function (): array {

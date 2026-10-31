@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\UncastDevice;
 use Tests\Integration\Fixtures\UncastDeviceIdentity;
 use Tests\TestCase;
@@ -149,7 +150,7 @@ final class UncastRevokedDeviceIntegrationTest extends TestCase
 
         Event::fake([AuthenticationFailed::class]);
 
-        self::assertNull($this->guardForRequest(Request::create('/refresh', 'POST'))->refresh($refreshToken));
+        self::assertNull(GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST')))->refresh($refreshToken)->session);
 
         Event::assertDispatched(
             AuthenticationFailed::class,

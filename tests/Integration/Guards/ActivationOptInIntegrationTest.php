@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\DefaultUsersTableIdentity;
 use Tests\TestCase;
 
@@ -139,7 +140,7 @@ final class ActivationOptInIntegrationTest extends TestCase
 
         $guard = $this->freshGuard();
 
-        self::assertNotNull($guard->refresh($refreshToken));
+        self::assertNotNull(GuardSessions::of($guard)->refresh($refreshToken)->session);
         self::assertSame($user->getKey(), $guard->identity()?->getAuthIdentifier());
     }
 

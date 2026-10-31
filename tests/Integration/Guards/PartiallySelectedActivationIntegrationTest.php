@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\PartiallySelectedIdentity;
 use Tests\TestCase;
 
@@ -131,6 +132,7 @@ final class PartiallySelectedActivationIntegrationTest extends TestCase
      * @return void
      *
      * @throws \Random\RandomException
+     * @throws \Throwable
      */
     public function testRefreshReportsAnIdentityLoadedWithoutItsActiveFlag(): void
     {
@@ -148,7 +150,7 @@ final class PartiallySelectedActivationIntegrationTest extends TestCase
         $guard        = $this->guardForRequest(Request::create('/refresh', 'POST'));
 
         try {
-            $guard->refresh($refreshToken);
+            GuardSessions::of($guard)->refresh($refreshToken);
 
             self::fail('The unloaded activation flag should have been reported.');
         } catch (\LogicException $exception) {

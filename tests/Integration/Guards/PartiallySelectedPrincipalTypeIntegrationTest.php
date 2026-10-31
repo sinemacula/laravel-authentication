@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Concerns\InteractsWithTypedPrincipals;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\ColumnSelectingMembershipResolver;
 use Tests\Integration\Fixtures\TypedIdentity;
 use Tests\Integration\Fixtures\TypedMembership;
@@ -132,7 +133,7 @@ final class PartiallySelectedPrincipalTypeIntegrationTest extends TestCase
 
         $refreshToken = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $membership);
 
-        $this->assertUnloadedType(fn (): mixed => $this->guard()->refresh($refreshToken));
+        $this->assertUnloadedType(fn (): mixed => GuardSessions::of($this->guard())->refresh($refreshToken));
 
         self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), Device::query()->whereKey($device->getKey())->value('refresh_key'));
     }

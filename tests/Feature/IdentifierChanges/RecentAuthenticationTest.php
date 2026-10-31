@@ -253,7 +253,7 @@ final class RecentAuthenticationTest extends TestCase
 
         $this->moveTo($this->now->addSeconds(1000));
 
-        self::assertNotNull($this->freshGuard('web')->refresh($session->tokens->refreshToken));
+        self::assertNotNull(self::sessionsOf($this->freshGuard('web'))->refresh($session->tokens->refreshToken)->session);
 
         $refreshed = Device::query()->findOrFail($session->device->getKey());
         $check     = new RecentAuthentication($this->guardContext(), $this->app, 900, CarbonImmutable::now());

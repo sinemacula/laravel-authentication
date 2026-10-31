@@ -1,23 +1,37 @@
 # Refreshing
 
-Refresh with the token the request carries, read through the guard's refresh token transport:
+Refresh through the guard's session service, with the token the request carries, read through the guard's refresh
+token transport:
 
 ```php
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Facades\Auth;
 
-$result = auth()->guard('api')->refreshFromRequest();
+$result = Auth::sessions('api')->refreshFromRequest();
 
-if (!$result instanceof RefreshResult) {
-    // null: the request carried no refresh token, and nothing was dispatched.
-    // A FailureReason: refused, after Failed and AuthenticationFailed with that reason.
+abort_if($result === null, 401); // no refresh token in the request, and nothing was dispatched
+
+if ($result->isFailed()) {
+    // Failed and AuthenticationFailed were dispatched (flow refresh); $result->reason says why.
+    if ($result->reason === FailureReason::RATE_LIMITED) {
+        throw new ThrottleRequestsException(__('Too Many Attempts.'), null, ['Retry-After' => $result->retryAfter]);
+    }
+
     abort(401);
 }
 
 return [
-    'access_token'  => $result->accessToken,
-    'refresh_token' => $result->refreshToken,
+    'access_token'  => $result->session->tokens->accessToken,
+    'refresh_token' => $result->session->tokens->refreshToken,
 ];
 ```
+
+A refresh rotates the session's refresh token on its device and binds the guard to the refreshed session for the rest of
+the request. The result's `session` is that session: its `identity`, `principal`, `device` (the one to set a refresh
+cookie for), the `method` its sign-in used, and the new pair in `tokens`. Every refusal is returned, never thrown, with
+its `reason`; `rate_limited` also carries the seconds to wait in `retryAfter`, which the route answers with a 429 and
+`Retry-After` so the client waits.
 
 The guard reads the token only from the sources its `refresh_token` settings list: `body` and `header` by default, the
 `refresh_token` field of the JSON or form body (never the query string) and the `X-Refresh-Token` header, or the
@@ -26,10 +40,9 @@ equal or not, is refused as `refresh_token_conflict`: the server never chooses b
 get past the cookie's cross-site checks by also sending the token another way. A value that is not one non-empty string
 is `token_invalid`. A refusal by the transport dispatches `Attempting`, `Failed` and `AuthenticationFailed` (flow
 `refresh`) like any failed refresh, without touching a device or counting against a limit; a token the exchange refuses
-fails with the exchange's reason, the 429 for `rate_limited` included. The result's `source`
-(`RefreshTokenSource::COOKIE`, `BODY` or `HEADER`) says where the token came from, so a refresh read from the cookie can
-be answered with a cookie. `Auth::refreshTransport('api')->read($request)` reads a request the same way without
-refreshing.
+fails with the exchange's reason, `rate_limited` included. The result's `source` (`RefreshTokenSource::COOKIE`, `BODY`
+or `HEADER`) says where the token came from, so a refresh read from the cookie can be answered with a cookie.
+`Auth::refreshTransport('api')->read($request)` reads a request the same way without refreshing.
 
 The package defaults are `authentication.refresh_token`; a guard overrides any of them in a `refresh_token` block on its
 `config/auth.php` entry, where a key it sets wins, inside `cookie` too:
@@ -43,9 +56,9 @@ The package defaults are `authentication.refresh_token`; a guard overrides any o
 ```
 
 A malformed value or an unknown key fails closed with an `InvalidArgumentException` naming the guard and the key, read
-when the guard reads a token. `refresh($refreshToken)` remains for a token your code reads itself and returns the
-result or `null`; never pass it a token read from the refresh cookie, which only `refreshFromRequest()` reads with the
-cookie's cross-site checks.
+when the guard reads a token. `Auth::sessions('api')->refresh($refreshToken)` refreshes with a token your code reads
+itself and answers the same `RefreshResult`, without a `source`; never pass it a token read from the refresh cookie,
+which only `refreshFromRequest()` reads with the cookie's cross-site checks.
 
 A refresh is held to the guard as well as the token. A device the row records for another guard (or for none) fails
 with `device_guard_mismatch` and is left alone, even for a token that would be a replay, and a bearer token naming it
@@ -62,8 +75,9 @@ grace window is a replay, as any rotated token is. A refresh that loses its writ
 
 Failed refreshes are counted against the token's device and the request's IP address by the bound `AttemptLimiter`;
 successful ones are not. Once either count is full, a refresh dispatches `Failed` and `AuthenticationFailed`
-(`rate_limited`) without looking the device up, then throws Laravel's `ThrottleRequestsException`, which renders as a
-429 with `Retry-After` and a [localisable](installation.md#localising-messages) message.
+(`rate_limited`) without looking the device up, and returns `rate_limited` with the seconds until the full count's
+window ends in `retryAfter`; answer it with Laravel's `ThrottleRequestsException`, as above, which renders as a 429 with
+`Retry-After`.
 
 A failure before the stored rotation commits, such as an error while signing the new pair, leaves the presented refresh
 token valid for a retry. Once the rotation is written, the refresh schedules `Refreshed` for its commit on the device's
@@ -72,6 +86,30 @@ rolled back) before it binds the new context, so a listener that throws on a bin
 being reported; an exception from a listener on any of those events still loses the new pair, but a retry with the
 presented token inside the grace window still gets the current credential (see [Refresh token
 replay](#refresh-token-replay)). Keep those listeners from throwing or queue them, so a retry is never needed.
+
+## Moving from the guard's refresh
+
+The guard no longer refreshes: `refresh()` and `refreshFromRequest()` moved to the session service, beside switching
+principal and signing out, and return every refusal instead of throwing the 429.
+
+```php
+// Before
+$result = auth()->guard('api')->refreshFromRequest(); // FailureReason|Jwt\RefreshResult|null, 429 thrown
+$result = auth()->guard('api')->refresh($token);      // ?Jwt\RefreshResult, null for any refusal
+$result->accessToken; $result->refreshToken; $result->source;
+
+// After
+$result = Auth::sessions('api')->refreshFromRequest(); // ?Sessions\RefreshResult, null: no token in the request
+$result = Auth::sessions('api')->refresh($token);      // Sessions\RefreshResult
+$result->session->tokens->accessToken; $result->session->tokens->refreshToken; $result->source;
+$result->session->device;                              // the device, without reading the guard
+```
+
+A check written for the old shape can now be wrong without failing: `$result !== null` and `if ($result)` hold for a
+refused refresh too, `$result instanceof FailureReason` never holds, and neither does an `instanceof` check against
+`Jwt\RefreshResult`, which is now the bare token pair `Jwt\TokenPair`, with no `source`. Ask `isRefreshed()` or
+`isFailed()` and read `reason`. A route that let the guard's 429 render itself now answers `rate_limited` itself, as the
+example above does.
 
 ## Refresh token cookie
 
@@ -95,11 +133,12 @@ Put the routes that read the cookie under that path (refresh, a switch of princi
 cookie with the guard's transport whenever the API hands out a pair:
 
 ```php
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 
 Route::post('/auth/sign-in', function (Request $request) {
@@ -119,13 +158,18 @@ Route::post('/auth/sign-in', function (Request $request) {
 });
 
 Route::post('/auth/refresh', function () {
-    $guard  = Auth::guard('browser');
-    $result = $guard->refreshFromRequest();
+    $result = Auth::sessions('browser')->refreshFromRequest();
 
-    abort_unless($result instanceof RefreshResult && $result->source === RefreshTokenSource::COOKIE, 401);
+    if ($result?->reason === FailureReason::RATE_LIMITED) {
+        throw new ThrottleRequestsException(__('Too Many Attempts.'), null, ['Retry-After' => $result->retryAfter]);
+    }
 
-    return response()->json(['access_token' => $result->accessToken])
-        ->withCookie(Auth::refreshTransport('browser')->cookie($result->refreshToken, $guard->device()));
+    abort_unless($result?->session !== null && $result->source === RefreshTokenSource::COOKIE, 401);
+
+    $session = $result->session;
+
+    return response()->json(['access_token' => $session->tokens->accessToken])
+        ->withCookie(Auth::refreshTransport('browser')->cookie($session->tokens->refreshToken, $session->device));
 });
 
 Route::post('/logout', function () {

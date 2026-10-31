@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\PartiallySelectedDevice;
 use Tests\Integration\Fixtures\PartiallySelectedDeviceIdentity;
 use Tests\TestCase;
@@ -158,6 +159,7 @@ final class PartiallySelectedDeviceIntegrationTest extends TestCase
      * @return void
      *
      * @throws \Random\RandomException
+     * @throws \Throwable
      */
     public function testRefreshReportsARevokedDeviceLoadedWithoutItsRevocation(): void
     {
@@ -169,7 +171,7 @@ final class PartiallySelectedDeviceIntegrationTest extends TestCase
         $guard        = $this->guardForRequest(Request::create('/refresh', 'POST'));
 
         try {
-            $guard->refresh($refreshToken);
+            GuardSessions::of($guard)->refresh($refreshToken);
 
             self::fail('The unloaded revocation column should have been reported.');
         } catch (\LogicException $exception) {

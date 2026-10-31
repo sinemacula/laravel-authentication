@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\UnresolvableIdentity;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
@@ -118,6 +119,7 @@ final class MisconfiguredIdentityIntegrationTest extends TestCase
      * @return void
      *
      * @throws \Random\RandomException
+     * @throws \Throwable
      */
     public function testRefreshThrowsWithoutReportingARefreshFailure(): void
     {
@@ -136,7 +138,7 @@ final class MisconfiguredIdentityIntegrationTest extends TestCase
         Event::fake([AuthenticationFailed::class]);
 
         try {
-            $this->freshGuard()->refresh($refreshToken);
+            GuardSessions::of($this->freshGuard())->refresh($refreshToken);
             self::fail('Expected the UnresolvableIdentityException to propagate.');
         } catch (UnresolvableIdentityException) {
             Event::assertNotDispatched(AuthenticationFailed::class);

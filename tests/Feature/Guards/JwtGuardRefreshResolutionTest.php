@@ -25,11 +25,12 @@ use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
@@ -110,7 +111,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
                     && $event->reason === FailureReason::IDENTITY_INACTIVE),
             );
 
-        self::assertNull($guard->refresh($token));
+        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
     }
 
     /**
@@ -175,7 +176,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
                     && $event->context->deviceId === $device->id),
             );
 
-        self::assertNull($guard->refresh($token));
+        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
     }
 
     /**
@@ -218,7 +219,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
                     && $event->reason === FailureReason::IDENTITY_UNKNOWN),
             );
 
-        self::assertNull($guard->refresh($token));
+        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
     }
 
     /**
@@ -271,7 +272,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
                     && $event->context->deviceId === $device->id),
             );
 
-        self::assertNull($guard->refresh($token));
+        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
     }
 
     /**
@@ -328,7 +329,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
                     && $event->context->deviceId === $device->id),
             );
 
-        self::assertNull($guard->refresh($token));
+        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
     }
 
     /**
@@ -385,7 +386,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
                     && $event->context->deviceId === $device->id),
             );
 
-        self::assertNull($guard->refresh($token));
+        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
     }
 
     /**
@@ -440,7 +441,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
                     && $event->reason === FailureReason::PRINCIPAL_INACTIVE),
             );
 
-        self::assertNull($guard->refresh($token));
+        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
     }
 
     /**
@@ -493,7 +494,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
                     && $event->reason === FailureReason::PRINCIPAL_MISMATCH),
             );
 
-        self::assertNull($guard->refresh($token));
+        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
     }
 
     /**
@@ -556,9 +557,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
                 $dispatched[] = $event;
             });
 
-        $result = $guard->refresh($token);
+        $result = GuardSessions::of($guard)->refresh($token)->session?->tokens;
 
-        self::assertInstanceOf(RefreshResult::class, $result);
+        self::assertInstanceOf(TokenPair::class, $result);
 
         $accessClaims = $this->tokens->parse($result->accessToken, TokenType::ACCESS);
         self::assertIsArray($accessClaims);
@@ -652,7 +653,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
                 $dispatched[] = $event;
             });
 
-        self::assertInstanceOf(RefreshResult::class, $guard->refresh($token));
+        self::assertTrue(GuardSessions::of($guard)->refresh($token)->isRefreshed());
         self::assertSame([
             Attempting::class,
             Refreshed::class,
@@ -728,7 +729,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        self::assertInstanceOf(RefreshResult::class, $guard->refresh($token));
+        self::assertTrue(GuardSessions::of($guard)->refresh($token)->isRefreshed());
         self::assertSame($identity, $guard->identity());
         self::assertSame($principal, $guard->principal());
         self::assertSame($device, $guard->device());
@@ -793,7 +794,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        self::assertInstanceOf(RefreshResult::class, $guard->refresh($token));
+        self::assertTrue(GuardSessions::of($guard)->refresh($token)->isRefreshed());
         self::assertSame($principal, $guard->principal());
     }
 
@@ -873,12 +874,12 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $this->events->shouldNotReceive('dispatch');
 
         self::assertSame($guard, $guard->setDispatcher($replacement));
-        self::assertNull($guard->refresh('not-a-jwt'));
+        self::assertNull(GuardSessions::of($guard)->refresh('not-a-jwt')->session);
     }
 
     /**
      * Allow the standard `Attempting` + `Failed` events that every failed
-     * `JwtGuard::refresh()` call now dispatches (alongside the package-specific
+     * refresh now dispatches (alongside the package-specific
      * `AuthenticationFailed` event). Tests that assert a specific
      * `AuthenticationFailed` reason call this helper first to permit the
      * standard events without constraining them.

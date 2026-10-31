@@ -10,7 +10,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
+use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use Tests\Unit\Stubs\StubDevice;
 
 /**
@@ -45,7 +45,7 @@ final class ExchangedRefreshTest extends TestCase
         $principal = \Mockery::mock(Principal::class);
 
         $device = new StubDevice;
-        $tokens = new RefreshResult('access-token', 'refresh-token');
+        $tokens = new TokenPair('access-token', 'refresh-token');
 
         $result = new ExchangedRefresh($identity, $principal, $device, $tokens);
 

@@ -110,7 +110,7 @@ final class StorageConnectionSessionsTest extends TestCase
 
         $digest = $this->devices()->value('refresh_key');
 
-        self::assertNotNull($this->freshGuard()->refresh($session->tokens->refreshToken));
+        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
         self::assertNotSame($digest, $this->devices()->value('refresh_key'));
     }
 

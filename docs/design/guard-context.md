@@ -14,19 +14,19 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   writes still constructs.
 - There is one copy of each collaborator. The guard's getters (`getName()`, `getProvider()`, `getPrincipalResolver()`,
   `getDispatcher()`, `getRequest()`) read the context, and its setters (`setRequest()`, `setDispatcher()`,
-  `setPrincipalResolver()`) rebind it. A JWT guard builds its refresh exchange on its own context, through a factory it
-  calls with it once, and the session revocations its `logout()` signs out through (`Sessions\SessionRevocations`)
-  through another it calls with it on each sign-out, so both read the provider, the resolver and the dispatcher the
-  guard reads; neither keeps a copy of them, and neither has setters.
+  `setPrincipalResolver()`) rebind it. A JWT guard builds the session revocations its `logout()` signs out through
+  (`Sessions\SessionRevocations`) through a factory it calls with its context on each sign-out, and a session service
+  built for the guard builds the refresh exchange on the same context with the guard's token service, so both read the
+  provider, the resolver and the dispatcher the guard reads; neither keeps a copy of them, and neither has setters.
 - What a session flow may do to its guard's bound state is the internal port `Contracts\GuardBinding` (`user()`,
-  `principal()`, `device()`, `tenant()`, `login()`, `authenticateAs()`, `forgetUser()`), which `AbstractGuard`
-  implements. Its four readers resolve the request's credential on first access, as the guard's accessors do, so a
-  sign-out given the guard reads the session the request carries. The session revocations take the binding per call,
-  only for `signOut()` and `signOutEverywhere()`, and otherwise need nothing of the guard but its context. The session
-  service takes the context and the binding at construction: `AuthManager::sessions()` builds one on each call, with the
-  guard's context, the guard as the binding and the guard's token service (`JwtGuard::tokens()`), so the guard neither
-  builds nor holds a session service, and `Sessions\SessionEstablishment`, which writes a session and schedules its
-  reports, never binds: the service binds through the binding once establishment has returned.
+  `principal()`, `device()`, `tenant()`, `login()`, `loginVerified()`, `authenticateAs()`, `forgetUser()`), which
+  `AbstractGuard` implements. Its four readers resolve the request's credential on first access, as the guard's
+  accessors do, so a sign-out given the guard reads the session the request carries. The session revocations take the
+  binding per call, only for `signOut()` and `signOutEverywhere()`, and otherwise need nothing of the guard but its
+  context. The session service takes the context and the binding at construction: `AuthManager::sessions()` builds one
+  on each call, with the guard's context, the guard as the binding and the guard's token service (`JwtGuard::tokens()`),
+  so the guard neither builds nor holds a session service, and `Sessions\SessionEstablishment`, which writes a session
+  and schedules its reports, never binds: the service binds through the binding once establishment has returned.
 - The code, passkey, API key, client credentials, password and identifier change services (`Codes\CodeService`,
   `Passkeys\PasskeyService`, `ApiKeys\ApiKeyService`, `ClientCredentials\ClientCredentialsExchange`,
   `Passwords\PasswordService`, `IdentifierChanges\IdentifierChangeService`) take the guard's context, not the guard, and
@@ -53,7 +53,7 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
 - `setRequest()` rebinds the context and keeps all of its reset: the bound context, the last retrieved identity and
   whether the request was resolved.
 - A flow reads a collaborator from the context each time it uses one and keeps no copy, so a flow built before a rebind
-  (a session service or another service the manager handed out, the guard's refresh exchange) follows the rebind. An
+  (a session service or another service the manager handed out, and the refresh exchange in it) follows the rebind. An
   operation captures what it reports when it starts: the client of the request (`client()`) and its events' payload.
   Every event deferred to a commit is dispatched by the callback the commit runs, through the context's `dispatch()`, so
   it reaches the dispatcher as it is then, and a dispatcher swapped in between the write and the commit receives it: the
@@ -68,8 +68,8 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   guard waits out the budget again. The budget is read on each call from
   `authentication.timebox.credentials_microseconds`, and is `400000` for a value that is missing, not positive or not
   readable.
-- Two guards never share a context: each guard's context, timebox and refresh exchange are its own, and its exchange is
-  built with the same guard's token service.
+- Two guards never share a context: each guard's context and timebox are its own, and a refresh exchange is built by the
+  session service of one guard, on that guard's context and with the same guard's token service.
 - The context does not hold the guard's configuration block: each per-guard setting reads `auth.guards.<name>` by the
   guard's name, with its own validation and lifetime, and a cached block would be a second, stale source. Nor does it
   hold the container: flows that resolve a policy late keep taking the container, so a binding made later still applies.
@@ -107,9 +107,9 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   `src/Contracts/GuardBinding.php`.
 - `src/Guards/AbstractGuard.php`: the constructor, `context()`; `src/Guards/Concerns/ExposesCollaborators.php` and
   `src/Guards/Concerns/RebindsCollaborators.php`: the getters and setters.
-- `src/Guards/JwtGuard.php`: the constructor (the exchange and revocations factories), `tokens()`, `logout()`;
-  `src/Jwt/RefreshTokenExchange.php`: the constructor; `src/Sessions/SessionRevocations.php`;
-  `src/Passwords/PasswordWriter.php`: `write()`.
+- `src/Guards/JwtGuard.php`: the constructor (the revocations factory), `tokens()`, `logout()`;
+  `src/Jwt/RefreshTokenExchange.php`: the constructor, which `src/Sessions/SessionService.php`'s constructor calls;
+  `src/Sessions/SessionRevocations.php`; `src/Passwords/PasswordWriter.php`: `write()`.
 - `src/AuthenticationServiceProvider.php`: `createJwtGuard()`, `wireGuardRebinds()`.
 - `src/AuthManager.php`: `sessions()`, `codes()`, `passkeys()`, `apiKeys()`, `clientCredentials()`, `passwords()`,
   `identifierChanges()`; the constructors of `src/Sessions/SessionService.php`, `src/Codes/CodeService.php`,

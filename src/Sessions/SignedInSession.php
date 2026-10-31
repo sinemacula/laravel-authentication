@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
+use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 
 /**
  * A session the session service started: who signed in, as which principal, on
@@ -28,7 +28,7 @@ final readonly class SignedInSession
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @param  \SineMacula\Laravel\Authentication\Jwt\RefreshResult  $tokens
+     * @param  \SineMacula\Laravel\Authentication\Jwt\TokenPair  $tokens
      * @param  string  $method
      * @param  bool  $deviceCreated
      */
@@ -44,7 +44,7 @@ final readonly class SignedInSession
         public EloquentDevice&Model $device,
 
         /** The first access and refresh tokens of the session. */
-        public RefreshResult $tokens,
+        public TokenPair $tokens,
 
         /** Name of the sign-in method that started the session. */
         public string $method,

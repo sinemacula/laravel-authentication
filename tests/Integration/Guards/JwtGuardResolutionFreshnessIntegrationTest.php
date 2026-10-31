@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
 use Tests\Unit\Stubs\StubActiveAwarePrincipal;
@@ -188,7 +189,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
         $identity->is_active = false;
         $identity->save();
 
-        self::assertNull($this->freshGuard()->refresh($token));
+        self::assertNull(GuardSessions::of($this->freshGuard())->refresh($token)->session);
     }
 
     /**
@@ -213,7 +214,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
         $this->resolver()->setHintedPrincipal('principal-refresh', $inactivePrincipal);
 
-        self::assertNull($this->freshGuard()->refresh($token));
+        self::assertNull(GuardSessions::of($this->freshGuard())->refresh($token)->session);
     }
 
     /**
@@ -235,7 +236,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
         $device->delete();
 
-        self::assertNull($this->freshGuard()->refresh($token));
+        self::assertNull(GuardSessions::of($this->freshGuard())->refresh($token)->session);
     }
 
     /**

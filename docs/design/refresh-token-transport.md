@@ -36,9 +36,9 @@ request may carry the token in only one place; and the cookie that carries a bro
   sends a cookie, not which response may set it, so any route may clear it. Both throw a `LogicException` for a guard
   that does not list `cookie`, and `cookie()` an `InvalidArgumentException` for a session that has ended. Nothing is
   stored on the server.
-- `refresh(string)` stays for a token the caller reads itself and makes none of the cookie's checks, so only
-  `refreshFromRequest()` reads the cookie for a refresh. A switch of principal is proven by the refresh token too:
-  `SessionService::switchPrincipalFromRequest()` reads it with `read()`, so a token from the cookie gets the same
+- The session service's `refresh(string)` is for a token the caller reads itself and makes none of the cookie's checks,
+  so only `refreshFromRequest()` reads the cookie for a refresh. A switch of principal is proven by the refresh token
+  too: `SessionService::switchPrincipalFromRequest()` reads it with `read()`, so a token from the cookie gets the same
   checks (a refusal is an `AuthenticationFailed` of flow `principal_switch` that touches no device), and its
   `SwitchResult::$source` lets the application answer a switch read from the cookie with `cookie()` (see
   `principal-choice-and-switch.md`).
@@ -52,20 +52,23 @@ request may carry the token in only one place; and the cookie that carries a bro
 
 ## Success Path
 
-- `JwtGuard::refreshFromRequest()` reads the request with the guard's transport.
+- `SessionService::refreshFromRequest()` reads the request with the guard's transport, built from the configuration
+  (`RefreshTokenTransport::forGuard()`) as the switch builds it.
 - No listed source carries a token: it returns `null` and dispatches nothing, as a bearer request without a token.
 - One source carries one: the token goes through the same exchange, binding and events as `refresh()`, and the
-  `RefreshResult` carries the `RefreshTokenSource` it was read from, so a cookie refresh can be answered with a cookie.
+  `RefreshResult` carries the `RefreshTokenSource` it was read from (`source`), refreshed or refused, so a cookie
+  refresh can be answered with a cookie for the session's device (`$result->session->device`).
 - `Auth::refreshTransport($guard)->read($request)` reads the same way without refreshing.
 
 ## Failure / Edge Cases
 
 - A refusal by the transport dispatches `Attempting`, `Failed` and `AuthenticationFailed` (flow `refresh`, the reason,
-  the guard and the request's client, no identity) and returns the reason. It reaches no device and no limit.
+  the guard and the request's client, no identity) and returns a failed `RefreshResult` with the reason and no `source`.
+  It reaches no device and no limit.
 - A cookie the routes' `EncryptCookies` cannot decrypt arrives as `null` and is `token_invalid`; leave the cookie out
   of encryption, or set and read it on routes that both encrypt.
-- A refusal by the exchange returns the exchange's reason after the same events as `refresh()`; `rate_limited` throws
-  the 429 there as well.
+- A refusal by the exchange returns the exchange's reason after the same events as `refresh()`, `rate_limited` with its
+  `retryAfter`, for the route to answer with a 429; nothing is thrown.
 - A `__Host-` cookie name requires `cookie.path` `/` and no `cookie.domain` on a guard that reads the cookie, as a
   browser keeps it only so. A guard that does not read the cookie never sets it, so a package-wide `__Host-` name does
   not bind it.
@@ -82,10 +85,11 @@ request may carry the token in only one place; and the cookie that carries a bro
 ## Implementation Anchors
 
 - `src/Http/RefreshTokenTransport.php`: `read()`, `isSameSiteRequest()`, `cookie()`, `forgetCookie()`.
-- `src/Sessions/SessionService.php`: `switchPrincipalFromRequest()`, which builds the guard's transport from the
-  configuration (`RefreshTokenTransport::forGuard()`), as the guard's own factory does.
+- `src/Sessions/SessionService.php`: `switchPrincipalFromRequest()`, and `src/Sessions/SessionRefresh.php`:
+  `refreshFromRequest()`, which build the guard's transport from the configuration
+  (`RefreshTokenTransport::forGuard()`), as the guard's own factory does.
 - `src/Http/RefreshTokenSettings.php`: `forGuard()`.
-- `src/Guards/JwtGuard.php`: `refreshFromRequest()`, `refreshTransport()`, `exchangeRefresh()`, `refuseRefresh()`.
+- `src/Guards/JwtGuard.php`: `refreshTransport()`.
 - `src/AuthManager.php`: `refreshTransport()`.
 - `config/authentication.php`: `refresh_token`.
 
@@ -96,6 +100,9 @@ request may carry the token in only one place; and the cookie that carries a bro
 - `tests/Feature/Guards/JwtGuardTest.php`
   `testRefreshFromARequestWithoutATokenAttemptsNothing`, `testATokenTheTransportRefusesIsAFailedRefresh`,
   `testARefreshFromTheRequestSaysWhereTheTokenWasRead`
+- `tests/Feature/Sessions/SessionRefreshTest.php`
+  `testARefreshFromTheRequestSaysWhereItsTokenWasRead`, `testARequestWithoutATokenIsNotARefresh`,
+  `testATokenTheTransportRefusesIsARefusedRefresh`
 - `tests/Integration/Http/RefreshTokenTransportIntegrationTest.php`
   `testACookiePlantedBesideTheBrowsersOwnIsAConflict`, `testAHostCookieNameLeavesTheGuardsThatDoNotReadTheCookieAlone`
 - `tests/Integration/Http/RefreshTokenCookieIntegrationTest.php`

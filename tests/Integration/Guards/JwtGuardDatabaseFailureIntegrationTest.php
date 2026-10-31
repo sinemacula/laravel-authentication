@@ -15,6 +15,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\UnreachableDevice;
 use Tests\Integration\Fixtures\UnreachableDeviceIdentity;
 use Tests\TestCase;
@@ -103,7 +104,7 @@ final class JwtGuardDatabaseFailureIntegrationTest extends TestCase
         $this->expectException(QueryException::class);
         $this->expectExceptionMessage('Connection: ' . self::UNREACHABLE_CONNECTION);
 
-        $guard->refresh($refreshToken);
+        GuardSessions::of($guard)->refresh($refreshToken);
     }
 
     /**

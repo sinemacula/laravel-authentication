@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 use Tests\Concerns\InteractsWithTypedPrincipals;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\TypedIdentity;
 use Tests\Integration\Fixtures\TypedMembership;
 use Tests\Integration\Fixtures\TypedTenant;
@@ -174,7 +175,7 @@ final class AudiencePolicyIntegrationTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $refreshed);
 
-        $result = $refreshed->refresh($refreshToken);
+        $result = GuardSessions::of($refreshed)->refresh($refreshToken)->session?->tokens;
 
         self::assertNotNull($result);
         $this->assertExpiresInMinutes(2, $result->accessToken);

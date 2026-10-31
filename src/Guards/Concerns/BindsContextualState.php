@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Guards\Concerns;
 
 use Illuminate\Auth\Events\Authenticated;
+use Illuminate\Auth\Events\Validated;
 use SineMacula\Laravel\Authentication\Audience\PrincipalType;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -29,7 +30,8 @@ use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
  * authentication middleware.
  *
  * Expects the using class to hold the guard's `GuardContext` in
- * `$this->context`, whose name, dispatcher and request it reads.
+ * `$this->context`, whose name, dispatcher and request it reads, and to declare
+ * `bindVerifiedContext()`, which `loginVerified()` binds through.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -226,6 +228,27 @@ trait BindsContextualState
         $this->context->dispatch(new DeviceAuthenticated($this->boundContext($tenant, $device->getSignInMethod())));
 
         return $this;
+    }
+
+    /**
+     * Bind a context the flow verified itself as a sign-in: `Validated`, then
+     * `Login` and the bind events, with the tenant the flow's activity check
+     * loaded and the sign-in method it reports, as a refresh binds the session
+     * it rotated. The context is bound as given, without the ownership checks
+     * `attempt()` applies to its pins, so the caller must have proven it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  ?string  $method
+     * @return void
+     */
+    public function loginVerified(Identity $identity, Principal $principal, ?Device $device, ?Tenant $tenant, ?string $method): void
+    {
+        $this->context->dispatch(new Validated($this->context->name(), $identity));
+
+        $this->bindVerifiedContext($identity, $principal, $device, $tenant, $method, true);
     }
 
     /**

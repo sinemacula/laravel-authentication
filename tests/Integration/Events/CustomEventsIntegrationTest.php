@@ -25,11 +25,12 @@ use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
@@ -232,7 +233,7 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * A successful `JwtGuard::refresh()` exchange dispatches exactly one
+     * A successful refresh through the session service dispatches exactly one
      * `Refreshed` event carrying the guard name and the bound identity.
      *
      * @return void
@@ -275,9 +276,9 @@ final class CustomEventsIntegrationTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $guard);
 
-        $result = $guard->refresh($refreshToken);
+        $result = GuardSessions::of($guard)->refresh($refreshToken)->session?->tokens;
 
-        self::assertInstanceOf(RefreshResult::class, $result);
+        self::assertInstanceOf(TokenPair::class, $result);
 
         Event::assertDispatched(Refreshed::class, 1);
         Event::assertDispatched(Refreshed::class, function (Refreshed $event): bool {
@@ -353,7 +354,7 @@ final class CustomEventsIntegrationTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $guard);
         self::assertNotNull($tokens);
-        self::assertInstanceOf(RefreshResult::class, $guard->refresh($tokens->issueRefreshToken($device, 'stored-rotation-id', $user)));
+        self::assertTrue(GuardSessions::of($guard)->refresh($tokens->issueRefreshToken($device, 'stored-rotation-id', $user))->isRefreshed());
 
         self::assertSame([
             'AuthenticationFailed:api',

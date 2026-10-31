@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 
 /**
@@ -224,7 +225,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
 
         $guard = $this->refreshGuard();
 
-        self::assertNull($this->assertQueryBudget(1, 2, static fn (): mixed => $guard->refresh($token)));
+        self::assertNull($this->assertQueryBudget(1, 2, static fn (): mixed => GuardSessions::of($guard)->refresh($token))->session);
     }
 
     /**
@@ -241,7 +242,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
         $token = $this->encode([Claims::TYPE->value => TokenType::REFRESH->value]);
         $guard = $this->refreshGuard();
 
-        self::assertNull($this->assertQueryBudget(1, 2, static fn (): mixed => $guard->refresh($token)));
+        self::assertNull($this->assertQueryBudget(1, 2, static fn (): mixed => GuardSessions::of($guard)->refresh($token))->session);
     }
 
     /**

@@ -92,8 +92,8 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
 ## Failure / Edge Cases
 
 - A lost switch response: the client retries with the old token inside the grace window and receives the current
-  credential for the target, with no second `PrincipalSwitched`. Presented to `refresh()`, the same token fails as
-  `device_principal_mismatch` without revoking.
+  credential for the target, with no second `PrincipalSwitched`. Presented to the session service's `refresh()`, the
+  same token fails as `device_principal_mismatch` without revoking.
 - A switch racing a refresh of the same token loses the swap and fails as `rotation_conflict`; two identical switches
   both answer with the target's credential; two switches to different principals leave the first; a switch racing a
   revocation fails as `device_revoked`.

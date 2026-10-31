@@ -7,6 +7,7 @@ namespace Tests\Unit\Sessions;
 use Illuminate\Database\Eloquent\Model;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -14,7 +15,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
+use SineMacula\Laravel\Authentication\Jwt\TokenPair;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\HoldsARotatedSession;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
@@ -29,6 +31,7 @@ use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
  */
 #[CoversClass(SwitchResult::class)]
 #[CoversClass(SwitchedPrincipal::class)]
+#[CoversTrait(HoldsARotatedSession::class)]
 final class SwitchResultTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
@@ -41,7 +44,7 @@ final class SwitchResultTest extends TestCase
     public function testASwitchedResultCarriesTheSession(): void
     {
         $device  = \Mockery::mock(Model::class, EloquentDevice::class);
-        $session = new SignedInSession(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), $device, new RefreshResult('access', 'refresh'), 'password', false);
+        $session = new SignedInSession(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), $device, new TokenPair('access', 'refresh'), 'password', false);
         $result  = SwitchResult::switched($session);
 
         self::assertTrue($result->isSwitched());
@@ -70,7 +73,7 @@ final class SwitchResultTest extends TestCase
         self::assertSame(30, $read->retryAfter);
 
         $device  = \Mockery::mock(Model::class, EloquentDevice::class);
-        $session = new SignedInSession(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), $device, new RefreshResult('access', 'refresh'), 'password', false);
+        $session = new SignedInSession(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), $device, new TokenPair('access', 'refresh'), 'password', false);
 
         self::assertSame($session, SwitchResult::switched($session)->withSource(RefreshTokenSource::BODY)->session);
     }
@@ -112,7 +115,7 @@ final class SwitchResultTest extends TestCase
     public function testASwitchedPrincipalKeepsWhatItWasGiven(): void
     {
         $device    = \Mockery::mock(Model::class, EloquentDevice::class);
-        $exchanged = new ExchangedRefresh(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), $device, new RefreshResult('access', 'refresh'), null, 'password');
+        $exchanged = new ExchangedRefresh(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), $device, new TokenPair('access', 'refresh'), null, 'password');
         $switched  = new SwitchedPrincipal($exchanged, 'membership', '7', true);
 
         self::assertSame($exchanged, $switched->session);

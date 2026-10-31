@@ -37,12 +37,14 @@ use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
+use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\RefreshesSessions;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
@@ -64,10 +66,11 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * schedules what reports it but never binds; the service binds the guard only
  * once that has returned. The principals an identity may choose from, and the
  * choice a sign-in without a default waits on, are `PrincipalChoices`'. The
- * service also lets a session switch the principal it acts as, lists devices,
- * and signs out, revokes devices and ends sessions on security changes through
- * `SessionRevocations` (`EndsSessions`), which the guard's `logout()` and
- * password changes use too.
+ * service also refreshes a session through `SessionRefresh`
+ * (`RefreshesSessions`), lets a session switch the principal it acts as, lists
+ * devices, and signs out, revokes devices and ends sessions on security changes
+ * through `SessionRevocations` (`EndsSessions`), which the guard's `logout()`
+ * and password changes use too.
  *
  * Failures are results, not exceptions: Laravel's `Failed` and the package's
  * `AuthenticationFailed` report them. Exceptions are kept for misconfiguration
@@ -84,7 +87,7 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  */
 final readonly class SessionService
 {
-    use EndsSessions;
+    use EndsSessions, RefreshesSessions;
 
     /** @var \SineMacula\Laravel\Authentication\Sessions\SessionEstablishment Takes an admitted sign-in to its session or pending sign-in, never binding. */
     private SessionEstablishment $establishment;
@@ -92,7 +95,7 @@ final readonly class SessionService
     /** @var \SineMacula\Laravel\Authentication\Sessions\PrincipalChoices The principals an identity may choose, and the choices sign-ins wait on. */
     private PrincipalChoices $choices;
 
-    /** @var \SineMacula\Laravel\Authentication\Database\AfterCommit Defers a switch's report until the switch commits. */
+    /** @var \SineMacula\Laravel\Authentication\Database\AfterCommit Defers the report of a switch or a refresh until it commits. */
     private AfterCommit $afterCommit;
 
     /** @var \SineMacula\Laravel\Authentication\Sessions\PendingSignIns Finds and discards the sign-ins waiting for a further factor. */
@@ -124,7 +127,7 @@ final readonly class SessionService
         /** The guard's bound state, which a sign-in, a switch and a sign-out act on. */
         private GuardBinding $binding,
 
-        /** The guard's token service, which a switch parses and issues with. */
+        /** The guard's token service, which a refresh and a switch parse and issue with. */
         private JwtTokenService $tokens,
 
         /** Container the sign-in methods and policies are resolved from. */
@@ -145,6 +148,7 @@ final readonly class SessionService
         $this->establishment     = new SessionEstablishment($context, $writer, $proof, $this->pendings, $this->afterCommit, $container);
         $this->choices           = new PrincipalChoices($context, $proof, $this->pendings, $this->afterCommit, $container);
         $this->revocations       = new SessionRevocations($context, $devices, $container);
+        $this->refreshes         = new SessionRefresh($context, $binding, new RefreshTokenExchange($tokens, $context, $connections, $transactions), $this->afterCommit, $container);
         $this->switchRevocations = $devices;
         $this->rotations         = new RefreshRotationStore($connections);
     }

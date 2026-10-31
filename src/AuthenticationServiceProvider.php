@@ -16,7 +16,6 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Hashing\Hasher;
-use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Exceptions\Handler;
 use Illuminate\Queue\Events\JobProcessing;
@@ -47,7 +46,6 @@ use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Http\UnauthenticatedResponse;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
-use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Listeners\TrackCredentialAttempts;
@@ -170,7 +168,6 @@ final class AuthenticationServiceProvider extends ServiceProvider
 
         /** @var \SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory $tokenFactory */
         $tokenFactory = $app->make(JwtTokenServiceFactory::class);
-        $tokens       = $tokenFactory->forGuard($name);
 
         $guard = new JwtGuard(
             $name,
@@ -179,13 +176,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
             $events,
             $app->make('request'),
             $app->make(Timebox::class),
-            $tokens,
-            static fn (GuardContext $context): RefreshTokenExchange => new RefreshTokenExchange(
-                $tokens,
-                $context,
-                $app->make(ConnectionResolverInterface::class),
-                static fn (): mixed => $app->bound('db.transactions') ? $app->make('db.transactions') : null,
-            ),
+            $tokenFactory->forGuard($name),
             static fn (GuardContext $context): SessionRevocations => SessionRevocations::forContext($context, $app),
             static fn (): RefreshTokenTransport => RefreshTokenTransport::forGuard($name, $app->make(ConfigRepository::class)),
         );

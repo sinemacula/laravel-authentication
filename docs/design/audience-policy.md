@@ -74,11 +74,12 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
 - Attempt limits: a sign-in reserves a slot on its identifier's and its IP address's counters before the method runs
   (`rate_limited` with the wait, the method never asked); a success gives its own slots back, a pending sign-in only
   when it completes, and failures keep theirs until the window ends. A refresh counts only its failures, against the
-  device and the IP address, and is answered `429` with `Retry-After` once either is full. Counters are kept per guard,
-  flow and scope as HMAC-SHA256 digests keyed from `app.key` (an enumerable IP address or identifier cannot be recovered
-  from the table alone), on `rate_limits.connection`. They are written outside the session's own transaction, but a
-  caller transaction on the same connection holds them: with the default (`null`, the storage connection) a sign-in its
-  caller rolls back takes its counts with it and is not counted. Counters on a connection of their own still count it.
+  device and the IP address, and is refused as `rate_limited`, with the wait, once either is full. Counters are kept per
+  guard, flow and scope as HMAC-SHA256 digests keyed from `app.key` (an enumerable IP address or identifier cannot be
+  recovered from the table alone), on `rate_limits.connection`. They are written outside the session's own transaction,
+  but a caller transaction on the same connection holds them: with the default (`null`, the storage connection) a
+  sign-in its caller rolls back takes its counts with it and is not counted. Counters on a connection of their own still
+  count it.
 - An identifier is counted in its canonical form: through the normaliser registered for the method's identifier type
   when there is one (the form `ModelProvider` looks it up in), otherwise trimmed and lower-cased. Every casing of an
   address therefore shares one counter, and a lookup by a designated identifier normalises the credential before it

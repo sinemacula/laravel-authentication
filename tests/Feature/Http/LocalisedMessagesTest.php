@@ -7,16 +7,12 @@ namespace Tests\Feature\Http;
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-use Illuminate\Testing\TestResponse;
 use Illuminate\Translation\ArrayLoader;
 use Illuminate\Translation\Translator;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
-use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ConsumerMessages;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use SineMacula\Laravel\Authentication\Http\UnauthenticatedResponse;
@@ -30,8 +26,8 @@ use Tests\TestCase;
  * Feature tests of the messages the package answers a client with, served over
  * HTTP in the application's locale: the `401` of the package guards, whichever
  * `auth` middleware refused the guest, and the `429` of a throttled passkey
- * sign-in or refresh. The application's `lang/fr.json` translates them, and a
- * locale it has no translation for gets the English text; the status and the
+ * sign-in. The application's `lang/fr.json` translates them, and a locale it
+ * has no translation for gets the English text; the status and the
  * `Retry-After` header are the same in every locale.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -43,7 +39,6 @@ use Tests\TestCase;
 #[CoversClass(UnauthenticatedResponse::class)]
 #[CoversClass(Authenticate::class)]
 #[CoversClass(PasskeyService::class)]
-#[CoversClass(JwtGuard::class)]
 final class LocalisedMessagesTest extends TestCase
 {
     use InteractsWithPasskeys, InteractsWithSessions;
@@ -64,13 +59,6 @@ final class LocalisedMessagesTest extends TestCase
         Route::middleware('auth:api')->get('/package', static fn (): string => 'ok');
         Route::middleware(ApplicationAuthenticate::class . ':api')->get('/application', static fn (): string => 'ok');
         Route::post('/sign-in/passkey/options', static fn (): mixed => Auth::passkeys('api')->signInOptions());
-        Route::post('/refresh', static function (Request $request): array {
-            $guard = Auth::manager()->guard('api');
-
-            assert($guard instanceof JwtGuard);
-
-            return ['refreshed' => $guard->refresh($request->string('refresh_token')->value()) !== null];
-        });
 
         app('translator')->addJsonPath(dirname(__DIR__, 2) . '/Fixtures/lang');
     }
@@ -176,29 +164,6 @@ final class LocalisedMessagesTest extends TestCase
     }
 
     /**
-     * A refresh the limits refuse is answered `429` with the wait in
-     * `Retry-After` and the message in the application's locale.
-     *
-     * @param  string  $locale
-     * @param  string  $throttled
-     * @return void
-     */
-    #[DataProvider('provideThrottledMessages')]
-    public function testAThrottledRefreshIsInTheLocale(string $locale, string $throttled): void
-    {
-        $limiter = \Mockery::mock(AttemptLimiter::class);
-        $limiter->shouldReceive('blocked')->once()->andReturn(42);
-
-        app()->instance(AttemptLimiter::class, $limiter);
-        app()->setLocale($locale);
-
-        $this->refresh()
-            ->assertTooManyRequests()
-            ->assertHeader('Retry-After', '42')
-            ->assertJsonPath('message', $throttled);
-    }
-
-    /**
      * The locale is read when the message is rendered, so one application
      * answers each request in the locale it was set to for that request.
      *
@@ -260,17 +225,5 @@ final class LocalisedMessagesTest extends TestCase
 
         self::configureSessionGuards($config);
         self::configurePasskeys($config);
-    }
-
-    /**
-     * Post a refresh token to the refresh route.
-     *
-     * @return \Illuminate\Testing\TestResponse<\Symfony\Component\HttpFoundation\Response>
-     */
-    private function refresh(): TestResponse
-    {
-        Auth::forgetGuards();
-
-        return $this->postJson('/refresh', ['refresh_token' => 'not-a-jwt']);
     }
 }

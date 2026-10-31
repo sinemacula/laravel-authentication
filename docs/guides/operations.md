@@ -67,8 +67,8 @@ for the next job. Only jobs a worker runs are reset: a job on the `sync` connect
 `dispatchSync()` whatever the default connection) runs inside the request that dispatched it and leaves its guards as
 they are, so a session the request just started stays bound and a request that signed out stays signed out. A
 dispatcher or principal resolver swapped in after a guard resolved (`Event::fake()`, a rebinding of
-`PrincipalResolver`) reaches the guard, its refresh exchange and its session service (and, through it, a switch of
-principal and the revocations), which read the guard's collaborators each time they run.
+`PrincipalResolver`) reaches the guard and its session service (and, through it, a refresh, a switch of principal and
+the revocations), which read the guard's collaborators each time they run.
 
 The package's singletons hold configuration only: the token service factory memoises each guard's signing configuration
 (see [Configuration lifetimes](#configuration-lifetimes)), not any identity's data, and the mark the password-change

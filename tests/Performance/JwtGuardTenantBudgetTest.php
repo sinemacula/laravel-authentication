@@ -18,11 +18,12 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Sessions\RefreshResult;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -205,7 +206,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
 
         $resolved = $this->freshJwtGuard($guard);
 
-        self::assertInstanceOf(RefreshResult::class, $this->assertQueryBudget(5, 1, static fn (): ?RefreshResult => $resolved->refresh($token)));
+        self::assertTrue($this->assertQueryBudget(5, 1, static fn (): RefreshResult => GuardSessions::of($resolved)->refresh($token))->isRefreshed());
     }
 
     /**
@@ -232,7 +233,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
 
         $resolved = $this->freshJwtGuard($guard);
 
-        self::assertNull($this->assertQueryBudget(5, 4, static fn (): ?RefreshResult => $resolved->refresh($token)));
+        self::assertNull($this->assertQueryBudget(5, 4, static fn (): RefreshResult => GuardSessions::of($resolved)->refresh($token))->session);
     }
 
     /**

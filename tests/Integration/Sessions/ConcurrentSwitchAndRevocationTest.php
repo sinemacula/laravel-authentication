@@ -223,7 +223,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
             $session = $this->signIn();
 
             [$refreshed, $second] = $this->race(
-                fn (): bool => $this->freshGuard(self::GUARD)->refresh($session->tokens->refreshToken) !== null,
+                fn (): bool => self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken)->isRefreshed(),
                 fn (): array => self::describe($this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $target)),
                 $commit,
             );

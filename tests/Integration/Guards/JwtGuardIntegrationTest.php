@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
@@ -348,7 +349,7 @@ final class JwtGuardIntegrationTest extends TestCase
 
         $guard = $this->freshGuard();
 
-        self::assertNull($guard->refresh($refreshToken));
+        self::assertNull(GuardSessions::of($guard)->refresh($refreshToken)->session);
     }
 
     /**

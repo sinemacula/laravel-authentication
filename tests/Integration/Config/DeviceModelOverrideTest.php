@@ -15,14 +15,15 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubLookupIdentityProvider;
 use Tests\Unit\Stubs\StubPrincipal;
@@ -127,10 +128,10 @@ final class DeviceModelOverrideTest extends TestCase
     }
 
     /**
-     * Invoking `JwtGuard::refresh()` with a refresh token whose `did` claim
-     * points at a row in the custom table returns a refreshed access token
-     * sourced from the overridden model class, binding an instance of that
-     * class as the active device.
+     * Refreshing through the session service with a refresh token whose `did`
+     * claim points at a row in the custom table returns a refreshed access
+     * token sourced from the overridden model class, binding an instance of
+     * that class as the active device.
      *
      * @return void
      *
@@ -158,9 +159,9 @@ final class DeviceModelOverrideTest extends TestCase
 
         $guard = $this->makeJwtGuard();
 
-        $result = $guard->refresh($refreshToken);
+        $result = GuardSessions::of($guard)->refresh($refreshToken)->session?->tokens;
 
-        self::assertInstanceOf(RefreshResult::class, $result);
+        self::assertInstanceOf(TokenPair::class, $result);
         self::assertNotSame('', $result->accessToken);
         self::assertNotSame('', $result->refreshToken);
         self::assertInstanceOf($this->customModel, $guard->device());
@@ -221,12 +222,6 @@ final class DeviceModelOverrideTest extends TestCase
             app('request'),
             app(Timebox::class),
             $tokens,
-            static fn (GuardContext $context): RefreshTokenExchange => new RefreshTokenExchange(
-                $tokens,
-                $context,
-                app(ConnectionResolverInterface::class),
-                static fn (): mixed => app('db.transactions'),
-            ),
             static fn (GuardContext $context): SessionRevocations => new SessionRevocations(
                 $context,
                 new DeviceRevocations(app(ConnectionResolverInterface::class), static fn (): mixed => app('db.transactions')),

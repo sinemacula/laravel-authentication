@@ -342,12 +342,12 @@ final class PrincipalSwitchTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class, DeviceRevoked::class]);
 
-        self::assertNull($this->freshGuard(self::GUARD)->refresh($session->tokens->refreshToken));
+        self::assertNull(self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken)->session);
         self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
         self::assertSame(FailureReason::DEVICE_PRINCIPAL_MISMATCH, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertNull(DB::table('devices')->value('revoked_at'));
 
-        self::assertNotNull($this->freshGuard(self::GUARD)->refresh($switched->tokens->refreshToken));
+        self::assertNotNull(self::sessionsOf($this->freshGuard(self::GUARD))->refresh($switched->tokens->refreshToken)->session);
     }
 
     /**
@@ -432,7 +432,7 @@ final class PrincipalSwitchTest extends TestCase
         DB::table('devices')->update(['principal_switched_at' => $row['principal_switched_at']]);
 
         $this->bearer($retried->session->tokens->accessToken)->assertOk()->assertExactJson(['principal' => $second->getKey()]);
-        self::assertNotNull($this->freshGuard(self::GUARD)->refresh($retried->session->tokens->refreshToken));
+        self::assertNotNull(self::sessionsOf($this->freshGuard(self::GUARD))->refresh($retried->session->tokens->refreshToken)->session);
         self::assertNull(DB::table('devices')->value('revoked_at'));
     }
 
@@ -527,7 +527,7 @@ final class PrincipalSwitchTest extends TestCase
 
         $this->advance(5);
 
-        self::assertNotNull($this->freshGuard(self::GUARD)->refresh($session->tokens->refreshToken));
+        self::assertNotNull(self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken)->session);
 
         $own = $this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $first);
 

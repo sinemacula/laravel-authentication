@@ -20,7 +20,6 @@ use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
-use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
@@ -289,12 +288,6 @@ final class MachineCredentialBenchHarness
             self::request($token),
             $this->timebox,
             $this->tokens,
-            fn (GuardContext $context): RefreshTokenExchange => new RefreshTokenExchange(
-                $this->tokens,
-                $context,
-                BenchDatabase::connectionResolver(),
-                static fn (): null => null,
-            ),
             static fn (GuardContext $context): SessionRevocations => new SessionRevocations(
                 $context,
                 new DeviceRevocations(BenchDatabase::connectionResolver(), static fn (): null => null),

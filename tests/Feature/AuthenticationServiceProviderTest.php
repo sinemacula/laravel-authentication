@@ -44,6 +44,7 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
+use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -438,7 +439,8 @@ final class AuthenticationServiceProviderTest extends TestCase
     /**
      * JWT guards without a guard-local override should continue tracking later
      * rebinds of the app-wide `PrincipalResolver::class` binding, and the
-     * refresh exchange must stay aligned with the guard's resolver.
+     * refresh exchange of a session service built for the guard must stay
+     * aligned with the guard's resolver.
      *
      * @return void
      *
@@ -450,7 +452,7 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $guard);
 
-        $exchange = $this->readObjectProperty($guard, 'exchange');
+        $exchange = $this->exchangeOf($guard);
 
         self::assertInstanceOf(RefreshTokenExchange::class, $exchange);
         self::assertSame(
@@ -482,7 +484,7 @@ final class AuthenticationServiceProviderTest extends TestCase
         self::assertInstanceOf(JwtGuard::class, $guard);
 
         $resolver = $guard->getPrincipalResolver();
-        $exchange = $this->readObjectProperty($guard, 'exchange');
+        $exchange = $this->exchangeOf($guard);
 
         self::assertInstanceOf(StubGuardScopedPrincipalResolver::class, $resolver);
         self::assertInstanceOf(RefreshTokenExchange::class, $exchange);
@@ -613,8 +615,8 @@ final class AuthenticationServiceProviderTest extends TestCase
     /**
      * The refresh exchange follows the same `events` rebind as its guard: after
      * an `Event::fake()` made once the guard has resolved, a failed refresh
-     * dispatches `AuthenticationFailed` to the fake, alongside the guard's own
-     * `Attempting` and `Failed`.
+     * dispatches `AuthenticationFailed` to the fake, alongside the refresh's
+     * own `Attempting` and `Failed`.
      *
      * @return void
      *
@@ -631,8 +633,8 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         Event::fake([Attempting::class, Failed::class, AuthenticationFailed::class]);
 
-        self::assertSame(Event::getFacadeRoot(), $this->contextOf($this->readObjectProperty($guard, 'exchange'))->events());
-        self::assertNull($guard->refresh('not-a-jwt'));
+        self::assertSame(Event::getFacadeRoot(), $this->contextOf($this->exchangeOf($guard))->events());
+        self::assertNull(Auth::sessions('api')->refresh('not-a-jwt')->session);
 
         Event::assertDispatched(
             AuthenticationFailed::class,
@@ -642,10 +644,10 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The guard's refresh exchange resolves the database transactions manager
-     * each time it defers a revocation event, so a manager bound later (as the
-     * testing transaction traits bind one) is the one consulted, and none is
-     * used when the container has none.
+     * The refresh exchange of the guard's session service resolves the database
+     * transactions manager each time it defers a revocation event, so a manager
+     * bound later (as the testing transaction traits bind one) is the one
+     * consulted, and none is used when the container has none.
      *
      * @return void
      */
@@ -655,7 +657,7 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $guard);
 
-        $exchange     = $this->readObjectProperty($guard, 'exchange');
+        $exchange     = $this->exchangeOf($guard);
         $transactions = $this->readObjectProperty($this->readObjectProperty($exchange, 'afterCommit'), 'transactions');
 
         self::assertInstanceOf(RefreshTokenExchange::class, $exchange);
@@ -993,6 +995,20 @@ final class AuthenticationServiceProviderTest extends TestCase
         $this->beforeApplicationDestroyed(static function () use ($migration): void {
             $migration->down();
         });
+    }
+
+    /**
+     * The refresh exchange of a session service the auth manager builds for the
+     * guard.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
+     * @return mixed
+     *
+     * @throws \ReflectionException
+     */
+    private function exchangeOf(JwtGuard $guard): mixed
+    {
+        return $this->readObjectProperty($this->readObjectProperty(Auth::sessions($guard->getName()), 'refreshes'), 'exchange');
     }
 
     /**

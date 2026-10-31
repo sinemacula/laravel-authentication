@@ -117,9 +117,10 @@ class AuthManager extends IlluminateAuthManager
      * Return the session service of the named JWT guard, or of the current
      * default guard when the name is omitted: built on each call, on the
      * guard's context and token service, with the guard as the binding its
-     * sign-ins bind, on the container's database connections and transactions
-     * manager. It holds nothing between calls and reads the context each time,
-     * so one handed out earlier follows the guard's rebinds as a new one would.
+     * sign-ins and refreshes bind, on the container's database connections and
+     * transactions manager. It holds nothing between calls and reads the
+     * context each time, so one handed out earlier follows the guard's rebinds
+     * as a new one would.
      *
      * @param  ?string  $guard
      * @return \SineMacula\Laravel\Authentication\Sessions\SessionService

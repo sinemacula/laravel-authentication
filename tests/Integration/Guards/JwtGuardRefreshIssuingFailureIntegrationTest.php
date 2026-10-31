@@ -12,11 +12,11 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\SingleIdentifierReadPrincipal;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubMutablePrincipalResolver;
@@ -162,6 +162,7 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
      * @return void
      *
      * @throws \Random\RandomException
+     * @throws \Throwable
      */
     private function assertIssuingFailureLeavesTheTokenValid(int $readsAllowed): void
     {
@@ -179,7 +180,7 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
         $resolver->setDefaultPrincipal($principal);
 
         try {
-            $this->guard($resolver)->refresh($refreshToken);
+            GuardSessions::of($this->guard($resolver))->refresh($refreshToken);
 
             self::fail('The issuing failure should have propagated.');
         } catch (\RuntimeException $exception) {
@@ -217,7 +218,7 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
 
         $guard = $this->guard($resolver);
 
-        self::assertInstanceOf(RefreshResult::class, $guard->refresh($refreshToken));
+        self::assertTrue(GuardSessions::of($guard)->refresh($refreshToken)->isRefreshed());
         self::assertTrue($identity->is($guard->user()));
         self::assertNotSame(RefreshTokenHasher::hash(self::ROTATION_ID), $this->storedDigest($device));
     }

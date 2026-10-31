@@ -24,7 +24,6 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -171,6 +170,33 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
         self::assertSame((string) $first->id, DB::table('devices')->value('principal_id'));
 
         $this->browser('POST', '/auth/refresh', $cookie)->assertOk();
+    }
+
+    /**
+     * A refresh the limits refuse is answered by the route with a 429 carrying
+     * `Retry-After`, so the client waits; the cookie is left as it was, and the
+     * session as well.
+     *
+     * @return void
+     */
+    public function testARateLimitedRefreshIsAnsweredWithRetryAfter(): void
+    {
+        $this->seedMemberships();
+
+        $cookie = self::refreshCookie($this->browser('POST', '/auth/sign-in')->assertOk());
+        $before = DB::table('devices')->value('refresh_key');
+
+        $limiter = \Mockery::mock(AttemptLimiter::class);
+        $limiter->shouldReceive('blocked')->once()->andReturn(42);
+
+        app()->instance(AttemptLimiter::class, $limiter);
+
+        $this->browser('POST', '/auth/refresh', $cookie)
+            ->assertTooManyRequests()
+            ->assertHeader('Retry-After', '42')
+            ->assertCookieMissing(self::COOKIE);
+
+        self::assertSame($before, DB::table('devices')->value('refresh_key'));
     }
 
     /**
@@ -323,28 +349,30 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
-     * Refresh with the cookie and answer with the rotated one, or with the
-     * refusal's reason.
+     * Refresh with the cookie and answer with the rotated one, a rate-limited
+     * refresh with a 429 carrying `Retry-After`, or another refusal with its
+     * reason.
      *
      * @return \Illuminate\Http\JsonResponse
      *
-     * @throws \Throwable
+     * @throws \Illuminate\Http\Exceptions\ThrottleRequestsException
      */
     private static function refreshRoute(): JsonResponse
     {
-        $guard = Auth::manager()->guard(self::GUARD);
+        $result = Auth::sessions(self::GUARD)->refreshFromRequest();
 
-        assert($guard instanceof JwtGuard);
-
-        $result = $guard->refreshFromRequest();
-        $device = $guard->device();
-
-        if (!$result instanceof RefreshResult || $device === null) {
-            return new JsonResponse(['reason' => $result instanceof RefreshResult ? null : $result?->value], 401);
+        if ($result?->reason === FailureReason::RATE_LIMITED) {
+            throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $result->retryAfter]);
         }
 
-        return (new JsonResponse(['access_token' => $result->accessToken, 'source' => $result->source?->value]))
-            ->withCookie(Auth::refreshTransport(self::GUARD)->cookie($result->refreshToken, $device));
+        if ($result?->session === null) {
+            return new JsonResponse(['reason' => $result?->reason?->value], 401);
+        }
+
+        $tokens = $result->session->tokens;
+
+        return (new JsonResponse(['access_token' => $tokens->accessToken, 'source' => $result->source?->value]))
+            ->withCookie(Auth::refreshTransport(self::GUARD)->cookie($tokens->refreshToken, $result->session->device));
     }
 
     /**

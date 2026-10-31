@@ -34,6 +34,7 @@ use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Concerns\InteractsWithLaggingReplica;
+use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -240,7 +241,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID, $identity);
         $updates      = $this->recordUpdates();
 
-        $pair = $this->guardForRequest(Request::create('/refresh', 'POST'))->refresh($refreshToken);
+        $pair = GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST')))->refresh($refreshToken)->session?->tokens;
 
         self::assertNotNull($pair);
         self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->authManager()->jwt('api')->parse($pair->refreshToken)['jti'] ?? null);
@@ -269,7 +270,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID, $identity);
         $updates      = $this->recordUpdates();
 
-        self::assertNull($this->guardForRequest(Request::create('/refresh', 'POST'))->refresh($refreshToken));
+        self::assertNull(GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST')))->refresh($refreshToken)->session);
         self::assertCount(1, $updates);
         self::assertStringContainsString('revoked_reason', $updates[0]);
         self::assertSame('rotation_reuse', DB::connection(self::PRIMARY_CONNECTION)->table('devices')->where('id', $device->getKey())->value('revoked_reason'));
@@ -407,7 +408,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
             $reasons[] = $event->reason;
         });
 
-        self::assertNull($this->guardForRequest(Request::create('/refresh', 'POST'), 'revocation_log')->refresh($refreshToken));
+        self::assertNull(GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST'), 'revocation_log'))->refresh($refreshToken)->session);
         self::assertSame([FailureReason::SESSION_EXPIRED], $reasons);
     }
 
@@ -434,7 +435,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $this->recordSessionEnd($device, $sessionEnd);
         $this->recordSessionEnd($device, Carbon::now()->subHour(), self::REPLICA_CONNECTION);
 
-        $pair   = $this->guardForRequest(Request::create('/refresh', 'POST'), 'revocation_log')->refresh($refreshToken);
+        $pair   = GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST'), 'revocation_log'))->refresh($refreshToken)->session?->tokens;
         $tokens = $this->authManager()->jwt('revocation_log');
         $stored = DB::connection(self::PRIMARY_CONNECTION)->table('devices')->where('id', $device->getKey())->value('refresh_key');
 
@@ -468,7 +469,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         $this->recordSessionEnd($device, $sessionEnd);
 
-        $pair   = $this->guardForRequest(Request::create('/refresh', 'POST'), 'revocation_log')->refresh($refreshToken);
+        $pair   = GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST'), 'revocation_log'))->refresh($refreshToken)->session?->tokens;
         $tokens = $this->authManager()->jwt('revocation_log');
 
         self::assertNotNull($pair);
@@ -542,7 +543,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
             $reasons[] = $event->reason;
         });
 
-        self::assertNull($this->guardForRequest(Request::create('/refresh', 'POST'), 'revocation_log')->refresh($refreshToken));
+        self::assertNull(GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST'), 'revocation_log'))->refresh($refreshToken)->session);
         self::assertSame([FailureReason::DEVICE_REVOKED], $reasons);
     }
 
@@ -585,7 +586,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
             $reasons[] = $event->reason;
         });
 
-        self::assertNull($this->guardForRequest(Request::create('/refresh', 'POST'), 'revocation_log')->refresh($refreshToken));
+        self::assertNull(GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST'), 'revocation_log'))->refresh($refreshToken)->session);
         self::assertTrue($raced);
         self::assertSame([FailureReason::DEVICE_REVOKED], $reasons);
     }
@@ -641,7 +642,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
             $reasons[] = $event->reason;
         });
 
-        self::assertNull($this->guardForRequest(Request::create('/refresh', 'POST'))->refresh($refreshToken));
+        self::assertNull(GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST')))->refresh($refreshToken)->session);
         self::assertSame([$reason], $reasons);
         $stored = DB::connection(self::PRIMARY_CONNECTION)->table('devices')->where('id', $device->getKey())->value('refresh_key');
 
@@ -665,7 +666,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         $guard = $this->guardForRequest(Request::create('/refresh', 'POST'));
 
-        self::assertNotNull($guard->refresh($refreshToken));
+        self::assertNotNull(GuardSessions::of($guard)->refresh($refreshToken)->session);
         self::assertTrue($identity->is($guard->user()));
     }
 

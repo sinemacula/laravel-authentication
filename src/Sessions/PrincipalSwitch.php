@@ -31,9 +31,9 @@ use SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
 use SineMacula\Laravel\Authentication\Jwt\RefreshJudgement;
-use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
@@ -486,15 +486,15 @@ final readonly class PrincipalSwitch
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  string  $rotationId
      * @param  \Carbon\CarbonImmutable  $now
-     * @return \SineMacula\Laravel\Authentication\Jwt\RefreshResult
+     * @return \SineMacula\Laravel\Authentication\Jwt\TokenPair
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
      */
-    private function issue(Admitted $admitted, EloquentDevice&Model $device, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): RefreshResult
+    private function issue(Admitted $admitted, EloquentDevice&Model $device, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): TokenPair
     {
-        return new RefreshResult(
+        return new TokenPair(
             $this->tokens->issueAccessToken($admitted->identity, $admitted->principal, $device, $now),
             $this->tokens->issueRefreshToken($device, $rotationId, $admitted->principal, $now),
         );
@@ -567,10 +567,10 @@ final readonly class PrincipalSwitch
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @param  \SineMacula\Laravel\Authentication\Jwt\RefreshResult  $tokens
+     * @param  \SineMacula\Laravel\Authentication\Jwt\TokenPair  $tokens
      * @return \SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
      */
-    private static function exchanged(Admitted $admitted, EloquentDevice&Model $device, RefreshResult $tokens): ExchangedRefresh
+    private static function exchanged(Admitted $admitted, EloquentDevice&Model $device, TokenPair $tokens): ExchangedRefresh
     {
         return new ExchangedRefresh($admitted->identity, $admitted->principal, $device, $tokens, $admitted->tenant, $device->getSignInMethod());
     }
