@@ -206,8 +206,8 @@ transaction you roll back) rolls back whole, so the proof is not spent. The same
 `jwt` guard whose provider returns the identity (a provider whose configuration names no model, a custom
 `Auth::provider()` driver, is assumed to) and for both the old identifier and the new one, the sign-in, password reset
 and reset link codes waiting for it, and the identity's verification codes; a verification link for the old identifier
-stops working by itself, since it carries that identifier's digest. A guard whose provider's configured model reads
-another table binds its codes to the identities there, which keep them.
+stops working by itself (it answers `invalid`), since it carries that identifier's digest. A guard whose provider's
+configured model reads another table binds its codes to the identities there, which keep them.
 
 Once the change commits, `IdentifierChanged` is dispatched and, when the identity had an identifier of the type, the
 notice to the old one is queued on the delivery queue (`delivery.queue`). The change stands if the notice fails: the job

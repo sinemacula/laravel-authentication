@@ -3,9 +3,9 @@
 ## Purpose
 
 This note records how the package's own APIs (the session, code, passkey, password, identifier change, API key and
-client credentials services) answer: which outcomes are values, what `null` and `bool` may mean, what shape a result
-takes, and how throttling is answered. It is a default with named exceptions, not one result type: each flow keeps its
-own type, and the convention is the shape. Laravel's guard methods keep Laravel's types.
+client credentials services, and the verification links) answer: which outcomes are values, what `null` and `bool` may
+mean, what shape a result takes, and how throttling is answered. It is a default with named exceptions, not one result
+type: each flow keeps its own type, and the convention is the shape. Laravel's guard methods keep Laravel's types.
 
 ## Invariants
 
@@ -27,8 +27,8 @@ own type, and the convention is the shape. Laravel's guard methods keep Laravel'
   naming every outcome, success included. `SignInResult`, `SwitchResult`, `CodeRequest`, `ResetResult`,
   `PasswordResult`, `IdentifierChangeRequest`, `PasskeyRegistration` and `PasskeyFactorResult` take this shape.
 - **An outcome enum when success carries nothing and the flow cannot be throttled.** It is string-backed and names its
-  success case (`IdentifierChangeOutcome::CHANGED`, `VerificationOutcome::VERIFIED`), so matching on the enum, not on a
-  type, tells success from refusal.
+  success case (`IdentifierChangeOutcome::CHANGED`, `VerificationOutcome::VERIFIED`,
+  `VerificationLinkOutcome::VERIFIED`), so matching on the enum, not on a type, tells success from refusal.
 - **`bool` only for "did this call change something"** on an idempotent operation (`discard()`, `signOut()`,
   `revokeDevice()`, `apiKeys()->revoke()`, `passkeys()->remove()`, `identifierChanges()->cancel()`), and `int` for how
   many it changed (`signOutEverywhere()`, `revokeDevices()`, the security-change methods). `false` and `0` are not
@@ -53,6 +53,14 @@ own type, and the convention is the shape. Laravel's guard methods keep Laravel'
 - `codes()->verify()` answers a `VerificationOutcome`: `verified`, `already_verified` or `mismatch` as the
   `IdentifierVerifier` answered an accepted code, or `invalid`, `expired` or `exhausted` for a code that was not.
   `AuthenticationFailed` still carries the `FailureReason` (`invalid_credentials`, `code_expired`, `code_exhausted`).
+- `VerificationLinks::consume()` answers a `VerificationLinkOutcome`: `verified`, `already_verified` or `mismatch` as
+  the `IdentifierVerifier` answered an accepted link, or `invalid` or `expired` for a link that was not, reported by
+  `AuthenticationFailed` as `invalid_credentials` or `link_expired` on the `identifier_verification` flow. The link's
+  fields and purpose, then its signature, then its expiry are checked before any identity is read, so a tampered link
+  is `invalid` even once expired, and an authentic expired one `expired` whatever became of its identity. Every refusal
+  after that (no JWT guard, no identity that can verify identifiers, no identifier, or one the link's digest no longer
+  matches) is `invalid`, never `mismatch`, so the answer says nothing about the account: `mismatch` stays the verifier's
+  own answer, for an identifier that changed while it was being verified.
 
 ## Failure / Edge Cases
 
@@ -68,13 +76,19 @@ own type, and the convention is the shape. Laravel's guard methods keep Laravel'
     options only to throw the same 429.
 - Not yet in the shape: the guard's `refresh()` (`?RefreshResult`, `null` for any refusal) and `refreshFromRequest()`
   (`FailureReason|RefreshResult|null`), which both throw `ThrottleRequestsException` for `rate_limited` after the
-  events, and `VerificationLinks::consume()`, whose `null` is a refused link.
+  events.
 - `Verification\Enums\IdentifierVerification` stays the `IdentifierVerifier` seam's own answer (`verified`,
-  `already_verified`, `mismatch`): a verifier knows nothing of codes, so `codes()->verify()` maps it into its own enum.
+  `already_verified`, `mismatch`): a verifier knows nothing of codes or links, so `codes()->verify()` and
+  `VerificationLinks::consume()` each map it into their own enum. The two enums stay apart, as the convention asks a
+  shape and not a shared type: a link has no attempts to exhaust.
+- Laravel's `signed` middleware, when the application puts it on the verification route, answers an expired or tampered
+  link with its own 403 (`InvalidSignatureException`) before `consume()` runs, so that route never answers `expired` and
+  no `AuthenticationFailed` is reported. `consume()` checks the signature itself, so the route needs no middleware.
 - A caller that checked an old shape can change behaviour silently, not fail to compile: a `null`, `!== null` or
-  truthiness check on `verifyFactor()` (whose `null` meant verified) is now always given an object, and a check that
-  `register()` answered a `PasskeySummary`, or that `codes()->verify()` answered an `IdentifierVerification`, is now
-  never true. The guides show each migration.
+  truthiness check on `verifyFactor()` (whose `null` meant verified) or on `VerificationLinks::consume()` (whose `null`
+  meant a refused link) is now always given a value, refusals included, and a check that `register()` answered a
+  `PasskeySummary`, or that `codes()->verify()` or `consume()` answered an `IdentifierVerification`, is now never true.
+  The guides show each migration.
 
 ## Implementation Anchors
 
@@ -86,15 +100,18 @@ own type, and the convention is the shape. Laravel's guard methods keep Laravel'
   `signInOptions()`).
 - `src/Codes/Enums/VerificationOutcome.php`, `src/Codes/CodeService.php` (`verify()`),
   `src/IdentifierChanges/Enums/IdentifierChangeOutcome.php`.
+- `src/Verification/Enums/VerificationLinkOutcome.php`, `src/Verification/VerificationLinks.php` (`consume()`).
 
 ## Authoritative Tests
 
 - `tests/Unit/Passkeys/PasskeyRegistrationTest.php`, `tests/Unit/Passkeys/PasskeyFactorResultTest.php`,
-  `tests/Unit/Passkeys/EnumsTest.php`, `tests/Unit/Codes/VerificationOutcomeTest.php`.
-- `tests/Feature/Passkeys/PasskeyServiceTest.php`, `tests/Feature/Codes/CodeServiceTest.php` (every outcome of
-  `register()`, `verifyFactor()` and `codes()->verify()`).
-- `tests/Integration/Passkeys/PasskeyOutcomesTest.php`, `tests/Integration/Codes/CodeVerificationOutcomesTest.php` (what
-  each outcome wrote, on every engine).
+  `tests/Unit/Passkeys/EnumsTest.php`, `tests/Unit/Codes/VerificationOutcomeTest.php`,
+  `tests/Unit/Verification/VerificationLinkOutcomeTest.php`.
+- `tests/Feature/Passkeys/PasskeyServiceTest.php`, `tests/Feature/Codes/CodeServiceTest.php`,
+  `tests/Feature/Verification/VerificationLinksTest.php` (every outcome of `register()`, `verifyFactor()`,
+  `codes()->verify()` and `consume()`).
+- `tests/Integration/Passkeys/PasskeyOutcomesTest.php`, `tests/Integration/Codes/CodeVerificationOutcomesTest.php`,
+  `tests/Integration/Verification/VerificationLinkOutcomesTest.php` (what each outcome wrote, on every engine).
 - `tests/Unit/Sessions/SignInResultTest.php`, `tests/Unit/Sessions/SwitchResultTest.php`,
   `tests/Unit/Codes/CodeRequestTest.php`.
 

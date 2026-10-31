@@ -172,10 +172,11 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `revoked_at` itself fires no event.
 - A rate-limited refresh emits `Attempting`, `Failed` and `AuthenticationFailed` (`rate_limited`, with `retryAfter`),
   and then throws `ThrottleRequestsException` (a 429 with `Retry-After`) instead of returning `null`.
-- Verifying an identifier (`IdentifierVerifier::verify()`, behind `VerificationLinks::consume()`) never binds a guard
-  or starts a session. Only the call whose locked update marked the identifier verified dispatches
-  `IdentifierVerified`, once that update is committed on the identity's connection (at once for an identity that is
-  not an Eloquent model); a repeat or a mismatch dispatches nothing.
+- Verifying an identifier (`IdentifierVerifier::verify()`, behind `VerificationLinks::consume()`) never binds a guard or
+  starts a session. Only the call whose locked update marked the identifier verified dispatches `IdentifierVerified`,
+  once that update is committed on the identity's connection (at once for an identity that is not an Eloquent model); a
+  repeat or a mismatch dispatches nothing. A refused link (`invalid` or `expired`) dispatches `AuthenticationFailed` at
+  once, on the `identifier_verification` flow, and nothing else.
 - A grace retry (the previous rotation id, inside the grace window) is a successful refresh: it emits the same events
   as one that rotates, `Refreshed` included.
 - `DeviceAuthenticated` is coupled to the shipped `RecordDeviceUsage` listener, which records the time, IP address, and

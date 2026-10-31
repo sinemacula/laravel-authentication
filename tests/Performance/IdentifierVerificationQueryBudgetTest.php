@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Performance;
 
+use Carbon\Carbon;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
@@ -13,6 +14,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
+use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 use Tests\Concerns\InteractsWithVerifiableIdentities;
@@ -84,8 +86,8 @@ final class IdentifierVerificationQueryBudgetTest extends PerformanceContractTes
 
     /**
      * Following a link loads the identity, reads its row again under the
-     * verification's lock and writes once; a link with a bad signature costs
-     * nothing.
+     * verification's lock and writes once; a link with a bad signature, or an
+     * authentic one past its time, costs nothing.
      *
      * @return void
      */
@@ -95,8 +97,14 @@ final class IdentifierVerificationQueryBudgetTest extends PerformanceContractTes
         $links    = app(VerificationLinks::class);
         $link     = $links->create(self::GUARD, $identity, 'email', 'verify');
 
-        self::assertSame(IdentifierVerification::VERIFIED, $this->assertQueryBudget(2, 1, static fn (): mixed => $links->consume(Request::create($link))));
-        self::assertNull($this->assertQueryBudget(0, 0, static fn (): mixed => $links->consume(Request::create($link . 'x'))));
+        self::assertSame(VerificationLinkOutcome::VERIFIED, $this->assertQueryBudget(2, 1, static fn (): mixed => $links->consume(Request::create($link))));
+        self::assertSame(VerificationLinkOutcome::INVALID, $this->assertQueryBudget(0, 0, static fn (): mixed => $links->consume(Request::create($link . 'x'))));
+
+        Carbon::setTestNow(Carbon::now()->addHours(2));
+
+        self::assertSame(VerificationLinkOutcome::EXPIRED, $this->assertQueryBudget(0, 0, static fn (): mixed => $links->consume(Request::create($link))));
+
+        Carbon::setTestNow();
     }
 
     /**

@@ -17,13 +17,14 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
+use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 
 /**
  * A drift guard for the README and the guides in docs/guides: every failure
  * reason, flow and revocation reason, every outcome of a passkey registration
- * and of a verification by code, every package event, every configuration key
- * and every method of the package's auth manager is documented, and every
- * `Auth::` call they show exists.
+ * and of a verification by code or link, every package event, every
+ * configuration key and every method of the package's auth manager is
+ * documented, and every `Auth::` call they show exists.
  *
  * It catches an omission or a rename, not wrong prose: what the documentation
  * says about each of them is held to the code by review.
@@ -44,13 +45,23 @@ final class DocumentationTest extends TestCase
 
     /**
      * Rows of `[enum value, enum]`: every failure reason, authentication flow,
-     * revocation reason, passkey registration status and verification outcome.
+     * revocation reason, passkey registration status and outcome of a
+     * verification by code or link.
      *
      * @return iterable<string, array{0: string, 1: string}>
      */
     public static function provideEnumValues(): iterable
     {
-        foreach ([FailureReason::class, AuthenticationFlow::class, RevocationReason::class, PasskeyRegistrationStatus::class, VerificationOutcome::class] as $enum) {
+        $enums = [
+            FailureReason::class,
+            AuthenticationFlow::class,
+            RevocationReason::class,
+            PasskeyRegistrationStatus::class,
+            VerificationOutcome::class,
+            VerificationLinkOutcome::class,
+        ];
+
+        foreach ($enums as $enum) {
             foreach ($enum::cases() as $case) {
                 yield $enum . '::' . $case->name => [$case->value, $enum];
             }
