@@ -17,6 +17,14 @@ use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
  * service consults it before it issues anything, and the refresh exchange
  * before it rotates. Every method takes the application by its guard's name.
  *
+ * The package asks `admitIdentifier()` inside `WriteConnection::during()` for
+ * the identity, and `admit()` for the identity and the principal, so a model
+ * read the policy makes there, and a query-builder read on the identity's or
+ * the principal's connection, sees the primary rather than a replica that may
+ * lag behind a revoked grant. Any other read that decides admission (a
+ * query-builder read on another connection, or one made from `allowsMethod()`)
+ * pins itself with `WriteConnection::query()`.
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */

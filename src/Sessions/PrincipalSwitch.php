@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
+use SineMacula\Laravel\Authentication\Admission\ApplicationAdmission;
 use SineMacula\Laravel\Authentication\Admission\PinnedPrincipal;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
@@ -261,8 +262,8 @@ final readonly class PrincipalSwitch
         $policy = Container::getInstance()->make(ApplicationPolicy::class);
         $guard  = $this->context->name();
 
-        return $policy->admitIdentifier($guard, $admitted->identity, $type)
-            ?? $policy->admit($guard, $admitted->identity, $admitted->principal, $type);
+        return ApplicationAdmission::admitIdentifier($policy, $guard, $admitted->identity, $type)
+            ?? ApplicationAdmission::admit($policy, $guard, $admitted->identity, $admitted->principal, $type);
     }
 
     /**

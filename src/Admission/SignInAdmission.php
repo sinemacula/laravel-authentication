@@ -25,7 +25,8 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
  * The application policy's identity-level answer (`admitIdentifier()`: with the
  * package's policy, an identifier the guard requires verified and is not) is
  * asked before any principal is resolved, so its refusal is the same whether
- * the identity has principals or not.
+ * the identity has principals or not. Both of the policy's answers are asked on
+ * the write connection (`ApplicationAdmission`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -68,7 +69,7 @@ final readonly class SignInAdmission
         $refusal = match (true) {
             $identity instanceof MachineIdentity   => FailureReason::MACHINE_IDENTITY,
             !ActivationPolicy::isActive($identity) => FailureReason::IDENTITY_INACTIVE,
-            default                                => $this->policy->admitIdentifier($guard, $identity, $identifierType),
+            default                                => ApplicationAdmission::admitIdentifier($this->policy, $guard, $identity, $identifierType),
         };
 
         if ($refusal !== null) {
@@ -108,7 +109,7 @@ final readonly class SignInAdmission
         }
 
         $admitted = new Admitted($identity, $principal, $tenant);
-        $refusal  = $this->policy->admit($guard, $identity, $principal, $identifierType);
+        $refusal  = ApplicationAdmission::admit($this->policy, $guard, $identity, $principal, $identifierType);
 
         return $refusal === null ? $admitted : Refused::after($refusal, $admitted);
     }

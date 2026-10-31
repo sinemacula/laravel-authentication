@@ -100,6 +100,11 @@ final readonly class StaffOnlyConsolePolicy implements ApplicationPolicy
 $this->app->singleton(ApplicationPolicy::class, StaffOnlyConsolePolicy::class);
 ```
 
+The package asks `admitIdentifier()` inside `WriteConnection::during()` for the identity, and `admit()` for the identity
+and the principal, so a model your policy reads there, or a query-builder read on the identity's or the principal's
+connection, comes from the primary: a grant withdrawn moments ago is not still found on a lagging replica. Pin any other
+read that decides admission yourself, as [Operations](operations.md#read-replicas) shows.
+
 `authentication:check` asks a policy of your own, this one included, whether it allows every registered sign-in method
 and `client_credentials` on each `jwt` guard, and reports an exception it throws as a problem for the guard. It still
 holds an `api_key` guard to allowing `api_key`, and checks the passkey relying party of a guard your policy allows

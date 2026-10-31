@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Container\Container;
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
+use SineMacula\Laravel\Authentication\Admission\ApplicationAdmission;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
@@ -150,7 +151,7 @@ final readonly class PrincipalChoices
     {
         $guard   = $this->context->name();
         $policy  = $this->container->make(ApplicationPolicy::class);
-        $refusal = $identifierType === null ? null : $policy->admitIdentifier($guard, $identity, $identifierType);
+        $refusal = $identifierType === null ? null : ApplicationAdmission::admitIdentifier($policy, $guard, $identity, $identifierType);
 
         if ($refusal !== null) {
             return [[], $refusal];
@@ -236,11 +237,11 @@ final readonly class PrincipalChoices
     {
         return WriteConnection::stored($principal, static function (Principal $stored) use ($policy, $guard, $identity, $identifierType): FailureReason|false|null {
 
-            if (!ActivationPolicy::isPrincipalActive($stored) || $policy->admit($guard, $identity, $stored, null) !== null) {
+            if (!ActivationPolicy::isPrincipalActive($stored) || ApplicationAdmission::admit($policy, $guard, $identity, $stored, null) !== null) {
                 return false;
             }
 
-            return $identifierType === null ? null : $policy->admit($guard, $identity, $stored, $identifierType);
+            return $identifierType === null ? null : ApplicationAdmission::admit($policy, $guard, $identity, $stored, $identifierType);
         });
     }
 }

@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\Passwords;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
+use SineMacula\Laravel\Authentication\Admission\ApplicationAdmission;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Codes\CodeIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
@@ -162,6 +163,6 @@ final class ResetRecipient
             return $identity;
         }
 
-        return $container->make(ApplicationPolicy::class)->admitIdentifier($guard, $identity, $type) ?? $identity;
+        return ApplicationAdmission::admitIdentifier($container->make(ApplicationPolicy::class), $guard, $identity, $type) ?? $identity;
     }
 }

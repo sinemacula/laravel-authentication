@@ -21,9 +21,10 @@ use Illuminate\Database\Eloquent\Model;
  * lookup eager-loads, which Eloquent fetches with separate queries `query()`
  * does not reach, relations on other connections (a tenant in a landlord
  * database), and reads made inside application code the package calls (for
- * example `resolveDefaultPrincipal()`), which the package cannot rewrite.
- * Custom identity providers and principal resolvers carry the same obligation
- * and use whichever method covers their reads.
+ * example `resolveDefaultPrincipal()`, or an application policy's `admit()`),
+ * which the package cannot rewrite. Custom identity providers and principal
+ * resolvers carry the same obligation and use whichever method covers their
+ * reads.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

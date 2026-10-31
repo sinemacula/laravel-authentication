@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Database\Query\Expression;
 use Illuminate\Support\Str;
+use SineMacula\Laravel\Authentication\Admission\ApplicationAdmission;
 use SineMacula\Laravel\Authentication\Admission\PinnedPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
@@ -391,7 +392,7 @@ final readonly class ApiKeyService
         /** @var \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy $policy */
         $policy = $this->container->make(ApplicationPolicy::class);
 
-        return ApiKeyRules::principal($name, $resolved, $resolved === null ? null : $policy->admit($name, $identity, $resolved, null));
+        return ApiKeyRules::principal($name, $resolved, $resolved === null ? null : ApplicationAdmission::admit($policy, $name, $identity, $resolved, null));
     }
 
     /**

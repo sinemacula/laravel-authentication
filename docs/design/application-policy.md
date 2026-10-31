@@ -65,6 +65,12 @@ normalisers meet that policy, since a sign-in passes through all three.
   package's `admit()` also asks its own `admitIdentifier()`; a policy that wraps another asks the wrapped one's, and a
   policy with no identity-level rule returns `null`.
 - `admit()` is asked only after the identity, the principal and its tenant have passed their activity checks.
+- Every `admitIdentifier()` runs inside `WriteConnection::during()` for the identity, and every `admit()` for the
+  identity and the principal (`Admission\ApplicationAdmission`), on every path: sign-in, `start()`, `complete()`,
+  `choose()` and the choice list, refresh, switch, API keys and their issue, client credentials and password resets. A
+  policy of the application's own decides from rows of its own (a grant, a membership), and a replica that lags behind
+  their withdrawal must not admit the principal, as the package's activity and tenant checks never do. Model reads and
+  query-builder reads on those two connections are covered; a policy pins any other read itself.
 - Lifetimes are per guard only: `lifetimes($guard)` is the guard's token service's lifetimes, the same for every
   principal. Unlike the `application` block, they are read only when the token service is built: the token service
   factory keeps the service, so a later change reaches it only once the process restarts. Issuing an access token reads
@@ -136,6 +142,7 @@ normalisers meet that policy, since a sign-in passes through all three.
 
 - `src/Contracts/ApplicationPolicy.php`, `src/Applications/GuardApplicationPolicy.php`,
   `src/Console/ApplicationChecks.php` (`authentication:check`).
+- `src/Admission/ApplicationAdmission.php` (every `admitIdentifier()` and `admit()` asked on the write connection).
 - `src/Jwt/JwtTokenServiceFactory.php` (the guard's lifetimes) and `src/Jwt/JwtTokenService.php` (`lifetimes()`).
 - `src/Sessions/SessionService.php`, `src/Sessions/CredentialAttempt.php` (the method check) and
   `src/Admission/SignInAdmission.php`, shared with `src/Guards/Concerns/SignsInWithCredentials.php` (`attempt()`).
@@ -160,6 +167,10 @@ normalisers meet that policy, since a sign-in passes through all three.
 - `tests/Integration/Guards/RefreshApplicationIntegrationTest.php`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
   `testTheGraceWindowIsTheTokenServicesWhateverLifetimesThePolicyReturns`
+- `tests/Integration/Admission/ApplicationAdmissionTest.php`,
+  `tests/Integration/Applications/ReplicaApplicationPolicyTest.php` (sign-in, start, refresh, switch and choices),
+  `testTheApplicationPolicyIsAskedOnThePrimary` in `tests/Integration/ApiKeys/ReplicaApiKeysTest.php` (API keys, their
+  issue and client credentials) and in `tests/Integration/Passwords/ReplicaPasswordResetsTest.php`
 - `tests/Integration/RateLimiting/DatabaseAttemptLimiterTest.php`,
   `tests/Integration/RateLimiting/ConcurrentDatabaseAttemptLimiterTest.php`
 - `tests/Performance/AttemptLimiterQueryBudgetTest.php`, `tests/Performance/SessionServiceQueryBudgetTest.php`,
@@ -178,5 +189,6 @@ Update this note when any of the following change:
   its refusals revokes a device
 - whether lifetimes vary by anything but the guard, or where access-token and session lifetimes and the grace window
   are computed
+- which connection the policy is asked on
 - whether an access token carries anything about the principal beyond its identifier
 - what the attempt limits count, in which form, where, or whether they share the session's transaction

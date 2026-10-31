@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\ApiKeys;
 
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
+use SineMacula\Laravel\Authentication\Admission\ApplicationAdmission;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -138,7 +139,7 @@ final readonly class ApiKeyAdmission
             return new Refused(FailureReason::TENANT_INACTIVE, $identity, $principal);
         }
 
-        $refusal = CredentialBinding::refusal($key, $identity, $principal, $tenant) ?? $this->policy->admit($this->guard, $identity, $principal, null);
+        $refusal = CredentialBinding::refusal($key, $identity, $principal, $tenant) ?? ApplicationAdmission::admit($this->policy, $this->guard, $identity, $principal, null);
 
         return $refusal === null
             ? new Admitted($identity, $principal, $tenant)

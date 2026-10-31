@@ -8,6 +8,7 @@ use Illuminate\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
+use SineMacula\Laravel\Authentication\Admission\ApplicationAdmission;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
@@ -127,8 +128,10 @@ final readonly class RefreshAdmission
      * fails closed, as `method_not_allowed`), and the policy must still admit
      * the identity as the principal (`principal_ineligible`). A refresh names
      * no identifier, so the verified-identifier requirement does not apply to
-     * it. The method is read on the write connection, so a lagging replica
-     * cannot allow a method the primary no longer records for the device.
+     * it. The method is read, and `admit()` asked, on the write connection, so
+     * a lagging replica can neither allow a method the primary no longer
+     * records for the device nor answer `admit()` from rows the primary has
+     * since changed.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
@@ -145,9 +148,9 @@ final readonly class RefreshAdmission
         $allowed = $method !== null && $policy->allowsMethod($this->guard, $method);
 
         $refusal = match (true) {
-            !$allowed                                                                              => FailureReason::METHOD_NOT_ALLOWED,
-            $policy->admit($this->guard, $admitted->identity, $admitted->principal, null) !== null => FailureReason::PRINCIPAL_INELIGIBLE,
-            default                                                                                => null,
+            !$allowed                                                                                                    => FailureReason::METHOD_NOT_ALLOWED,
+            ApplicationAdmission::admit($policy, $this->guard, $admitted->identity, $admitted->principal, null) !== null => FailureReason::PRINCIPAL_INELIGIBLE,
+            default                                                                                                      => null,
         };
 
         return $refusal === null ? $admitted : Refused::after($refusal, $admitted);
