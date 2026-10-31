@@ -195,6 +195,27 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
     }
 
     /**
+     * A guard with no `application` block allows nothing, as the package
+     * default lists no method, so a sign-in with valid credentials is refused
+     * before it reads the identity or reserves a slot.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAttemptOnAGuardThatAllowsNothingCostsNoQuery(): void
+    {
+        $identity = $this->seedIdentity();
+
+        config()->set('auth.guards.' . self::TWO_D_GUARD, ['driver' => 'jwt', 'provider' => 'integration_identities']);
+
+        $guard = $this->freshGuard(self::TWO_D_GUARD);
+
+        self::assertFalse($this->assertQueryBudget(0, 0, fn (): bool => $guard->attempt($this->credentials($identity->email))));
+        self::assertFalse($guard->hasUser());
+    }
+
+    /**
      * A pinned live device costs one read on top of the identity, plus the
      * first-use timestamp write besides the limits; a pinned revoked device
      * costs the same reads, writes only its reservations, the account's
