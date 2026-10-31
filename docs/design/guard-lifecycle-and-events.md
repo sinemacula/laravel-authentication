@@ -213,6 +213,11 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 
 ## Authoritative Tests
 
+- `tests/Feature/Contracts/EventSequenceTest.php`: the whole event sequence and the answer of every flow, from
+  `attempt()` to the client credentials exchange
+- `tests/Integration/Contracts/EventSequenceTest.php`: the sequence when the device's connection commits or rolls back,
+  when a bind or lifecycle listener throws (and what becomes of the attempt-limit slots), and when the request or the
+  dispatcher is rebound before the commit
 - `tests/Feature/Guards/AbstractGuardAttemptTest.php`
   `testAttemptDispatchesAttemptingEventBeforeValidation`
 - `tests/Feature/Guards/AbstractGuardAttemptTest.php`

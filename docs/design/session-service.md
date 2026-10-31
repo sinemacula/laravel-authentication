@@ -151,6 +151,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   and verified-identifier gate, through `signIn()`, `start()` and `attempt()`
 - `tests/Integration/Migration/PendingSignInsTableSchemaTest.php`
 - `tests/Performance/SessionServiceQueryBudgetTest.php`
+- `tests/Feature/Contracts/EventSequenceTest.php`, `tests/Integration/Contracts/EventSequenceTest.php`: the event
+  sequence of every sign-in, completion, choice and discard, and around the device connection's transaction
 
 ## Change Triggers
 
