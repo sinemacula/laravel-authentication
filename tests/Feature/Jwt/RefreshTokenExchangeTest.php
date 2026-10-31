@@ -956,6 +956,47 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
+     * The grace window and its leeway are always the guard's token service's,
+     * whatever lifetimes the application policy returns: under a policy that
+     * disables grace, the previous rotation id inside the service's window
+     * still gets the current credential, and under one that widens it to the
+     * most allowed, the previous id past the service's window still proves a
+     * replay.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testTheGraceWindowIsTheTokenServicesWhateverLifetimesThePolicyReturns(): void
+    {
+        $policyGrace = new \ArrayObject(['seconds' => 0]);
+        $retried     = $this->seedRotatedDevice(35, rotatedSecondsAgo: self::GRACE - 1);
+
+        $this->policy->shouldReceive('lifetimes')->andReturnUsing(
+            static fn (): TokenLifetimes => new TokenLifetimes(self::ACCESS_TTL, self::REFRESH_TTL, 60 * 24 * 180, $policyGrace['seconds']),
+        );
+
+        $this->expectRefreshContext(35);
+
+        $result = $this->makeExchange()->exchange($this->tokenFor($retried, self::ROTATION_ID), self::client());
+
+        self::assertInstanceOf(ExchangedRefresh::class, $result);
+        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->refreshClaims($result->tokens->refreshToken)[Claims::JWT_ID->value]);
+
+        $policyGrace['seconds'] = TokenLifetimes::MAX_GRACE_SECONDS;
+
+        $replayed = $this->seedRotatedDevice(36, rotatedSecondsAgo: self::GRACE);
+
+        $this->provider->shouldNotReceive('retrieveById');
+        $this->recordEvents();
+
+        $this->refused($this->makeExchange()->exchange($this->tokenFor($replayed, self::ROTATION_ID), self::client()));
+
+        $this->assertRevokedForReuse($replayed);
+    }
+
+    /**
      * Rows of `[how the presented rotation id relates to the device, seconds
      * since the rotation, grace window in seconds]` for tokens that prove a
      * replay.

@@ -53,9 +53,12 @@ reserves the account twice), and each is given back.
 ### Deciding which principals may use an application
 
 The package's application policy admits every principal. To keep some principals out of an application, bind a policy of
-your own that refuses them from `admit()` and delegates everything else to the package's. A refused principal gets
-`principal_ineligible` at sign-in, on every refresh and switch, and for an API key or a client credentials exchange
-(`unauthorized_client`); its sessions are kept and refresh again once the policy admits it:
+your own that refuses them from `admit()` as `principal_ineligible` and delegates everything else to the package's. A
+refused principal gets `principal_ineligible` at sign-in, on every refresh and switch, and for an API key or a client
+credentials exchange (`unauthorized_client`); its sessions are kept and refresh again once the policy admits it. Return
+that reason: a refresh reports any refusal as `principal_ineligible`, but a sign-in and an API key report the reason you
+return, and a client credentials exchange answers any other reason with `invalid_client`, as if the client's
+credentials were wrong:
 
 ```php
 use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;

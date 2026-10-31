@@ -275,14 +275,15 @@ name no method can be registered under, such as `Password`), or a key the policy
 `InvalidArgumentException` naming the guard and the key the first time the guard's policy is used. The policy is
 `Contracts\ApplicationPolicy`, bound to `Applications\GuardApplicationPolicy`; bind your own implementation to decide
 differently. The package's admits every principal; an application that decides which principals may hold its sessions
-refuses the others from `admit()` (as `principal_ineligible`, which a refresh, a switch, an API key and a client
-credentials exchange report too; see [Extending](extending.md#deciding-which-principals-may-use-an-application)). Its
-`admitIdentifier()` is the check every sign-in makes before any principal is resolved, so a policy of your own keeps the
-guarantee above only by deciding verification there, for the identity as a whole; one that wraps the package's policy
-delegates `admitIdentifier()` to it like the other methods. A refusal from `admit()` comes only once a principal
-resolves, so an identity with none would get `principal_unresolved` instead. A policy of your own decides the session's
-deadlines through `lifetimes($guard)`, while an access token's lifetime still comes from the guard's `jwt` configuration
-(capped at the session's end). See `docs/design/application-policy.md` for every point where the policy is enforced.
+refuses the others from `admit()` as `principal_ineligible`, the one reason a sign-in, a refresh, a switch, an API key
+and a client credentials exchange all report alike (see
+[Extending](extending.md#deciding-which-principals-may-use-an-application)). Its `admitIdentifier()` is the check every
+sign-in makes before any principal is resolved, so a policy of your own keeps the guarantee above only by deciding
+verification there, for the identity as a whole; one that wraps the package's policy delegates `admitIdentifier()` to it
+like the other methods. A refusal from `admit()` comes only once a principal resolves, so an identity with none would
+get `principal_unresolved` instead. A policy of your own decides the session's deadlines through `lifetimes($guard)`,
+while an access token's lifetime and the refresh grace window still come from the guard's `jwt` configuration (the token
+capped at the session's end). See `docs/design/application-policy.md` for every point where the policy is enforced.
 
 Lifetimes are per application only: each guard's `jwt` block sets its own (see
 [Token and session lifetimes](#token-and-session-lifetimes)), and every principal of the application gets them.

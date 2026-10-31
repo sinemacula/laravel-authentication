@@ -43,10 +43,13 @@ normalisers meet that policy, since a sign-in passes through all three.
   `client_credentials` on a `jwt` guard whose client credentials exchange is open; neither is a sign-in method, and the
   manager refuses to register a method under either name (see `machine-credentials.md`).
 - The package has no rule about which principals may hold a guard's sessions: its `admit()` admits every principal and
-  is exactly `admitIdentifier()`. An application with such a rule rebinds the policy and refuses from `admit()`; a
-  refresh, a switch, an API key and a client credentials exchange report that refusal as `principal_ineligible`. A
-  caller's category (staff, a client's administrator, a service) is the application's or authorization's to model,
-  never the token's: no claim carries it and no accessor returns it.
+  is exactly `admitIdentifier()`. An application with such a rule rebinds the policy and refuses from `admit()` as
+  `principal_ineligible`, the one reason every path reports as such: a refresh, and a switch's check with no identifier
+  type, report any refusal as `principal_ineligible`, but a sign-in, a switch's check with the session's identifier type
+  and an API key report the reason the policy gives, and a client credentials exchange answers `unauthorized_client` for
+  `principal_ineligible` and `invalid_client` for any other reason. A caller's category (staff, a client's
+  administrator, a service) is the application's or authorization's to model, never the token's: no claim carries it and
+  no accessor returns it.
 - The verified-identifier gate applies only when the guard sets `require_verified_identifier` and the sign-in names an
   identifier type: the password method's is the guard's `sign_in.password_identifier`, else
   `authentication.sign_in.password_identifier` (default `email`), whatever the credentials look like, so a query closure
@@ -119,8 +122,10 @@ normalisers meet that policy, since a sign-in passes through all three.
   address.
 - A custom `ApplicationPolicy` decides the session's deadlines (the device's on sign-in, the idle deadline on each
   rotation) through `lifetimes($guard)`; the access token's expiry is still computed by the guard's token service from
-  the guard's `jwt` lifetimes, and is capped at the session's end. A policy that returns lifetimes the guard's
-  configuration does not describe therefore shortens or lengthens sessions, not access tokens.
+  the guard's `jwt` lifetimes, and is capped at the session's end, and the refresh grace window and its leeway are
+  always the guard's token service's, whatever lifetimes the policy returns. A policy that returns lifetimes the
+  guard's configuration does not describe therefore shortens or lengthens sessions, not access tokens or the grace
+  window.
 - The policy is resolved from the container on every call, on every path, so a binding an application makes at any
   time is the one used.
 - A switch of principal asks `admitIdentifier()` and `admit()` with the identifier type its session's sign-in used
@@ -153,6 +158,8 @@ normalisers meet that policy, since a sign-in passes through all three.
 - `tests/Feature/Console/CheckConfigurationCommandTest.php` (the application checks and the warning)
 - `tests/Performance/AccessTokenIssueQueryBudgetTest.php`
 - `tests/Integration/Guards/RefreshApplicationIntegrationTest.php`
+- `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
+  `testTheGraceWindowIsTheTokenServicesWhateverLifetimesThePolicyReturns`
 - `tests/Integration/RateLimiting/DatabaseAttemptLimiterTest.php`,
   `tests/Integration/RateLimiting/ConcurrentDatabaseAttemptLimiterTest.php`
 - `tests/Performance/AttemptLimiterQueryBudgetTest.php`, `tests/Performance/SessionServiceQueryBudgetTest.php`,
@@ -169,6 +176,7 @@ Update this note when any of the following change:
 - which sign-ins carry an identifier type, and so which the verified-identifier gate applies to
 - which paths consult the policy (sign-in, start, completion, refresh, bearer, pins), in what order, or whether any of
   its refusals revokes a device
-- whether lifetimes vary by anything but the guard, or where access-token and session lifetimes are computed
+- whether lifetimes vary by anything but the guard, or where access-token and session lifetimes and the grace window
+  are computed
 - whether an access token carries anything about the principal beyond its identifier
 - what the attempt limits count, in which form, where, or whether they share the session's transaction

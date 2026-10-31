@@ -135,6 +135,9 @@ digest of the secret in constant time, and then requires, in order:
 | the principal and its tenant are, by type and identifier, the ones recorded   | `principal_mismatch`        |
 | the application admits the principal                                          | `principal_ineligible`      |
 
+The last check reports the reason the application policy gives: `principal_ineligible` for a principal a policy of your
+own keeps out (see [Extending](extending.md#deciding-which-principals-may-use-an-application)), the reason to return.
+
 A malformed key, an unknown public part and a wrong secret are refused alike, and an unknown public part is compared
 against a fixed digest so it costs the same as a wrong secret. A refused key dispatches one `AuthenticationFailed` (flow
 `api_key`, naming the key once one was found) and nothing else; an accepted key binds the owner and principal with the
@@ -221,22 +224,24 @@ reaches a client however you encode the result:
 | No client authentication, malformed Basic, an unknown client or a wrong secret          | 401 `invalid_client`           |
 | A revoked, expired or another guard's key; its owner unknown, not a machine or inactive | 401 `invalid_client`           |
 | Its principal or tenant no longer the key's, or inactive                                | 401 `invalid_client`           |
-| The application does not list `client_credentials`, or does not admit the principal     | 400 `unauthorized_client`      |
+| The application lacks `client_credentials`, or refuses the principal as ineligible      | 400 `unauthorized_client`      |
 | A scope that is malformed or not granted to the key                                     | 400 `invalid_scope`            |
 | The IP address (or, when you limit it, the client id) used up its failures              | 429 `slow_down`, `Retry-After` |
 
 A granted response is `{"access_token": "...", "token_type": "Bearer", "expires_in": 900, "scope": "invoices:read"}`,
 without `scope` when the token grants none (RFC 6749 has no empty scope value; the token's own `scope` claim is then
-`""`); `invalid_client` carries `WWW-Authenticate: Basic` for a client that used Basic. `slow_down` is not an RFC 6749
-error but a registered OAuth one (RFC 8628), used because RFC 6749 defines no rate-limit error. Only failures to
-authenticate the client count against the `client_credentials` limits (100 per IP address a minute by default), and each
-is answered alike. Failures are not counted per client id by default: a client id is not a secret (RFC 6749 section
-2.2), so a limit on it would let anyone who knows it hold the real client back from any address, while against a
-40-character random secret it protects nothing. Set `rate_limits.client_credentials.per_identifier` only if you accept
-that. No scope asks for every scope the key grants; otherwise the token grants exactly those asked for. Every failure
-dispatches `AuthenticationFailed` (flow `client_credentials`, the client id when it is a key's public part in form, else
-none, so a whole key or a secret sent as the id never reaches a listener, and the key once found) and a grant
-`ClientCredentialsGranted`, with the key and the scopes granted.
+`""`); `invalid_client` carries `WWW-Authenticate: Basic` for a client that used Basic. A principal the application
+policy refuses as `principal_ineligible` is `unauthorized_client`, and one it refuses for any other reason
+`invalid_client`. `slow_down` is not an RFC 6749 error but a registered OAuth one (RFC 8628), used because RFC 6749
+defines no rate-limit error. Only failures to authenticate the client count against the `client_credentials` limits (100
+per IP address a minute by default), and each is answered alike. Failures are not counted per client id by default: a
+client id is not a secret (RFC 6749 section 2.2), so a limit on it would let anyone who knows it hold the real client
+back from any address, while against a 40-character random secret it protects nothing. Set
+`rate_limits.client_credentials.per_identifier` only if you accept that. No scope asks for every scope the key grants;
+otherwise the token grants exactly those asked for. Every failure dispatches `AuthenticationFailed` (flow
+`client_credentials`, the client id when it is a key's public part in form, else none, so a whole key or a secret sent
+as the id never reaches a listener, and the key once found) and a grant `ClientCredentialsGranted`, with the key and the
+scopes granted.
 
 The token is an access token of the guard with no device, the key's id in `cid` and its scopes in `scope`; it lives the
 guard's access lifetime, never past the key's expiry, and no refresh token is issued. On every request the bearer path

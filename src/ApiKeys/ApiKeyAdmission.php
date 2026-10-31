@@ -28,7 +28,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * active (`principal_inactive`) in an active tenant (`tenant_inactive`); the
  * key's binding to its owner, principal and tenant must hold
  * (`CredentialBinding`); and the application policy must admit the principal
- * (`principal_ineligible`).
+ * (refused with the reason it gives, `principal_ineligible` for a principal it
+ * keeps out).
  *
  * Built for one use with the guard's current collaborators, so it keeps nothing
  * between requests.

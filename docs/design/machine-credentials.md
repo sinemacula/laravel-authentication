@@ -88,13 +88,13 @@ authorization package decides what they allow.
   Basic is `invalid_client`. Request failures are reported as `invalid_credentials` and not counted.
 - Every failure to authenticate the client (unknown, wrong secret, revoked, expired, another guard's key, owner or
   principal problems) is `invalid_client` (401, with a Basic challenge for a Basic client), counted per IP address; only
-  a principal the application does not admit is `unauthorized_client`. A guard whose application does not list
-  `client_credentials` answers `unauthorized_client` before looking at the key. A scope not granted is `invalid_scope`,
-  not counted. Past its limit an address gets 429 `slow_down` (RFC 8628's registered error). Each failure's
-  `AuthenticationFailed` names the client id only when it is a key's public part in form
-  (`PresentedClient::reportedId()`), else none: a client that sends its whole key as the id, or swaps id and secret,
-  would otherwise put the secret in an event (rule: no event field carries a secret), as the `api_key` guard already
-  never names one.
+  a principal the application policy refuses as `principal_ineligible` is `unauthorized_client` (a policy that gives any
+  other reason gets `invalid_client`). A guard whose application does not list `client_credentials` answers
+  `unauthorized_client` before looking at the key. A scope not granted is `invalid_scope`, not counted. Past its limit
+  an address gets 429 `slow_down` (RFC 8628's registered error). Each failure's `AuthenticationFailed` names the client
+  id only when it is a key's public part in form (`PresentedClient::reportedId()`), else none: a client that sends its
+  whole key as the id, or swaps id and secret, would otherwise put the secret in an event (rule: no event field carries
+  a secret), as the `api_key` guard already never names one.
 - `client_credentials.per_identifier` (per client id as given) is off by default. A client id is public (RFC 6749 2.2;
   it is the key's public part, shown in summaries and events), so a count on it lets anyone who knows it keep the real
   client out from any address, and it buys nothing against a 238-bit secret, the reason the `api_key` guard counts

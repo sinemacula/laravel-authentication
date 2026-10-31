@@ -65,7 +65,7 @@ other rotated token as a replay that revokes the device.
   allows, and the policy must still admit the owner as the principal (asked without an identifier type, so the
   verified-identifier requirement never applies to a refresh). Neither failure revokes: the session refreshes again once
   the policy allows it. A rotation's idle lifetime is the one the policy gives the guard; the grace window and leeway
-  are the guard's token service's, since they apply before the principal is known.
+  are always the guard's token service's, whatever lifetimes the policy returns.
 - Refresh counts failures, not attempts: it cannot guess a secret (signed tokens, 256-bit rotation ids), so each failed
   exchange is counted against the token's device and the client's IP address by the bound `AttemptLimiter`, and
   successful ones are not. Once either count is full, the exchange stops before the device lookup.

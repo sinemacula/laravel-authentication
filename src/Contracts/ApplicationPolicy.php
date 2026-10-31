@@ -59,15 +59,19 @@ interface ApplicationPolicy
 
     /**
      * Decide whether the identity may hold a session of the application as the
-     * principal: `null` when it may, otherwise why not (an application that
-     * keeps some principals out refuses them here, which a refresh, a switch,
-     * an API key and a client credentials exchange report as
-     * `principal_ineligible`). The caller has already checked that the
-     * identity, the principal and its tenant are active. An identifier type of
-     * `null` (a sign-in that used no identifier, or a refresh) is not subject
-     * to the verified-identifier requirement. A principal choice lists, and a
-     * switch of principal reaches, only the principals admitted with the type
-     * the session's sign-in used.
+     * principal: `null` when it may, otherwise why not. An application that
+     * keeps some principals out refuses them as `principal_ineligible`, the one
+     * reason every path reports as such: a refresh, and a switch asking with no
+     * identifier type, report any refusal as `principal_ineligible`, but a
+     * sign-in, a switch asking with the session's identifier type and an API
+     * key report the reason given, and a client credentials exchange answers
+     * `unauthorized_client` for `principal_ineligible` and `invalid_client` for
+     * any other. The caller has already checked that the identity, the
+     * principal and its tenant are active. An identifier type of `null` (a
+     * sign-in that used no identifier, or a refresh) is not subject to the
+     * verified-identifier requirement. A principal choice lists, and a switch
+     * of principal reaches, only the principals admitted with the type the
+     * session's sign-in used.
      *
      * A policy may refuse some principals to an identifier of a type and admit
      * others. It is asked only once a principal resolves, though, so an
