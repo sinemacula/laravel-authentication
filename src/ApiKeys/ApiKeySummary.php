@@ -76,7 +76,7 @@ final readonly class ApiKeySummary implements \JsonSerializable, Arrayable
     ) {}
 
     /**
-     * Summarise a key.
+     * Summarize a key.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\ApiKey  $key
      * @return self
@@ -130,7 +130,7 @@ final readonly class ApiKeySummary implements \JsonSerializable, Arrayable
     }
 
     /**
-     * The summary as JSON serialises it: the same as `toArray()`.
+     * The summary as JSON serializes it: the same as `toArray()`.
      *
      * @formatter:off
      *

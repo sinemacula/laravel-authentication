@@ -16,7 +16,7 @@ Email **security@sinemacula.co.uk** with:
 - Steps to reproduce or a proof of concept
 - The affected version(s)
 
-You will receive an acknowledgement within 48 hours. We will work with you to understand the issue and coordinate a fix
+You will receive an acknowledgment within 48 hours. We will work with you to understand the issue and coordinate a fix
 before any public disclosure.
 
 ## Disclosure Policy

@@ -17,7 +17,7 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeRe
  * The link is the proof of the change, so it goes only to the new identifier,
  * never back to the client that asked: it is held as a
  * `\SensitiveParameterValue` and read through `link()`, so no dump of the
- * object shows it, and serialising the object throws.
+ * object shows it, and serializing the object throws.
  *
  * @api
  *
@@ -91,7 +91,7 @@ final readonly class IdentifierChangeRequest
     }
 
     /**
-     * The new identifier is not one the type's normaliser accepts.
+     * The new identifier is not one the type's normalizer accepts.
      *
      * @return self
      */

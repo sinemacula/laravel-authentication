@@ -30,7 +30,7 @@ use Tests\Unit\Stubs\PlainPrincipalFixture;
 
 /**
  * Proves verified state is read from the write connection: a verification the
- * primary holds and the replica has not yet seen is honoured by the verifier's
+ * primary holds and the replica has not yet seen is honored by the verifier's
  * re-read and by the sign-in gate.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

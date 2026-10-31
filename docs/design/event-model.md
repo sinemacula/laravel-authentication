@@ -44,9 +44,9 @@ to these events, so the shape and the timing are a contract.
   in its state then and with the relations it had loaded, or comes back `null` once its row is gone (a soft-deleted row
   is still there, and is restored); a database error still surfaces. A part that is not an Eloquent model does not cross
   and is `null` after a queue, so no arbitrary object enters the payload. A restored model is current state, not
-  evidence of what was authorised: audit sinks record the snapshot.
+  evidence of what was authorized: audit sinks record the snapshot.
 - No event field carries a token, a digest, a password, a pending credential or any other secret. The device's digests
-  are hidden from its serialisation; like Laravel's own auth events, the live identity model holds its attributes.
+  are hidden from its serialization; like Laravel's own auth events, the live identity model holds its attributes.
 - An event that reports a write is dispatched through `Database\AfterCommit` on the written row's connection: at once
   when that connection has no open transaction, on its commit otherwise, and never on rollback. No package event
   implements `ShouldDispatchAfterCommit`, which would defer it to the last transaction of any connection. Events that

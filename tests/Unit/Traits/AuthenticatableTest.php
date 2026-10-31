@@ -75,7 +75,7 @@ final class AuthenticatableTest extends TestCase
 
     /**
      * `setRememberToken()` is an explicit no-op: passing it a value does NOT
-     * mutate the model's attribute bag (no `remember_token` key materialises).
+     * mutate the model's attribute bag (no `remember_token` key materializes).
      *
      * @return void
      */

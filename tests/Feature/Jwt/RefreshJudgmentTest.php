@@ -31,11 +31,11 @@ final class RefreshJudgmentTest extends TestCase
     /** @var string The rotation id the device was rotated from. */
     private const string PREVIOUS = 'previous-rotation-id';
 
-    /** @var \Carbon\CarbonImmutable The time of judgement. */
+    /** @var \Carbon\CarbonImmutable The time of judgment. */
     private CarbonImmutable $now;
 
     /**
-     * Fix the time of judgement.
+     * Fix the time of judgment.
      *
      * @return void
      */
@@ -48,7 +48,7 @@ final class RefreshJudgmentTest extends TestCase
     }
 
     /**
-     * The judgement is a utility; it cannot be instantiated.
+     * The judgment is a utility; it cannot be instantiated.
      *
      * @return void
      *

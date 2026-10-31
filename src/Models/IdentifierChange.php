@@ -26,7 +26,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * `model:prune --model` with this class can delete expired changes.
  *
  * Only the class name is public, for applications to schedule that pruning
- * with; its columns and behaviour belong to the identifier change service.
+ * with; its columns and behavior belong to the identifier change service.
  *
  * @api
  *
@@ -59,13 +59,13 @@ final class IdentifierChange extends Model
     /** @var array<string> The attributes that are not mass assignable: every one, as every column is written by the service. */
     protected $guarded = ['*'];
 
-    /** @var list<string> The attributes hidden from serialisation: the row's digest, the identifiers and the request the proofs are bound to. */
+    /** @var list<string> The attributes hidden from serialization: the row's digest, the identifiers and the request the proofs are bound to. */
     protected $hidden = ['id', 'previous', 'identifier', 'request_id'];
 
     /**
      * Create a pending change on the storage connection, in the configured
      * table. Both are applied here, before Eloquent reads them, so this is
-     * construction rather than model behaviour.
+     * construction rather than model behavior.
      *
      * @param  array<string, mixed>  $attributes
      *

@@ -36,7 +36,7 @@ use Tests\TestCase;
 
 /**
  * Integration tests for the sign-in events as a queued listener receives them:
- * serialised and restored, with the identity, principal, tenant and device
+ * serialized and restored, with the identity, principal, tenant and device
  * loaded again from the database as Eloquent models (so a change made while the
  * event was queued shows), or `null` once their rows are gone, and the
  * snapshot, the client, the method and the other values kept as they were,
@@ -295,7 +295,7 @@ final class SignInEventSerializationTest extends TestCase
     }
 
     /**
-     * A queued listener on the `sync` connection, which serialises the event as
+     * A queued listener on the `sync` connection, which serializes the event as
      * any queue does, gets it after an earlier listener deleted its rows: with
      * no models and the whole snapshot.
      *

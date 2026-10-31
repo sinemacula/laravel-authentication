@@ -13,7 +13,7 @@ use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use Tests\TestCase;
 
 /**
- * Feature tests for the identifier normaliser registry resolved from the
+ * Feature tests for the identifier normalizer registry resolved from the
  * container over `authentication.identifiers.normalizers`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -26,7 +26,7 @@ final class IdentifierNormalizersTest extends TestCase
 {
     /**
      * The registry is one instance for the application, and out of the box it
-     * knows only the email and E.164 phone normalisers.
+     * knows only the email and E.164 phone normalizers.
      *
      * @return void
      */
@@ -45,7 +45,7 @@ final class IdentifierNormalizersTest extends TestCase
     }
 
     /**
-     * An application registers a normaliser for another type under a container
+     * An application registers a normalizer for another type under a container
      * abstract of its own, resolved through the container.
      *
      * @return void
@@ -92,7 +92,7 @@ final class IdentifierNormalizersTest extends TestCase
     }
 
     /**
-     * An abstract that does not resolve to a normaliser is reported, naming the
+     * An abstract that does not resolve to a normalizer is reported, naming the
      * type, the abstract and what it resolved to.
      *
      * @return void
@@ -108,7 +108,7 @@ final class IdentifierNormalizersTest extends TestCase
     }
 
     /**
-     * Malformed normaliser maps.
+     * Malformed normalizer maps.
      *
      * @return iterable<string, array{0: mixed, 1: string}>
      */

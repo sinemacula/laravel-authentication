@@ -243,7 +243,7 @@ trait ActsAsDevice
     }
 
     /**
-     * Hide the refresh digests from serialisation.
+     * Hide the refresh digests from serialization.
      *
      * @return void
      */

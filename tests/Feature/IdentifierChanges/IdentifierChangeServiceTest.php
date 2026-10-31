@@ -195,8 +195,8 @@ final class IdentifierChangeServiceTest extends TestCase
 
     /**
      * Rows of `[type, the exception, its message]`: a type that is not a valid
-     * identifier type, and one no normaliser is registered for, so its
-     * normalised uniqueness cannot be kept.
+     * identifier type, and one no normalizer is registered for, so its
+     * normalized uniqueness cannot be kept.
      *
      * @return iterable<string, array{0: string, 1: class-string<\Throwable>, 2: string}>
      */
@@ -336,7 +336,7 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * Cancelling reads the code key first, whether or not a change waits.
+     * Canceling reads the code key first, whether or not a change waits.
      *
      * @return void
      *

@@ -39,7 +39,7 @@ interface SignInMethod
     /**
      * The type of identifier the method signs in to the guard with (for example
      * `email`), or `null` when it uses none. It names the identifier's
-     * normaliser, the form the attempt limits count it in, and the identifier a
+     * normalizer, the form the attempt limits count it in, and the identifier a
      * guard that requires verified identifiers checks.
      *
      * @param  string  $guard

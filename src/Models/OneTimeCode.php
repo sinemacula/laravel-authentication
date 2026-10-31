@@ -24,7 +24,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * with this class can delete expired codes.
  *
  * Only the class name is public, for applications to schedule that pruning
- * with; its columns and behaviour belong to the code engine.
+ * with; its columns and behavior belong to the code engine.
  *
  * @api
  *
@@ -57,13 +57,13 @@ final class OneTimeCode extends Model
     /** @var array<string> The attributes that are not mass assignable: every one, as every column is written by the code engine. */
     protected $guarded = ['*'];
 
-    /** @var list<string> The attributes hidden from serialisation: the binding digest, the issuance and the code's hash. */
+    /** @var list<string> The attributes hidden from serialization: the binding digest, the issuance and the code's hash. */
     protected $hidden = ['id', 'issue_id', 'code_hash'];
 
     /**
      * Create a code on the storage connection, in the configured table. Both
      * are applied here, before Eloquent reads them, so this is construction
-     * rather than model behaviour.
+     * rather than model behavior.
      *
      * @param  array<string, mixed>  $attributes
      *

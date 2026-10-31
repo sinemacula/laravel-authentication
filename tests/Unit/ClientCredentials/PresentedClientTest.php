@@ -58,7 +58,7 @@ final class PresentedClientTest extends TestCase
 
     /**
      * The secret is handed over by `clientSecret()` alone: no dump of what was
-     * presented shows it, and serialising it throws.
+     * presented shows it, and serializing it throws.
      *
      * @return void
      */

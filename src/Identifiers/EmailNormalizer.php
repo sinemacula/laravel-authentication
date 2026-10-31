@@ -7,7 +7,7 @@ namespace SineMacula\Laravel\Authentication\Identifiers;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierNormalizer;
 
 /**
- * The default normaliser for email addresses: surrounding whitespace removed
+ * The default normalizer for email addresses: surrounding whitespace removed
  * and every letter lower-cased.
  *
  * The whole address is lower-cased, local part included. RFC 5321 lets a mail

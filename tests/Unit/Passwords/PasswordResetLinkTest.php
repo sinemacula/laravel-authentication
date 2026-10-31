@@ -28,7 +28,7 @@ final class PasswordResetLinkTest extends TestCase
      * The link carries its guard, type, destination, expiry and identity, and
      * the token through `token()`; no dump shows the token (Laravel's
      * VarDumper, `print_r`, `var_export`), `json_encode()` leaves it out,
-     * serialising throws, and the constructor's parameter is sensitive.
+     * serializing throws, and the constructor's parameter is sensitive.
      *
      * @return void
      */

@@ -41,7 +41,7 @@ return new class extends Migration {
             $blueprint->string('guard');
             $blueprint->string('type', 64);
 
-            // `previous` exactly as stored, not normalised; `previous_verified`
+            // `previous` exactly as stored, not normalized; `previous_verified`
             // lets the notice to it tell a proven owner from an address that
             // may be a stranger's.
             $blueprint->string('previous')->nullable();

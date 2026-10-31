@@ -8,7 +8,7 @@ use Carbon\CarbonInterface;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 
 /**
- * Plain-object `Device` fixture used by the event serialisation round-trip
+ * Plain-object `Device` fixture used by the event serialization round-trip
  * tests. Intentionally NOT an Eloquent model so the `SerializesModels` trait
  * leaves the instance untouched during serialize.
  *

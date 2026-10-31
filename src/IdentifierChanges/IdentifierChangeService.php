@@ -43,7 +43,7 @@ use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
  *
  * A request (`requestByCode()`, `requestByLink()`) must prove that the identity
  * authenticated recently (see `Reauthentication`), names the new identifier,
- * which must be one the type's normaliser accepts and not the current one, and
+ * which must be one the type's normalizer accepts and not the current one, and
  * is limited by the `identifier_change` rate limits, counted on the new
  * identifier, on the identity and on the IP address. It replaces any change the
  * identity had pending for the type, through any guard, so the code and link of
@@ -299,7 +299,7 @@ final readonly class IdentifierChangeService
     /**
      * Cancel the identity's change of the identifier of the type pending
      * through this guard, so its code and link stop working; returns whether
-     * there was one to cancel (an expired one is cancelled too). A change
+     * there was one to cancel (an expired one is canceled too). A change
      * requested through another guard is left alone. The identity's row is
      * locked first (see `IdentityLock`), so a confirmation or a request racing
      * the cancellation waits for it rather than deadlocks.

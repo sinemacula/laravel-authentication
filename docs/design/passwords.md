@@ -27,7 +27,7 @@ every read that decides a proof on the write connection):
   broker still answers `INVALID_USER` before the repository runs, and still runs the callback outside any transaction
   the repository could hold.
 - **A `PasswordBroker` subclass or decorator.** Fixing enumeration, atomicity and the transaction means overriding
-  `sendResetLink()`, `reset()` and `validateReset()`, that is every behaviour; what would be left is the contract's
+  `sendResetLink()`, `reset()` and `validateReset()`, that is every behavior; what would be left is the contract's
   status strings. `PasswordBrokerManager` has no `extend()`, so registering it as `Password::broker()` would mean
   replacing the manager too.
 
@@ -76,7 +76,7 @@ only duplicate them.
   through (`allow`: fail open). Any other throwable propagates.
 - Every setting fails closed with an `InvalidArgumentException` naming the key when a password is first checked, and
   `authentication:check` reports it under `[passwords]`.
-- `set()` is a trusted call: the caller authorises the change and chooses the `PasswordFlow` on the server. A
+- `set()` is a trusted call: the caller authorizes the change and chooses the `PasswordFlow` on the server. A
   `MachineIdentity` never gets a password (`InvalidArgumentException`); an identity that is not an Eloquent model, a
   change or reset of an identity not stored, and a device to keep on any flow but a change are misconfigurations. A
   registration sets only a first password: on a stored identity its `UPDATE` matches the row only while the password
@@ -111,17 +111,17 @@ only duplicate them.
      change or a reset the sign-in code bindings, of every `jwt` guard whose provider can return the identity (its
      configured model reads the identity's table on the identity's connection, or it names no model) for each identifier
      the identity holds, in canonical form, of a type a reset can be bound to (each guard's password identifier, for
-     links, and every type with a registered normaliser, for codes). The identifiers are read from the identity's row as
+     links, and every type with a registered normalizer, for codes). The identifiers are read from the identity's row as
      stored (`fresh()`, on the write connection inside the transaction), never from the caller's model, which may have
      loaded only some columns or be older than the row, while a reset finds the identity by its row. An identifier is
      read as `ResetRecipient` reads it (through `HasVerifiableIdentifiers`, else the attribute named after the type,
      skipped when the model has none); a type the identity's verification throws a `LogicException` for has nothing to
-     invalidate, since a reset of it would fail the same way, but an `InvalidArgumentException` (a normaliser that
+     invalidate, since a reset of it would fail the same way, but an `InvalidArgumentException` (a normalizer that
      cannot be built) fails the write closed.
    - `CHANGE`: `SessionRevocations::passwordChanged($identity, $except)`; `RESET`: `passwordReset($identity)` (every
      guard's devices, the identity's "tokens valid after" cutoff moved, pending sign-ins ended and, for a
      `HasChangeableIdentifiers` identity, its pending identifier changes deleted by key, for every type with a
-     registered normaliser, their events after their commit; see the identifier changes note); `REGISTRATION`: nothing.
+     registered normalizer, their events after their commit; see the identifier changes note); `REGISTRATION`: nothing.
    - `PasswordSet($context, $flow)` queued on the identity connection's commit; the context names the guard, the client,
      the identity and, for a change, the device kept.
 4. `PasswordResult::set($revoked)`.
@@ -129,12 +129,12 @@ only duplicate them.
 ## Reset requests (`sendResetLink()`, `sendResetCode()`)
 
 1. The type: a link's is the guard's password identifier (`PasswordSignIn::identifierType()`); a code's is given and
-   must have a registered normaliser (`InvalidArgumentException`), and a code needs a `OneTimeCodeSender` bound
+   must have a registered normalizer (`InvalidArgumentException`), and a code needs a `OneTimeCodeSender` bound
    (`LogicException`). With `NotifyingResetLinkSender` bound, a link for a type other than `email` is an
    `InvalidArgumentException`. The code settings, the code key, the delivery queue and the link lifetime fail closed,
    and the provider's configured model must be on the storage connection (`SharedConnection::assertForGuard()`, a
    `LogicException`), since a reset could never spend what the request issues. Nothing is counted yet.
-2. The application must allow `password` (`method_not_allowed`); the identifier must canonicalise to a non-empty string
+2. The application must allow `password` (`method_not_allowed`); the identifier must canonicalize to a non-empty string
    (`identifier_invalid`, reported as `invalid_credentials`).
 3. `AttemptLimiter::acquire()` on `password_reset_request` for the identifier in normal form and the IP address, never
    released (`rate_limited`).
@@ -259,7 +259,7 @@ code to `OneTimeCodeSender` with the purpose `password_reset`; anyone else gets 
 ## Change Triggers
 
 Update this note when the policy gains or loses a rule, Laravel's `Password` rule changes its expressions, the bcrypt
-ceiling or the default minimum changes, the breached check's outage behaviour changes, a flow ends different sessions,
+ceiling or the default minimum changes, the breached check's outage behavior changes, a flow ends different sessions,
 `set()` writes more than the password column or outdates a different set of proofs, a reset request starts doing
 identity-dependent work, a reset stops spending its proof in the transaction of the change, or Laravel's broker changes
 in a way that would let it meet the criteria above.

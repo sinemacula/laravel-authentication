@@ -10,7 +10,7 @@ namespace SineMacula\Laravel\Authentication\Jwt;
  *
  * Either way it replaces any refresh token the client held for the device, so
  * consumers must store the value in `$refreshToken` immediately. After a
- * refresh the replaced token is honoured only for a short grace window (a retry
+ * refresh the replaced token is honored only for a short grace window (a retry
  * gets the current credential again); presented after it, it is treated as a
  * replay and revokes the device. After a sign-in that continued a device, every
  * earlier refresh token of the device is already a replay.

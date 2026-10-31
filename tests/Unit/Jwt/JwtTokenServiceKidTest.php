@@ -14,7 +14,7 @@ use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use Tests\Concerns\InteractsWithJwtTokens;
 
 /**
- * Kid behavioural tests for `JwtTokenService`.
+ * Kid behavioral tests for `JwtTokenService`.
  *
  * Drives the keyring through the token service's public surface to prove the
  * rotation contract: tokens issued under the active kid carry the kid in their

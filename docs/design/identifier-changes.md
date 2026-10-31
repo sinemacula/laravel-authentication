@@ -4,7 +4,7 @@
 
 This note records how `Auth::identifierChanges($guard)` replaces an identity's email address or phone number: what a
 request must prove, where a pending change lives and how a newer one replaces it, how a confirmation spends its proof
-only together with the change, how uniqueness of the normalised identifier is kept under a race, which proofs a change
+only together with the change, how uniqueness of the normalized identifier is kept under a race, which proofs a change
 outdates, and why the change stands when the notice to the old identifier fails.
 
 ## Invariants
@@ -43,10 +43,10 @@ outdates, and why the change stands when the notice to the old identifier fails.
   lock with its `UPDATE`, and a standalone bulk revocation updates the device's row before it deletes the pending
   changes, so a password write racing a request proven by the old password, and a revocation of the proving device, come
   either before that check, which then fails, or after the change is written, which they then cancel. A `confirmedAt()`
-  proof, and a password proof racing a revocation that leaves the password as it is, are not serialised. The current
+  proof, and a password proof racing a revocation that leaves the password as it is, are not serialized. The current
   identifier and whether it is verified are read from the row as locked. A refusal under the lock writes nothing,
   commits, and gives the `identifier_change` slots back.
-- A request needs a new identifier the type's normaliser accepts (a type without a normaliser is a misconfiguration)
+- A request needs a new identifier the type's normalizer accepts (a type without a normalizer is a misconfiguration)
   that is not the current one in canonical form, and a slot of `rate_limits.identifier_change` for the new identifier,
   the identity's account and the IP address, given back only by a refusal under the lock. It never looks for another
   holder of the new identifier, so its answer cannot tell whether one exists.
@@ -78,7 +78,7 @@ outdates, and why the change stands when the notice to the old identifier fails.
 
 1. `requestByCode($identity, 'email', $new, Reauthentication::device($device))`: configuration checked (a code needs a
    `OneTimeCodeSender` bound, as every change needs a notifier); the proof is
-   recent; the new identifier is normalised and differs; the limits have room. In one transaction: a code is issued for
+   recent; the new identifier is normalized and differs; the limits have room. In one transaction: a code is issued for
    a fresh `request_id`, the change is written, the replaced change's code invalidated, the code's delivery queued.
    After commit: `IdentifierChangeRequested`, and the job sends the code to the new identifier while the code is live
    and the change still names its request and guard.
@@ -124,7 +124,7 @@ outdates, and why the change stands when the notice to the old identifier fails.
   new identifier to a verified one.
 - Sessions are not revoked by a change; the application may sign the identity out everywhere if it wants that.
 - Every bulk revocation of an identity's sessions deletes every pending change of the identity, of each type with a
-  registered normaliser and through any guard, in one `DELETE` by key inside the revocation's transaction on the storage
+  registered normalizer and through any guard, in one `DELETE` by key inside the revocation's transaction on the storage
   connection (`PendingChanges::forget()`, from `Sessions\DeviceRevocations` for the scope
   `SessionService::revokeDevices()` builds): `signOutEverywhere()`, `revokeDevices()`, `passwordChanged()`,
   `passwordReset()`, `factorRemoved()`, `identityDeactivated()`, and so `PasswordService::set()` for a change or a

@@ -29,7 +29,7 @@ authorization package decides what they allow.
 - An API key is `<prefix>_<public>_<secret>`; only `<prefix>_<public>` (the key's public id, column `public_id`, which
   is also its OAuth client id) and the SHA-256 digest of the secret are stored, so the key exists in plaintext only in
   the `IssuedApiKey` the issuing call returns, which holds it as a `SensitiveParameterValue` read through `key()`, so
-  no dump shows it and serialising it throws. The exchange holds a presented client secret the same way.
+  no dump shows it and serializing it throws. The exchange holds a presented client secret the same way.
 - A key belongs to one guard, one non-human identity, one principal and that principal's tenant, each of the last three
   recorded by type (morph class, else class name) and identifier, so a tenant of another type under the same identifier
   is not the key's. Every keyed operation of the service matches the principal's morph type and identifier, and the
@@ -56,7 +56,7 @@ authorization package decides what they allow.
 - A keyed operation matches the guard and the principal's morph type and identifier in the statement and then compares
   the key's recorded ones exactly, since a column's collation, such as MySQL's default `_ci`, can count distinct values
   like `alice` and `Alice`, or guards `api` and `API`, as equal.
-- A credential's scopes are fixed when it is issued, after normalisation and the `ScopeRegistry`'s check; a malformed
+- A credential's scopes are fixed when it is issued, after normalization and the `ScopeRegistry`'s check; a malformed
   or rejected scope is an `InvalidScopeException`, the caller's error rather than a failed authentication. Any answer
   from the registry but `[]` refuses, naming the given scopes it names, or every given scope when it names none as
   given, so a registry that answers with a pattern or its own form of a scope never lets the credential through.
@@ -64,7 +64,7 @@ authorization package decides what they allow.
 ## Success Path
 
 - `Auth::apiKeys($guard)->issue($identity, $principal, $scopes)` resolves the principal for the identity through the
-  guard's resolver (as a pinned principal), asks the application policy to admit it, normalises and registers the
+  guard's resolver (as a pinned principal), asks the application policy to admit it, normalizes and registers the
   scopes, records the tenant, draws a public part (again on the unlikely collision with a stored one, at most three
   times) and a secret, inserts the row and returns the key once; `ApiKeyIssued` follows the commit.
 - An `api_key` guard request: parse the bearer key, look its public part up, compare digests, check the guard,
@@ -76,7 +76,7 @@ authorization package decides what they allow.
   (never `LEAST()` over a nullable column), and inserts the replacement with the same binding and scopes but only the
   expiry the call names: none by default (settled design 6.3), so rotating a key that expires without `expiresAt`
   issues one that never does, as the machine credentials guide states.
-- An application issues a credential with scopes; the scopes are normalised and the registry is asked which of them
+- An application issues a credential with scopes; the scopes are normalized and the registry is asked which of them
   the principal may not be granted on the guard (`AcceptAnyScope`, the default, rejects none).
 - A request authenticated by the credential binds its identity and principal with the credential's scopes;
   `Auth::scopes()` returns them and every contextual event reports them.

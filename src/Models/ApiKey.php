@@ -24,7 +24,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * `model:prune --model` with this class.
  *
  * Only the class name is public, for applications to schedule that pruning
- * with; its columns and behaviour belong to the API key service and guard.
+ * with; its columns and behavior belong to the API key service and guard.
  *
  * @api
  *
@@ -64,13 +64,13 @@ final class ApiKey extends Model
     /** @var list<string> The attributes that are mass assignable: none, every column is written by the service. */
     protected $fillable = [];
 
-    /** @var list<string> The attributes hidden from serialisation. */
+    /** @var list<string> The attributes hidden from serialization. */
     protected $hidden = ['secret_hash'];
 
     /**
      * Create a key on the storage connection, in the configured table. Both are
      * applied here, before Eloquent reads them, so this is construction rather
-     * than model behaviour.
+     * than model behavior.
      *
      * @param  array<string, mixed>  $attributes
      *

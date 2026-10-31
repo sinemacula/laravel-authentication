@@ -23,7 +23,7 @@ use Tests\TestCase;
 
 /**
  * Integration tests for looking identities up by a designated identifier: the
- * `model` provider normalises the credential the way the cast stored it, so the
+ * `model` provider normalizes the credential the way the cast stored it, so the
  * lookup matches on every database engine, PostgreSQL's case-sensitive
  * comparison included.
  *
@@ -101,7 +101,7 @@ final class NormalizedLookupModelProviderTest extends TestCase
     }
 
     /**
-     * An array of identifiers is normalised element by element.
+     * An array of identifiers is normalized element by element.
      *
      * @return void
      */
@@ -131,7 +131,7 @@ final class NormalizedLookupModelProviderTest extends TestCase
     }
 
     /**
-     * Every designated credential is normalised, wherever it comes among the
+     * Every designated credential is normalized, wherever it comes among the
      * others.
      *
      * @return void
@@ -194,7 +194,7 @@ final class NormalizedLookupModelProviderTest extends TestCase
     }
 
     /**
-     * Identifier credentials the normaliser rejects.
+     * Identifier credentials the normalizer rejects.
      *
      * @return iterable<string, array{0: mixed}>
      */

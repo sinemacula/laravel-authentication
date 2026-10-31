@@ -35,7 +35,7 @@ final class ResetInput
 
     /**
      * Refuse a type a reset code cannot be bound to: one that is not a valid
-     * identifier type, or has no registered normaliser to bring it to the one
+     * identifier type, or has no registered normalizer to bring it to the one
      * form a code is bound to.
      *
      * @param  \SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers  $normalizers

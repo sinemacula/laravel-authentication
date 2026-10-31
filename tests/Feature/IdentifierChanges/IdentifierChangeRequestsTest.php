@@ -320,7 +320,7 @@ final class IdentifierChangeRequestsTest extends TestCase
 
     /**
      * A pending change deleted between this request's read, which found it, and
-     * its update, which then finds none (a revocation cancelling it), is
+     * its update, which then finds none (a revocation canceling it), is
      * inserted again: the request still leaves its change pending.
      *
      * @return void
@@ -386,7 +386,7 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * A new identifier the type's normaliser rejects is invalid, and one that
+     * A new identifier the type's normalizer rejects is invalid, and one that
      * is the identity's current one in its normal form is unchanged; each is
      * reported with the identifier as given, and nothing is counted or written.
      *
@@ -553,7 +553,7 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * An identity whose stored identifier its normaliser rejects (a legacy
+     * An identity whose stored identifier its normalizer rejects (a legacy
      * value) may change it: it is not taken for the new one.
      *
      * @return void

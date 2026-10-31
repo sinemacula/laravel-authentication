@@ -179,7 +179,7 @@ final class DeviceSummaryTest extends TestCase
     /**
      * Columns that are not loaded read as `null` without asking the model for
      * them, so a model that prevents accessing missing attributes is still
-     * summarised.
+     * summarized.
      *
      * @return void
      */
@@ -206,7 +206,7 @@ final class DeviceSummaryTest extends TestCase
     }
 
     /**
-     * A device without a deadline or a sign-in time cannot be summarised: an
+     * A device without a deadline or a sign-in time cannot be summarized: an
      * active device always has them.
      *
      * @return void

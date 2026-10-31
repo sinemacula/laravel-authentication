@@ -197,7 +197,7 @@ and issue access tokens with `Auth::jwt('api')->issueAccessToken()`.
 The package registers `phone_code`, a numeric code sent to a verified phone number, and `email_code`, the same sent to a
 verified email address: either signs in with no password, as a primary method or a fallback. Allow it in the guard's
 `application.methods`, bind a `OneTimeCodeSender` (see [One-time codes](configuration.md#one-time-codes)), and give the
-identity a normalised `phone` or `email` column with `HasVerifiableIdentifiers` (see
+identity a normalized `phone` or `email` column with `HasVerifiableIdentifiers` (see
 [Identifiers](identity-models.md#identifiers) and [Identifier
 verification](identity-models.md#identifier-verification)). The input carries the identifier under its type's name
 (`phone`, `email`) and the code under `code`:
@@ -241,11 +241,11 @@ Route::post('/sign-in/code', function (Request $request) {
 
 An email address is used in its normal form throughout: a code requested for `Ben@Example.com` is sent to, bound to and
 signs in with `ben@example.com`, however either step spells it, and the sender's message carries the normal form; an
-address the `email` normaliser rejects (blank, or not valid UTF-8) is `identifier_invalid`. Everything below applies to
+address the `email` normalizer rejects (blank, or not valid UTF-8) is `identifier_invalid`. Everything below applies to
 `email_code` as to `phone_code`, with the address for the number.
 
 A code request does nothing that depends on whether anyone has the number. The guard must allow the method
-(`method_not_allowed`), the number must be one the `phone` normaliser accepts (`identifier_invalid`), the number and the
+(`method_not_allowed`), the number must be one the `phone` normalizer accepts (`identifier_invalid`), the number and the
 IP address must have code requests left (`rate_limited`, with the wait), and no code may have been sent to the number
 within the resend cooldown (`rate_limited`, with the seconds left); then a code is issued, for anyone's number, and its
 delivery queued. The job alone finds the recipient, when it runs: the active identity the guard's provider returns for
@@ -271,7 +271,7 @@ policy, a further factor and the device, which records `phone_code`. The code's 
 storage connection, so a transaction you open there and roll back around a sign-in gives the attempt back; the sign-in
 limits on `rate_limits.connection` still count it.
 
-Another identifier type signs in by code once it has a normaliser and a column: register a code method for it, and
+Another identifier type signs in by code once it has a normalizer and a column: register a code method for it, and
 allow it.
 
 ```php
@@ -355,7 +355,7 @@ $result = Auth::sessions('api')->signIn('passkey', $request->only('challenge', '
 `signInOptions()` names no credential, so the browser offers every passkey it holds for the relying party. Anyone may
 ask for them and each request writes a challenge, so each is counted against the client's IP address under the guard's
 `passkey_options` limit (see [Rate limits](configuration.md#rate-limits)); past it, a `ThrottleRequestsException`
-answers `429` with `Retry-After` and a [localisable](installation.md#localising-messages) message. The `passkey` method
+answers `429` with `Retry-After` and a [localizable](installation.md#localizing-messages) message. The `passkey` method
 uses the challenge up, finds the passkey of the guard's relying party the answer names, loads its owner through the
 guard's provider as the very model it records, takes a slot of the owner's account limit, and verifies the assertion:
 the origin, the relying party, user presence and verification, the signature, the challenge, and the user handle the
@@ -501,7 +501,7 @@ final readonly class BadgeSignIn implements SignInMethod
 }
 ```
 
-`identifierType()` names the identifier the method signs in by: the normaliser its limit counts it through, and the
+`identifierType()` names the identifier the method signs in by: the normalizer its limit counts it through, and the
 identifier a guard that requires verified identifiers checks. Return `null` for a method that uses no identifier (an
 assertion that names the identity itself): then only the IP address is limited and the verified-identifier requirement
 does not apply. `identifier()` returns the identifier as the input gives it, for the limits and the failure events,

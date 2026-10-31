@@ -67,7 +67,7 @@ final readonly class PasskeySummary implements \JsonSerializable, Arrayable
     ) {}
 
     /**
-     * Summarise a stored passkey.
+     * Summarize a stored passkey.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
      * @return self
@@ -107,7 +107,7 @@ final readonly class PasskeySummary implements \JsonSerializable, Arrayable
     }
 
     /**
-     * The summary as JSON serialises it: the same as `toArray()`.
+     * The summary as JSON serializes it: the same as `toArray()`.
      *
      * @return array{id: string, name: ?string, transports: list<string>, aaguid: ?string, backup_eligible: bool, backed_up: bool, created_at: string, last_used_at: ?string}
      */

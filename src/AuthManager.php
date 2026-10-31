@@ -59,7 +59,7 @@ class AuthManager extends IlluminateAuthManager
      * so the guards and user providers it reaches are this manager's; any other
      * closure is taken as it is.
      *
-     * The replaced manager's own behaviour is not carried: the methods and
+     * The replaced manager's own behavior is not carried: the methods and
      * properties a subclass of Laravel's manager adds are lost, and so is
      * anything its closures rely on them for. The package owns the `auth`
      * binding: a manager of the application's extends this one, and the

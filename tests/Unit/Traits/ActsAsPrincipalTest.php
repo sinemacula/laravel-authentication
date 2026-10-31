@@ -98,8 +98,8 @@ final class ActsAsPrincipalTest extends TestCase
     }
 
     /**
-     * Trait honours an `identityRelationName` override declared on the
-     * principal subclass and reads the identity from the renamed relation slot.
+     * Trait honors an `identityRelationName` override declared on the principal
+     * subclass and reads the identity from the renamed relation slot.
      *
      * @return void
      */

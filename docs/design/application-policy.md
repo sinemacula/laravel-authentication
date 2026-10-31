@@ -8,7 +8,7 @@ a sign-in used must be verified, and how long they last. An application is the a
 application is a guard, so these are per-guard settings, read by one contract (`ApplicationPolicy`) that every path that
 starts or continues a session consults. "Audience" names only the API a token is for, its `aud` claim
 (`jwt.audience`), which this policy does not touch. The note also records how the attempt limits and the identifier
-normalisers meet that policy, since a sign-in passes through all three.
+normalizers meet that policy, since a sign-in passes through all three.
 
 ## Invariants
 
@@ -105,11 +105,11 @@ normalisers meet that policy, since a sign-in passes through all three.
   but a caller transaction on the same connection holds them: with the default (`null`, the storage connection) a
   sign-in its caller rolls back takes its counts with it and is not counted. Counters on a connection of their own still
   count it.
-- An identifier is counted in its canonical form: through the normaliser registered for the method's identifier type
+- An identifier is counted in its canonical form: through the normalizer registered for the method's identifier type
   when there is one (the form `ModelProvider` looks it up in), otherwise trimmed and lower-cased. Every casing of an
-  address therefore shares one counter, and a lookup by a designated identifier normalises the credential before it
+  address therefore shares one counter, and a lookup by a designated identifier normalizes the credential before it
   queries, so the address is found however it was typed.
-- A lookup can still find one account by spellings no normaliser folds (a collation that ignores accents, widths or
+- A lookup can still find one account by spellings no normalizer folds (a collation that ignores accents, widths or
   invisible characters, a query closure, a list of values, another column), so the password method counts every password
   it checks against the account it checks it for (`AttemptSubject::$account`, a `per_account` counter under the
   `per_identifier` limit; an Eloquent identity's account is its row, named by connection, database, prefixed table and

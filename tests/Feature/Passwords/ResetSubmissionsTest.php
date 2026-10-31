@@ -655,7 +655,7 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A reset by code for a type with no normaliser is a misconfiguration,
+     * A reset by code for a type with no normalizer is a misconfiguration,
      * refused before anything is counted.
      *
      * @return void

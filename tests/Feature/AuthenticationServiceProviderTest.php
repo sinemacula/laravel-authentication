@@ -442,7 +442,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The identifier normaliser registry is one instance for the application.
+     * The identifier normalizer registry is one instance for the application.
      *
      * @return void
      */

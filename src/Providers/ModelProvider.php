@@ -122,10 +122,10 @@ class ModelProvider implements IdentityProvider
      * `null` rather than running a where-less query.
      *
      * A credential for an attribute the model designates as an identifier
-     * (`Casts\NormalizedIdentifier`) is normalised first, as the attribute is
+     * (`Casts\NormalizedIdentifier`) is normalized first, as the attribute is
      * when it is set, so the lookup matches the stored form whatever the
-     * database's collation: a string through the type's normaliser, an array
-     * element by element. A value the normaliser rejects cannot name an
+     * database's collation: a string through the type's normalizer, an array
+     * element by element. A value the normalizer rejects cannot name an
      * account, so the lookup returns `null` without a query. Closures and other
      * values are applied as given.
      *
@@ -249,7 +249,7 @@ class ModelProvider implements IdentityProvider
     /**
      * Build a fresh Eloquent query rooted at the supplied model and pinned to
      * the write connection, so a lagging read replica cannot resolve a
-     * deactivated or deleted identity. Single localised site for the
+     * deactivated or deleted identity. Single localized site for the
      * dynamic-class `newQuery()` call so any phpstan suppressions live in one
      * place.
      *
@@ -383,7 +383,7 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Normalise the credentials for attributes the model designates as
+     * Normalize the credentials for attributes the model designates as
      * identifiers, or return `null` when one of them cannot be an identifier. A
      * credential key qualified with the model's own table (`users.email`)
      * counts as its attribute.
@@ -421,7 +421,7 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Normalise each string element of an identifier credential, or return
+     * Normalize each string element of an identifier credential, or return
      * `null` when one of them cannot be an identifier.
      *
      * @param  \SineMacula\Laravel\Authentication\Casts\NormalizedIdentifier  $cast
@@ -445,7 +445,7 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Normalise a string identifier credential (`null` when it cannot be an
+     * Normalize a string identifier credential (`null` when it cannot be an
      * identifier), leaving any other value as given.
      *
      * @param  \SineMacula\Laravel\Authentication\Casts\NormalizedIdentifier  $cast

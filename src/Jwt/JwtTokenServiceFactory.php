@@ -20,7 +20,7 @@ use SineMacula\Laravel\Authentication\Config\IntegerSetting;
  * `config/authentication.php`; nothing here falls back to a literal. A value
  * missing at both levels, of the wrong type, or out of range fails closed with
  * an `InvalidJwtConfigurationException`, at either level: a malformed guard
- * override is never ignored in favour of the package value. Only `issuer` and
+ * override is never ignored in favor of the package value. Only `issuer` and
  * `audience` may resolve to `null`, which turns that claim check off.
  *
  * Each guard's service is built on first use and kept for the factory's life, a
@@ -326,7 +326,7 @@ final class JwtTokenServiceFactory
      * Resolve a nullable string JWT config value (`issuer` / `audience`): a
      * per-guard override that is present wins, `null` included, so a guard can
      * turn off a check the package value sets; otherwise the package value. An
-     * empty string is normalised to `null`. Any other type, at either level,
+     * empty string is normalized to `null`. Any other type, at either level,
      * fails closed: read as `null`, it would silently turn the check off.
      *
      * @param  string  $guard

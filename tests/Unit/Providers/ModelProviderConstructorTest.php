@@ -24,7 +24,7 @@ use Tests\Unit\Stubs\StubModel;
  * factory, and credential-key filter regex.
  *
  * Split out of `ModelProviderTest` so each class stays focused on a single
- * behavioural slice.
+ * behavioral slice.
  *
  * @internal
  *

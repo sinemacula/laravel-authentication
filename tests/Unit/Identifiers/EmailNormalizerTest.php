@@ -10,7 +10,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Identifiers\EmailNormalizer;
 
 /**
- * Unit tests for the default email normaliser.
+ * Unit tests for the default email normalizer.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -54,7 +54,7 @@ final class EmailNormalizerTest extends TestCase
     }
 
     /**
-     * Normalising a normal form returns it unchanged, so normalising twice is
+     * Normalizing a normal form returns it unchanged, so normalizing twice is
      * the same as once.
      *
      * @param  string  $given

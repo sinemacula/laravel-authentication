@@ -47,7 +47,7 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * Eloquent model is fetched again in its state then (with the relations it had
  * loaded), or is `null` once its row is gone; a part that is not an Eloquent
  * model does not cross a queue and is `null` after one. A queued model is
- * current state, not evidence of what was authorised. `scopes` is `null` for a
+ * current state, not evidence of what was authorized. `scopes` is `null` for a
  * human identity's session, which no credential limits, and the list the
  * credential grants otherwise (`[]` grants none). Never carries a token, a key,
  * a digest, a password or any other secret.

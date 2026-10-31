@@ -4,7 +4,7 @@
 
 This note records how a session comes to act as one principal of an identity that may act as several: a sign-in that
 names none waits for the identity to choose (`choice()`, `choose()`), and a live session moves to another principal on
-the same device (`switchPrincipal()`). Starting a session is in `session-service.md`; the refresh judgement both paths
+the same device (`switchPrincipal()`). Starting a session is in `session-service.md`; the refresh judgment both paths
 share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old principal's tokens are in
 `fail-closed-pid-did.md`.
 
@@ -67,7 +67,7 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   `rotation_conflict`, without revoking.
 - A missed swap re-reads the row with a lock and judges it once: a still-current id is `rotation_conflict`, a previous
   id is answered by the retry rule against the row as it now is (after the owner is checked again), and anything else
-  fails for its reason, a replay (`rotation_reuse`) revoking the device as a first judgement does. There is never a
+  fails for its reason, a replay (`rotation_reuse`) revoking the device as a first judgment does. There is never a
   second swap.
 - `PrincipalChoiceRequired` and `PrincipalSwitched` are dispatched through `AfterCommit` on the device model's
   connection. `PrincipalSwitched` carries the device's recorded previous morph class and identifier and the previous

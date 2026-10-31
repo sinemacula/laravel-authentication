@@ -74,7 +74,7 @@ final readonly class PasswordWriter
 
     /**
      * Hash the password, store it, invalidate the proofs it outdates and end
-     * the sessions the flow ends, cancelling the identity's pending identifier
+     * the sessions the flow ends, canceling the identity's pending identifier
      * changes with them, in one transaction, and report it once committed;
      * returns how many devices the flow revoked.
      *

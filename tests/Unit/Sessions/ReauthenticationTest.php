@@ -15,7 +15,7 @@ use Tests\Unit\Stubs\PlainDeviceFixture;
 /**
  * Unit tests for the proofs of a recent authentication: each kind hands its
  * value to its own callback only, and a password never shows in a dump and
- * cannot be serialised.
+ * cannot be serialized.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -69,7 +69,7 @@ final class ReauthenticationTest extends TestCase
 
     /**
      * No dump of a password proof shows the password, and it cannot be
-     * serialised.
+     * serialized.
      *
      * @return void
      */

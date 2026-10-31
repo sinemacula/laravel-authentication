@@ -189,7 +189,7 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
-     * Rows of numbers the E.164 normaliser refuses.
+     * Rows of numbers the E.164 normalizer refuses.
      *
      * @return iterable<string, array{0: array<string, mixed>, 1: ?string}>
      */
@@ -204,7 +204,7 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
-     * A number the type's normaliser refuses is `identifier_invalid`, reported
+     * A number the type's normalizer refuses is `identifier_invalid`, reported
      * as `invalid_credentials`, before anything is counted or issued.
      *
      * @param  array<string, mixed>  $input
@@ -556,7 +556,7 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
-     * An identity with no number, or one the normaliser refuses, has nothing to
+     * An identity with no number, or one the normalizer refuses, has nothing to
      * verify: `identifier_invalid`, reported with the identity, and nothing
      * counted or issued.
      *

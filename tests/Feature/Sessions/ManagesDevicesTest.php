@@ -231,7 +231,7 @@ final class ManagesDevicesTest extends TestCase
 
     /**
      * Revoking every device of an identity whose identifiers can be changed
-     * cancels its pending changes of every type with a normaliser, a change
+     * cancels its pending changes of every type with a normalizer, a change
      * link needing no session; another identity's, whose identifiers cannot be
      * changed, keeps the row its key would name.
      *

@@ -23,7 +23,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * has expired are pruned by Laravel's `model:prune --model` with this class.
  *
  * Only the class name is public, for applications to schedule that pruning
- * with; its columns and behaviour belong to the session service.
+ * with; its columns and behavior belong to the session service.
  *
  * @api
  *
@@ -68,13 +68,13 @@ final class PendingSignIn extends Model
     /** @var list<string> The attributes that are mass assignable: none, every column is written with `forceFill()`. */
     protected $fillable = [];
 
-    /** @var list<string> The attributes hidden from serialisation. */
+    /** @var list<string> The attributes hidden from serialization. */
     protected $hidden = ['token_digest', 'device_refresh_key', 'attempt_windows'];
 
     /**
      * Create a pending sign-in on the storage connection, in the configured
      * table. Both are applied here, before Eloquent reads them, so this is
-     * construction rather than model behaviour.
+     * construction rather than model behavior.
      *
      * @param  array<string, mixed>  $attributes
      *

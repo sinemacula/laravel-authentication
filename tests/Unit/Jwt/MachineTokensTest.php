@@ -41,7 +41,7 @@ final class MachineTokensTest extends TestCase
     }
 
     /**
-     * The claims of a client token are the key's id and its scopes, normalised
+     * The claims of a client token are the key's id and its scopes, normalized
      * and space-separated; the id must be a UUID and every scope well-formed.
      *
      * @return void

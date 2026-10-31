@@ -7,7 +7,7 @@ namespace Tests\Unit\Stubs;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierNormalizer;
 
 /**
- * Normaliser fixture that reverses the identifier, so a test can tell it was
+ * Normalizer fixture that reverses the identifier, so a test can tell it was
  * the one applied.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

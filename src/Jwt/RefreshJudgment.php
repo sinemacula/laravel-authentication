@@ -89,7 +89,7 @@ final class RefreshJudgment
      * Whether the rotation id is the one the device's current id replaced,
      * presented inside the grace window. The current id must also be its
      * successor: a row whose digests were changed outside a rotation does not
-     * honour the previous id.
+     * honor the previous id.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  string  $rotationId

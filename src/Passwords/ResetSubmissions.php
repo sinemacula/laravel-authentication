@@ -109,7 +109,7 @@ final readonly class ResetSubmissions
 
     /**
      * Reset with a code, the input naming the identifier under the type (which
-     * must have a registered normaliser), the `code` and the new `password`.
+     * must have a registered normalizer), the `code` and the new `password`.
      *
      * @param  string  $type
      * @param  array<array-key, mixed>  $input

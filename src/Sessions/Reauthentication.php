@@ -26,7 +26,7 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
  * The window is the flow's own setting (for an identifier change,
  * `authentication.identifier_changes.recent_authentication_seconds`). The
  * password is held as a `\SensitiveParameterValue`, so no dump of the object
- * shows it and serialising it throws.
+ * shows it and serializing it throws.
  *
  * @api
  *

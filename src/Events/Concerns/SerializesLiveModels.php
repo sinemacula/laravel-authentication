@@ -20,12 +20,12 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
  * identifier and fetched again from the writer when the event is restored, with
  * the relations it had loaded, or comes back `null` when its row no longer
  * exists; a database error still throws. A live part that is not an Eloquent
- * model is not serialised at all and comes back `null`, so no arbitrary object
+ * model is not serialized at all and comes back `null`, so no arbitrary object
  * enters the payload. Every other property crosses as it is.
  *
  * Expects the using class to declare every property it has: the restore
- * initialises them from the using class's scope, which is the only scope PHP
- * 8.3 lets initialise a readonly property.
+ * initializes them from the using class's scope, which is the only scope PHP
+ * 8.3 lets initialize a readonly property.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -92,7 +92,7 @@ trait SerializesLiveModels
      * or `null` when its row no longer exists.
      *
      * The identifier names its model by class, or by morph alias where the
-     * framework is told to serialise models through the morph map; the alias is
+     * framework is told to serialize models through the morph map; the alias is
      * resolved here, since `ModelIdentifier::getClass()` is missing from the
      * earliest framework versions supported.
      *

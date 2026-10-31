@@ -16,7 +16,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
  * `issueRefreshToken()`.
  *
  * Split out of the original `JwtTokenServiceTest` so each class stays focused
- * on a single behavioural slice.
+ * on a single behavioral slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

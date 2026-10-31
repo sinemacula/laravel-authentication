@@ -328,7 +328,7 @@ final readonly class VerificationLinks
 
     /**
      * The digest a link carries for an identifier: SHA-256 of its canonical
-     * form, or `null` when the type's normaliser rejects it.
+     * form, or `null` when the type's normalizer rejects it.
      *
      * @param  string  $type
      * @param  string  $identifier

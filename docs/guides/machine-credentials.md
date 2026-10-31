@@ -105,7 +105,7 @@ A key is `<prefix>_<public>_<secret>`: the configured prefix (`ak` by default), 
 and a 40-character random secret. Only `<prefix>_<public>` (the summary's `publicId`) and the SHA-256 digest of the
 secret are stored, so the key is shown once and cannot be shown again; a secret of about 238 bits needs no password hash
 to resist guessing. `IssuedApiKey` holds the key as a `SensitiveParameterValue`, so no dump of it (`dump()`, `print_r`,
-`var_export`) shows the key, and serialising it throws. The principal must be one the identity acts as on the guard
+`var_export`) shows the key, and serializing it throws. The principal must be one the identity acts as on the guard
 (resolved through the guard's principal resolver, as a pinned principal is) and one the application admits; the key
 records the identity, the principal and the principal's tenant, each by type and identifier, and the guard, and
 authenticates only as them, on that guard. A tenant's type is its morph class, or its class name when it is not an
@@ -151,7 +151,7 @@ would authenticate, binding and dispatching nothing.
 
 Every other operation names the principal the key must belong to, and treats a key of another principal or guard as
 absent, even one whose guard, type or identifier the column's collation counts as equal (`alice` and `Alice` under
-MySQL's default `_ci` collations). These are privileged operations: authorise your caller to manage that principal's
+MySQL's default `_ci` collations). These are privileged operations: authorize your caller to manage that principal's
 keys first, since the package decides no permission.
 
 ```php

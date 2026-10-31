@@ -195,7 +195,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
     /**
      * Guards with no `jwt` sub-block fall back cleanly to the package defaults,
-     * preserving single-guard behaviour.
+     * preserving single-guard behavior.
      *
      * Verified by issuing a token and asserting the `aud` claim, TTL, and
      * signing secret all match the package-wide config.
@@ -680,7 +680,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
     /**
      * Per-guard integer JWT config overrides (e.g. `access_ttl_minutes`) are
-     * honoured over the package defaults. Pins the guard-level int return in
+     * honored over the package defaults. Pins the guard-level int return in
      * `resolveJwtInteger()`.
      *
      * Verified by issuing a token and checking the `exp - iat` delta.

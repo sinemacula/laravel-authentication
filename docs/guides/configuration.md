@@ -162,7 +162,7 @@ entry; missing fields fall back to the defaults:
 Routes opt into a boundary via `auth:staff` or `auth:customer` middleware. Every token carries a `grd` claim naming the
 guard that issued it, and a guard rejects any token whose `grd` names another guard, so a staff token cannot
 authenticate as a customer even when both guards share the package key map and identity model. Separate keys and
-audiences, as above, are optional defence in depth on top of that. On refresh, the guard reloads the device's owner
+audiences, as above, are optional defense in depth on top of that. On refresh, the guard reloads the device's owner
 through its own user provider, so the provider's scoping applies and an owner it does not serve is rejected. The device
 row stores the owner's primary key and the provider looks identities up by their auth identifier, so refresh requires an
 identity model whose auth identifier is its primary key: one that overrides `getAuthIdentifierName()` fails to refresh
@@ -362,7 +362,7 @@ the request-derived columns, and the session state with `forceFill()`. Both refr
 and `toJson()` by `ActsAsDevice`, under whatever column names the model uses. The session service writes
 every column when it creates a device (see [Signing in](signing-in.md#signing-in-the-session-service)); `getGuard()`,
 `getSignInMethod()` and `getSignInIdentifierType()` read the guard, method and type of identifier it recorded. The
-bearer path and refresh honour a device only for the guard it records, refresh only while that guard still allows the
+bearer path and refresh honor a device only for the guard it records, refresh only while that guard still allows the
 method it records, and a switch of principal admits its target with the identifier type it records (`null` for a
 sign-in that used none, which is held to no type), so a device written outside the session service must record all
 three.
@@ -640,7 +640,7 @@ device and per IP address, and a successful refresh costs one read. A refresh re
 a valid number counts, whether a code is sent or the resend cooldown holds it back, and no slot is given back; the
 number is counted in its normal form, whether or not anyone has it.
 
-Identifiers are counted in their canonical form, through the normaliser of their type when one is registered (see
+Identifiers are counted in their canonical form, through the normalizer of their type when one is registered (see
 [Identifiers](identity-models.md#identifiers)), so every casing of an address shares one counter, and otherwise trimmed
 and lower-cased. IP addresses are counted canonically too: an IPv6 client is counted by its /64 network, the block a
 single client is usually given, so it cannot spread its attempts over its own addresses. An IPv6 address that carries an
@@ -683,7 +683,7 @@ device model, as shown in [Pruning devices](operations.md#pruning).
 ```
 
 Keys live in `table`, on the storage connection. `prefix` (a lower-case letter, then up to 15 lower-case letters or
-digits) starts every new key, so your keys are recognisable in logs and to secret scanners; changing it leaves existing
+digits) starts every new key, so your keys are recognizable in logs and to secret scanners; changing it leaves existing
 keys working. A rotation keeps the replaced key working for `rotation_overlap_seconds` unless it names its own overlap,
 never beyond `max_rotation_overlap_seconds` (at most 30 days). A key's last use is recorded at most once per
 `last_used_throttle_seconds` (0 to 86400; 0 records every use), and `model:prune` deletes keys revoked or expired more

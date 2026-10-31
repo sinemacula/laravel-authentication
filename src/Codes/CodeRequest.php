@@ -77,7 +77,7 @@ final readonly class CodeRequest
     }
 
     /**
-     * The identifier is not one the type's normaliser accepts, or the identity
+     * The identifier is not one the type's normalizer accepts, or the identity
      * has no identifier of the type to verify.
      *
      * @return self

@@ -412,7 +412,7 @@ final readonly class PrincipalSwitch
     /**
      * Judge the presented rotation id again against the row as it now is, after
      * the compare-and-swap missed, read with a lock, by the rules the first
-     * judgement used: a retry is answered as `retry()` answers it, a
+     * judgment used: a retry is answered as `retry()` answers it, a
      * still-current id is a conflict, and anything else fails for its reason, a
      * replay revoking the device. There is never a second swap.
      *

@@ -42,7 +42,7 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  *
  * First, in order, on the identity's row as stored (read again by key on the
  * write connection): the proof of a recent authentication, the new identifier
- * (one the type's normaliser accepts, and not the current one), and a slot of
+ * (one the type's normalizer accepts, and not the current one), and a slot of
  * the `identifier_change` limits, counted on the new identifier, on the
  * identity and on the IP address. Each refusal is answered and reported by
  * `AuthenticationFailed` (flow `identifier_change`, with the identifier as
@@ -266,7 +266,7 @@ final readonly class ChangeRequests
 
     /**
      * The new identifier in its normal form, or the refusal of one the type's
-     * normaliser rejects, or that, in its normal form, is the identity's
+     * normalizer rejects, or that, in its normal form, is the identity's
      * current one in its canonical form.
      *
      * @param  string  $type

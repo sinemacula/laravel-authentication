@@ -212,9 +212,8 @@ final class GuardBoundTokenIntegrationTest extends TestCase
     }
 
     /**
-     * Refresh honours the guard provider's scope: an owner the provider does
-     * not serve is rejected with `identity_unknown`, and one it does serve
-     * rotates.
+     * Refresh honors the guard provider's scope: an owner the provider does not
+     * serve is rejected with `identity_unknown`, and one it does serve rotates.
      *
      * @return void
      *

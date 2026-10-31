@@ -74,7 +74,7 @@ final class CodeIdentifiersTest extends TestCase
 
     /**
      * The identity's own identifier of the type is the stored one in its
-     * canonical form, or `null` when it has none the normaliser accepts.
+     * canonical form, or `null` when it has none the normalizer accepts.
      *
      * @param  ?string  $phone
      * @param  ?string  $email

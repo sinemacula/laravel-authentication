@@ -9,13 +9,13 @@ use Illuminate\Contracts\Container\Container;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierNormalizer;
 
 /**
- * The identifier normalisers, by identifier type, from
+ * The identifier normalizers, by identifier type, from
  * `authentication.identifiers.normalizers`: a map of type names to container
  * abstracts that resolve to an `IdentifierNormalizer`.
  *
  * The map is read on every call, and an entry whose name is not a valid
  * identifier type, whose abstract is not a non-empty string, or that does not
- * resolve to a normaliser fails closed with an `InvalidArgumentException`
+ * resolve to a normalizer fails closed with an `InvalidArgumentException`
  * rather than leaving identifiers of that type as given.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -31,15 +31,15 @@ final readonly class IdentifierNormalizers
      */
     public function __construct(
 
-        /** Container the normalisers are resolved from. */
+        /** Container the normalizers are resolved from. */
         private Container $container,
 
-        /** Configuration holding the normaliser map. */
+        /** Configuration holding the normalizer map. */
         private ConfigRepository $config,
     ) {}
 
     /**
-     * Whether a normaliser is registered for the identifier type.
+     * Whether a normalizer is registered for the identifier type.
      *
      * @param  string  $type
      * @return bool
@@ -52,7 +52,7 @@ final readonly class IdentifierNormalizers
     }
 
     /**
-     * The normaliser registered for the identifier type.
+     * The normalizer registered for the identifier type.
      *
      * @param  string  $type
      * @return \SineMacula\Laravel\Authentication\Contracts\IdentifierNormalizer
@@ -78,7 +78,7 @@ final readonly class IdentifierNormalizers
     }
 
     /**
-     * The identifier types a normaliser is registered for, in their configured
+     * The identifier types a normalizer is registered for, in their configured
      * order.
      *
      * @return list<string>
@@ -91,7 +91,7 @@ final readonly class IdentifierNormalizers
     }
 
     /**
-     * The configured map of identifier types to normaliser abstracts.
+     * The configured map of identifier types to normalizer abstracts.
      *
      * @return array<string, non-empty-string>
      *

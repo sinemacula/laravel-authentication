@@ -45,7 +45,7 @@ final class PrincipalAssignedTest extends TestCase
     }
 
     /**
-     * The event serialises its models for queued listeners and survives a round
+     * The event serializes its models for queued listeners and survives a round
      * trip; it is dispatched at once, as the guard binds.
      *
      * @return void

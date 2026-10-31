@@ -394,7 +394,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * Identifiers are counted in their canonical form: through the normaliser
+     * Identifiers are counted in their canonical form: through the normalizer
      * of their type, so every casing and padding of an address shares one
      * counter, and without one (or for a value it rejects) trimmed and
      * lower-cased with invalid UTF-8 replaced.
@@ -523,7 +523,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * A normaliser registered for the identifier's type gives the canonical
+     * A normalizer registered for the identifier's type gives the canonical
      * form, even where it differs from trimming and lower-casing.
      *
      * @return void

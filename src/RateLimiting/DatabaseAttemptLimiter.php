@@ -61,7 +61,7 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
         /** The counters. */
         private RateLimitStore $store,
 
-        /** Normalisers that give identifiers their canonical form. */
+        /** Normalizers that give identifiers their canonical form. */
         private IdentifierNormalizers $normalizers,
 
         /** The keys the counters are stored under. */
@@ -201,7 +201,7 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
 
     /**
      * The canonical form of an identifier: its type's normal form when a
-     * normaliser is registered for the type and accepts the value, otherwise
+     * normalizer is registered for the type and accepts the value, otherwise
      * the value trimmed and lower-cased, with invalid UTF-8 replaced.
      *
      * @param  string  $identifier

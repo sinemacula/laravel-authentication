@@ -38,7 +38,7 @@ use Tests\Unit\Stubs\StubInjectableDevice;
  *
  * Owns collaborator mocks, the in-memory `stub_devices` schema, the frozen
  * Carbon and JWT clocks, and the helper factories used by every concrete
- * `JwtGuardTest` variant. Subclasses focus on a single behavioural slice of
+ * `JwtGuardTest` variant. Subclasses focus on a single behavioral slice of
  * JwtGuard so each class stays focused on a single concern.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

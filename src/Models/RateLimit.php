@@ -22,7 +22,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * can delete counters whose window has ended.
  *
  * Only the class name is public, for applications to schedule that pruning
- * with; its columns and behaviour belong to the attempt limiter.
+ * with; its columns and behavior belong to the attempt limiter.
  *
  * @api
  *
@@ -56,7 +56,7 @@ final class RateLimit extends Model
      * Create a counter bound to the configured table and connection, read on
      * each instantiation so runtime config changes take effect at once. The
      * table and connection have to be applied before Eloquent reads them, so
-     * this is construction rather than model behaviour. A connection that is
+     * this is construction rather than model behavior. A connection that is
      * neither a name nor `null` or empty (for the storage connection) is
      * refused, rather than counting on another connection, inside the
      * transactions the separate connection was configured to stay out of.

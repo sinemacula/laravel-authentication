@@ -50,7 +50,7 @@ binding and what it takes over from the manager it replaces.
 - A package registers guard and provider drivers or a user resolver with `Auth::extend()`, `Auth::viaRequest()`,
   `Auth::provider()` or `Auth::resolveUsersUsing()` from `register()` or `boot()`; they keep working through the
   package's manager.
-- An application that customises the manager extends the package's `AuthManager` and binds it to `auth` in a
+- An application that customizes the manager extends the package's `AuthManager` and binds it to `auth` in a
   `register()`; the package keeps it and registers its drivers on it.
 
 ## Failure / Edge Cases
@@ -62,11 +62,11 @@ binding and what it takes over from the manager it replaces.
   (one that already holds the default keeps it).
 - `make(SignInMethodManager::class)->extend()` in a `register()` that runs before the package's is lost: the registry is
   not shared yet, so `make()` builds one that nothing else sees. Hence `callAfterResolving()`.
-- Identifier normalisers are configuration (`authentication.identifiers.normalizers`). Laravel merges a package's
+- Identifier normalizers are configuration (`authentication.identifiers.normalizers`). Laravel merges a package's
   configuration one level deep, so a value set under `authentication.identifiers` before the package registers, when the
-  application has not published the configuration, replaces the package's normalisers; a package adds its normaliser in
+  application has not published the configuration, replaces the package's normalizers; a package adds its normalizer in
   `boot()`.
-- A subclass of Laravel's manager loses its own behaviour (its methods, its overrides, and whatever its closures rely on
+- A subclass of Laravel's manager loses its own behavior (its methods, its overrides, and whatever its closures rely on
   them for) when the package replaces it: the package owns the binding, and a manager of the application's extends the
   package's instead. The swap is not a decorator.
 - An object that captured the replaced manager itself before the swap keeps it; the container's `rebound('auth')`
@@ -96,4 +96,4 @@ binding and what it takes over from the manager it replaces.
 - A new binding in the provider's `register()`, which must be conditional too.
 - A change to how the `auth` binding is extended, or to the state Laravel's `AuthManager` holds (its creators, its user
   resolver, its guards), which `inheritStateFrom()` must follow.
-- A change to how a sign-in method or an identifier normaliser is registered.
+- A change to how a sign-in method or an identifier normalizer is registered.

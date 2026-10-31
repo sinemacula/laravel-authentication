@@ -99,7 +99,7 @@ final readonly class DeviceSummary implements \JsonSerializable, Arrayable
     ) {}
 
     /**
-     * Summarise a device read with its session deadlines.
+     * Summarize a device read with its session deadlines.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  bool  $current
@@ -156,7 +156,7 @@ final readonly class DeviceSummary implements \JsonSerializable, Arrayable
     }
 
     /**
-     * The summary as JSON serialises it: the same as `toArray()`.
+     * The summary as JSON serializes it: the same as `toArray()`.
      *
      * @return array<string, bool|string|null>
      */

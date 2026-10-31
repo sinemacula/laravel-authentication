@@ -29,7 +29,7 @@ use Tests\Unit\Stubs\StubDevice;
  * Owns the collaborator mocks (provider, resolver, dispatcher, request,
  * timebox), the Testbench environment definition, and the `makeGuard()` factory
  * used by every concrete `AbstractGuardTest` variant. Subclasses focus on a
- * single behavioural slice of AbstractGuard so each class stays focused on a
+ * single behavioral slice of AbstractGuard so each class stays focused on a
  * single concern.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -102,7 +102,7 @@ abstract class AbstractGuardTestCase extends TestCase
 
     /**
      * Instantiate a concrete AbstractGuard subclass with the current set of
-     * collaborator mocks. The anonymous subclass adds no behaviour beyond
+     * collaborator mocks. The anonymous subclass adds no behavior beyond
      * forwarding its constructor arguments to the parent.
      *
      * @return \SineMacula\Laravel\Authentication\Guards\AbstractGuard

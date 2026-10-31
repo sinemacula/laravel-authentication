@@ -45,7 +45,7 @@ final class MailIdentifierChangeNotifier implements IdentifierChangeNotifier
 $this->app->singleton(IdentifierChangeNotifier::class, MailIdentifierChangeNotifier::class);
 ```
 
-**Uniqueness.** Give the identifier's column a unique index on the stored, normalised value (the `NormalizedIdentifier`
+**Uniqueness.** Give the identifier's column a unique index on the stored, normalized value (the `NormalizedIdentifier`
 cast stores it so; see [Identifiers](identity-models.md#identifiers)), and a composite one with the tenant's key for
 identifiers unique per tenant. A confirmation checks first that the guard's identity provider finds no other identity
 holding the new identifier, but only the index decides a race between two confirmations of one value: the one that loses
@@ -75,7 +75,7 @@ can confirm it instead of signing in again, and the device's recent sign-in othe
 **Requesting.** `requestByCode()` sends a code to the new identifier, delivered after commit by a queued job through
 your `OneTimeCodeSender` with the purpose `change_identifier` (the message's `identifier` is the new one);
 `requestByLink()` signs a link to your named route instead, which `link()` returns for you to send to the new identifier
-(and only there: never return it to the client). The new identifier must be one the type's normaliser accepts and not
+(and only there: never return it to the client). The new identifier must be one the type's normalizer accepts and not
 the current one; whether another identity holds it is not checked here, so the answer says nothing about it. Requests
 are limited by `rate_limits.identifier_change`, counted on the new identifier, on the identity and on the IP address. A
 request checks the proof, the new identifier and the limits first, on the identity's row read again; then, in one
@@ -84,7 +84,7 @@ stands and that the identifier is not the current one, and writes the change. A 
 `identifier_change` slots back. So a password change or a reset racing a request proven by the old password, and a
 revocation of the device that proves one, come either before the check under the lock, which then fails, or after the
 change is written, which they then cancel. A `confirmedAt()` proof, and a password proof racing a revocation that leaves
-the password as it is, are not serialised. The current identifier is read from the row as locked. The limits are counted
+the password as it is, are not serialized. The current identifier is read from the row as locked. The limits are counted
 before the transaction, never inside it, so no counter's row stays locked until its commit: on MySQL, two transactions
 that each create a counter in the same gap of the index deadlock (inside a transaction of yours, see the note on
 transactions under [Rate limits](configuration.md#rate-limits)).
@@ -135,7 +135,7 @@ Route::middleware('auth:api')->post('/email/change/link', function (Request $req
 | `sent`                      | The change waits for its proof until `expiresAt`                                                      |
 | `rate_limited`              | The `identifier_change` limits, or a password proof's `sign_in` limits, are used up                   |
 | `reauthentication_required` | The proof shows no recent authentication, the password is wrong, or the guard does not take passwords |
-| `identifier_invalid`        | The type's normaliser rejects the new identifier                                                      |
+| `identifier_invalid`        | The type's normalizer rejects the new identifier                                                      |
 | `identifier_unchanged`      | The new identifier, in its normal form, is the identity's current one                                 |
 
 One change waits per identity and type, in `identifier_changes.table`: a newer request, through any guard, replaces it,
@@ -222,7 +222,7 @@ holds the identity: `reauthentication_required`, `rate_limited` (with `retryAfte
 the new identifier as given. `IdentifierChangeRequested` (type, new identifier, expiry) and `IdentifierChanged` (type,
 previous and new identifiers, time) carry the identifiers as strings, so a queued audit listener needs no query back. A
 machine identity has no identifiers to change, so every method throws an `InvalidArgumentException` for one; an identity
-that is not an Eloquent model implementing `HasChangeableIdentifiers`, a type with no registered normaliser, malformed
+that is not an Eloquent model implementing `HasChangeableIdentifiers`, a type with no registered normalizer, malformed
 settings, an unbound notifier or a link route whose parameters or placeholders take a name the link sets (`guard`,
 `identity`, `type`, `purpose`, `request`, `hash`, `expires`, `signature`) throw before anything is counted or written,
 and `authentication:check` reports the settings (`[identifier_changes]`).

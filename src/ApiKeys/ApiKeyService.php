@@ -44,7 +44,7 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * secret. Every keyed operation names the principal the key must belong to, and
  * the key's guard and principal are matched exactly, whatever the columns'
  * collation: a key of another principal or guard is treated as absent. Managing
- * keys is privileged: the application authorises its caller to manage the
+ * keys is privileged: the application authorizes its caller to manage the
  * principal's keys first; this package decides no permission.
  *
  * Issuing and rotating are trusted, programmatic actions, so a principal the

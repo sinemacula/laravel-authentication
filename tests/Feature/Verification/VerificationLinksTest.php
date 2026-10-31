@@ -114,7 +114,7 @@ final class VerificationLinksTest extends TestCase
 
     /**
      * A link carries the route's own parameters, the guard, the identity, the
-     * type, its purpose and a digest of the normalised identifier, never the
+     * type, its purpose and a digest of the normalized identifier, never the
      * identifier itself, and expires after the configured hour.
      *
      * @return void
@@ -174,7 +174,7 @@ final class VerificationLinksTest extends TestCase
 
     /**
      * An authentic link whose identifier has since changed, been removed or
-     * become one its normaliser rejects, or whose identity is gone, is
+     * become one its normalizer rejects, or whose identity is gone, is
      * `invalid`, as a tampered link is, so the answer says nothing about the
      * account. The event names the guard the link was signed for, and the
      * identity once it was loaded.

@@ -25,9 +25,9 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * column it is looked up by, and the code under `code`.
  * An application registers it for another identifier type with
  * `extend('whatsapp_code', fn ($app) => $app->make(CodeSignIn::class, ['type' => 'whatsapp']))`,
- * given a normaliser for the type.
+ * given a normalizer for the type.
  *
- * The identifier is brought to its normal form by its type's normaliser, and
+ * The identifier is brought to its normal form by its type's normalizer, and
  * the code must be exactly the configured number of digits; anything else is
  * `invalid_credentials` with nothing counted. The code is checked against the
  * one issued for the guard and identifier whether or not an identity has the
@@ -72,13 +72,13 @@ final readonly class CodeSignIn implements SignInMethod
      */
     public function __construct(
 
-        /** Type of identifier the method signs in with, which names its input key, its normaliser and the identity's column. */
+        /** Type of identifier the method signs in with, which names its input key, its normalizer and the identity's column. */
         private string $type,
 
         /** The code engine. */
         private OneTimeCodes $codes,
 
-        /** Normalisers that give identifiers their normal form. */
+        /** Normalizers that give identifiers their normal form. */
         private IdentifierNormalizers $normalizers,
 
         /** Gives an identity's own identifier its canonical form, to compare with the bound one. */
@@ -145,7 +145,7 @@ final readonly class CodeSignIn implements SignInMethod
 
     /**
      * The sign-in binding of the identifier the input names for the guard, in
-     * its normal form, or `null` when it names none the type's normaliser
+     * its normal form, or `null` when it names none the type's normalizer
      * accepts.
      *
      * @param  string  $guard

@@ -23,7 +23,7 @@ use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
  * signed link today, a one-time code later) has been checked.
  *
  * The proven identifier must be the identity's current one: both are compared
- * in their canonical form, through the type's normaliser when one is
+ * in their canonical form, through the type's normalizer when one is
  * registered, so a proof for an old address can never verify a new one. The
  * record itself is conditional on the identifier as it was read (see
  * `HasVerifiableIdentifiers::markIdentifierAsVerified()`), so an address
@@ -50,7 +50,7 @@ final readonly class IdentifierVerifier
         /** Container the event dispatcher and transactions manager are resolved from when needed. */
         private Container $container,
 
-        /** Normalisers that give identifiers their canonical form. */
+        /** Normalizers that give identifiers their canonical form. */
         private IdentifierNormalizers $normalizers,
     ) {}
 
@@ -87,7 +87,7 @@ final readonly class IdentifierVerifier
     }
 
     /**
-     * The identifier in its canonical form: as the type's normaliser returns it
+     * The identifier in its canonical form: as the type's normalizer returns it
      * when one is registered (`null` when it rejects the value), otherwise as
      * given.
      *

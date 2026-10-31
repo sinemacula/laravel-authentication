@@ -15,7 +15,7 @@ use Tests\TestCase;
 
 /**
  * Integration tests for the one-time code model: its table and connection, what
- * it keeps out of serialisation, and pruning expired codes with Laravel's
+ * it keeps out of serialization, and pruning expired codes with Laravel's
  * `model:prune`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -71,7 +71,7 @@ final class OneTimeCodeTest extends TestCase
 
     /**
      * The binding digest, the issuance and the code's hash never reach a
-     * serialised row, and the attempts and times are cast.
+     * serialized row, and the attempts and times are cast.
      *
      * @return void
      */

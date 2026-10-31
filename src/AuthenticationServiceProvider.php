@@ -284,10 +284,10 @@ final class AuthenticationServiceProvider extends ServiceProvider
      * and its guards, its accessors and the facade rely on it.
      *
      * A manager that is already the package's, or a subclass of it (how an
-     * application customises the manager, bound in a `register()`), is kept.
+     * application customizes the manager, bound in a `register()`), is kept.
      * Any other is replaced by the package's, which takes over its guard and
      * provider creators, its user resolver and its resolved guards
-     * (`AuthManager::inheritStateFrom()`); a subclass's own behaviour is lost.
+     * (`AuthManager::inheritStateFrom()`); a subclass's own behavior is lost.
      * Applied when `auth` resolves, or at once when it already has; a binding
      * of `auth` made after the package boots is not supported. The facades'
      * cached manager is forgotten, so a facade used before the swap reaches the

@@ -59,7 +59,7 @@ use Tests\TestCase;
  * out, revocation on a security change, setting and resetting a password,
  * confirming a change of identifier, and the client credentials exchange.
  *
- * Each assertion records what the code does today: the behaviour the refactors
+ * Each assertion records what the code does today: the behavior the refactors
  * of the guard, its services and the session service must keep.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

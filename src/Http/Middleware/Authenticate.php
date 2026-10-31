@@ -19,7 +19,7 @@ use SineMacula\Laravel\Authentication\Http\UnauthenticatedResponse;
  * such a request with a server error. When every guard the route names is a
  * package guard, this subclass raises the `AuthenticationException` without a
  * redirect, and `UnauthenticatedResponse` renders it as `401`. Routes guarded
- * by any other guard keep Laravel's behaviour unchanged.
+ * by any other guard keep Laravel's behavior unchanged.
  *
  * The package binds it in place of `Illuminate\Auth\Middleware\Authenticate`,
  * so the default `auth` alias resolves to it. An application that aliases its

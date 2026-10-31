@@ -241,17 +241,17 @@ return [
     | Identifiers
     |---------------------------------------------------------------------------
     |
-    | Normalisers bring an identifier a person types to the one form it is
+    | Normalizers bring an identifier a person types to the one form it is
     | stored and looked up in, keyed by identifier type (a lower-case name).
     | Designate an identity attribute with the `NormalizedIdentifier` cast
     | (`'email' => NormalizedIdentifier::using('email')`) and the attribute is
-    | normalised when it is set, the `model` provider normalises it before it
+    | normalized when it is set, the `model` provider normalizes it before it
     | looks an identity up, and attempts are counted against its normal form.
     | Each value is a container abstract resolving to an
-    | `IdentifierNormalizer`; the email normaliser trims and lower-cases. The
-    | phone normaliser accepts only numbers already in E.164 form (`+` and up
+    | `IdentifierNormalizer`; the email normalizer trims and lower-cases. The
+    | phone normalizer accepts only numbers already in E.164 form (`+` and up
     | to 15 digits) and refuses anything else: an application that takes
-    | mobile or free-form numbers binds its own normaliser under `phone`,
+    | mobile or free-form numbers binds its own normalizer under `phone`,
     | backed by `giggsey/libphonenumber-for-php` (see
     | docs/guides/identity-models.md).
     |
@@ -409,7 +409,7 @@ return [
     | a `jwt` guard's client credentials exchange. Stored in `table`, on the
     | storage connection. A key is `<prefix>_<public>_<secret>`: `prefix` (a
     | lower-case letter, then up to 15 lower-case letters or digits) marks the
-    | keys an application issues, so they are recognisable in logs and secret
+    | keys an application issues, so they are recognizable in logs and secret
     | scanners; changing it leaves existing keys working. Only the secret's
     | SHA-256 digest is stored. A rotation keeps the replaced key working for
     | `rotation_overlap_seconds` (0 to `max_rotation_overlap_seconds`, itself 0

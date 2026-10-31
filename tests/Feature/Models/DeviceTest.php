@@ -211,7 +211,7 @@ final class DeviceTest extends TestCase
     }
 
     /**
-     * The shipped model leaves both refresh digests out of its serialised form.
+     * The shipped model leaves both refresh digests out of its serialized form.
      *
      * @return void
      */

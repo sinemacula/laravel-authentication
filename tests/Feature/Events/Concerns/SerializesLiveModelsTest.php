@@ -141,7 +141,7 @@ final class SerializesLiveModelsTest extends TestCase
 
     /**
      * A queued model named by its morph alias, as the framework names it when
-     * told to serialise models through the morph map, is restored as the model
+     * told to serialize models through the morph map, is restored as the model
      * the map names.
      *
      * @return void

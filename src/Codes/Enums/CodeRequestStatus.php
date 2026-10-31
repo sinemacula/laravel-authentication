@@ -25,7 +25,7 @@ enum CodeRequestStatus: string
     // password method
     case METHOD_NOT_ALLOWED = 'method_not_allowed';
 
-    // The input names no identifier, or one the type's normaliser rejects, or
+    // The input names no identifier, or one the type's normalizer rejects, or
     // the identity has no identifier of the type to verify
     case IDENTIFIER_INVALID = 'identifier_invalid';
 }

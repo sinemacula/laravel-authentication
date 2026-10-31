@@ -22,7 +22,7 @@ use SineMacula\Laravel\Authentication\Runtime\GuardContext;
  * qualified or fully qualified name in its code, or a fully qualified type in a
  * docblock. Names resolve as PHP resolves them, without regard to case, and a
  * qualified name only through a class or namespace import. The source is
- * tokenised, not parsed, so a name built at run time (a class name in a string,
+ * tokenized, not parsed, so a name built at run time (a class name in a string,
  * say) and an unqualified name of a class in the same namespace are not seen:
  * the test is a backstop for the rules, not a proof of them.
  *

@@ -240,7 +240,7 @@ final class OutdatedProofsTest extends TestCase
     }
 
     /**
-     * A guard whose passwords are identified by a type with no normaliser has
+     * A guard whose passwords are identified by a type with no normalizer has
      * its reset links for that identifier ended too.
      *
      * @return void
@@ -364,7 +364,7 @@ final class OutdatedProofsTest extends TestCase
     }
 
     /**
-     * A normaliser that cannot be built fails the change closed, rolling the
+     * A normalizer that cannot be built fails the change closed, rolling the
      * new password back, instead of leaving its type's links working.
      *
      * @return void

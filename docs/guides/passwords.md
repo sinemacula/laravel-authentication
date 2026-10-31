@@ -232,9 +232,9 @@ Route::post('/password/reset', function (Request $request) {
 `sendResetLink($input, ?ClientContext $client = null)` sends a link to the identifier the input names under the guard's
 password identifier (`email` unless the guard sets another, see [Sign-in](configuration.md#sign-in));
 `sendResetCode($type, $input)` sends a code to the identifier the input names under `$type` (`phone`, say), which must
-have a registered normaliser (see [Identifiers](identity-models.md#identifiers)). Both do the same work for every
+have a registered normalizer (see [Identifiers](identity-models.md#identifiers)). Both do the same work for every
 identifier, so the answer, the statements and the time are the same whether or not anyone holds it: the guard must allow
-the `password` method (`method_not_allowed` otherwise), the identifier must be one its type's normaliser accepts
+the `password` method (`method_not_allowed` otherwise), the identifier must be one its type's normalizer accepts
 (`identifier_invalid`), the identifier, in normal form, and the IP address must have requests left under the
 `password_reset_request` limits (`rate_limited`, counted on every request and never given back), and no link or code may
 have been issued for it within the codes' `resend_cooldown_seconds` (`rate_limited` with the seconds left). Then a token
@@ -324,5 +324,5 @@ password, the cutoff and the revocations together.
 The package does not use Laravel's password broker, and does not dispatch Laravel's `PasswordReset` event (in Laravel
 that is your controller's). The broker answers differently for an unknown address, sends inline, can spend one token
 twice, reads its tokens from a replica, keys tokens by email address only and limits per address only; adapting it would
-mean replacing every behaviour it has (see `docs/design/passwords.md`). If you keep Laravel's broker instead,
+mean replacing every behavior it has (see `docs/design/passwords.md`). If you keep Laravel's broker instead,
 `RevokeDevicesOnPasswordReset` still answers its `PasswordReset`; do not combine the two flows.

@@ -156,15 +156,15 @@ class AppUser extends User implements Identity, Principal
 }
 ```
 
-Setting the attribute stores what the type's normaliser returns: the `email` normaliser trims surrounding whitespace
+Setting the attribute stores what the type's normalizer returns: the `email` normalizer trims surrounding whitespace
 and lower-cases the whole address, so `Ben@Example.com` is stored as `ben@example.com`. A value it rejects (blank, or
 not valid UTF-8) throws an `InvalidArgumentException` naming the attribute but never the value; `null` stays `null`.
-Reading returns the stored value unchanged. The `model` provider normalises a credential for a designated attribute
+Reading returns the stored value unchanged. The `model` provider normalizes a credential for a designated attribute
 the same way before it looks the identity up (`attempt(['email' => ' BEN@example.com', ...])` finds `ben@example.com`),
-element by element for an array, and a value the normaliser rejects finds nobody without a query. Closures and
+element by element for an array, and a value the normalizer rejects finds nobody without a query. Closures and
 attributes that are not designated are applied as given.
 
-Normalisers are registered by identifier type in the published config, as container abstracts resolving to a
+Normalizers are registered by identifier type in the published config, as container abstracts resolving to a
 `Contracts\IdentifierNormalizer`. A type is a lower-case letter followed by lower-case letters, digits and
 underscores:
 
@@ -178,15 +178,15 @@ underscores:
 ],
 ```
 
-A normaliser must be deterministic and idempotent (normalising a normal form returns it unchanged), and return `null`
+A normalizer must be deterministic and idempotent (normalizing a normal form returns it unchanged), and return `null`
 for a value that cannot be an identifier of its type. A malformed map, or an abstract that does not resolve to a
-normaliser, fails closed with an `InvalidArgumentException`.
+normalizer, fails closed with an `InvalidArgumentException`.
 
-The shipped `phone` normaliser accepts only a number already in E.164 form (`+`, a country code, at most 15 digits in
+The shipped `phone` normalizer accepts only a number already in E.164 form (`+`, a country code, at most 15 digits in
 all, surrounding whitespace removed) and refuses anything else: spaces, dashes, brackets, a national format or a leading
 `00`. It does not parse numbers, since turning what a person types into E.164 depends on their country and on numbering
 plans that change. To take mobile or free-form numbers, install `giggsey/libphonenumber-for-php` (the package suggests
-it but does not require it) and bind a normaliser of your own under `phone`:
+it but does not require it) and bind a normalizer of your own under `phone`:
 
 ```php
 use libphonenumber\NumberParseException;
@@ -218,17 +218,17 @@ final readonly class MobileNumberNormalizer implements IdentifierNormalizer
 'identifiers' => ['normalizers' => ['email' => EmailNormalizer::class, 'phone' => App\Auth\MobileNumberNormalizer::class]],
 ```
 
-It must return E.164 (so normalising its own output returns it unchanged), and existing rows must be normalised to it
+It must return E.164 (so normalizing its own output returns it unchanged), and existing rows must be normalized to it
 before a unique index is added, as below.
 
-Make the identifier unique on its normalised value, with a unique index on the stored column:
+Make the identifier unique on its normalized value, with a unique index on the stored column:
 
-1. Normalise the rows you already have before adding the index, in a migration or a one-off command that saves each
-   identity again (the cast normalises on set), or with SQL equivalent to the normaliser (`UPDATE users SET email =
-   LOWER(TRIM(email))` for email, checking first for addresses that collide once normalised).
+1. Normalize the rows you already have before adding the index, in a migration or a one-off command that saves each
+   identity again (the cast normalizes on set), or with SQL equivalent to the normalizer (`UPDATE users SET email =
+   LOWER(TRIM(email))` for email, checking first for addresses that collide once normalized).
 2. Then add the unique index on the column itself, not on an expression, so it holds whoever writes the row.
 
-Why both engines need it: PostgreSQL compares strings case-sensitively, so without normalisation `Ben@x.com` and
+Why both engines need it: PostgreSQL compares strings case-sensitively, so without normalization `Ben@x.com` and
 `ben@x.com` are two accounts and a lookup with the other casing finds neither; MySQL's default `_ci` collations
 compare them as equal, so lookups match but a unique index rejects the second address only by accident of the
 collation, and `LOWER()` and the collation can disagree on non-ASCII letters. Storing the normal form makes both
@@ -365,7 +365,7 @@ call recorded the identifier verified, `already_verified` when it was before. A 
 `code_expired` or `code_exhausted` with `AuthenticationFailed` on the `identifier_verification` flow. A right code whose
 identifier changed after the identity you passed was loaded is used up and answers `mismatch`, as a link does: nothing
 is recorded or reported, and the identity can request a code for its new identifier. An identity with no identifier of
-the type, or one its normaliser rejects, is `identifier_invalid` when a code is sent and `invalid` when one is checked;
+the type, or one its normalizer rejects, is `identifier_invalid` when a code is sent and `invalid` when one is checked;
 an identity that cannot verify identifiers throws a `LogicException`, and a machine identity, which has none to verify,
 an `InvalidArgumentException`.
 
@@ -447,7 +447,7 @@ instead of returning `null` as if the principal acted within no tenant. The defa
 returns for such a missing row counts as missing too, rather than as a present tenant. A `Principal` that implements
 `getTenant()` itself should do the same, and give the exception the tenant's class, the name of the attribute its key
 refers to and that key (`new TenantUnavailableException($message, Team::class, 'id', $this->team_id)`), as
-`ActsAsPrincipal` does, so `tenantDeactivated()` recognises the deleted tenant it names. As with `ProvidesActiveState`,
+`ActsAsPrincipal` does, so `tenantDeactivated()` recognizes the deleted tenant it names. As with `ProvidesActiveState`,
 a principal loaded without the key of an opted-in tenant (a partial select) throws a `LogicException` rather than being
 read as acting within no tenant. A polymorphic (`MorphTo`) tenant relation names its model through its type column, so a
 principal loaded without that column throws a `LogicException` as well, and one whose type is empty while its key is set

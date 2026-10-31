@@ -42,7 +42,7 @@ final class IdentifierCoercionTest extends TestCase
     }
 
     /**
-     * Asserts a string input is returned verbatim - no normalisation, trimming,
+     * Asserts a string input is returned verbatim - no normalization, trimming,
      * or case folding - so the round-trip with the resolver is byte-identical.
      *
      * @return void
@@ -54,7 +54,7 @@ final class IdentifierCoercionTest extends TestCase
 
     /**
      * Asserts an empty string is returned verbatim - the helper does not
-     * normalise empty input to `null`, leaving caller policy in charge of
+     * normalize empty input to `null`, leaving caller policy in charge of
      * rejecting empty subjects.
      *
      * @return void

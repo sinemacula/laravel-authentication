@@ -42,7 +42,7 @@ The current note set is:
   a session switches to another principal on its device, proven by its refresh token.
 - `application-policy.md`: what each application (a guard) decides about its sessions (methods and machine credentials,
   none until it lists them; verified identifiers; the principals it admits; lifetimes), where every path enforces it,
-  and how the attempt limits and identifier normalisers meet it.
+  and how the attempt limits and identifier normalizers meet it.
 - `one-time-codes.md`: how one-time codes are bound, stored, issued, checked and delivered, why a request for one looks
   the same for an identifier no one has, and who a code is ever sent to.
 - `passkeys.md`: how a guard's passkeys are registered, used to sign in usernameless and verified as a further factor,
@@ -53,7 +53,7 @@ The current note set is:
 - `machine-credentials.md`: how non-human identities authenticate, and the scope convention the suite follows: scopes
   carried, never interpreted, and held to an optional registry when a credential is issued.
 - `identifier-changes.md`: how an identity's email address or phone number is replaced once the new one is proven,
-  after a recent authentication, unique on its normalised value under a race, invalidating the proofs it outdates.
+  after a recent authentication, unique on its normalized value under a race, invalidating the proofs it outdates.
 - `provider-composition.md`: why every binding the provider makes is a default another provider's binding is never
   replaced by, in either order, and why the package owns the `auth` binding and what it takes over from the manager it
   replaces.

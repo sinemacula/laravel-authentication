@@ -15,7 +15,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
  * The identifier is the destination: the identity's own identifier of the type,
  * in its normal form, exactly the one the link was requested for. The token is
  * in clear, so it is held as a `\SensitiveParameterValue` and read through
- * `token()`: no dump of the message shows it, and serialising the message
+ * `token()`: no dump of the message shows it, and serializing the message
  * throws. Never log it or put it anywhere but the link the identity follows.
  *
  * @api

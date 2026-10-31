@@ -42,7 +42,7 @@ final class PrunesDevicesTest extends TestCase
 
     /**
      * The shipped model is mass prunable through the trait, which is how
-     * `model:prune` recognises it.
+     * `model:prune` recognizes it.
      *
      * @return void
      */

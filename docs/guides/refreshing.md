@@ -254,7 +254,7 @@ with the time of the rotation. A validly signed refresh token for a live device 
   (`revoked_at` and `revoked_reason = rotation_reuse`, both digests cleared), `DeviceRevoked` and `AuthenticationFailed`
   (`rotation_reuse`) are dispatched, and every token of the device stops working, access tokens included.
 
-Only the immediately previous id is honoured: after two quick refreshes, a delayed retry of the first token is a
+Only the immediately previous id is honored: after two quick refreshes, a delayed retry of the first token is a
 replay. With `refresh_grace_seconds` set to 0 the previous id is a replay too. A device that holds no refresh
 credential cannot tell a replay from anything else, so its tokens fail with `refresh_key_missing` and the device is
 left alone. When a parallel refresh changes the device between this refresh's read and its write, the row is judged
@@ -271,7 +271,7 @@ if that token is ever presented again. Restarting the deadlines cannot revive an
 the end of the session it was issued for. Do not give an existing device a new `refresh_key` yourself; let the session
 service do it.
 
-Every refresh judges the device at one moment, taken when it starts, so application servers should keep synchronised
+Every refresh judges the device at one moment, taken when it starts, so application servers should keep synchronized
 clocks. The package opens no transaction. If you call `refresh()` inside your own transaction, do not roll it back after
 a failed refresh: a rollback also undoes a replay revocation. `DeviceRevoked` is dispatched once the revocation is
 committed on the device's own connection: at once outside a transaction, so before `Failed` and `AuthenticationFailed`,

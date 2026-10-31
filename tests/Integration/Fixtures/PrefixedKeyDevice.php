@@ -12,7 +12,7 @@ use SineMacula\Laravel\Authentication\Contracts\ValidatesDeviceKey;
 
 /**
  * Device model keyed by application-generated `dev_` strings, a key format the
- * package cannot recognise on its own, so it describes the shape of its key
+ * package cannot recognize on its own, so it describes the shape of its key
  * through `ValidatesDeviceKey`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

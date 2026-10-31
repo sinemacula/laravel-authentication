@@ -259,9 +259,9 @@ $this->callAfterResolving(SignInMethodManager::class, static function (SignInMet
 });
 ```
 
-An identifier normaliser is configuration: a package that adds one sets `authentication.identifiers.normalizers.<type>`
+An identifier normalizer is configuration: a package that adds one sets `authentication.identifiers.normalizers.<type>`
 in `boot()`. Laravel merges a package's configuration one level deep, so a value set under `authentication.identifiers`
-while providers register, before the application has published the configuration, replaces the package's normalisers.
+while providers register, before the application has published the configuration, replaces the package's normalizers.
 
 ### The auth manager
 
@@ -273,7 +273,7 @@ same instances. Those calls keep working from any provider's `register()` or `bo
 package's manager even when it was used before the package booted.
 
 What a subclass of Laravel's manager adds itself, its methods and overrides, is not kept: the replacement is not a
-decorator. To customise the manager, extend the package's `AuthManager` and bind it to `auth` in a `register()`; the
+decorator. To customize the manager, extend the package's `AuthManager` and bind it to `auth` in a `register()`; the
 package keeps it and registers its drivers on it. Bind `auth` only there: a manager bound to it after the package boots
 is not supported, and an object that captured the manager before the swap keeps the one it had.
 

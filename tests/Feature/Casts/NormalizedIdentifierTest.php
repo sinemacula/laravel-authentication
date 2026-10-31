@@ -97,7 +97,7 @@ final class NormalizedIdentifierTest extends TestCase
 
     /**
      * Reading returns the stored value as it is, so a row written before the
-     * cast was added reads back unchanged until it is normalised.
+     * cast was added reads back unchanged until it is normalized.
      *
      * @return void
      */
@@ -144,7 +144,7 @@ final class NormalizedIdentifierTest extends TestCase
     }
 
     /**
-     * The cast uses whatever normaliser the application registers for its type.
+     * The cast uses whatever normalizer the application registers for its type.
      *
      * @return void
      */

@@ -17,7 +17,7 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
  * `validate()` failure path on `AbstractGuard`.
  *
  * Split out of `AbstractGuardLifecycleTest` so each class stays focused on a
- * single behavioural slice.
+ * single behavioral slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

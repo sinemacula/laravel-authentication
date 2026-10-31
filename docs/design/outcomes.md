@@ -87,7 +87,7 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
 - Laravel's `signed` middleware, when the application puts it on the verification route, answers an expired or tampered
   link with its own 403 (`InvalidSignatureException`) before `consume()` runs, so that route never answers `expired` and
   no `AuthenticationFailed` is reported. `consume()` checks the signature itself, so the route needs no middleware.
-- A caller that checked an old shape can change behaviour silently, not fail to compile: a `null`, `!== null` or
+- A caller that checked an old shape can change behavior silently, not fail to compile: a `null`, `!== null` or
   truthiness check on `verifyFactor()` (whose `null` meant verified) or on `VerificationLinks::consume()` (whose `null`
   meant a refused link) is now always given a value, refusals included, and a check that `register()` answered a
   `PasskeySummary`, or that `codes()->verify()` or `consume()` answered an `IdentifierVerification`, is now never true.

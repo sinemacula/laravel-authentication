@@ -41,7 +41,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  * JwtGuard's refresh-token exchange, plus the successful refresh lifecycle.
  *
  * Split from JwtGuardRefreshTest so each class stays focused on a single
- * behavioural slice: this class covers identity/principal resolution failures
+ * behavioral slice: this class covers identity/principal resolution failures
  * and the success-path event sequence.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

@@ -25,7 +25,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
 
 /**
  * 2D identity fixture for the password helpers, stored in
- * `password_identities`: a normalised email address and phone number, each with
+ * `password_identities`: a normalized email address and phone number, each with
  * a verification time, a password, a nickname a test leaves dirty, an activity
  * flag, a "tokens valid after" cutoff, devices of the shipped model, and
  * Laravel's password reset notification.

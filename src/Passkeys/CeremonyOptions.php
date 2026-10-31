@@ -61,7 +61,7 @@ final readonly class CeremonyOptions implements \JsonSerializable, Arrayable
     }
 
     /**
-     * The options as JSON serialises them: the same as `toArray()`.
+     * The options as JSON serializes them: the same as `toArray()`.
      *
      * @return array{challenge: string, options: array<string, mixed>, expires_at: string}
      */

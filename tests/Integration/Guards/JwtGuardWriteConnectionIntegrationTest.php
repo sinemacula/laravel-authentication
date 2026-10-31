@@ -217,7 +217,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A retry of the previous rotation id is recognised from the primary while
+     * A retry of the previous rotation id is recognized from the primary while
      * the replica still shows that id as current: the exchange hands back the
      * current credential without attempting a rotation the replica's stale
      * state would have led it to.
@@ -249,7 +249,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A replay is recognised from the primary while the replica still shows the
+     * A replay is recognized from the primary while the replica still shows the
      * replayed id as current: the device is revoked without first attempting
      * the rotation the replica's stale state would have led to.
      *

@@ -18,9 +18,9 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * table named by `authentication.passkeys.table`. Passkeys are not pruned: one
  * lasts until its owner removes it.
  *
- * Only the class name is public; its columns and behaviour belong to the
- * passkey service. Read an identity's passkeys through
- * `Auth::passkeys()->passkeys()`, whose summaries carry no key material.
+ * Only the class name is public; its columns and behavior belong to the passkey
+ * service. Read an identity's passkeys through `Auth::passkeys()->passkeys()`,
+ * whose summaries carry no key material.
  *
  * @api
  *
@@ -57,13 +57,13 @@ final class Passkey extends Model
     /** @var list<string> The attributes that are mass assignable: none, every column is written by the passkey service. */
     protected $fillable = [];
 
-    /** @var list<string> The attributes hidden from serialisation. */
+    /** @var list<string> The attributes hidden from serialization. */
     protected $hidden = ['credential_id_hash', 'credential_id', 'user_handle', 'public_key', 'sign_count'];
 
     /**
      * Create a passkey on the storage connection, in the configured table. Both
      * are applied here, before Eloquent reads them, so this is construction
-     * rather than model behaviour.
+     * rather than model behavior.
      *
      * @param  array<string, mixed>  $attributes
      *

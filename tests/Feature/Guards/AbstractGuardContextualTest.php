@@ -15,7 +15,7 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
  * (`setPrincipal`, `setDevice`, `tenant`).
  *
  * Split out of the original AbstractGuardTest so each class stays focused on a
- * single behavioural slice.
+ * single behavioral slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

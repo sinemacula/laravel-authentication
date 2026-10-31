@@ -18,7 +18,7 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
 /**
  * Feature tests for an application's own auth manager, a subclass of the
  * package's bound to `auth` in a `register()`: the package keeps it, with its
- * own behaviour, and registers its drivers on it.
+ * own behavior, and registers its drivers on it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

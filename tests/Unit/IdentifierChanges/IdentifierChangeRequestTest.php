@@ -13,7 +13,7 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeRequest;
 /**
  * Unit tests for the answer to a request to change an identifier: each status
  * carries only what it says, and a link is never exposed by a dump or
- * serialised.
+ * serialized.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -65,7 +65,7 @@ final class IdentifierChangeRequestTest extends TestCase
 
     /**
      * No dump of a request shows its link, nor does JSON, and it cannot be
-     * serialised.
+     * serialized.
      *
      * @return void
      */

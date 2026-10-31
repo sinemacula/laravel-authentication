@@ -42,9 +42,9 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  *
  * The device's owner is reloaded through the guard's identity provider, so the
  * provider's scopes apply and an owner the guard does not serve is rejected. A
- * token is honoured only for a device of the guard exchanging it, and only
- * while the application policy still lets the method that started the session
- * start one and still admits the owner as the principal; none of these failures
+ * token is honored only for a device of the guard exchanging it, and only while
+ * the application policy still lets the method that started the session start
+ * one and still admits the owner as the principal; none of these failures
  * revokes the device. The principal the token names must be the one the device
  * records: after the session switched principal, the refresh tokens of the
  * principal it left fail as `device_principal_mismatch`, without revoking the

@@ -74,7 +74,7 @@ final readonly class SessionRevocations
         /** Revokes one device or every device of a scope, and reports it once committed. */
         private DeviceRevocations $revocations,
 
-        /** Container the identifier normalisers are resolved from. */
+        /** Container the identifier normalizers are resolved from. */
         private Container $container,
     ) {}
 
@@ -374,7 +374,7 @@ final readonly class SessionRevocations
 
     /**
      * Every session of the identity, with its pending identifier changes of
-     * every type that has a normaliser (a change needs one), when its
+     * every type that has a normalizer (a change needs one), when its
      * identifiers can be changed.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity

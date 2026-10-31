@@ -42,7 +42,7 @@ request for a code looks the same whether or not anyone has the identifier, and 
 - Every time is a whole second; one `now` per operation; a deadline has passed from the second it names.
 - Every read that decides a code, its recipient or a verification is on the write connection.
 - A request for a sign-in code does no identity-dependent work: the method must be allowed, the identifier must be one
-  its type's normaliser accepts, the `code_request` limits (per identifier, in normal form, and per IP address) must have
+  its type's normalizer accepts, the `code_request` limits (per identifier, in normal form, and per IP address) must have
   room, taken on every request and never given back, and the cooldown must have passed. A code is then issued for any
   identifier and its delivery queued, so the result, the statements and the time are the same for an identifier no one
   has.
@@ -65,7 +65,7 @@ request for a code looks the same whether or not anyone has the identifier, and 
   column's collation does, and MySQL's `utf8mb4_unicode_ci` matches accented look-alikes (`ben@examplé.com`, a domain
   anyone can register, finds the holder of `ben@example.com`). The message's identifier is therefore always the
   recipient's own, in normal form. A verification code goes only to the identity it carries, read again from the write
-  connection, not a `MachineIdentity`, whose identifier of the type still normalises to the bound one. Otherwise nothing
+  connection, not a `MachineIdentity`, whose identifier of the type still normalizes to the bound one. Otherwise nothing
   is sent, and nothing says so.
 - A sign-in by code (`CodeSignIn::authenticate()`, inside the session service's credential timebox) refuses a missing or
   malformed identifier or a code that is not exactly `length` ASCII digits as `invalid_credentials`, counting nothing;
@@ -86,7 +86,7 @@ request for a code looks the same whether or not anyone has the identifier, and 
 ## Success Path
 
 - `Auth::codes('mobile')->send('phone_code', ['phone' => '+447700900123'])`: method resolved and allowed; identifier
-  normalised; `code_request` reservation; `OneTimeCodes::issue()` (an `UPDATE`, plus an `INSERT` the first time);
+  normalized; `code_request` reservation; `OneTimeCodes::issue()` (an `UPDATE`, plus an `INSERT` the first time);
   `SendOneTimeCode` dispatched once committed; `CodeRequest::sent($expiresAt)`.
 - The worker runs the job: live issuance; recipient found and eligible; `OneTimeCodeSender::send(OneTimeCodeMessage)`.
 - `Auth::sessions('mobile')->signIn('phone_code', ['phone' => ..., 'code' => ...])`: the session service's

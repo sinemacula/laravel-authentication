@@ -83,7 +83,7 @@ class Device extends Model implements EloquentDevice
      * unless the class names a connection of its own, the storage connection.
      * Reads both lazily on each instantiation so runtime config swaps (tests,
      * tenancy) take effect immediately. Both have to be applied here, before
-     * Eloquent reads them, so this is construction rather than model behaviour.
+     * Eloquent reads them, so this is construction rather than model behavior.
      *
      * @param  array<string, mixed>  $attributes
      *

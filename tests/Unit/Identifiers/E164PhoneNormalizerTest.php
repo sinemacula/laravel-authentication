@@ -10,7 +10,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Identifiers\E164PhoneNormalizer;
 
 /**
- * Unit tests for the default phone normaliser, which accepts E.164 only.
+ * Unit tests for the default phone normalizer, which accepts E.164 only.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -52,7 +52,7 @@ final class E164PhoneNormalizerTest extends TestCase
     }
 
     /**
-     * Normalising a normal form returns it unchanged.
+     * Normalizing a normal form returns it unchanged.
      *
      * @param  string  $given
      * @param  string  $normal

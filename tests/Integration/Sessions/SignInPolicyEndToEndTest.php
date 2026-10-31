@@ -54,7 +54,7 @@ use Tests\TestCase;
 /**
  * End-to-end tests of signing in, and refreshing, through the bindings the
  * package ships, on whichever engine the suite runs against: the guard
- * application policy, the database attempt limiter, the identifier normalisers
+ * application policy, the database attempt limiter, the identifier normalizers
  * and the verified-identifier gate, configured per guard as an application
  * would.
  *

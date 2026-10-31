@@ -41,7 +41,7 @@ deleted. Starting a session is in
   connection; (2) one transaction on the storage connection, which the device model must live on, that reads each
   scope's unrevoked devices on the writer in key order (`lazyById`, chunks of 500), revokes each conditionally, deletes
   the scope's pending sign-ins (by owner, or by principal) and, for an identity's scope whose identity implements
-  `HasChangeableIdentifiers`, its pending identifier changes (by key, every type with a registered normaliser: a change
+  `HasChangeableIdentifiers`, its pending identifier changes (by key, every type with a registered normalizer: a change
   link needs no session, so one requested from a session that ends must end with it); (3) once committed,
   `DeviceRevoked` per revoked device, then `SignedOutEverywhere` per scope, also when it revoked none. A failure in (2)
   leaves (1) in place: fail-safe, and a retry is idempotent.

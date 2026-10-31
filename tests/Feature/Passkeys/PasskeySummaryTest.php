@@ -24,7 +24,7 @@ use Tests\TestCase;
 final class PasskeySummaryTest extends TestCase
 {
     /**
-     * A passkey is summarised by what it shows, as immutable times; the array
+     * A passkey is summarized by what it shows, as immutable times; the array
      * and JSON forms use snake_case keys and ISO-8601 times, and hold no
      * credential id, public key, user handle or count.
      *

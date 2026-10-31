@@ -72,7 +72,7 @@ dispatcher or principal resolver swapped in after a guard resolved (`Event::fake
 `PrincipalResolver`) reaches the guard and its session service (and, through it, a refresh, a switch of principal and
 the revocations), which read the guard's collaborators each time they run.
 
-The package's singletons hold configuration only: the token service factory memoises each guard's signing configuration
+The package's singletons hold configuration only: the token service factory memoizes each guard's signing configuration
 (see [Configuration lifetimes](#configuration-lifetimes)), not any identity's data, and the mark the password-change
 listener reads during an automatic rehash is scoped, so it starts empty for each request and each job a worker runs
 (under Octane, every request after the first when the application resolved it at boot). `WriteConnection::during()`

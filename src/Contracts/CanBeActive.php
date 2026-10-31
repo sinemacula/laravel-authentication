@@ -11,7 +11,7 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  * opt-in: a model that does not implement this contract is always active, and
  * one that does is consulted on the credential, bearer-token and refresh paths,
  * which reject authentication when `isActive()` returns `false`. A deactivated
- * tenant rejects every principal acting within it. Use this to honour banned /
+ * tenant rejects every principal acting within it. Use this to honor banned /
  * suspended / soft-deleted accounts, memberships, or tenants without relying on
  * short access-token lifetimes alone. `ProvidesActiveState` implements it from
  * a declared column.

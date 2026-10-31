@@ -27,7 +27,7 @@ enum IdentifierChangeRequestStatus: string
     // to reauthenticate was wrong
     case REAUTHENTICATION_REQUIRED = 'reauthentication_required';
 
-    // The new identifier is not one the type's normaliser accepts
+    // The new identifier is not one the type's normalizer accepts
     case IDENTIFIER_INVALID = 'identifier_invalid';
 
     // The new identifier is the identity's current one, in its normal form

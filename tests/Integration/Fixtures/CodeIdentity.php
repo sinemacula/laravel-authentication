@@ -20,7 +20,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
 
 /**
  * 2D identity fixture for one-time codes, stored in `code_identities`: a
- * designated phone number and email address, each normalised and with a
+ * designated phone number and email address, each normalized and with a
  * verification time beside it, an activity flag, and devices, so the session
  * service can sign it in with a code.
  *

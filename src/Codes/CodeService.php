@@ -34,7 +34,7 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  *
  * Sending a sign-in code does no work that depends on whether an identity has
  * the identifier: the guard must allow the method, the identifier must be one
- * its type's normaliser accepts, the identifier and the IP address must have
+ * its type's normalizer accepts, the identifier and the IP address must have
  * code requests left (`code_request` limits, counted on every request), and no
  * code may have been issued for the identifier within the resend cooldown;
  * then a code is issued and its delivery queued, once the code is committed.
@@ -117,7 +117,7 @@ final readonly class CodeService
      * verify identifiers (`LogicException`), or that is a machine identity,
      * which has none to verify (`InvalidArgumentException`), is a
      * misconfiguration; one with no identifier of the type, or one its type's
-     * normaliser rejects, is `identifier_invalid`.
+     * normalizer rejects, is `identifier_invalid`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
@@ -227,7 +227,7 @@ final readonly class CodeService
     /**
      * The verification binding of the identity's current identifier of the
      * type, read on the write connection, in its normal form; `null` when it
-     * has none the type's normaliser accepts.
+     * has none the type's normalizer accepts.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type

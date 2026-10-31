@@ -98,7 +98,7 @@ final class PendingSignInsTest extends TestCase
      * proven device at which digest, the attempt-limit windows, and until when,
      * but only the digest of the token's secret; the token is the row's
      * identifier and the secret. Neither digest nor the windows, which hold the
-     * counters' keys, are serialised.
+     * counters' keys, are serialized.
      *
      * @return void
      *

@@ -4,7 +4,7 @@
 
 This note documents the package's refresh-token contract. Access tokens are self-verifying JWTs; refresh tokens are
 signed JWTs bound to a device row, which holds the session's refresh credential, its deadlines, and its revocation
-state. Every refresh rotates that credential, honours the token it replaced for a short grace window, and treats any
+state. Every refresh rotates that credential, honors the token it replaced for a short grace window, and treats any
 other rotated token as a replay that revokes the device.
 
 ## Invariants
@@ -21,7 +21,7 @@ other rotated token as a replay that revokes the device.
 - One time, `$now`, is taken per exchange right after the token is parsed and cut to the whole second (the precision
   every device timestamp is stored at). Every check, every value written, and both issued tokens' `iat` use it, so a
   request that later waits on a row lock is still judged at the moment it started. Application servers are expected to
-  keep synchronised clocks.
+  keep synchronized clocks.
 - A device is a session with an idle and an absolute deadline, both required. A session has ended from the second either
   deadline names, or when either is missing (`DeviceDeadlines::hasEnded()`, the one rule shared by refresh, the bearer
   path, sign-in pins, and issuance). A rotation moves the idle deadline to `idleDeadline($now, absolute)`, the idle
@@ -56,7 +56,7 @@ other rotated token as a replay that revokes the device.
   connection.
 - Refresh applies the same opt-in activation checks as sign-in and bearer requests: the reloaded owner, the resolved
   principal, and the tenant it acts within must each be active when they implement `CanBeActive`.
-- A device is a session of one guard (its `guard` column, stamped by the session service). Refresh honours a token only
+- A device is a session of one guard (its `guard` column, stamped by the session service). Refresh honors a token only
   for a device of the guard exchanging it, checked right after the lookup and before anything else is judged, so a
   token of one guard can never revoke, rotate, or even classify another guard's device; the bearer path and sign-in pins
   treat such a device as missing. A device that records no guard belongs to none.
@@ -74,7 +74,7 @@ other rotated token as a replay that revokes the device.
 - A refresh is accepted only for the principal its device records (`PrincipalReference::isRecordedOn()`), on the
   current, the grace and the lost-rotation paths alike: after a switch of principal, the refresh token of the principal
   switched from fails with `device_principal_mismatch` and is not a replay, so the device is left alone, while the same
-  token after the grace window is judged a replay as any rotated token is. The switch itself runs the same judgement
+  token after the grace window is judged a replay as any rotated token is. The switch itself runs the same judgment
   (`RefreshJudgment::classify()`) with its own retry rule; see `principal-choice-and-switch.md`.
 - The package opens no transaction around a refresh.
 
@@ -154,7 +154,7 @@ other rotated token as a replay that revokes the device.
   device. A swap that misses (a parallel refresh rotated the device first) never retries: the sign-in is reconsidered
   without the device, so it starts on a new device, or becomes a pending sign-in when the additional-factor policy now
   asks for a factor.
-- Only the immediately previous id is honoured: after `R0 -> R1 -> R2`, a delayed retry of `R0` is a replay even within
+- Only the immediately previous id is honored: after `R0 -> R1 -> R2`, a delayed retry of `R0` is a replay even within
   the grace window of the first rotation, and revokes the device.
 - When the swap affects no row, the row changed between the read and the write. The exchange re-reads it once from the
   writer with a locking read (`lockForUpdate()`, a no-op on SQLite) and classifies it again at the same `$now`:
@@ -422,7 +422,7 @@ Update this note when any of the following change:
 - the compare-and-swap predicate or the columns a rotation writes
 - whether the new pair is still issued before the swap commits
 - the grace window: its anchor, its default, what a retry receives, or whether more than the immediately previous id is
-  honoured
+  honored
 - how a lost swap is resolved, or whether an exchange can ever run a second swap
 - the meanings of `rotation_reuse`, `rotation_conflict`, `refresh_key_missing`, `session_expired`, `device_revoked`, or
   `device_unknown`, or which of them revokes the device

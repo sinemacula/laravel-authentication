@@ -19,7 +19,7 @@ use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
  * redirect: the package's guards are stateless, so there is no login page to
  * send the client to. Registered as an exception-handler render callback, it
  * returns `null` for every other `AuthenticationException`, so other guards
- * keep Laravel's behaviour and render callbacks registered by the application
+ * keep Laravel's behavior and render callbacks registered by the application
  * still take precedence.
  *
  * The body's message is translated as it is rendered, by the translator of the

@@ -95,8 +95,10 @@ composer bench:ci   # PHPBench with CI artifact dump
 - PHPStan level 8 compliance
 - Full type hints on all public method parameters and return types
 - PHPDoc on all methods and classes
-- New code is expected to ship with tests covering the behavioural surface; the package's mutation-testing gate
-  (`composer test:mutation`) is the enforced floor. Behaviour that spans the authentication lifecycle (guards, token
+- American spelling everywhere: identifiers, config and translation keys, messages, comments and docs (`normalize`,
+  `behavior`, `canceled`, `judgment`)
+- New code is expected to ship with tests covering the behavioral surface; the package's mutation-testing gate
+  (`composer test:mutation`) is the enforced floor. Behavior that spans the authentication lifecycle (guards, token
   refresh, events) should be covered by integration tests that exercise the package the way a consuming application
   does.
 - `tests/Feature/Contracts/EventSequenceTest.php` and `tests/Integration/Contracts/EventSequenceTest.php` pin the

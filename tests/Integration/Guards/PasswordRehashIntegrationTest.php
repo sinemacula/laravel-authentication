@@ -19,7 +19,7 @@ use Tests\TestCase;
 
 /**
  * Proves that a password sign-in upgrades a stored hash the hasher no longer
- * produces (here a lower bcrypt cost) once the sign-in is admitted, honouring
+ * produces (here a lower bcrypt cost) once the sign-in is admitted, honoring
  * Laravel's `hashing.rehash_on_login`, and that nothing else writes the
  * password: not a failed or refused sign-in, not `validate()`, and not a
  * request authenticated by a bearer token.

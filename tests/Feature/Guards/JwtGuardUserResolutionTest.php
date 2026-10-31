@@ -34,7 +34,7 @@ use Tests\Unit\Stubs\StubModel;
  * Feature tests for the bearer-token `user()` resolution path on `JwtGuard`.
  *
  * Split out of the original JwtGuardTest so each class stays focused on a
- * single behavioural slice.
+ * single behavioral slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -196,7 +196,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - `tests/Integration/Sessions/ReplicaPendingSignInsTest.php`: pending sign-ins read from the writer
 - `tests/Unit/Sessions/SessionPreconditionsTest.php`
 - `tests/Integration/Sessions/SignInPolicyEndToEndTest.php`: the shipped application policy, attempt limiter,
-  normalisers and verified-identifier gate, through `signIn()`, `start()` and `attempt()`
+  normalizers and verified-identifier gate, through `signIn()`, `start()` and `attempt()`
 - `tests/Integration/Migration/PendingSignInsTableSchemaTest.php`
 - `tests/Performance/SessionServiceQueryBudgetTest.php`
 - `tests/Feature/Contracts/EventSequenceTest.php`, `tests/Integration/Contracts/EventSequenceTest.php`: the event

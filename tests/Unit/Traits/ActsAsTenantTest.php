@@ -40,7 +40,7 @@ final class ActsAsTenantTest extends TestCase
 
     /**
      * Asserts a subclass override of the protected `getTenantIdentifierName()`
-     * hook is honoured by the public `getTenantIdentifier()` getter.
+     * hook is honored by the public `getTenantIdentifier()` getter.
      *
      * @return void
      */

@@ -226,8 +226,8 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * A confirmation racing a revocation of every device held after it
-     * cancelled the pending change waits for it, then finds the change gone.
+     * A confirmation racing a revocation of every device held after it canceled
+     * the pending change waits for it, then finds the change gone.
      *
      * @return void
      *

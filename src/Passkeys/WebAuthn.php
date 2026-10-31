@@ -292,7 +292,7 @@ final readonly class WebAuthn
     }
 
     /**
-     * Normalise ceremony options to their WebAuthn JSON form.
+     * Normalize ceremony options to their WebAuthn JSON form.
      *
      * @param  \Webauthn\PublicKeyCredentialCreationOptions|\Webauthn\PublicKeyCredentialRequestOptions  $options
      * @return array<string, mixed>

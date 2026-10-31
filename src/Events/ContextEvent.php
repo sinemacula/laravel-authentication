@@ -35,7 +35,7 @@ abstract readonly class ContextEvent implements AuthenticationEvent
      * Restore the event after serialization.
      *
      * The context is restored here because PHP 8.3 lets only the declaring
-     * class initialise a readonly property, and the trait's restore writes from
+     * class initialize a readonly property, and the trait's restore writes from
      * the subclass's scope.
      *
      * @param  array<string, mixed>  $values

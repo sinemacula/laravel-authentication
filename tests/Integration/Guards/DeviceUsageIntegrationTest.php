@@ -370,7 +370,7 @@ final class DeviceUsageIntegrationTest extends TestCase
     }
 
     /**
-     * The device a request binds serialises without either refresh digest.
+     * The device a request binds serializes without either refresh digest.
      *
      * @return void
      *

@@ -9,7 +9,7 @@ namespace SineMacula\Laravel\Authentication\ApiKeys;
  * whoever asked for it once; only its digest is stored, so it cannot be shown
  * again. The key is held as a `\SensitiveParameterValue` and read through
  * `key()`, so no dump of the object (Laravel's VarDumper, `print_r`,
- * `var_export`) shows it, and serialising the object throws.
+ * `var_export`) shows it, and serializing the object throws.
  *
  * @api
  *

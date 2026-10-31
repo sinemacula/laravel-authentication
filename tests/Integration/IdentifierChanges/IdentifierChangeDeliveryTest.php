@@ -95,8 +95,8 @@ final class IdentifierChangeDeliveryTest extends TestCase
     }
 
     /**
-     * The code is not sent once its change was confirmed, cancelled, replaced
-     * by a newer request through any guard, or expired, nor once the code was
+     * The code is not sent once its change was confirmed, canceled, replaced by
+     * a newer request through any guard, or expired, nor once the code was
      * replaced; a retry checks again.
      *
      * @return void

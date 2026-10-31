@@ -37,7 +37,7 @@ final readonly class AttemptSubject
         /** Identifier the attempt names, as given, or `null` when it names none. */
         public ?string $identifier,
 
-        /** Type of the identifier (for example `email`), which names its normaliser. */
+        /** Type of the identifier (for example `email`), which names its normalizer. */
         public ?string $identifierType,
 
         /** IP address the attempt came from, or `null` when unknown. */

@@ -40,7 +40,7 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * its lifetime) fail closed, and the provider's configured model must live on
  * the storage connection, as a reset needs (see `SharedConnection`); the guard
  * must allow the password method; the identifier must be one its type's
- * normaliser accepts (as given, for a link whose type has none); the identifier
+ * normalizer accepts (as given, for a link whose type has none); the identifier
  * and the IP address must have reset requests left (`password_reset_request`,
  * counted on every request and never given back); and no link or code may have
  * been issued for the identifier within the codes' resend cooldown. Then the
@@ -97,7 +97,7 @@ final readonly class ResetRequests
 
     /**
      * Send a reset code to the identifier the input names under the type, which
-     * must have a registered normaliser, through the bound `OneTimeCodeSender`
+     * must have a registered normalizer, through the bound `OneTimeCodeSender`
      * (none bound is a misconfiguration, refused before anything is counted).
      *
      * @param  string  $type

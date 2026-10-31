@@ -23,7 +23,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * are pruned by Laravel's `model:prune --model` with this class.
  *
  * Only the class name is public, for applications to schedule that pruning
- * with; its columns and behaviour belong to the passkey service.
+ * with; its columns and behavior belong to the passkey service.
  *
  * @api
  *
@@ -56,13 +56,13 @@ final class PasskeyChallenge extends Model
     /** @var list<string> The attributes that are mass assignable: none, every column is written by the passkey service. */
     protected $fillable = [];
 
-    /** @var list<string> The attributes hidden from serialisation. */
+    /** @var list<string> The attributes hidden from serialization. */
     protected $hidden = ['options'];
 
     /**
      * Create a challenge on the storage connection, in the configured table.
      * Both are applied here, before Eloquent reads them, so this is
-     * construction rather than model behaviour.
+     * construction rather than model behavior.
      *
      * @param  array<string, mixed>  $attributes
      *

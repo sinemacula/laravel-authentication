@@ -19,7 +19,7 @@ use Tests\Fixtures\Providers\BindsLaravelAuthManagerSubclass;
  * Feature tests for another package's subclass of Laravel's auth manager bound
  * to `auth` in a `register()`: the package owns the binding, so the subclass is
  * replaced by the package's manager, which takes over the drivers registered on
- * it but not the subclass's own behaviour.
+ * it but not the subclass's own behavior.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

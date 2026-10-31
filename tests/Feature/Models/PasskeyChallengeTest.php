@@ -15,7 +15,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests for where the passkey challenge model keeps its rows, what it
- * keeps out of its serialisation, and which rows `model:prune` deletes.
+ * keeps out of its serialization, and which rows `model:prune` deletes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -79,7 +79,7 @@ final class PasskeyChallengeTest extends TestCase
 
     /**
      * A challenge records when it was created but is never updated, and
-     * serialising it leaves its options out.
+     * serializing it leaves its options out.
      *
      * @return void
      */

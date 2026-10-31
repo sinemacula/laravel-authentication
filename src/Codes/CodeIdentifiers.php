@@ -35,7 +35,7 @@ final class CodeIdentifiers
     /**
      * The identity's current identifier of the type, read on the write
      * connection, in its canonical form; `null` when it has none, or none the
-     * type's normaliser accepts.
+     * type's normalizer accepts.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type

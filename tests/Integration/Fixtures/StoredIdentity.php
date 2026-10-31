@@ -21,7 +21,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
 /**
  * 2D identity kept with the package's tables on the storage connection,
  * `package_store`, in the `stored_identities` table the test creates: a
- * normalised email address that can be changed, a password, a "tokens valid
+ * normalized email address that can be changed, a password, a "tokens valid
  * after" cutoff, and devices of the shipped model.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

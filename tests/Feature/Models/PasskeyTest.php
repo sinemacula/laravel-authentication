@@ -12,7 +12,7 @@ use Tests\TestCase;
 
 /**
  * Feature tests for where the passkey model keeps its rows, and what it keeps
- * out of its serialisation.
+ * out of its serialization.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -61,7 +61,7 @@ final class PasskeyTest extends TestCase
     }
 
     /**
-     * Serialising a passkey leaves out its credential id and its digest, its
+     * Serializing a passkey leaves out its credential id and its digest, its
      * public key, its user handle and its sign count, and casts the rest.
      *
      * @return void

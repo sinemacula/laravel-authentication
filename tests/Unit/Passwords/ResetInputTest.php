@@ -17,7 +17,7 @@ use SineMacula\Laravel\Authentication\Passwords\ResetInput;
 /**
  * Unit tests for how a reset request's and submission's input is read: only
  * strings (and, for an identifier, integers and `Stringable`s) reach a lookup
- * or a hash, and a code is bound only to a type with a normaliser.
+ * or a hash, and a code is bound only to a type with a normalizer.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -76,7 +76,7 @@ final class ResetInputTest extends TestCase
     }
 
     /**
-     * A code is bound only to a valid type with a registered normaliser.
+     * A code is bound only to a valid type with a registered normalizer.
      *
      * @return void
      */

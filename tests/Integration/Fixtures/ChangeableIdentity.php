@@ -19,7 +19,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
 /**
  * 2D identity fixture whose identifiers can be changed, stored in
  * `changeable_identities`: a designated email address and phone number, each
- * normalised, unique and with a verification time beside it, a password, and
+ * normalized, unique and with a verification time beside it, a password, and
  * devices, so the session service can sign it in and the identifier change
  * service can change either identifier.
  *

@@ -342,8 +342,8 @@ final class PrincipalSwitchTest extends TestCase
 
     /**
      * A switch that loses its swap to two refreshes in a row finds its token
-     * two rotations old, which no grace window honours: the device is revoked
-     * as `rotation_reuse`.
+     * two rotations old, which no grace window honors: the device is revoked as
+     * `rotation_reuse`.
      *
      * @return void
      *

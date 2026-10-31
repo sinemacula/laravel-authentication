@@ -14,7 +14,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  *
  * Stands in for an application provider that scopes identity lookups (for
  * example to one tenant or application), so tests can prove the refresh path
- * reloads the device owner through the guard's provider and honours that scope.
+ * reloads the device owner through the guard's provider and honors that scope.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

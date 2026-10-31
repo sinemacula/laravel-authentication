@@ -76,7 +76,7 @@ Non-human identities authenticate with API keys on a guard of the `api_key` driv
 ## Unauthenticated requests
 
 A guest on a route that only package guards protect (`auth:api`, or `auth` when the default guard is a package guard)
-gets `401` with `{"message": "Unauthenticated."}` in the application's locale (see [below](#localising-messages)),
+gets `401` with `{"message": "Unauthenticated."}` in the application's locale (see [below](#localizing-messages)),
 whatever its `Accept` header. The guards are stateless, so there is no login page to redirect to, and an API without a
 `login` route no longer answers browser-style requests with a server error. Laravel's own guards keep their guest
 redirect, and so does a route that also accepts one of them (`auth:web,api`).
@@ -85,7 +85,7 @@ The package binds its `SineMacula\Laravel\Authentication\Http\Middleware\Authent
 middleware and registers the `401` as an exception-handler render callback, after any your application registers for
 `AuthenticationException`. If your application aliases its own `auth` middleware, extend the package's class.
 
-## Localising messages
+## Localizing messages
 
 The package answers a client in words in two places, and translates both through Laravel's translator with the English
 text as a JSON key, the text Laravel itself uses for the same response. Add a line to your application's

@@ -46,7 +46,7 @@ final class SignedInTest extends TestCase
     }
 
     /**
-     * The event serialises its models for queued listeners and survives a round
+     * The event serializes its models for queued listeners and survives a round
      * trip. It does not ask the dispatcher to wait for a transaction: that
      * would wait for whichever transaction is open last on any connection, so
      * the package dispatches it once the written row's own connection commits.

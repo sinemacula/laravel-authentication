@@ -25,7 +25,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * deadlines are still ahead: a deadline has passed from the second it names, as
  * on every other path. The listing reads the identity's `devices()` relation on
  * the write connection, so it never shows a device a replica has not yet seen
- * revoked, and summarises each device without its digests.
+ * revoked, and summarizes each device without its digests.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -62,7 +62,7 @@ final class ActiveDevices
 
     /**
      * One page of the identity's active devices, of every guard, most recently
-     * used first (never used last), then by key, newest first, each summarised
+     * used first (never used last), then by key, newest first, each summarized
      * and marked when it is the current device.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity

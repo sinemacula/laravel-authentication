@@ -238,7 +238,7 @@ final class ScopesTest extends TestCase
 
     /**
      * The default registry rejects nothing, so every well-formed scope is
-     * grantable, normalised.
+     * grantable, normalized.
      *
      * @return void
      */
@@ -270,7 +270,7 @@ final class ScopesTest extends TestCase
     }
 
     /**
-     * The registry is asked about the normalised scopes for the guard and the
+     * The registry is asked about the normalized scopes for the guard and the
      * principal, and any answer but `[]` refuses them: the given scopes it
      * names are named, or every given scope when it names none of them as
      * given.

@@ -5,7 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Identifiers;
 
 /**
- * The names identifier types go by: `email`, `phone`, or any other a normaliser
+ * The names identifier types go by: `email`, `phone`, or any other a normalizer
  * is registered under. A type also names the identity's column holding the
  * identifier and the `<type>_verified_at` column recording its verification, so
  * a name is restricted to what is safe as a column name.

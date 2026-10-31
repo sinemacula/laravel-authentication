@@ -21,7 +21,7 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
  * Unit tests for the ModelProvider credential filtering, password validation,
  * and password rehashing paths.
  *
- * Covers credential-key sanitisation edge cases, validateCredentials type
+ * Covers credential-key sanitization edge cases, validateCredentials type
  * guarding, hasher delegation, and the rehashPasswordIfRequired lifecycle.
  * Constructor validation and basic retrieval tests live in ModelProviderTest.
  *

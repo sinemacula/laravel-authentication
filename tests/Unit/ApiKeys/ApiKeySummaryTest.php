@@ -49,7 +49,7 @@ final class ApiKeySummaryTest extends TestCase
     }
 
     /**
-     * A summary serialises to JSON, alone or in a list, as its array form, so
+     * A summary serializes to JSON, alone or in a list, as its array form, so
      * returning one from a route shows snake_case keys and ISO-8601 times.
      *
      * @return void
@@ -79,7 +79,7 @@ final class ApiKeySummaryTest extends TestCase
 
     /**
      * An issued key hands the key to its caller, and no dump of it shows the
-     * key: not Laravel's VarDumper, `print_r` or `var_export`; serialising it
+     * key: not Laravel's VarDumper, `print_r` or `var_export`; serializing it
      * throws, and the constructor's parameter is sensitive.
      *
      * @return void

@@ -31,7 +31,7 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
  * connection, that the code is still its binding's live issuance and that the
  * identity's pending change of the type is still this request, of this guard,
  * and sends nothing otherwise; a retry checks again, so the code of a change
- * that was confirmed, cancelled or replaced is never sent. It goes to the
+ * that was confirmed, canceled or replaced is never sent. It goes to the
  * identity it was issued for, read again from the write connection (the service
  * never changes a machine identity's identifiers), with the purpose
  * `change_identifier`. An exception from the sender fails the job, and the

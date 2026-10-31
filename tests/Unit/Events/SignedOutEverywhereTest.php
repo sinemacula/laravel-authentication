@@ -48,7 +48,7 @@ final class SignedOutEverywhereTest extends TestCase
     }
 
     /**
-     * The event serialises its models for queued listeners and survives a round
+     * The event serializes its models for queued listeners and survives a round
      * trip, and it does not ask the dispatcher to wait for a transaction: the
      * package dispatches it once the device connection commits.
      *

@@ -72,7 +72,7 @@ final class ApiKeyTest extends TestCase
 
     /**
      * A key is keyed by a string id, casts its scopes and times, accepts no
-     * mass assignment and never serialises the digest of its secret.
+     * mass assignment and never serializes the digest of its secret.
      *
      * @return void
      */

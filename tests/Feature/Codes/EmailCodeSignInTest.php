@@ -167,7 +167,7 @@ final class EmailCodeSignInTest extends TestCase
     }
 
     /**
-     * Rows of addresses the email normaliser refuses.
+     * Rows of addresses the email normalizer refuses.
      *
      * @return iterable<string, array{0: string}>
      */
@@ -181,7 +181,7 @@ final class EmailCodeSignInTest extends TestCase
     }
 
     /**
-     * An address the normaliser refuses asks for no code and signs in with
+     * An address the normalizer refuses asks for no code and signs in with
      * none, without counting anything against a code.
      *
      * @param  string  $address

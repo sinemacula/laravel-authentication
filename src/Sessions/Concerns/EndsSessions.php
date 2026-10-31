@@ -36,7 +36,7 @@ trait EndsSessions
     /**
      * One page of the identity's active devices, of every guard, for a device
      * list: most recently used first (never used last), then newest first, each
-     * summarised without its digests, revocation or principal, and marked when
+     * summarized without its digests, revocation or principal, and marked when
      * it is the device this guard is authenticated with for the request. Read
      * on the write connection through the identity's `devices()` relation.
      * `$perPage` is 1 to 100; the page is the request's `page` parameter unless
@@ -87,8 +87,8 @@ trait EndsSessions
      * valid after" cutoff where it is, since a device-less token can only be
      * ended through it: its devices are still revoked, but the identity's other
      * device-less tokens then also keep working until they expire. The
-     * identity's pending identifier changes are cancelled either way, since
-     * none records the session it was requested from.
+     * identity's pending identifier changes are canceled either way, since none
+     * records the session it was requested from.
      *
      * The guard stays bound for the rest of the request either way; call
      * `signOut()` as well to end the request's own session.

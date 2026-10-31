@@ -15,7 +15,7 @@ use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use Tests\Integration\Fixtures\NormalizedEmailIdentity;
 
 /**
- * Query-budget and timing contracts for designated identifiers: normalising a
+ * Query-budget and timing contracts for designated identifiers: normalizing a
  * lookup adds no query, an identifier that cannot be one costs none while a
  * sign-in with it still waits out the timebox, and a rehash is one write or
  * nothing.

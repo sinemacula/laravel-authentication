@@ -108,7 +108,7 @@ final class Scopes
 
     /**
      * The scopes a credential of the principal on the guard may grant: the
-     * given scopes normalised, then held to the scope registry. Any answer from
+     * given scopes normalized, then held to the scope registry. Any answer from
      * the registry but `[]` refuses them, naming the given scopes it names, or
      * every given scope when it names none of them as given (a pattern, or its
      * own form of a scope), so a refusal never depends on echoing the input.

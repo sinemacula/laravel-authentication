@@ -30,7 +30,7 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * through every `jwt` guard whose provider can return the identity (see
  * `JwtGuards::namesFor()`), for each identifier the identity holds, in
  * canonical form (see `ResetRecipient`), of a type a proof can be bound to: a
- * guard's password identifier, and any type with a registered normaliser. The
+ * guard's password identifier, and any type with a registered normalizer. The
  * identifiers are read from the identity's row as it is stored, on the write
  * connection inside the transaction, never from the caller's model, which may
  * have loaded only some columns or be older than the row: a reset finds the
@@ -39,7 +39,7 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * `LogicException`, as `ProvidesIdentifierVerification` does for a column the
  * table does not have) has nothing to outdate: a reset of it fails the same way
  * before its proof is checked. Misconfiguration (an `InvalidArgumentException`,
- * a normaliser that cannot be built, say) still fails closed.
+ * a normalizer that cannot be built, say) still fails closed.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -55,7 +55,7 @@ final readonly class OutdatedProofs
      */
     public function __construct(
 
-        /** Container the configuration, normalisers, verifier and engine are resolved from. */
+        /** Container the configuration, normalizers, verifier and engine are resolved from. */
         private Container $container,
     ) {}
 
@@ -106,7 +106,7 @@ final readonly class OutdatedProofs
 
     /**
      * The identifier types a proof can be bound to: every type with a
-     * registered normaliser, and each guard's password identifier. A type may
+     * registered normalizer, and each guard's password identifier. A type may
      * be named twice, which binds nothing more.
      *
      * @param  list<string>  $guards

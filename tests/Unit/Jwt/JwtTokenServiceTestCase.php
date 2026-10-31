@@ -21,7 +21,7 @@ use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
  *
  * Owns the frozen Carbon + JWT clocks, the test secret/algorithm/TTL constants,
  * and the helper factories used by every concrete `JwtTokenServiceTest`
- * variant. Subclasses focus on a single behavioural slice (issuance, parse) so
+ * variant. Subclasses focus on a single behavioral slice (issuance, parse) so
  * each class stays focused on a single concern.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

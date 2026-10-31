@@ -153,7 +153,7 @@ final readonly class ClientCredentialsResult implements \JsonSerializable, Array
     }
 
     /**
-     * The result as JSON serialises it: the response body, as `toArray()` gives
+     * The result as JSON serializes it: the response body, as `toArray()` gives
      * it.
      *
      * @return array{access_token: string, token_type: string, expires_in: ?int, scope?: string}|array{error: ?string}

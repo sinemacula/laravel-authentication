@@ -12,7 +12,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 
 /**
- * Feature tests for the small provider-only behaviours on
+ * Feature tests for the small provider-only behaviors on
  * `AuthenticationServiceProvider`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
