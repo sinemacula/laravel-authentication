@@ -111,12 +111,13 @@ request for a code looks the same whether or not anyone has the identifier, and 
   gives the attempt back (the `sign_in` limits, on `rate_limits.connection`, still count it).
 - A delivery that throws fails the job; the queue's retry policy applies, and a retry checks the issuance again. An
   unbound sender is a `BindingResolutionException`. A verification job whose identity was deleted is dropped, not
-  failed. A sign-in job resolves its guard by name and finds the recipient through the provider of the guard's context:
-  a guard that `auth.guards` does not configure with the `jwt` driver throws an `InvalidArgumentException`, and a `jwt`
-  guard whose driver the application replaced with a guard that has no context (`Contracts\HasGuardContext`, which the
-  package's guards and any guard built on `AbstractGuard` implement) a `LogicException`. A code names the guard of the
-  context that issued it, and the package builds a `JwtGuard` only under the name of a guard with the `jwt` driver, so a
-  code sent through another driver that builds one names, and is delivered through, that `jwt` guard.
+  failed. A sign-in job resolves its guard by name (`Runtime\JwtGuardContexts::named()`, shared with the password reset
+  job) and finds the recipient through the provider of the guard's context: a guard that `auth.guards` does not
+  configure with the `jwt` driver throws an `InvalidArgumentException`, and a `jwt` guard whose driver the application
+  replaced with a guard that has no context (`Contracts\HasGuardContext`, which the package's guards and any guard built
+  on `AbstractGuard` implement) a `LogicException`. A code names the guard of the context that issued it, and the
+  package builds a `JwtGuard` only under the name of a guard with the `jwt` driver, so a code sent through another
+  driver that builds one names, and is delivered through, that `jwt` guard.
 - On a `sync` connection with after-response dispatching turned off (`Bus::withoutDispatchingAfterResponses()`) Laravel
   runs the job during the call; this is the documented fallback, not the package's choice.
 - Malformed settings (`length` 6 to 10, `ttl_seconds` 60 to 3600, `max_attempts` 1 to 20, `resend_cooldown_seconds` 0
@@ -149,8 +150,8 @@ criterion, and the signing-in guide's "Enumeration resistance" table lists every
 - `src/Codes/OneTimeCodes.php` (engine), `src/Codes/CodeKeys.php`, `src/Codes/CodeBinding.php`,
   `src/Codes/CodeSettings.php`, `src/Codes/Enums/CodeCheck.php`, `src/Codes/Enums/VerificationOutcome.php`.
 - `src/Codes/CodeService.php` (`Auth::codes()`), `src/Codes/CodeSignIn.php` (`phone_code`, `email_code`),
-  `src/Codes/SendOneTimeCode.php`, `src/Codes/CodeIdentifiers.php` (an identity's own identifier, and whether it holds
-  the bound one).
+  `src/Codes/SendOneTimeCode.php`, `src/Runtime/JwtGuardContexts.php` (how the job finds its guard's context),
+  `src/Codes/CodeIdentifiers.php` (an identity's own identifier, and whether it holds the bound one).
 - `src/Contracts/OneTimeCodeSender.php`, `src/Codes/OneTimeCodeMessage.php`, `src/Testing/FakeOneTimeCodeSender.php`.
 - `src/Identifiers/E164PhoneNormaliser.php`, `src/Models/OneTimeCode.php`,
   `database/migrations/2026_04_06_000003_create_one_time_codes_table.php`.

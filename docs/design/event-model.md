@@ -140,7 +140,7 @@ to these events, so the shape and the timing are a contract.
 - `src/Guards/JwtGuard.php`: `refresh()`, `refuseRefresh()` and `reportRefresh()`; `src/Guards/BearerAuthentication.php`:
   `failed()`, the bearer failure's context.
 - `src/Jwt/RefreshTokenExchange.php`: `refused()`, `deviceContext()`, and the `DeviceRevoked` dispatch;
-  `src/Sessions/PrincipalSwitch.php`: `context()`.
+  `src/Sessions/PrincipalSwitch.php`: `eventContext()`.
 - `src/Sessions/SessionService.php`: `signedIn()`, `fail()`; `src/Sessions/SessionPreconditions.php`: `methodReason()`;
   `src/Sessions/SignInResult.php`: `failed()`, the concealment.
 - `src/Sessions/SessionRevocations.php`: `endSessions()`, the `DeviceRevoked` and `SignedOutEverywhere` contexts.
