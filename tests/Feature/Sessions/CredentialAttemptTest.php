@@ -83,12 +83,25 @@ final class CredentialAttemptTest extends TestCase
             return $limiter;
         });
 
-        $refused = CredentialAttempt::begin(app(), self::subject('passwordless'), 'password');
+        $refused = CredentialAttempt::checkMethod(app(), 'passwordless', 'password');
 
         self::assertInstanceOf(Refused::class, $refused);
         self::assertSame([FailureReason::METHOD_NOT_ALLOWED, null, null], [$refused->reason, $refused->retryAfter, $refused->identity]);
         self::assertSame(0, $resolved);
         self::assertSame([], $limiter->acquired);
+    }
+
+    /**
+     * A method the audience policy allows answers with the policy the container
+     * holds then, the one the sign-in goes on to admit with.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAMethodTheAudienceAllowsAnswersWithThePolicy(): void
+    {
+        self::assertSame(app(AudiencePolicy::class), CredentialAttempt::checkMethod(app(), 'api', 'password'));
     }
 
     /**
@@ -106,7 +119,7 @@ final class CredentialAttemptTest extends TestCase
 
         app()->instance(AttemptLimiter::class, $limiter);
 
-        $refused = CredentialAttempt::begin(app(), $subject, 'password');
+        $refused = CredentialAttempt::begin(app(), app(AudiencePolicy::class), $subject);
 
         self::assertInstanceOf(Refused::class, $refused);
         self::assertSame([FailureReason::RATE_LIMITED, 45], [$refused->reason, $refused->retryAfter]);
@@ -115,9 +128,9 @@ final class CredentialAttemptTest extends TestCase
     }
 
     /**
-     * A sign-in the policy allows and the limits grant holds the policy that
-     * allowed it, and account attempts that count against the guard on the same
-     * limiter; no account has refused it yet.
+     * A sign-in the limits grant holds the policy it was begun with, and
+     * account attempts that count against the guard on the same limiter; no
+     * account has refused it yet.
      *
      * @return void
      *
@@ -125,14 +138,15 @@ final class CredentialAttemptTest extends TestCase
      */
     public function testAGrantedAttemptHoldsThePolicyAndCountsAccountsOnTheSameLimiter(): void
     {
-        $limiter = new RecordingAttemptLimiter;
+        $limiter  = new RecordingAttemptLimiter;
+        $audience = \Mockery::mock(AudiencePolicy::class);
 
         app()->instance(AttemptLimiter::class, $limiter);
 
-        $attempt = CredentialAttempt::begin(app(), self::subject(), 'password');
+        $attempt = CredentialAttempt::begin(app(), $audience, self::subject());
 
         self::assertInstanceOf(CredentialAttempt::class, $attempt);
-        self::assertSame(app(AudiencePolicy::class), $attempt->audience);
+        self::assertSame($audience, $attempt->audience);
         self::assertNull($attempt->accountRefusal());
 
         $identity = $this->seedIdentity();
@@ -158,7 +172,7 @@ final class CredentialAttemptTest extends TestCase
     {
         app()->instance(AttemptLimiter::class, new RecordingAttemptLimiter(refuse: static fn (AttemptSubject $subject): ?int => $subject->account === null ? null : 90));
 
-        $attempt = CredentialAttempt::begin(app(), self::subject(), 'password');
+        $attempt = CredentialAttempt::begin(app(), app(AudiencePolicy::class), self::subject());
 
         self::assertInstanceOf(CredentialAttempt::class, $attempt);
         self::assertFalse($attempt->accounts->reserve($this->seedIdentity()));
@@ -184,7 +198,7 @@ final class CredentialAttemptTest extends TestCase
 
         app()->instance(AttemptLimiter::class, $limiter);
 
-        $attempt = CredentialAttempt::begin(app(), self::subject(), 'password');
+        $attempt = CredentialAttempt::begin(app(), app(AudiencePolicy::class), self::subject());
 
         self::assertInstanceOf(CredentialAttempt::class, $attempt);
 
@@ -229,14 +243,13 @@ final class CredentialAttemptTest extends TestCase
     }
 
     /**
-     * A password sign-in's subject on the guard, naming the identifier from the
-     * session tests' client.
+     * A password sign-in's subject on the `api` guard, naming the identifier
+     * from the session tests' client.
      *
-     * @param  string  $guard
      * @return \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject
      */
-    private static function subject(string $guard = 'api'): AttemptSubject
+    private static function subject(): AttemptSubject
     {
-        return new AttemptSubject($guard, AttemptFlow::SIGN_IN, self::IDENTIFIER, 'email', self::CLIENT_IP);
+        return new AttemptSubject('api', AttemptFlow::SIGN_IN, self::IDENTIFIER, 'email', self::CLIENT_IP);
     }
 }

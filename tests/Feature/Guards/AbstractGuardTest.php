@@ -226,6 +226,57 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
+     * The identifier is read once for the failure events before the method
+     * check, and a second time, for the limits, only once the method is
+     * allowed: a `Stringable` identifier on a guard that does not allow the
+     * password method is read once and fails as `method_not_allowed`, and one
+     * on a guard that allows it is read twice before its slot is refused.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheIdentifierIsReadForTheLimitsOnlyOnceTheMethodIsAllowed(): void
+    {
+        $this->audience->shouldReceive('allowsMethod')->twice()->andReturnValues([false, true]);
+        $this->limiter->shouldReceive('acquire')->once()->andReturnUsing(static fn (AttemptSubject $subject): AttemptReservation => new AttemptReservation($subject, 42));
+        $this->provider->shouldNotReceive('retrieveByCredentials');
+
+        $identifier = new class implements \Stringable {
+            /** @var int The times the identifier has been read. */
+            public int $reads = 0;
+
+            /**
+             * Read the identifier, counting the read.
+             *
+             * @return string
+             */
+            #[\Override]
+            public function __toString(): string
+            {
+                $this->reads++;
+
+                return 'ada@example.test';
+            }
+        };
+
+        $events = $this->recordEvents();
+
+        self::assertFalse($this->makeGuard()->attempt(['email' => $identifier, 'password' => 'secret']));
+        self::assertSame(1, $identifier->reads);
+
+        self::assertFalse($this->makeGuard()->attempt(['email' => $identifier, 'password' => 'secret']));
+        self::assertSame(3, $identifier->reads);
+
+        $failures = array_values(array_filter($events->getArrayCopy(), static fn (object $event): bool => $event instanceof AuthenticationFailed));
+
+        self::assertSame(
+            [[FailureReason::METHOD_NOT_ALLOWED, 'ada@example.test'], [FailureReason::RATE_LIMITED, 'ada@example.test']],
+            array_map(static fn (AuthenticationFailed $event): array => [$event->reason, $event->identifier], $failures),
+        );
+    }
+
+    /**
      * An attempt over its limit is refused without checking the credentials,
      * reports the wait, and gives nothing back.
      *

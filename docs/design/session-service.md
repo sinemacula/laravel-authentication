@@ -44,13 +44,14 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   slots not given back stay counted. A handler that throws while reporting is not caught, as with Laravel's `rescue()`:
   an error that cannot be reported surfaces rather than vanishing.
 - The steps `signIn()` and the guard's `attempt()` take the same way are `Sessions\CredentialAttempt`'s, which each
-  calls in its own order: `begin()` (the method check, then the slot on the identifier and IP limits, the limiter
-  resolved only once the method is allowed), the account attempts the method's checks count against, `accountRefusal()`
-  (`account_rate_limited`, with the account's wait), `windows()` for a pending sign-in to keep and `release()` for a
-  session. What runs in the timebox and around it stays with each: `attempt()` fires `Validated` once the password is
-  accepted, rehashes and asks the factor policy inside the timebox, cuts it short only for an admitted attempt and gives
-  its slots back before the bind; `signIn()` cuts it short for an admitted sign-in or a choice, rehashes after it,
-  continues to a session, a pending factor or a choice, and gives its slots back after the bind.
+  calls in its own order: `checkMethod()` (the audience policy's method check, before anything is counted), `begin()`
+  (the slot on the identifier and IP limits, the limiter resolved then), the account attempts the method's checks count
+  against, `accountRefusal()` (`account_rate_limited`, with the account's wait), `windows()` for a pending sign-in to
+  keep and `release()` for a session. `attempt()` reads the identifier for the limits between the two, only once the
+  method is allowed. What runs in the timebox and around it stays with each: `attempt()` fires `Validated` once the
+  password is accepted, rehashes and asks the factor policy inside the timebox, cuts it short only for an admitted
+  attempt and gives its slots back before the bind; `signIn()` cuts it short for an admitted sign-in or a choice,
+  rehashes after it, continues to a session, a pending factor or a choice, and gives its slots back after the bind.
 - `start()` reloads the identity through the guard's provider and requires the same class and key (`identity_unknown`),
   then runs the method check, the admission with no identifier type, the device proof, the factor policy and the write.
   It takes no slot and runs in no timebox: nothing is guessed. The principal is given as the argument or on the

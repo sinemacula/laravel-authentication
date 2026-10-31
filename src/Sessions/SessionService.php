@@ -542,7 +542,13 @@ final readonly class SessionService
      */
     private function signInWith(SignInMethod $driver, string $method, #[\SensitiveParameter] array $input, SignInContext $context, AttemptSubject $subject): Refused|SignInResult
     {
-        $attempt = CredentialAttempt::begin($this->container, $subject, $method);
+        $audience = CredentialAttempt::checkMethod($this->container, $subject->guard, $method);
+
+        if ($audience instanceof Refused) {
+            return $audience;
+        }
+
+        $attempt = CredentialAttempt::begin($this->container, $audience, $subject);
 
         if ($attempt instanceof Refused) {
             return $attempt;

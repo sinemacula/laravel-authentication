@@ -18,12 +18,14 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
  * session service's `signIn()` both take, and take the same way, each calling
  * them in its own order.
  *
- * `begin()` checks that the audience policy allows the method and takes the
- * sign-in's slot on the identifier and IP limits; the attempt then holds that
- * slot and the account attempts the secret checks count against, refuses a
- * sign-in an account had no attempts left for (`accountRefusal()`), hands a
- * pending sign-in the windows it keeps until it completes (`windows()`), and
- * gives every slot back for a sign-in that started its session (`release()`).
+ * `checkMethod()` asks the audience policy whether it allows the method, and
+ * `begin()` then takes the sign-in's slot on the identifier and IP limits, so
+ * an entry point can leave the identifier unread for the limits until the
+ * method is allowed. The attempt holds that slot and the account attempts the
+ * secret checks count against, refuses a sign-in an account had no attempts
+ * left for (`accountRefusal()`), hands a pending sign-in the windows it keeps
+ * until it completes (`windows()`), and gives every slot back for a sign-in
+ * that started its session (`release()`).
  *
  * What differs between the two entry points stays with each: the timebox and
  * what runs inside it, `Validated`, the admission and its pins, when the
@@ -60,27 +62,38 @@ final readonly class CredentialAttempt
     ) {}
 
     /**
-     * Begin the sign-in: the audience policy must allow the method
-     * (`method_not_allowed`, nothing taken), and the identifier and the IP
-     * address must have attempts left (`rate_limited`, with the wait). The
-     * policy and the limiter are resolved from the container then, the limiter
-     * only once the method is allowed.
+     * The audience policy, resolved from the container then, when it allows the
+     * method on the guard, or the refusal (`method_not_allowed`) of a sign-in
+     * it does not allow, before anything is counted.
      *
      * @param  \Illuminate\Contracts\Container\Container  $container
-     * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject  $subject
+     * @param  string  $guard
      * @param  string  $method
+     * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Contracts\AudiencePolicy
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public static function checkMethod(Container $container, string $guard, string $method): AudiencePolicy|Refused
+    {
+        $audience = $container->make(AudiencePolicy::class);
+
+        return $audience->allowsMethod($guard, $method) ? $audience : new Refused(FailureReason::METHOD_NOT_ALLOWED);
+    }
+
+    /**
+     * Begin a sign-in the audience policy allowed: the identifier and the IP
+     * address must have attempts left (`rate_limited`, with the wait). The
+     * limiter is resolved from the container then.
+     *
+     * @param  \Illuminate\Contracts\Container\Container  $container
+     * @param  \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy  $audience
+     * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject  $subject
      * @return self|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public static function begin(Container $container, AttemptSubject $subject, string $method): Refused|self
+    public static function begin(Container $container, AudiencePolicy $audience, AttemptSubject $subject): Refused|self
     {
-        $audience = $container->make(AudiencePolicy::class);
-
-        if (!$audience->allowsMethod($subject->guard, $method)) {
-            return new Refused(FailureReason::METHOD_NOT_ALLOWED);
-        }
-
         $limiter     = $container->make(AttemptLimiter::class);
         $reservation = $limiter->acquire($subject);
 

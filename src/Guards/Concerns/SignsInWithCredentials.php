@@ -65,10 +65,16 @@ trait SignsInWithCredentials
         ?Device $device,
         ClientContext $client,
     ): Admitted|Refused {
-        $guard   = $this->context->name();
+        $guard    = $this->context->name();
+        $audience = CredentialAttempt::checkMethod(Container::getInstance(), $guard, PasswordSignIn::NAME);
+
+        if ($audience instanceof Refused) {
+            return $audience;
+        }
+
         $type    = $password->identifierType($guard);
         $subject = new AttemptSubject($guard, AttemptFlow::SIGN_IN, $password->identifier($guard, $credentials), $type, $client->ip);
-        $attempt = CredentialAttempt::begin(Container::getInstance(), $subject, PasswordSignIn::NAME);
+        $attempt = CredentialAttempt::begin(Container::getInstance(), $audience, $subject);
 
         if ($attempt instanceof Refused) {
             return $attempt;
