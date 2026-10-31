@@ -81,6 +81,12 @@ final class NamespaceDependenciesTest extends TestCase
             'forbids' => ['Guards'],
             'allows'  => [],
         ],
+        'codes, passkeys, API keys and client credentials name no guard' => [
+            'from'    => ['Codes', 'Passkeys', 'ApiKeys', 'ClientCredentials'],
+            'except'  => [],
+            'forbids' => ['Guards'],
+            'allows'  => [],
+        ],
         'tokens, API keys and client credentials name nothing of sessions but the sign-in request' => [
             'from'    => ['Jwt', 'ApiKeys', 'ClientCredentials'],
             'except'  => [],

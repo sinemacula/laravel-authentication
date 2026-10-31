@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Integration\Codes;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Auth\RequestGuard;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Database\Schema\Blueprint;
@@ -17,6 +18,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Codes\CodeService;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
@@ -28,6 +30,8 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Delivery\QueuedDelivery;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
+use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 use Tests\Concerns\InteractsWithCodeIdentities;
 use Tests\Integration\Fixtures\CodeIdentity;
@@ -385,6 +389,124 @@ final class SendOneTimeCodeTest extends TestCase
         $this->expectExceptionMessage('Auth guard [session] is not a jwt guard, so it sends no one-time codes.');
 
         $job->handle(app());
+    }
+
+    /**
+     * A sign-in job for a jwt guard whose driver the application replaced with
+     * a guard that is not the package's has no provider to find the recipient
+     * through, and sends nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignInJobForAJwtDriverReplacedByAnotherGuardThrows(): void
+    {
+        $job      = $this->job();
+        $expected = sprintf('Auth guard [mobile] has the jwt driver but resolves to %s, not a package guard, so it sends no one-time codes.', RequestGuard::class);
+
+        Auth::extend('jwt', static fn (): RequestGuard => new RequestGuard(static fn (): null => null, request()));
+        Auth::forgetGuards();
+
+        try {
+            $job->handle(app());
+            self::fail('A sign-in code was sent through a guard that is not the package\'s.');
+        } catch (\LogicException $exception) {
+            self::assertSame($expected, $exception->getMessage());
+        }
+
+        self::assertSame(0, $this->sender->count());
+    }
+
+    /**
+     * A code sent through a guard of another driver that builds the package's
+     * jwt guard is bound to the jwt guard it was built for, which only a guard
+     * with the `jwt` driver can be, and a worker delivers it through that
+     * guard.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACodeSentThroughAnotherDriversJwtGuardIsDeliveredThroughTheJwtGuard(): void
+    {
+        self::createJobsTable();
+
+        $identity = self::seedCodeIdentity();
+
+        config()->set('queue.default', 'database');
+        config()->set('queue.connections.database', ['driver' => 'database', 'table' => 'jobs', 'queue' => 'default', 'retry_after' => 90]);
+        config()->set('auth.guards.copied', ['driver' => 'copied_jwt', 'provider' => 'code_identities']);
+
+        Auth::extend('copied_jwt', static fn (Application $app): JwtGuard => AuthenticationServiceProvider::createJwtGuard($app, 'mobile', config()->array('auth.guards.mobile')));
+
+        self::assertTrue(Auth::codes('copied')->send('phone_code', ['phone' => self::PHONE])->isSent());
+
+        Artisan::call('queue:work', ['connection' => 'database', '--once' => true, '--stop-when-empty' => true]);
+
+        $message = $this->sender->sent()[0] ?? null;
+
+        self::assertInstanceOf(OneTimeCodeMessage::class, $message);
+        self::assertSame(['mobile', self::CODE], [$message->guard, $message->code]);
+        self::assertTrue($identity->is($message->identity));
+    }
+
+    /**
+     * A sign-in job naming a guard of another driver is refused even when the
+     * guard resolves to the package's jwt guard: the jwt guards are the ones
+     * `auth.guards` configures with the `jwt` driver, the only ones whose
+     * sign-in codes a password or identifier change outdates.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignInJobNamingAnotherDriversJwtGuardThrows(): void
+    {
+        self::seedCodeIdentity();
+
+        config()->set('auth.guards.copied', ['driver' => 'copied_jwt', 'provider' => 'code_identities']);
+
+        Auth::extend('copied_jwt', static fn (Application $app): JwtGuard => AuthenticationServiceProvider::createJwtGuard($app, 'mobile', config()->array('auth.guards.mobile')));
+
+        self::assertInstanceOf(JwtGuard::class, Auth::manager()->guard('copied'));
+
+        try {
+            $this->job('copied')->handle(app());
+            self::fail('A sign-in code was sent through a guard without the jwt driver.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertSame('Auth guard [copied] is not a jwt guard, so it sends no one-time codes.', $exception->getMessage());
+        }
+
+        self::assertSame(0, $this->sender->count());
+    }
+
+    /**
+     * A sign-in job for a jwt guard whose driver the application replaced with
+     * another of the package's guards finds the recipient through that guard's
+     * provider.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignInJobForAJwtDriverReplacedByAnotherPackageGuardSendsThroughItsProvider(): void
+    {
+        $identity = self::seedCodeIdentity();
+        $job      = $this->job();
+
+        Auth::extend('jwt', static fn (Application $app, string $name, array $config): ApiKeyGuard => AuthenticationServiceProvider::createApiKeyGuard($app, $name, $config));
+        Auth::forgetGuards();
+
+        self::assertInstanceOf(ApiKeyGuard::class, Auth::manager()->guard('mobile'));
+
+        $job->handle(app());
+
+        $message = $this->sender->sent()[0] ?? null;
+
+        self::assertInstanceOf(OneTimeCodeMessage::class, $message);
+        self::assertSame(1, $this->sender->count());
+        self::assertTrue($identity->is($message->identity));
     }
 
     /**

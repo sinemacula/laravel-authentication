@@ -6,6 +6,7 @@ namespace Tests\Feature\ClientCredentials;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Events\Dispatcher;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -24,6 +25,7 @@ use SineMacula\Laravel\Authentication\Events\ClientCredentialsGranted;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -700,6 +702,47 @@ final class ClientCredentialsExchangeTest extends TestCase
 
         self::assertTrue($result->isGranted());
         self::assertSame('192.0.2.9', $this->machineEventsOf(ClientCredentialsGranted::class)[0]->context->client->ip);
+    }
+
+    /**
+     * An exchange handed out before the guard's request and dispatcher were
+     * rebound reads both as they are when it runs: it reads the token request
+     * the guard now serves and reports to the dispatcher the guard now has.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAnExchangeFollowsTheGuardsRebinds(): void
+    {
+        [, $issued] = $this->machineKey();
+
+        $this->startMachineRequest();
+
+        $exchange = Auth::clientCredentials('m2m');
+        $guard    = Auth::manager()->guard('m2m');
+        $swapped  = new Dispatcher(app());
+        $received = [];
+        $body     = 'grant_type=client_credentials&' . $this->body($issued);
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        parse_str($body, $parameters);
+
+        $swapped->listen([AuthenticationFailed::class, ClientCredentialsGranted::class], static function (object $event) use (&$received): void {
+            $received[] = $event;
+        });
+
+        app()->instance('request', Request::create('/oauth/token', 'POST', $parameters, [], [], ['CONTENT_TYPE' => self::FORM, 'REMOTE_ADDR' => '192.0.2.9'], $body));
+        $guard->setDispatcher($swapped);
+
+        self::assertTrue($exchange->fromRequest()->isGranted());
+        self::assertFalse($exchange->exchange($issued->summary->publicId, str_repeat('a', 40))->isGranted());
+        self::assertSame([], $this->machineEvents);
+        self::assertCount(2, $received);
+        self::assertInstanceOf(ClientCredentialsGranted::class, $received[0]);
+        self::assertInstanceOf(AuthenticationFailed::class, $received[1]);
+        self::assertSame(['192.0.2.9', '192.0.2.9'], [$received[0]->context->client->ip, $received[1]->context->client->ip]);
     }
 
     /**

@@ -111,7 +111,12 @@ request for a code looks the same whether or not anyone has the identifier, and 
   gives the attempt back (the `sign_in` limits, on `rate_limits.connection`, still count it).
 - A delivery that throws fails the job; the queue's retry policy applies, and a retry checks the issuance again. An
   unbound sender is a `BindingResolutionException`. A verification job whose identity was deleted is dropped, not
-  failed. A sign-in job for a guard that is not a `jwt` guard throws an `InvalidArgumentException`.
+  failed. A sign-in job resolves its guard by name and finds the recipient through the provider of the guard's context:
+  a guard that `auth.guards` does not configure with the `jwt` driver throws an `InvalidArgumentException`, and a `jwt`
+  guard whose driver the application replaced with a guard that has no context (`Contracts\HasGuardContext`, which the
+  package's guards and any guard built on `AbstractGuard` implement) a `LogicException`. A code names the guard of the
+  context that issued it, and the package builds a `JwtGuard` only under the name of a guard with the `jwt` driver, so a
+  code sent through another driver that builds one names, and is delivered through, that `jwt` guard.
 - On a `sync` connection with after-response dispatching turned off (`Bus::withoutDispatchingAfterResponses()`) Laravel
   runs the job during the call; this is the documented fallback, not the package's choice.
 - Malformed settings (`length` 6 to 10, `ttl_seconds` 60 to 3600, `max_attempts` 1 to 20, `resend_cooldown_seconds` 0
@@ -156,9 +161,9 @@ criterion, and the signing-in guide's "Enumeration resistance" table lists every
 - `tests/Integration/Codes/OneTimeCodesTest.php`: issue, cooldown, replacement, attempts, expiry, single use, the
   repeated-digits resend and checks overtaken between read and write.
 - `tests/Integration/Codes/ConcurrentOneTimeCodesTest.php`: races on PostgreSQL and MySQL.
-- `tests/Integration/Codes/SendOneTimeCodeTest.php`: recipients (the exact holder only), live issuance, encrypted
-  payload on a real queue, a deleted identity's job dropped, after-response delivery on `sync` and on a `failover` that
-  falls back to it.
+- `tests/Integration/Codes/SendOneTimeCodeTest.php`: recipients (the exact holder only), live issuance, the guard a
+  sign-in job resolves by name, encrypted payload on a real queue, a deleted identity's job dropped, after-response
+  delivery on `sync` and on a `failover` that falls back to it.
 - `tests/Integration/Codes/CodeIdentifiersTest.php`: an identity's own identifier in canonical form, and exact holding.
 - `tests/Integration/Codes/CodeVerificationOutcomesTest.php`: each outcome of a verification by code and what it wrote.
 - `tests/Integration/Codes/ReplicaOneTimeCodesTest.php`: write-connection reads, including an identity that reads its

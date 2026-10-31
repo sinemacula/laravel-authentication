@@ -15,7 +15,6 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PasskeyAdded;
 use SineMacula\Laravel\Authentication\Events\PasskeyRemoved;
-use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\ClientText;
 use SineMacula\Laravel\Authentication\Http\ConsumerMessages;
@@ -24,6 +23,7 @@ use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 
 /**
  * The passkeys of a JWT guard, scoped to the guard's relying party: the
@@ -57,13 +57,13 @@ final readonly class PasskeyService
     /**
      * Constructor.
      *
-     * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
+     * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
      * @param  \Illuminate\Contracts\Container\Container  $container
      */
     public function __construct(
 
-        /** The guard whose passkeys the service manages. */
-        private JwtGuard $guard,
+        /** The context of the guard whose passkeys the service manages. */
+        private GuardContext $context,
 
         /** Container the configuration, the limiter, the translator and the library wrapper are resolved from on every call. */
         private Container $container,
@@ -269,7 +269,7 @@ final readonly class PasskeyService
             return PasskeyFactorResult::failed($verified);
         }
 
-        $assertions->used($rp, $this->client($client), $owner, $verified[1], $this->guard->getDispatcher());
+        $assertions->used($rp, $this->client($client), $owner, $verified[1], $this->context->events());
 
         return PasskeyFactorResult::verified(PasskeySummary::of($verified[1]));
     }
@@ -380,8 +380,8 @@ final readonly class PasskeyService
     }
 
     /**
-     * Dispatch the event on the guard's dispatcher once the writes on the
-     * passkey model's connection are committed.
+     * Dispatch the event, once the writes on the passkey model's connection are
+     * committed, to the dispatcher the guard has now.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
      * @param  object  $event
@@ -389,7 +389,7 @@ final readonly class PasskeyService
      */
     private function dispatchOnceCommitted(Passkey $passkey, object $event): void
     {
-        $events = $this->guard->getDispatcher();
+        $events = $this->context->events();
 
         $this->assertions()->afterCommit()->run($passkey, static function () use ($events, $event): void {
             $events->dispatch($event);
@@ -406,7 +406,7 @@ final readonly class PasskeyService
      */
     private function relyingParty(): RelyingParty
     {
-        return RelyingParty::forGuard($this->guard->getName(), $this->container->make(Repository::class));
+        return RelyingParty::forGuard($this->context->name(), $this->container->make(Repository::class));
     }
 
     /**
@@ -417,7 +417,7 @@ final readonly class PasskeyService
      */
     private function client(?ClientContext $client): ClientContext
     {
-        return $client ?? ClientContext::fromRequest($this->guard->getRequest());
+        return $client ?? $this->context->client();
     }
 
     /**

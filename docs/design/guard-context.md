@@ -23,6 +23,14 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   implements. Its four readers resolve the request's credential on first access, as the guard's accessors do, so a
   sign-out given the guard reads the session the request carries. The session revocations take the binding per call,
   only for `signOut()` and `signOutEverywhere()`, and otherwise need nothing of the guard but its context.
+- The code, passkey, API key and client credentials services (`Codes\CodeService`, `Passkeys\PasskeyService`,
+  `ApiKeys\ApiKeyService`, `ClientCredentials\ClientCredentialsExchange`) take the guard's context, not the guard.
+  `AuthManager` resolves the guard, refuses one the service does not belong to with the message it always gave, and
+  passes the guard's `context()`. The queued `Codes\SendOneTimeCode` carries only the guard's name: when it runs it
+  resolves the guard, accepts it only when `auth.guards` configures it with the `jwt` driver
+  (`Config\JwtGuards::names()`), and takes its context through `HasGuardContext`, failing with a `LogicException` when
+  the application replaced the `jwt` driver with a guard that has none. None of the four namespaces names a `Guards`
+  class.
 - Only the owning guard rebinds a context: `rebindRequest()`, `rebindEvents()` and `rebindResolver()` are internal, and
   the architecture test fails a call of any of them outside `Guards`. The container's rebinds (`wireGuardRebinds()`:
   `request`, `events`, and the global `PrincipalResolver` unless the guard has a resolver of its own), `Event::fake()`,
@@ -58,7 +66,8 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   `setRequest()`, which resets the guard and rebinds the context, and every flow of the guard then reads the new
   request.
 - `Event::fake()` after a guard resolved rebinds `events`: the guard's own events, the session service's, the refresh
-  exchange's `DeviceRevoked`, and the events of the code, passkey and password services all go to the fake.
+  exchange's `DeviceRevoked`, and the events of the code, passkey, API key, client credentials and password services all
+  go to the fake.
 - A guard type an application writes reads its collaborators through `$this->context` (`name()`, `provider()`,
   `resolver()`, `events()`, `request()`, `client()`), dispatches through `$this->context->dispatch()`, and checks a
   secret inside `$this->context->timebox()->run()`.
@@ -89,6 +98,9 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   `logout()`; `src/Jwt/RefreshTokenExchange.php`: the constructor; `src/Sessions/SessionRevocations.php`;
   `src/Passwords/PasswordWriter.php`: `write()`.
 - `src/AuthenticationServiceProvider.php`: `createJwtGuard()`, `wireGuardRebinds()`.
+- `src/AuthManager.php`: `codes()`, `passkeys()`, `apiKeys()`, `clientCredentials()`; the constructors of
+  `src/Codes/CodeService.php`, `src/Passkeys/PasskeyService.php`, `src/ApiKeys/ApiKeyService.php` and
+  `src/ClientCredentials/ClientCredentialsExchange.php`; `src/Codes/SendOneTimeCode.php`: `guardContext()`.
 
 ## Authoritative Tests
 
@@ -106,6 +118,14 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   `testTheGuardsLogoutNeedsNoSessionService`
 - `tests/Integration/Passwords/PasswordWriterTest.php`
   `testThePasswordSetKeepsTheDispatcherOfTheWriteAndTheRevocationsTakeTheOneAtTheCommit`
+- `tests/Feature/Passkeys/PasskeyServiceTest.php` `testEachEventKeepsTheDispatcherOfItsWrite`,
+  `tests/Integration/ApiKeys/ApiKeyServiceTest.php` `testEachReportKeepsTheDispatcherOfItsWrite`
+- `tests/Feature/ClientCredentials/ClientCredentialsExchangeTest.php` `testAnExchangeFollowsTheGuardsRebinds`
+- `tests/Integration/Codes/SendOneTimeCodeTest.php` `testASignInJobForAnotherDriversGuardThrows`,
+  `testASignInJobForAJwtDriverReplacedByAnotherGuardThrows`,
+  `testASignInJobForAJwtDriverReplacedByAnotherPackageGuardSendsThroughItsProvider`,
+  `testASignInJobNamingAnotherDriversJwtGuardThrows`,
+  `testACodeSentThroughAnotherDriversJwtGuardIsDeliveredThroughTheJwtGuard`
 - `tests/Integration/Octane/JwtGuardRequestsTest.php`, `tests/Integration/Process/QueueWorkerGuardStateTest.php`,
   `tests/Integration/Process/ForgetGuardStateBeforeJobTest.php`
 - `tests/Unit/Architecture/NamespaceDependenciesTest.php` `testOnlyTheGuardsRebindAGuardContext`

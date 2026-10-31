@@ -7,6 +7,7 @@ namespace Tests\Feature\Passkeys;
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Events\Dispatcher;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Support\Carbon;
@@ -1231,6 +1232,57 @@ final class PasskeyServiceTest extends TestCase
         });
 
         self::assertSame([PasskeyRemoved::class], $this->recordedClasses());
+    }
+
+    /**
+     * Each event goes, once committed, to the dispatcher the guard had when its
+     * write was made: a dispatcher swapped in between the writes receives only
+     * the events of the writes made after the swap, an addition, a use and a
+     * removal alike, and one swapped in after the last write, before the
+     * commit, receives none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testEachEventKeepsTheDispatcherOfItsWrite(): void
+    {
+        $identity = $this->seedIdentity();
+        $guard    = $this->freshGuard();
+        $passkeys = Auth::passkeys('api');
+        $swapped  = new Dispatcher(app());
+        $last     = new Dispatcher(app());
+        $received = [];
+        $late     = [];
+
+        $swapped->listen([PasskeyAdded::class, PasskeyUsed::class, PasskeyRemoved::class], static function (object $event) use (&$received): void {
+            $received[] = $event::class;
+        });
+
+        $last->listen([PasskeyAdded::class, PasskeyUsed::class, PasskeyRemoved::class], static function (object $event) use (&$late): void {
+            $late[] = $event::class;
+        });
+
+        $this->recordEvents([PasskeyAdded::class, PasskeyUsed::class, PasskeyRemoved::class]);
+
+        DB::transaction(function () use ($identity, $guard, $passkeys, $swapped, $last): void {
+            $registration = $passkeys->registrationOptions($identity, self::USER_NAME);
+            $registered   = $passkeys->register($identity, $registration->challengeId, $this->authenticator()->create($registration->options));
+
+            $guard->setDispatcher($swapped);
+
+            $factor = $passkeys->factorOptions($identity);
+
+            self::assertTrue($passkeys->verifyFactor($identity, $factor->challengeId, $this->authenticator()->get($factor->options))->isVerified());
+            self::assertNotNull($registered->passkey);
+            self::assertTrue($passkeys->remove($identity, $registered->passkey->id));
+
+            $guard->setDispatcher($last);
+        });
+
+        self::assertSame([PasskeyAdded::class], $this->recordedClasses());
+        self::assertSame([PasskeyUsed::class, PasskeyRemoved::class], $received);
+        self::assertSame([], $late);
     }
 
     /**

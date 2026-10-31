@@ -21,13 +21,13 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidScopeException;
-use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Models\ApiKey;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Scopes\Scopes;
 
 /**
@@ -54,8 +54,8 @@ use SineMacula\Laravel\Authentication\Scopes\Scopes;
  * form, and none otherwise, so a secret sent as the id is never reported; a
  * grant dispatches `ClientCredentialsGranted`.
  *
- * Reads the guard's provider, resolver, dispatcher and request each time it
- * runs, so it keeps nothing between calls.
+ * Reads the provider, resolver, dispatcher and request from the guard's context
+ * each time it runs, so it keeps nothing between calls.
  *
  * @api
  *
@@ -73,13 +73,13 @@ final readonly class ClientCredentialsExchange
     /**
      * Constructor.
      *
-     * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
+     * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
      * @param  \Illuminate\Contracts\Container\Container  $container
      */
     public function __construct(
 
-        /** The guard the access tokens are for. */
-        private JwtGuard $guard,
+        /** The context of the guard the access tokens are for. */
+        private GuardContext $context,
 
         /** Container the audience policy, the attempt limiter and the token services are resolved from. */
         private Container $container,
@@ -104,7 +104,7 @@ final readonly class ClientCredentialsExchange
      */
     public function exchange(string $clientId, #[\SensitiveParameter] string $clientSecret, ?string $scope = null, ?ClientContext $client = null): ClientCredentialsResult
     {
-        return $this->exchangeFor(new PresentedClient($clientId, $clientSecret, $scope, false), $client ?? ClientContext::fromRequest($this->guard->getRequest()));
+        return $this->exchangeFor(new PresentedClient($clientId, $clientSecret, $scope, false), $client ?? $this->context->client());
     }
 
     /**
@@ -126,7 +126,7 @@ final readonly class ClientCredentialsExchange
      */
     public function fromRequest(?Request $request = null): ClientCredentialsResult
     {
-        $request ??= $this->guard->getRequest();
+        $request ??= $this->context->request();
         $client    = ClientContext::fromRequest($request);
         $presented = ClientCredentialsRequest::read($request);
 
@@ -136,7 +136,7 @@ final readonly class ClientCredentialsExchange
 
         $basic = ClientCredentialsRequest::usesBasic($request) && $presented === ClientCredentialsResult::INVALID_CLIENT;
 
-        return $this->refuse(new EventContext($this->guard->getName(), $client, method: self::METHOD), FailureReason::INVALID_CREDENTIALS, $presented, null, null, $basic);
+        return $this->refuse(new EventContext($this->context->name(), $client, method: self::METHOD), FailureReason::INVALID_CREDENTIALS, $presented, null, null, $basic);
     }
 
     /**
@@ -154,7 +154,7 @@ final readonly class ClientCredentialsExchange
      */
     private function exchangeFor(PresentedClient $presented, ClientContext $client): ClientCredentialsResult
     {
-        $guard    = $this->guard->getName();
+        $guard    = $this->context->name();
         $context  = new EventContext($guard, $client, method: self::METHOD);
         $audience = $this->audience();
 
@@ -199,7 +199,7 @@ final readonly class ClientCredentialsExchange
         AudiencePolicy $audience,
     ): ClientCredentialsResult {
         $now     = CarbonImmutable::now()->startOfSecond();
-        $outcome = (new ApiKeyAuthentication($this->guard->getName(), self::METHOD, $this->guard->getProvider(), $this->guard->getPrincipalResolver(), $audience))
+        $outcome = (new ApiKeyAuthentication($this->context->name(), self::METHOD, $this->context->provider(), $this->context->resolver(), $audience))
             ->authenticate($presented->clientId, $presented->clientSecret(), $now);
 
         if ($outcome->admission instanceof Refused || $outcome->key === null) {
@@ -260,7 +260,7 @@ final readonly class ClientCredentialsExchange
 
         ApiKeyLookup::recordUse($key, $now);
 
-        $this->guard->getDispatcher()->dispatch(new ClientCredentialsGranted($context));
+        $this->context->dispatch(new ClientCredentialsGranted($context));
 
         return ClientCredentialsResult::granted($token, $expires - $now->getTimestamp(), $scopes);
     }
@@ -280,10 +280,10 @@ final readonly class ClientCredentialsExchange
         $refused = $outcome->admission instanceof Refused ? $outcome->admission : new Refused(FailureReason::CREDENTIAL_INVALID);
         $error   = $refused->reason === FailureReason::PRINCIPAL_INELIGIBLE ? ClientCredentialsResult::UNAUTHORIZED_CLIENT : ClientCredentialsResult::INVALID_CLIENT;
 
-        $guard = $this->guard->getName();
+        $guard = $this->context->name();
         $realm = $presented->basic && $error === ClientCredentialsResult::INVALID_CLIENT ? $guard : null;
 
-        $this->guard->getDispatcher()->dispatch($outcome->failure($refused, $guard, AuthenticationFlow::CLIENT_CREDENTIALS, self::METHOD, $client, $presented->reportedId()));
+        $this->context->dispatch($outcome->failure($refused, $guard, AuthenticationFlow::CLIENT_CREDENTIALS, self::METHOD, $client, $presented->reportedId()));
 
         return ClientCredentialsResult::failed($refused->reason, $error, null, $realm);
     }
@@ -303,9 +303,9 @@ final readonly class ClientCredentialsExchange
     {
         $failure = new AuthenticationFailed($context, AuthenticationFlow::CLIENT_CREDENTIALS, $reason, $clientId, $retryAfter);
 
-        $this->guard->getDispatcher()->dispatch($failure);
+        $this->context->dispatch($failure);
 
-        return ClientCredentialsResult::failed($reason, $error, $retryAfter, $basic ? $this->guard->getName() : null);
+        return ClientCredentialsResult::failed($reason, $error, $retryAfter, $basic ? $this->context->name() : null);
     }
 
     /**
