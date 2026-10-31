@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use Tests\Integration\Fixtures\Coexist2dIdentity;
 use Tests\Integration\Fixtures\Coexist3dIdentity;
@@ -546,16 +547,6 @@ final class JwtGuardBenchHarness
      */
     private function makeGuard(string $name, ModelProvider $provider, Request $request): JwtGuard
     {
-        $exchange = new RefreshTokenExchange(
-            $this->tokens,
-            $provider,
-            BenchDatabase::connectionResolver(),
-            static fn (): null => null,
-            $this->events,
-            $this->resolver,
-            $name,
-        );
-
         return new JwtGuard(
             $name,
             $provider,
@@ -564,7 +555,12 @@ final class JwtGuardBenchHarness
             $request,
             $this->timebox,
             $this->tokens,
-            $exchange,
+            fn (GuardContext $context): RefreshTokenExchange => new RefreshTokenExchange(
+                $this->tokens,
+                $context,
+                BenchDatabase::connectionResolver(),
+                static fn (): null => null,
+            ),
             fn (JwtGuard $guard, \Closure $timebox): SessionService => new SessionService(
                 $guard,
                 $timebox,

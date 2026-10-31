@@ -18,8 +18,8 @@ use Tests\Unit\Stubs\StubCredentialGuard;
  * that implement a new guard type.
  *
  * Drives `bindAuthenticationLifecycle()`, `setIdentity()`,
- * `fireValidatedEvent()`, `resolvePrincipal()`, and `timeboxMicroseconds()`
- * from a subclass so the extension surface stays callable and behaves as
+ * `fireValidatedEvent()`, `resolvePrincipal()`, and the guard context's timebox
+ * budget from a subclass so the extension surface stays callable and behaves as
  * documented.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

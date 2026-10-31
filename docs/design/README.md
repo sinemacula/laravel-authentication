@@ -17,6 +17,8 @@ The current note set is:
 
 - `guard-lifecycle-and-events.md`: standard Laravel auth events plus the package contextual events, and the exact
   successful event order for `attempt()`, direct `login()`, bearer auth, and refresh.
+- `guard-context.md`: the one context a guard's flows run on (its name, provider, resolver, dispatcher, request and
+  credential timebox), how a rebind reaches every flow built before it, and what a flow may keep from it.
 - `event-model.md`: the context every package event carries, what survives a queue, when an event that reports a write
   is dispatched, and the one failure event.
 - `outcomes.md`: how the package's services answer: refusals as values, what `null` and `bool` may mean, the shape of a

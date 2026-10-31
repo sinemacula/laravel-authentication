@@ -31,6 +31,7 @@ use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 use Tests\Fixtures\Sessions\PermissiveAudiencePolicy;
@@ -549,16 +550,6 @@ final class RefreshTokenExchangeBenchHarness
     {
         $provider ??= $this->provider;
 
-        $exchange = new RefreshTokenExchange(
-            $this->tokens,
-            $provider,
-            BenchDatabase::connectionResolver(),
-            static fn (): null => null,
-            $this->events,
-            $this->resolver,
-            'api',
-        );
-
         return new JwtGuard(
             'api',
             $provider,
@@ -567,7 +558,12 @@ final class RefreshTokenExchangeBenchHarness
             Request::create('/bench/refresh', 'POST'),
             $this->timebox,
             $this->tokens,
-            $exchange,
+            fn (GuardContext $context): RefreshTokenExchange => new RefreshTokenExchange(
+                $this->tokens,
+                $context,
+                BenchDatabase::connectionResolver(),
+                static fn (): null => null,
+            ),
             fn (JwtGuard $guard, \Closure $timebox): SessionService => new SessionService(
                 $guard,
                 $timebox,

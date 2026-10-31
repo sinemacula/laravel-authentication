@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\TestCase;
@@ -210,15 +211,6 @@ final class DeviceModelOverrideTest extends TestCase
         $resolver = new StubTwoDPrincipalResolver;
         $tokens   = PackageAuth::jwt('custom-jwt');
         $events   = app(Dispatcher::class);
-        $exchange = new RefreshTokenExchange(
-            $tokens,
-            $provider,
-            app(ConnectionResolverInterface::class),
-            static fn (): mixed => app('db.transactions'),
-            $events,
-            $resolver,
-            'custom-jwt',
-        );
 
         return new JwtGuard(
             'custom-jwt',
@@ -228,7 +220,12 @@ final class DeviceModelOverrideTest extends TestCase
             app('request'),
             app(Timebox::class),
             $tokens,
-            $exchange,
+            static fn (GuardContext $context): RefreshTokenExchange => new RefreshTokenExchange(
+                $tokens,
+                $context,
+                app(ConnectionResolverInterface::class),
+                static fn (): mixed => app('db.transactions'),
+            ),
             static fn (JwtGuard $guard, \Closure $timebox): SessionService => new SessionService(
                 $guard,
                 $timebox,

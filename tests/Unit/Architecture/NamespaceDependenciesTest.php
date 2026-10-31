@@ -7,6 +7,7 @@ namespace Tests\Unit\Architecture;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 
 /**
  * Holds the package's namespaces to the dependency rules its design states:
@@ -24,6 +25,9 @@ use PHPUnit\Framework\TestCase;
  * tokenised, not parsed, so a name built at run time (a class name in a string,
  * say) and an unqualified name of a class in the same namespace are not seen:
  * the test is a backstop for the rules, not a proof of them.
+ *
+ * One rule is about calls rather than names: only the guards call the rebind
+ * methods of a `GuardContext`, so each context has one rebind path, its guard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -65,6 +69,12 @@ final class NamespaceDependenciesTest extends TestCase
             'forbids' => ['Jwt', 'Sessions', 'Guards'],
             'allows'  => [],
         ],
+        'the guard context names nothing of guards, sessions or tokens' => [
+            'from'    => ['Runtime'],
+            'except'  => [],
+            'forbids' => ['Guards', 'Sessions', 'Jwt'],
+            'allows'  => [],
+        ],
         'tokens, API keys and client credentials name nothing of sessions but the sign-in request' => [
             'from'    => ['Jwt', 'ApiKeys', 'ClientCredentials'],
             'except'  => [],
@@ -93,6 +103,9 @@ final class NamespaceDependenciesTest extends TestCase
 
     /** @var ?array<string, list<string>> Every class of the package and the package names it names, read once. */
     private static ?array $names = null;
+
+    /** @var ?array<string, string> Every class of the package and its source, read once. */
+    private static ?array $sources = null;
 
     /**
      * Rows of `[from, except, forbids, allows]`: each rule.
@@ -139,6 +152,62 @@ final class NamespaceDependenciesTest extends TestCase
         foreach ([...$from, ...$except, ...$forbids, ...$allows] as $named) {
             self::assertNotSame([], array_filter($classes, static fn (string $class): bool => self::isWithin($class, [$named])), "No class of the package is in {$named}.");
         }
+    }
+
+    /**
+     * Only the guards rebind a guard's context: no class outside `Guards` calls
+     * one of `GuardContext`'s `rebind*()` methods, so the guard that owns a
+     * context is its one rebind path.
+     *
+     * @return void
+     */
+    public function testOnlyTheGuardsRebindAGuardContext(): void
+    {
+        $calls = [];
+
+        foreach (self::sources() as $class => $source) {
+
+            if (self::isWithin($class, ['Guards'])) {
+                continue;
+            }
+
+            foreach (self::rebindsIn($source) as $method) {
+                $calls[] = "{$class} calls {$method}()";
+            }
+        }
+
+        self::assertSame([], $calls);
+    }
+
+    /**
+     * The scanner finds a call of each of the context's rebind methods, through
+     * `->` or `?->` and in any case, and nothing for a declaration, a function
+     * call, or a method of another name that starts the same way.
+     *
+     * @return void
+     */
+    public function testTheScannerFindsEveryCallOfAContextRebind(): void
+    {
+        $source = <<<'PHP'
+            <?php
+
+            final class Example
+            {
+                public function rebindRequest(): void {}
+
+                public function run(): void
+                {
+                    $this->context->rebindRequest($request);
+                    $context?->rebindEvents($events);
+                    $this->context->REBINDRESOLVER($resolver);
+                    $app->rebinding('request', $callback);
+                    $this->rebindFrom($manager);
+                    rebindRequest();
+                }
+            }
+            PHP;
+
+        self::assertSame(['rebindRequest', 'rebindEvents', 'rebindResolver'], self::rebindsIn($source));
     }
 
     /**
@@ -369,13 +438,24 @@ final class NamespaceDependenciesTest extends TestCase
      */
     private static function names(): array
     {
-        if (self::$names !== null) {
-            return self::$names;
+        return self::$names ??= array_map(self::namesIn(...), self::sources());
+    }
+
+    /**
+     * Every class of the package and its source, by its name relative to the
+     * package, read once.
+     *
+     * @return array<string, string>
+     */
+    private static function sources(): array
+    {
+        if (self::$sources !== null) {
+            return self::$sources;
         }
 
-        $source = dirname(__DIR__, 3) . '/src/';
-        $files  = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($source, \FilesystemIterator::SKIP_DOTS));
-        $names  = [];
+        $source  = dirname(__DIR__, 3) . '/src/';
+        $files   = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($source, \FilesystemIterator::SKIP_DOTS));
+        $sources = [];
 
         foreach ($files as $file) {
 
@@ -387,12 +467,63 @@ final class NamespaceDependenciesTest extends TestCase
 
             $class = str_replace('/', '\\', substr($file->getPathname(), strlen($source), -4));
 
-            $names[$class] = self::namesIn((string) file_get_contents($file->getPathname()));
+            $sources[$class] = (string) file_get_contents($file->getPathname());
         }
 
-        ksort($names);
+        ksort($sources);
 
-        return self::$names = $names;
+        return self::$sources = $sources;
+    }
+
+    /**
+     * The context rebind methods the source calls, in order, each as
+     * `GuardContext` declares it.
+     *
+     * @param  string  $source
+     * @return list<string>
+     */
+    private static function rebindsIn(string $source): array
+    {
+        $rebinds = self::contextRebinds();
+        $tokens  = self::tokens($source);
+        $calls   = [];
+
+        foreach ($tokens as $index => $token) {
+
+            $method = $tokens[$index + 1] ?? null;
+
+            if (!self::isCallOperator($token) || !is_array($method) || $method[0] !== T_STRING || ($tokens[$index + 2] ?? null) !== '(') {
+                continue;
+            }
+
+            $calls[] = $rebinds[strtolower($method[1])] ?? null;
+        }
+
+        return array_values(array_filter($calls, static fn (?string $call): bool => $call !== null));
+    }
+
+    /**
+     * The rebind methods `GuardContext` declares, by their lower-cased names.
+     *
+     * @return array<string, string>
+     */
+    private static function contextRebinds(): array
+    {
+        $methods = array_map(static fn (\ReflectionMethod $method): string => $method->getName(), (new \ReflectionClass(GuardContext::class))->getMethods());
+        $rebinds = array_filter($methods, static fn (string $method): bool => str_starts_with($method, 'rebind'));
+
+        return array_combine(array_map(strtolower(...), $rebinds), $rebinds);
+    }
+
+    /**
+     * Whether the token is an object operator, `->` or `?->`.
+     *
+     * @param  array{0: int, 1: string, 2: int}|string  $token
+     * @return bool
+     */
+    private static function isCallOperator(array|string $token): bool
+    {
+        return is_array($token) && in_array($token[0], [T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR], true);
     }
 
     /**

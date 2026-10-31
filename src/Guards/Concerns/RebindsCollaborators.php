@@ -10,9 +10,11 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 
 /**
  * Rebinds the collaborators a guard holds when the container swaps them: the
- * request being served, the event dispatcher and the principal resolver. The
- * service provider wires these to the container's rebinding callbacks, so a
- * guard resolved once follows every later request and every swap.
+ * request being served, the event dispatcher and the principal resolver. Each
+ * is rebound on the guard's context, the one copy every flow of the guard
+ * reads. The service provider wires these to the container's rebinding
+ * callbacks, so a guard resolved once follows every later request and every
+ * swap.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -31,7 +33,8 @@ trait RebindsCollaborators
      */
     public function setRequest(Request $request): static
     {
-        $this->request           = $request;
+        $this->context->rebindRequest($request);
+
         $this->lastRetrievedUser = null;
         $this->requestResolved   = false;
         $this->clearContextualState();
@@ -48,7 +51,7 @@ trait RebindsCollaborators
      */
     public function setDispatcher(Dispatcher $events): static
     {
-        $this->events = $events;
+        $this->context->rebindEvents($events);
 
         return $this;
     }
@@ -63,7 +66,7 @@ trait RebindsCollaborators
      */
     public function setPrincipalResolver(PrincipalResolver $resolver): static
     {
-        $this->resolver = $resolver;
+        $this->context->rebindResolver($resolver);
 
         return $this;
     }

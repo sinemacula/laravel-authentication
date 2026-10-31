@@ -172,13 +172,9 @@ abstract class SiblingPoliciesTestCase extends TestCase
      *
      * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
      * @return mixed
-     *
-     * @throws \ReflectionException
-     *
-     * @SuppressWarnings("php:S3011")
      */
     private static function resolverOf(JwtGuard $guard): mixed
     {
-        return (new \ReflectionProperty($guard, 'resolver'))->getValue($guard);
+        return $guard->getPrincipalResolver();
     }
 }

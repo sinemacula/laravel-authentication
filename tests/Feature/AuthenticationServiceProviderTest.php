@@ -60,6 +60,7 @@ use SineMacula\Laravel\Authentication\Passwords\NotifyingResetLinkSender;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Scopes\AcceptAnyScope;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
@@ -453,8 +454,8 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         self::assertInstanceOf(RefreshTokenExchange::class, $exchange);
         self::assertSame(
-            $this->readObjectProperty($guard, 'resolver'),
-            $this->readObjectProperty($exchange, 'resolver'),
+            $guard->getPrincipalResolver(),
+            $this->contextOf($exchange)->resolver(),
         );
 
         $replacement = new StubReplacementPrincipalResolver;
@@ -462,8 +463,8 @@ final class AuthenticationServiceProviderTest extends TestCase
         assert($this->app !== null);
         $this->app->instance(PrincipalResolver::class, $replacement);
 
-        self::assertSame($replacement, $this->readObjectProperty($guard, 'resolver'));
-        self::assertSame($replacement, $this->readObjectProperty($exchange, 'resolver'));
+        self::assertSame($replacement, $guard->getPrincipalResolver());
+        self::assertSame($replacement, $this->contextOf($exchange)->resolver());
     }
 
     /**
@@ -480,21 +481,21 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $guard);
 
-        $resolver = $this->readObjectProperty($guard, 'resolver');
+        $resolver = $guard->getPrincipalResolver();
         $exchange = $this->readObjectProperty($guard, 'exchange');
 
         self::assertInstanceOf(StubGuardScopedPrincipalResolver::class, $resolver);
         self::assertInstanceOf(RefreshTokenExchange::class, $exchange);
-        self::assertSame($resolver, $this->readObjectProperty($exchange, 'resolver'));
+        self::assertSame($resolver, $this->contextOf($exchange)->resolver());
 
         $replacement = new StubReplacementPrincipalResolver;
 
         assert($this->app !== null);
         $this->app->instance(PrincipalResolver::class, $replacement);
 
-        self::assertSame($resolver, $this->readObjectProperty($guard, 'resolver'));
-        self::assertSame($resolver, $this->readObjectProperty($exchange, 'resolver'));
-        self::assertNotSame($replacement, $this->readObjectProperty($guard, 'resolver'));
+        self::assertSame($resolver, $guard->getPrincipalResolver());
+        self::assertSame($resolver, $this->contextOf($exchange)->resolver());
+        self::assertNotSame($replacement, $guard->getPrincipalResolver());
     }
 
     /**
@@ -601,7 +602,7 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         Event::fake([Attempting::class, Failed::class, AuthenticationFailed::class]);
 
-        self::assertSame(Event::getFacadeRoot(), $this->readObjectProperty($guard, 'events'));
+        self::assertSame(Event::getFacadeRoot(), $guard->getDispatcher());
         self::assertFalse($guard->attempt(['password' => 'not-a-real-password']));
 
         Event::assertDispatched(Attempting::class, static fn (Attempting $event): bool => $event->guard === 'api');
@@ -630,7 +631,7 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         Event::fake([Attempting::class, Failed::class, AuthenticationFailed::class]);
 
-        self::assertSame(Event::getFacadeRoot(), $this->readObjectProperty($this->readObjectProperty($guard, 'exchange'), 'events'));
+        self::assertSame(Event::getFacadeRoot(), $this->contextOf($this->readObjectProperty($guard, 'exchange'))->events());
         self::assertNull($guard->refresh('not-a-jwt'));
 
         Event::assertDispatched(
@@ -1025,6 +1026,25 @@ final class AuthenticationServiceProviderTest extends TestCase
         $this->beforeApplicationDestroyed(static function () use ($migration): void {
             $migration->down();
         });
+    }
+
+    /**
+     * The guard context a refresh exchange is bound to.
+     *
+     * @param  mixed  $exchange
+     * @return \SineMacula\Laravel\Authentication\Runtime\GuardContext
+     *
+     * @throws \ReflectionException
+     */
+    private function contextOf(mixed $exchange): GuardContext
+    {
+        assert($exchange instanceof RefreshTokenExchange);
+
+        $context = $this->readObjectProperty($exchange, 'context');
+
+        assert($context instanceof GuardContext);
+
+        return $context;
     }
 
     /**

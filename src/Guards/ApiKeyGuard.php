@@ -19,7 +19,6 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
-use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 
 /**
@@ -68,9 +67,9 @@ final class ApiKeyGuard extends AbstractGuard
     #[\Override]
     public function attempt(#[\SensitiveParameter] array $credentials, ?Principal $principal = null, ?Device $device = null): bool
     {
-        $context = new EventContext($this->name, ClientContext::fromRequest($this->request), method: PasswordSignIn::NAME);
+        $context = new EventContext($this->context->name(), $this->context->client(), method: PasswordSignIn::NAME);
 
-        $this->events->dispatch(new AuthenticationFailed($context, AuthenticationFlow::SIGN_IN, FailureReason::METHOD_NOT_ALLOWED));
+        $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::SIGN_IN, FailureReason::METHOD_NOT_ALLOWED));
 
         return false;
     }
@@ -108,7 +107,7 @@ final class ApiKeyGuard extends AbstractGuard
     #[\Override]
     protected function resolveUserFromRequest(): ?Identity
     {
-        $presented = $this->request->bearerToken();
+        $presented = $this->context->request()->bearerToken();
 
         if ($presented === null || $presented === '') {
             return null;
@@ -120,7 +119,7 @@ final class ApiKeyGuard extends AbstractGuard
 
         if ($admission instanceof Refused || $outcome->key === null) {
 
-            $this->events->dispatch($outcome->failure($admission, $this->name, AuthenticationFlow::API_KEY, self::METHOD, ClientContext::fromRequest($this->request)));
+            $this->context->dispatch($outcome->failure($admission, $this->context->name(), AuthenticationFlow::API_KEY, self::METHOD, $this->context->client()));
 
             return null;
         }
@@ -150,6 +149,8 @@ final class ApiKeyGuard extends AbstractGuard
         /** @var \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy $audience */
         $audience = Container::getInstance()->make(AudiencePolicy::class);
 
-        return (new ApiKeyAuthentication($this->name, self::METHOD, $this->provider, $this->resolver, $audience))->authenticate($public, $secret, $now);
+        $context = $this->context;
+
+        return (new ApiKeyAuthentication($context->name(), self::METHOD, $context->provider(), $context->resolver(), $audience))->authenticate($public, $secret, $now);
     }
 }
