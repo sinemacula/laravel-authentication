@@ -117,7 +117,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   were found, and the `did` the token named.
 - A guest on a route that only package guards protect gets a JSON `401` whatever its `Accept` header: the package's
   `Http\Middleware\Authenticate` raises the `AuthenticationException` without evaluating Laravel's guest redirect, and
-  `Http\UnauthenticatedResponse` renders it. Any other guard on the route keeps Laravel's response.
+  `Http\UnauthenticatedResponse` renders it, translating the message into the application's locale as it renders, with
+  the message as the JSON key (`Http\ConsumerMessages`), so the `Unauthenticated.` of Laravel's own middleware is
+  translated too. Any other guard on the route keeps Laravel's response.
 - A failed `attempt()` emits `Attempting`, `Failed` and then the package `AuthenticationFailed` (flow `sign_in`) with a
   `FailureReason`, but not `Login` or `Authenticated`. `Failed` carries the account the credentials found (as Laravel's
   guards do), `AuthenticationFailed` only an identity whose password was accepted, plus the principal and tenant once
@@ -206,7 +208,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `auth` middleware binding, and the guest response render callback.
 - `src/Runtime/GuardContext.php`: the one copy of the guard's dispatcher, resolver and request, which the guard and its
   refresh exchange both read (see `guard-context.md`).
-- `src/Http/Middleware/Authenticate.php`, `src/Http/UnauthenticatedResponse.php`: the package guards' `401`.
+- `src/Http/Middleware/Authenticate.php`, `src/Http/UnauthenticatedResponse.php`: the package guards' `401`;
+  `src/Http/ConsumerMessages.php`: its translation.
 - `src/Listeners/RecordDeviceUsage.php` and `src/Http/ClientContext.php`: the last-use write for bound devices.
 - `src/Jwt/RefreshTokenExchange.php`: `revokeDevice()` and the `DeviceRevoked` dispatch, deferred to the device
   connection's commit by `Database\AfterCommit::run()`; `src/Events/DeviceRevoked.php`.
@@ -283,6 +286,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testAttemptingAndFailedEventsCarryNoPasswordLikeCredentials`
 - `tests/Integration/Http/UnauthenticatedResponseIntegrationTest.php`
   `testGuestOnPackageGuardGetsUnauthorized`, `testGuestOnSessionGuardKeepsLaravelsResponse`
+- `tests/Feature/Http/LocalisedMessagesTest.php`
+  `testThePackageMiddlewaresUnauthorizedIsInTheLocale`, `testLaravelsMiddlewaresUnauthorizedIsInTheLocale`
 - `tests/Integration/Guards/PinnedContextOwnershipIntegrationTest.php`
   `testPrincipalOfAnotherClassWithTheSameIdentifierFailsTheAttempt`, `testAnotherMembersDeviceFailsTheAttempt`
 - `tests/Integration/Guards/PinnedContextOwnershipIntegrationTest.php`

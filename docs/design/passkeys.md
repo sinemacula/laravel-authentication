@@ -104,7 +104,8 @@ package's.
   `invalid_credentials` cases above and a regressed counter) gives the same result and takes the whole credential
   timebox, whether or not an owner was looked up; `signInOptions()` does no identity work. The one-time codes, API keys
   and client credentials are held to the same criterion (`one-time-codes.md`, `machine-credentials.md`).
-- `signInOptions()` past its limit throws `ThrottleRequestsException` (429, `Retry-After`) and writes nothing.
+- `signInOptions()` past its limit throws `ThrottleRequestsException` (429, `Retry-After`) and writes nothing; its
+  message, `Too Many Attempts.`, is translated into the application's locale.
 - webauthn-lib reports malformed input and failed checks by throwing exceptions of every kind, and PHP warnings on
   input of the wrong shape, which Laravel's error handler raises as exceptions; `WebAuthn::refusing()` turns any of them
   into a refusal. Its steps read only the answer, the options and the stored credential, so nothing else is hidden; a
@@ -131,6 +132,7 @@ package's.
 
 - `tests/Feature/Passkeys/PasskeyServiceTest.php`, `tests/Feature/Passkeys/PasskeySignInTest.php`,
   `tests/Feature/Passkeys/PasskeyAssertionsTest.php`, `tests/Feature/Passkeys/PasskeyRoutesTest.php` (over HTTP).
+- `tests/Feature/Http/LocalisedMessagesTest.php` `testThrottledSignInOptionsAreInTheLocale`
 - `tests/Feature/Passkeys/WebAuthnTest.php`, `tests/Unit/Passkeys/RelyingPartyTest.php`,
   `tests/Unit/Passkeys/SignCounterTest.php`, with the software authenticator
   `tests/Fixtures/Passkeys/VirtualAuthenticator.php`.
