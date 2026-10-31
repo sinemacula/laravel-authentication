@@ -16,6 +16,9 @@ use Illuminate\Database\Schema\Builder as SchemaBuilder;
  */
 final class BenchDatabase
 {
+    /** @var string The name of the shared connection, which the bench configs give as database.default. */
+    public const string CONNECTION = 'default';
+
     /** @var ?\Illuminate\Database\Capsule\Manager Shared database capsule. @managed-static Reused across phpbench iterations. */
     private static ?Capsule $capsule = null;
 
@@ -45,7 +48,7 @@ final class BenchDatabase
             'driver'   => 'sqlite',
             'database' => ':memory:',
             'prefix'   => '',
-        ]);
+        ], self::CONNECTION);
         $capsule->setAsGlobal();
         $capsule->bootEloquent();
 
