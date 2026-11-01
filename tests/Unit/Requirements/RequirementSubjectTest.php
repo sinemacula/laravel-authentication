@@ -30,8 +30,8 @@ final class RequirementSubjectTest extends TestCase
 {
     /**
      * The subject hands its query's arguments to the package's reader, at
-     * either end of the limit's range, and returns what it reads, and holds
-     * the first factor however the query answers.
+     * either end of the limit's range, and returns what it reads, and holds the
+     * first factor however the query answers.
      *
      * @return void
      */

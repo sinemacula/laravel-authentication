@@ -90,10 +90,9 @@ final class PendingTransitionsTest extends TestCase
     /**
      * The session returns to pending on `mfa` with a new pending credential of
      * the configured lifetime, its floor moved to now, keeping its principal
-     * and tenant and recording the policy version the caller judged it
-     * against, the session given holding what was written as stored; the
-     * report follows, naming no previous principal or tenant, since neither
-     * changed.
+     * and tenant and recording the policy version the caller judged it against,
+     * the session given holding what was written as stored; the report follows,
+     * naming no previous principal or tenant, since neither changed.
      *
      * @return void
      *

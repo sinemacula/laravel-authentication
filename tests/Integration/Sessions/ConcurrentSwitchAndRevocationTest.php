@@ -429,7 +429,8 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
      */
     private function signIn(ActivatableTenantMembership $membership): SignedInSession
     {
-        $session = $this->sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'), SignInContext::fromRequest(request(), principal: $membership))->session;
+        $context = SignInContext::fromRequest(request(), principal: $membership);
+        $session = $this->sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'), $context)->session;
 
         self::assertNotNull($session);
 

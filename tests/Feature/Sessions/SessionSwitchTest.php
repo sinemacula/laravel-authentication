@@ -268,10 +268,10 @@ final class SessionSwitchTest extends TestCase
      * A switch dispatches the bind events for the target, then
      * `PrincipalSwitched` with the previous principal and tenant (their ids
      * kept apart, so neither is taken for the other) and both changes, but no
-     * `Login`; it records the target, the target's own tenant
-     * as the active one, the switch time and the rotation on the session, keeps
-     * the session's absolute deadline and restarts its idle one, and the guard
-     * acts in the target's tenant.
+     * `Login`; it records the target, the target's own tenant as the active
+     * one, the switch time and the rotation on the session, keeps the session's
+     * absolute deadline and restarts its idle one, and the guard acts in the
+     * target's tenant.
      *
      * @return void
      *

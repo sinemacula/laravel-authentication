@@ -115,8 +115,7 @@ final class TenantRequirementTest extends TestCase
     }
 
     /**
-     * A version of exactly 64 characters is kept, however many bytes they
-     * take.
+     * A version of exactly 64 characters is kept, however many bytes they take.
      *
      * @return void
      */

@@ -271,9 +271,9 @@ final class TenantPolicyCheckTest extends TestCase
     }
 
     /**
-     * A sign-in's evidence is read in place of the session's stored proofs
-     * when both are given: a further factor the session stores does not meet
-     * a requirement the sign-in's own proofs do not.
+     * A sign-in's evidence is read in place of the session's stored proofs when
+     * both are given: a further factor the session stores does not meet a
+     * requirement the sign-in's own proofs do not.
      *
      * @return void
      *
@@ -313,17 +313,18 @@ final class TenantPolicyCheckTest extends TestCase
         $session = $this->signedIn();
 
         $this->policy->requirement = new TenantRequirement('v7', connections: ['conn-a']);
-        $this->policy->asked       = [];
 
+        $before      = count($this->policy->asked);
         $requirement = TenantPolicyCheck::requirementFor('members', $member, $membership, $tenant, $session);
+        $asked       = array_slice($this->policy->asked, $before);
 
         self::assertSame($this->policy->requirement, $requirement);
-        self::assertCount(1, $this->policy->asked);
-        self::assertSame('members', $this->policy->asked[0]->application);
-        self::assertSame($member, $this->policy->asked[0]->identity);
-        self::assertSame($membership, $this->policy->asked[0]->principal);
-        self::assertSame($tenant, $this->policy->asked[0]->tenant);
-        self::assertSame($session, $this->policy->asked[0]->session);
+        self::assertCount(1, $asked);
+        self::assertSame('members', $asked[0]->application);
+        self::assertSame($member, $asked[0]->identity);
+        self::assertSame($membership, $asked[0]->principal);
+        self::assertSame($tenant, $asked[0]->tenant);
+        self::assertSame($session, $asked[0]->session);
     }
 
     /**

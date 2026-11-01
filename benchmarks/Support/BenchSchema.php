@@ -322,9 +322,9 @@ final class BenchSchema
      * The state, generation, start and deadlines of a session that starts
      * active now, with the package's default lifetimes: waiting on nothing,
      * superseding nothing, never switched and acting in no tenant, with a new
-     * generation on every call, as the session service writes for every
-     * session it inserts. Every state column is set, so the saved session
-     * reads as the row would load.
+     * generation on every call, as the session service writes for every session
+     * it inserts. Every state column is set, so the saved session reads as the
+     * row would load.
      *
      * @formatter:off
      *

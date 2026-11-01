@@ -1133,18 +1133,21 @@ final class PendingSessionsTest extends TestCase
             $connection->setQueryGrammar(new LockMarkingSQLiteGrammar($connection));
         }
 
-        $locks = [];
+        /** @var \ArrayObject<int, bool> $locks Whether each read of a session row locked it, in order. */
+        $locks = new \ArrayObject;
 
-        $connection->listen(static function (QueryExecuted $query) use (&$locks): void {
-            if (str_starts_with($query->sql, 'select') && str_contains($query->sql, 'authentication_sessions')) {
-                $locks[] = str_contains(strtolower($query->sql), 'for update');
+        $connection->listen(static function (QueryExecuted $query) use ($locks): void {
+            if (!str_starts_with($query->sql, 'select') || !str_contains($query->sql, 'authentication_sessions')) {
+                return;
             }
+
+            $locks[] = str_contains(strtolower($query->sql), 'for update');
         });
 
         $this->sessions()->pending($credential);
 
-        self::assertNotSame([], $locks);
-        self::assertNotContains(true, $locks);
+        self::assertNotSame([], $locks->getArrayCopy());
+        self::assertNotContains(true, $locks->getArrayCopy());
 
         $actions = [
             'satisfy' => fn (): mixed => $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::STEP_UP)),
@@ -1153,7 +1156,7 @@ final class PendingSessionsTest extends TestCase
         ];
 
         foreach ($actions as $name => $action) {
-            $locks = [];
+            $locks->exchangeArray([]);
 
             $action();
 
