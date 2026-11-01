@@ -35,6 +35,9 @@ The current note set is:
   reload on refresh.
 - `session-service.md`: how a guard's session service signs in, creates a session and revokes the one a client proved,
   issues the first pair, and reports it.
+- `session-record.md`: what the package calls the record it keeps per sign-in and why, the Laravel names it meets, the
+  `did` claim it keeps, what proves a previous session for replacement, the `superseded` reason, and the sessions
+  table's index names.
 - `session-lifecycle.md`: which sessions are active, how an identity's sessions are listed, how a session signs out and
   sessions are revoked (one, every session of an identity or a principal, and on security changes, by method or optional
   listener), and when ended sessions are pruned.
