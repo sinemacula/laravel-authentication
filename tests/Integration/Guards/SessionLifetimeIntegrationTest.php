@@ -137,6 +137,51 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
+     * Rows of `[seconds to the idle deadline, seconds to the absolute deadline
+     * or null for none, seconds the access token lasts]`: the access lifetime
+     * within a session that outlasts it, and either deadline when it comes
+     * first, down to its last second.
+     *
+     * @return iterable<string, array{0: int, 1: ?int, 2: int}>
+     */
+    public static function provideSessionEnds(): iterable
+    {
+        yield from [
+            'session outlasts the token' => [86400, 86400, 300],
+            'absolute deadline first'    => [3600, 120, 120],
+            'absolute deadline in 1 s'   => [3600, 1, 1],
+            'idle deadline first'        => [120, 36000, 120],
+            'idle deadline in 1 s'       => [1, 36000, 1],
+            'no absolute deadline'       => [86400, null, 300],
+            'no absolute, idle first'    => [120, null, 120],
+        ];
+    }
+
+    /**
+     * An access token for a session expires after the access lifetime, but
+     * never after the session's idle or absolute deadline, whichever comes
+     * first, or the idle one alone when it has no absolute one.
+     *
+     * @param  int  $idleIn
+     * @param  ?int  $absoluteIn
+     * @param  int  $expiresIn
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideSessionEnds')]
+    public function testAnAccessTokenNeverOutlivesItsSession(int $idleIn, ?int $absoluteIn, int $expiresIn): void
+    {
+        [$identity, $session] = $this->signIn();
+
+        $this->setDeadlines($session, $this->signedInAt->copy()->addSeconds($idleIn), $absoluteIn === null ? null : $this->signedInAt->copy()->addSeconds($absoluteIn));
+
+        $access = $this->claims($this->issue(TokenType::ACCESS, $identity, $this->stored($session)), TokenType::ACCESS);
+
+        self::assertSame($this->signedInAt->getTimestamp() + $expiresIn, $access[Claims::EXPIRES_AT->value]);
+    }
+
+    /**
      * Rows of `[token type]`: each kind of token the guard's service issues.
      *
      * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType}>
@@ -554,14 +599,14 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * Overwrite a session's deadlines on the row.
+     * Overwrite a session's deadlines on the row, `null` for no absolute one.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @param  \Carbon\CarbonInterface  $idle
-     * @param  \Carbon\CarbonInterface  $absolute
+     * @param  ?\Carbon\CarbonInterface  $absolute
      * @return void
      */
-    private function setDeadlines(Session $session, CarbonInterface $idle, CarbonInterface $absolute): void
+    private function setDeadlines(Session $session, CarbonInterface $idle, ?CarbonInterface $absolute): void
     {
         Session::query()->whereKey($session->getKey())->update([
             'idle_expires_at'     => $idle,

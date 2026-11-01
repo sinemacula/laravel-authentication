@@ -116,6 +116,7 @@ final class SignInBenchHarness
         BenchSchema::ensureIdentityTable('integration_identities');
         BenchSchema::ensureCodeIdentityTable();
         BenchSchema::ensureSessionTable();
+        BenchSchema::ensureProofTables();
         BenchSchema::ensureRateLimitTable();
         BenchSchema::ensureOneTimeCodeTable();
 

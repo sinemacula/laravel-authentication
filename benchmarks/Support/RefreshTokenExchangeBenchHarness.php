@@ -275,6 +275,7 @@ final class RefreshTokenExchangeBenchHarness
         BenchSchema::ensureIdentityTable('stub_principals');
         BenchSchema::ensureIdentityTable('tenant_aware_3d_identities');
         BenchSchema::ensureSessionTable();
+        BenchSchema::ensureProofTables();
         BenchSchema::ensureTenantTables();
     }
 
@@ -372,6 +373,8 @@ final class RefreshTokenExchangeBenchHarness
                 'refresh_key'          => RefreshTokenHasher::hash($rotationId),
                 'last_used_at'         => Carbon::now(),
             ])->save();
+
+            BenchSchema::recordFirstFactor($session);
 
             $pool[] = $this->tokens->issueRefreshToken($session, $rotationId, $principal);
         }

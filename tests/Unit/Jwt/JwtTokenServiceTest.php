@@ -11,7 +11,6 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Log\LoggerInterface;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
@@ -689,59 +688,6 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * An access token expires after the access lifetime when there is no
-     * session, or when the session outlasts the token.
-     *
-     * @return void
-     *
-     * @throws \Random\RandomException
-     */
-    public function testAccessTokenExpiresAfterTheAccessLifetimeWithinItsSession(): void
-    {
-        $expected = $this->now->getTimestamp() + (self::ACCESS_TTL_MINUTES * 60);
-
-        self::assertSame($expected, $this->accessExpiry(null));
-        self::assertSame($expected, $this->accessExpiry($this->mockSessionEndingAt('session-42', $this->now->copy()->addDay(), $this->now->copy()->addDay())));
-    }
-
-    /**
-     * An access token never expires after the absolute deadline of its session,
-     * even when the idle deadline lies beyond it.
-     *
-     * @return void
-     *
-     * @throws \Random\RandomException
-     */
-    public function testAccessTokenExpiresAtTheAbsoluteDeadlineWhenItComesFirst(): void
-    {
-        foreach ([120, 1] as $absoluteIn) {
-
-            $record = $this->mockSessionEndingAt('session-42', $this->now->copy()->addDay(), $this->now->copy()->addSeconds($absoluteIn));
-
-            self::assertSame($this->now->getTimestamp() + $absoluteIn, $this->accessExpiry($record));
-        }
-    }
-
-    /**
-     * An access token never expires after the idle deadline of its session
-     * either, from which the bearer path rejects it: an idle lifetime shorter
-     * than the access lifetime shortens the token to match.
-     *
-     * @return void
-     *
-     * @throws \Random\RandomException
-     */
-    public function testAccessTokenExpiresAtTheIdleDeadlineWhenItComesFirst(): void
-    {
-        foreach ([120, 1] as $idleIn) {
-
-            $record = $this->mockSessionEndingAt('session-42', $this->now->copy()->addSeconds($idleIn), $this->now->copy()->addDay());
-
-            self::assertSame($this->now->getTimestamp() + $idleIn, $this->accessExpiry($record));
-        }
-    }
-
-    /**
      * A caller that judged the session at a given time issues at that time:
      * `iat` and the access lifetime count from it, cut to the whole second.
      *
@@ -1159,24 +1105,5 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     private function secondsFromNow(?int $seconds): ?CarbonImmutable
     {
         return $seconds === null ? null : CarbonImmutable::instance($this->now)->addSeconds($seconds);
-    }
-
-    /**
-     * The `exp` claim of an access token the default service issues for the
-     * session.
-     *
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $record
-     * @return mixed
-     *
-     * @throws \Random\RandomException
-     */
-    private function accessExpiry(?Session $record): mixed
-    {
-        $service = $this->makeService();
-        $claims  = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, $record), TokenType::ACCESS);
-
-        self::assertIsArray($claims);
-
-        return $claims[Claims::EXPIRES_AT->value];
     }
 }
