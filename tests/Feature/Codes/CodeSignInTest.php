@@ -38,7 +38,7 @@ use Tests\Concerns\InteractsWithCodeIdentities;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Integration\Fixtures\CodeIdentity;
 use Tests\TestCase;
-use Tests\Unit\Stubs\StubReversingNormalizer;
+use Tests\Unit\Stubs\StubVerbatimNormalizer;
 
 /**
  * Feature tests for signing in with a one-time code sent to a phone number,
@@ -623,16 +623,18 @@ final class CodeSignInTest extends TestCase
     }
 
     /**
-     * Rows of `[length, whether it is recorded]`: destinations that fit the
-     * channel reference's 255 characters, and one that does not.
+     * Rows of `[destination, whether it is recorded]`: destinations that fit
+     * the channel reference's 255 characters (counted as characters, not
+     * bytes), and one that does not.
      *
-     * @return iterable<string, array{0: int, 1: bool}>
+     * @return iterable<string, array{0: string, 1: bool}>
      */
     public static function provideDestinationLengths(): iterable
     {
         yield from [
-            'one that fits'        => [255, true],
-            'one a character over' => [256, false],
+            'one that fits'               => [str_repeat('h', 255), true],
+            'one that fits in characters' => [str_repeat('é', 255), true],
+            'one a character over'        => [str_repeat('h', 256), false],
         ];
     }
 
@@ -641,23 +643,21 @@ final class CodeSignInTest extends TestCase
      * with it; a longer one, which a custom type's normaliser may keep, is
      * recorded with no reference rather than cut.
      *
-     * @param  int  $length
+     * @param  string  $handle
      * @param  bool  $recorded
      * @return void
      *
      * @throws \Throwable
      */
     #[DataProvider('provideDestinationLengths')]
-    public function testADestinationIsRecordedOnlyWhenItFits(int $length, bool $recorded): void
+    public function testADestinationIsRecordedOnlyWhenItFits(string $handle, bool $recorded): void
     {
         Schema::table('code_identities', static function (Blueprint $blueprint): void {
             $blueprint->text('handle')->nullable();
             $blueprint->dateTime('handle_verified_at')->nullable();
         });
 
-        $handle = str_repeat('h', $length);
-
-        config()->set('authentication.identifiers.normalizers.handle', StubReversingNormalizer::class);
+        config()->set('authentication.identifiers.normalizers.handle', StubVerbatimNormalizer::class);
         config()->set('auth.guards.mobile.application.methods', ['handle_code']);
 
         app(SignInMethodManager::class)->extend('handle_code', fn (Application $app): CodeSignIn => $app->make(CodeSignIn::class, ['type' => 'handle']));

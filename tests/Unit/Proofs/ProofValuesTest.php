@@ -278,7 +278,7 @@ final class ProofValuesTest extends TestCase
 
     /**
      * An empty method or factor reference, or one longer than its column, is
-     * refused; one of 255 characters fits.
+     * refused; one of 255 characters fits, counted as characters, not bytes.
      *
      * @param  string  $method
      * @param  ?string  $factor
@@ -288,6 +288,10 @@ final class ProofValuesTest extends TestCase
     public function testAProofResultRefusesNamesThatDoNotFit(string $method, ?string $factor): void
     {
         self::assertSame(str_repeat('f', 255), self::stepUpProof(str_repeat('m', 255), str_repeat('f', 255))->factor);
+
+        $wide = self::stepUpProof(str_repeat('é', 255), str_repeat('é', 255));
+
+        self::assertSame([str_repeat('é', 255), str_repeat('é', 255)], [$wide->method, $wide->factor]);
 
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('A proof\'s method, and its factor reference when it has one, must be from 1 to 255 characters.');
@@ -320,7 +324,8 @@ final class ProofValuesTest extends TestCase
 
     /**
      * A provenance keeps what the caller checked, its times cut to the whole
-     * second, and nothing but the connection by default.
+     * second, and nothing but the connection by default; each value fits up to
+     * its column's length in characters, not bytes.
      *
      * @return void
      */
@@ -337,6 +342,10 @@ final class ProofValuesTest extends TestCase
         self::assertNull($bare->providerAuthenticatedAt);
         self::assertNull($bare->sessionNotAfter);
         self::assertSame([255, 64], [Provenance::ID_MAX_LENGTH, Provenance::VERSION_MAX_LENGTH]);
+
+        $wide = new Provenance(str_repeat('é', 255), str_repeat('é', 255), policyVersion: str_repeat('é', 64));
+
+        self::assertSame([str_repeat('é', 255), str_repeat('é', 255), str_repeat('é', 64)], [$wide->connectionId, $wide->tenantId, $wide->policyVersion]);
     }
 
     /**
