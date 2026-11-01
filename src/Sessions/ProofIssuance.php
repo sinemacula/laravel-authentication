@@ -37,11 +37,16 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * session's start); and be admitted again as a refresh admits it (the owner,
  * the principal the session records and its tenant active, the method still
  * allowed, the principal still eligible). Then the proof is recorded and one
- * access token issued at `$now`, its `auth_time` and `amr` derived from the
- * proofs, the new one included, and answered with when it expires (the access
- * lifetime from `$now`, never past the session's end). Nothing else is written:
- * the refresh token, the deadlines and the session row stay as they were, so a
+ * access token issued, its `auth_time` and `amr` derived from the proofs, the
+ * new one included, and answered with when it expires (the access lifetime from
+ * its issue, never past the session's end). Nothing else is written: the
+ * refresh token, the deadlines and the session row stay as they were, so a
  * concurrent refresh's compare-and-swap is unaffected.
+ *
+ * Every check and the token are judged at the second the lock is taken, not
+ * when the caller began: a credential's verification and the wait for the lock
+ * can outlast the session's idle or absolute deadline, and a session that ended
+ * meanwhile is refused as ended.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -75,7 +80,6 @@ final readonly class ProofIssuance
      *
      * @param  mixed  $sessionId
      * @param  \SineMacula\Laravel\Authentication\Proofs\NewProof  $proof
-     * @param  \Carbon\CarbonImmutable  $now
      * @param  \Closure(\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, \Carbon\CarbonInterface): ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $accepts
      * @return array{0: \SineMacula\Laravel\Authentication\Admission\Admitted, 1: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 2: string, 3: \Carbon\CarbonImmutable}|\SineMacula\Laravel\Authentication\Admission\Refused
      *
@@ -85,9 +89,9 @@ final readonly class ProofIssuance
      *
      * @throws \Throwable
      */
-    public function issue(mixed $sessionId, NewProof $proof, CarbonImmutable $now, \Closure $accepts): array|Refused
+    public function issue(mixed $sessionId, NewProof $proof, \Closure $accepts): array|Refused
     {
-        return SessionLookup::model()->getConnection()->transaction(fn (): array|Refused => $this->issueOn($sessionId, $proof, $now, $accepts));
+        return SessionLookup::model()->getConnection()->transaction(fn (): array|Refused => $this->issueOn($sessionId, $proof, $accepts));
     }
 
     /**
@@ -99,7 +103,6 @@ final readonly class ProofIssuance
      *
      * @param  mixed  $sessionId
      * @param  \SineMacula\Laravel\Authentication\Proofs\NewProof  $proof
-     * @param  \Carbon\CarbonImmutable  $now
      * @param  \Closure(\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, \Carbon\CarbonInterface): ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $accepts
      * @return array{0: \SineMacula\Laravel\Authentication\Admission\Admitted, 1: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 2: string, 3: \Carbon\CarbonImmutable}|\SineMacula\Laravel\Authentication\Admission\Refused
      *
@@ -114,7 +117,7 @@ final readonly class ProofIssuance
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    private function issueOn(mixed $sessionId, NewProof $proof, CarbonImmutable $now, \Closure $accepts): array|Refused
+    private function issueOn(mixed $sessionId, NewProof $proof, \Closure $accepts): array|Refused
     {
         $session = SessionLookup::lock($sessionId);
 
@@ -122,6 +125,7 @@ final readonly class ProofIssuance
             return new Refused(FailureReason::SESSION_UNKNOWN);
         }
 
+        $now     = CarbonImmutable::now()->startOfSecond();
         $refusal = $this->refusal($session, $now, $accepts);
 
         $admitted = $refusal === null ? $this->admit($session) : new Refused($refusal, session: $session);

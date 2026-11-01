@@ -388,6 +388,43 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
+     * A session whose idle deadline passes while its credential is checked is
+     * judged at the time its lock is taken, not when the reauthentication
+     * began: it is refused as expired, and nothing is recorded or issued.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionThatEndsDuringTheCheckIsFoundEndedUnderTheLock(): void
+    {
+        $signedIn = $this->signedIn();
+        $deadline = $signedIn->record->getIdleExpiresAt();
+        $moved    = false;
+
+        self::assertNotNull($deadline);
+
+        DB::listen(function (QueryExecuted $query) use (&$moved, $deadline): void {
+            if ($moved || !str_contains($query->sql, 'integration_identities')) {
+                return;
+            }
+
+            $moved = true;
+
+            $this->clockAt(CarbonImmutable::instance($deadline));
+        });
+
+        $this->recordEvents([Reauthenticated::class, AuthenticationFailed::class]);
+
+        $result = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials());
+
+        self::assertTrue($moved);
+        self::assertSame([FailureReason::SESSION_EXPIRED, null], [$result->reason, $result->accessToken]);
+        self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame(0, SessionProof::query()->where('kind', 'first_factor_reauthentication')->count());
+    }
+
+    /**
      * A session acting as a membership in a tenant is reauthenticated with a
      * token that names the tenant the principal acts within.
      *

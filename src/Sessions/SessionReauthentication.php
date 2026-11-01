@@ -109,7 +109,7 @@ final readonly class SessionReauthentication
         [$stored, $factor, $at, $attempt] = $outcome;
 
         $proof  = new NewProof(ProofKind::FIRST_FACTOR_REAUTHENTICATION, Purpose::REAUTHENTICATE, $method, $factor->channel, null, $factor->observed, null, $factor->methods, $at);
-        $issued = $this->issuance->issue($stored->getSessionIdentifier(), $proof, $now, static fn (): ?FailureReason => null);
+        $issued = $this->issuance->issue($stored->getSessionIdentifier(), $proof, static fn (): ?FailureReason => null);
 
         if ($issued instanceof Refused) {
             return $this->fail($issued, $method);

@@ -77,7 +77,7 @@ final readonly class SessionStepUp
 
         $accepts = static fn (EloquentSession&Model $session, CarbonInterface $since): ?FailureReason => ProofAcceptance::forSession($proof, $session, $guard, $since, $now);
 
-        $outcome = $this->issuance->issue($proof->binding->sessionId, NewProof::fromResult($proof), $now, $accepts);
+        $outcome = $this->issuance->issue($proof->binding->sessionId, NewProof::fromResult($proof), $accepts);
 
         if ($outcome instanceof Refused) {
 
