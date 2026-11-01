@@ -905,6 +905,36 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
+     * A choice whose kept first factor cannot be read fails closed the same
+     * way: no session and no proof are written, and the choice, used up before
+     * it is read as every choice is whatever its outcome, is gone.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChoiceWithAnUnreadableFirstFactorFailsClosed(): void
+    {
+        [, $membership] = $this->seedChooser();
+
+        $choice = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'))->choice;
+
+        self::assertNotNull($choice);
+
+        DB::table('pending_sign_ins')->update(['first_factor' => '{"channel_kind":"carrier_pigeon"}']);
+
+        try {
+            $this->sessions(self::CHOOSERS)->choose($choice->token, $membership);
+
+            self::fail('Expected an unreadable first factor to fail closed.');
+        } catch (\LogicException $exception) {
+            self::assertSame('A pending sign-in keeps a first factor or provenance the package cannot read.', $exception->getMessage());
+        }
+
+        self::assertSame([0, 0, 0], [Session::query()->count(), SessionProof::query()->count(), PendingSignIn::query()->count()]);
+    }
+
+    /**
      * Configure the session guards.
      *
      * @param  mixed  $app
