@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -603,7 +604,7 @@ final class SessionReauthenticationTest extends TestCase
         $signedIn = $this->signedIn();
         $grace    = IdentifierCoercion::stringify($this->seedIdentity('grace@example.test')->getKey());
 
-        $result = $this->replacedDuringTheCheck($signedIn, ['authenticatable_id' => $grace, 'principal_id' => $grace]);
+        $result = $this->changedDuringTheCheck($signedIn, static fn (Builder $row): int => $row->update(['authenticatable_id' => $grace, 'principal_id' => $grace]));
 
         $this->assertNotTheSessionVerified($signedIn, $result);
     }
@@ -623,7 +624,25 @@ final class SessionReauthenticationTest extends TestCase
 
         $this->clockAt($this->now->addHour());
 
-        $result = $this->replacedDuringTheCheck($signedIn, ['signed_in_at' => $this->now->addHour()]);
+        $result = $this->changedDuringTheCheck($signedIn, fn (Builder $row): int => $row->update(['signed_in_at' => $this->now->addHour()]));
+
+        $this->assertNotTheSessionVerified($signedIn, $result);
+    }
+
+    /**
+     * A session deleted while its credential was checked is not found under the
+     * lock: the reauthentication is `session_unknown`, reported for the session
+     * verified, and nothing is recorded or issued.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionDeletedDuringTheCheckIsReportedForTheSessionVerified(): void
+    {
+        $signedIn = $this->signedIn();
+
+        $result = $this->changedDuringTheCheck($signedIn, static fn (Builder $row): int => $row->delete());
 
         $this->assertNotTheSessionVerified($signedIn, $result);
     }
@@ -663,35 +682,35 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * Reauthenticate the session with its owner's password, rewriting its row
-     * with the columns given once the credential is being checked, as if
-     * another session had been put under its key.
+     * Reauthenticate the session with its owner's password, changing its row as
+     * given once the credential is being checked, as if another session had
+     * been put under its key or the session deleted.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $signedIn
-     * @param  array<string, mixed>  $columns
+     * @param  \Closure(\Illuminate\Database\Query\Builder): int  $change
      * @return \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult
      *
      * @throws \Throwable
      */
-    private function replacedDuringTheCheck(SignedInSession $signedIn, array $columns): AccessTokenResult
+    private function changedDuringTheCheck(SignedInSession $signedIn, \Closure $change): AccessTokenResult
     {
-        $replaced = false;
+        $changed = false;
 
-        DB::listen(static function (QueryExecuted $query) use (&$replaced, $signedIn, $columns): void {
-            if ($replaced || !str_contains($query->sql, 'integration_identities')) {
+        DB::listen(static function (QueryExecuted $query) use (&$changed, $signedIn, $change): void {
+            if ($changed || !str_contains($query->sql, 'integration_identities')) {
                 return;
             }
 
-            $replaced = true;
+            $changed = true;
 
-            DB::table('authentication_sessions')->where('id', $signedIn->record->getKey())->update($columns);
+            $change(DB::table('authentication_sessions')->where('id', $signedIn->record->getKey()));
         });
 
         $this->recordEvents([Reauthenticated::class, AuthenticationFailed::class]);
 
         $result = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials());
 
-        self::assertTrue($replaced);
+        self::assertTrue($changed);
 
         return $result;
     }
