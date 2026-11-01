@@ -81,7 +81,7 @@ final readonly class ProofHistory
      */
     public function methods(): array
     {
-        $rows = array_values(array_filter($this->rows, static fn (array $row): bool => !$row['kind']->isReauthentication()));
+        $rows = array_filter($this->rows, static fn (array $row): bool => !$row['kind']->isReauthentication());
 
         usort($rows, static fn (array $one, array $other): int => self::order($one) <=> self::order($other));
 

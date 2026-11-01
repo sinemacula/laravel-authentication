@@ -66,7 +66,7 @@ final class SessionProofs
             ->get()
             ->all());
 
-        return new ProofHistory(array_values(array_map(static fn (object $row): array => self::summary($model, $row), $rows)));
+        return new ProofHistory(array_map(static fn (object $row): array => self::summary($model, $row), $rows));
     }
 
     /**
