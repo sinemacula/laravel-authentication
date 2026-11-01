@@ -40,7 +40,8 @@ use Tests\Unit\Stubs\StubPrincipal;
  * sessions table: a refresh moves the idle deadline forward but never past the
  * absolute deadline, which never moves; tokens mirror the deadlines; and a
  * session past either deadline is over on every path, the bearer path, sign-in
- * pins, and refresh, whatever its tokens say.
+ * pins, and refresh, whatever its tokens say; and a session that records no
+ * first factor is never issued for.
  *
  * The `api` guard uses 5-minute access tokens, a 1-hour idle lifetime, a
  * 10-hour absolute lifetime, and 30 seconds of leeway. The `brief` guard keeps
@@ -275,6 +276,40 @@ final class SessionLifetimeIntegrationTest extends TestCase
         self::assertSame($this->signedInAt->getTimestamp() + 36000, $stored->getAbsoluteExpiresAt()?->getTimestamp());
         self::assertSame($later->getTimestamp() + 3600, $this->claims($pair->refreshToken, TokenType::REFRESH)[Claims::EXPIRES_AT->value]);
         self::assertSame($later->getTimestamp() + 300, $this->claims($pair->accessToken, TokenType::ACCESS)[Claims::EXPIRES_AT->value]);
+    }
+
+    /**
+     * A session row that records no first factor (one an application wrote
+     * itself, not through the session service) is never issued for: a refresh
+     * fails with a `LogicException` rather than mint an access token that
+     * cannot say when or how it authenticated, and its rotation is rolled back
+     * with it, so its refresh token still names the session as it was.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionThatRecordsNoFirstFactorIsNeverRefreshed(): void
+    {
+        $this->recordsSessionProofs = false;
+
+        [$identity, $session] = $this->signIn();
+
+        $token   = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity);
+        $columns = ['refresh_key', 'previous_refresh_key', 'refresh_rotated_at', 'idle_expires_at'];
+        $before  = (array) DB::table('authentication_sessions')->where('id', $session->getKey())->first($columns);
+
+        $this->moveClockTo($this->signedInAt->copy()->addMinute());
+
+        try {
+            GuardSessions::of($this->guard())->refresh($token);
+            self::fail('Expected a session without a first factor to be refused a token.');
+        } catch (\LogicException $exception) {
+            self::assertSame('The session records no counting first factor, so no access token can say when or how it authenticated.', $exception->getMessage());
+        }
+
+        self::assertSame(0, DB::table('authentication_proofs')->count());
+        self::assertSame($before, (array) DB::table('authentication_sessions')->where('id', $session->getKey())->first($columns));
     }
 
     /**
