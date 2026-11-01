@@ -270,6 +270,8 @@ final class SessionPruningIntegrationTest extends TestCase
      */
     public function testAnIntegerKeyedModelPrunesItsSessionsProofs(): void
     {
+        config()->set('authentication.session.table', 'integer_key_pruning_sessions');
+
         Schema::create('integer_key_pruning_sessions', static function (Blueprint $table): void {
             $table->increments('id');
             $table->string('guard');
