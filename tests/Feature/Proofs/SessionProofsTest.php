@@ -188,8 +188,8 @@ final class SessionProofsTest extends TestCase
      * A session holds an accepted further factor only once a counting further
      * factor or recovery code is recorded on it: not with its first factor or a
      * reauthentication alone, not with one its adapter refused, a voided one,
-     * or one bound to another guard; a recovery code its adapter accepted is
-     * one.
+     * or one bound to another guard; a recovery code or a further factor its
+     * adapter accepted is one.
      *
      * @return void
      *
@@ -217,6 +217,14 @@ final class SessionProofsTest extends TestCase
         self::assertFalse(SessionProofs::hasAcceptedAdditional($record));
 
         DB::table('authentication_proofs')->where('kind', 'recovery_code')->update(['guard' => 'api']);
+
+        self::assertTrue(SessionProofs::hasAcceptedAdditional($record));
+
+        DB::table('authentication_proofs')->where('kind', 'recovery_code')->update(['voided_at' => $this->now]);
+
+        self::assertFalse(SessionProofs::hasAcceptedAdditional($record));
+
+        self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now->addMinutes(5), ['otp'], new Evaluation(true, true));
 
         self::assertTrue(SessionProofs::hasAcceptedAdditional($record));
     }

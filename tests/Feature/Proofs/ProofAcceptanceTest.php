@@ -78,7 +78,7 @@ final class ProofAcceptanceTest extends TestCase
 
     /**
      * Rows of `[changes, reason]`: what makes a proof one the pending session
-     * refuses.
+     * refuses, alone or together.
      *
      * @return iterable<string, array{0: array<string, mixed>, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
      */
@@ -99,12 +99,14 @@ final class ProofAcceptanceTest extends TestCase
         yield 'another model with the same key' => [['identity' => 'same key'], $binding];
         yield 'another application' => [['application' => 'admin'], $binding];
         yield 'another session' => [['session' => '0190e1a4-0000-7000-8000-0000000000bb'], $binding];
+        yield 'not accepted, for another session' => [['evaluation' => new Evaluation(false, true), 'session' => '0190e1a4-0000-7000-8000-0000000000bb'], $invalid];
     }
 
     /**
      * A proof of another kind or purpose, not accepted, or made outside the
      * window is invalid; one made by another identity, on another application,
-     * or for another session does not bind.
+     * or for another session does not bind; and one that is both is invalid,
+     * judged before its binding.
      *
      * @param  array<string, mixed>  $changes
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason

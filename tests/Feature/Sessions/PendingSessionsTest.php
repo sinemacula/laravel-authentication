@@ -11,6 +11,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
@@ -62,7 +63,9 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Database\LockMarkingSQLiteGrammar;
 use Tests\Fixtures\Sessions\RefusingApplicationAccess;
 use Tests\Fixtures\Sessions\TwoSecretSignIn;
 use Tests\Fixtures\Tenancy\DescendantTenants;
@@ -75,6 +78,7 @@ use Tests\Integration\Fixtures\ChoosingMember;
 use Tests\Integration\Fixtures\ChoosingMembership;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\VerifiableChoosingMember;
+use Tests\Integration\Fixtures\WideKeySession;
 use Tests\TestCase;
 
 /**
@@ -94,13 +98,16 @@ use Tests\TestCase;
 #[CoversClass(SessionActivation::class)]
 final class PendingSessionsTest extends TestCase
 {
-    use InteractsWithProofs, InteractsWithRateLimits, InteractsWithSessions;
+    use InteractsWithProofs, InteractsWithRateLimits, InteractsWithSessionRecords, InteractsWithSessions;
 
     /** @var string Guard over `ChoosingMember`, whose sign-ins wait for a choice of principal. */
     private const string CHOOSERS = 'choosers';
 
     /** @var string Guard over `VerifiableChoosingMember`, which requires a verified identifier. */
     private const string VERIFIED = 'verified';
+
+    /** @var string Table of `WideKeySession`, whose keys are as long as the identifier columns hold. */
+    private const string WIDE_KEY_TABLE = 'wide_key_sessions';
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -288,7 +295,7 @@ final class PendingSessionsTest extends TestCase
 
     /**
      * A malformed credential names nothing, for a look-up and for every action,
-     * each refusal of which is `pending_invalid`.
+     * each refusal of which is `pending_invalid`, and none of them queries.
      *
      * @param  string  $credential
      * @return void
@@ -302,13 +309,53 @@ final class PendingSessionsTest extends TestCase
 
         $this->pendingSignIn();
 
-        $proof = self::adapterProof($identity, 'api', '0190e1a4-0000-7000-8000-000000000001', Purpose::SIGN_IN);
+        $proof   = self::adapterProof($identity, 'api', '0190e1a4-0000-7000-8000-000000000001', Purpose::SIGN_IN);
+        $queries = [];
+
+        DB::listen(static function (QueryExecuted $query) use (&$queries): void {
+            $queries[] = $query->sql;
+        });
 
         self::assertNull($this->sessions()->pending($credential));
         self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($credential, $proof)->reason);
         self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->choose($credential, $identity)->reason);
         self::assertFalse($this->sessions()->discard($credential));
+        self::assertSame([], $queries);
         self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
+    }
+
+    /**
+     * A session key as long as the identifier columns hold, 255 characters,
+     * names its pending session, however many bytes its characters take; a
+     * credential whose key is a character longer names nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAKeyAsLongAsTheColumnsHoldNamesItsPendingSession(): void
+    {
+        $this->seedIdentity();
+
+        self::createSessionRecordTable(self::WIDE_KEY_TABLE, stringKey: true);
+
+        config()->set('authentication.session.model', WideKeySession::class);
+        config()->set('authentication.session.table', self::WIDE_KEY_TABLE);
+
+        try {
+            [$credential, $pending] = $this->pendingSignIn();
+
+            $key = IdentifierCoercion::stringify($pending->id) ?? '';
+
+            self::assertSame(255, mb_strlen($key));
+            self::assertGreaterThan(255, strlen($key));
+            self::assertSame($key, IdentifierCoercion::stringify($this->sessions()->pending($credential)?->id));
+            self::assertNull($this->sessions()->pending('é' . $credential));
+        } finally {
+            config()->set('authentication.session.table', 'authentication_sessions');
+
+            Schema::dropIfExists(self::WIDE_KEY_TABLE);
+        }
     }
 
     /**
@@ -571,8 +618,8 @@ final class PendingSessionsTest extends TestCase
     /**
      * A choice after which the identity's factor policy now asks for a further
      * factor records the principal and its tenant and waits for the factor with
-     * the same credential; satisfying it then activates the session as that
-     * principal.
+     * the same credential, the session it describes holding what was written as
+     * stored; satisfying it then activates the session as that principal.
      *
      * @return void
      *
@@ -593,6 +640,14 @@ final class PendingSessionsTest extends TestCase
         self::assertTrue($waiting->isPending());
         self::assertSame([PendingRequirement::MFA], $waiting->pending?->requires);
         self::assertTrue($first->is($waiting->pending->principal));
+
+        $record = $waiting->pending->session;
+
+        self::assertInstanceOf(Session::class, $record);
+        self::assertSame([PendingRequirement::MFA], $record->getRequires());
+        self::assertSame(IdentifierCoercion::stringify($first->getKey()), $record->getRawOriginal('principal_id'));
+        self::assertSame(IdentifierCoercion::stringify($first->tenant_id), $record->getTenantId());
+        self::assertFalse($record->isDirty());
 
         $row = Session::query()->sole();
 
@@ -1057,6 +1112,56 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
+     * Looking a pending session up reads its row without a lock, while every
+     * action on it (satisfying, choosing, discarding) reads it locked for
+     * update first, so a revocation or another action waits for it. On SQLite,
+     * which takes no row lock, the lock is written into the SQL as a comment.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testOnlyAnActionLocksThePendingSessionsRow(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$credential, $pending] = $this->pendingSignIn();
+
+        $connection = DB::connection();
+
+        if ($connection->getDriverName() === 'sqlite') {
+            $connection->setQueryGrammar(new LockMarkingSQLiteGrammar($connection));
+        }
+
+        $locks = [];
+
+        $connection->listen(static function (QueryExecuted $query) use (&$locks): void {
+            if (str_starts_with($query->sql, 'select') && str_contains($query->sql, 'authentication_sessions')) {
+                $locks[] = str_contains(strtolower($query->sql), 'for update');
+            }
+        });
+
+        $this->sessions()->pending($credential);
+
+        self::assertNotSame([], $locks);
+        self::assertNotContains(true, $locks);
+
+        $actions = [
+            'satisfy' => fn (): mixed => $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::STEP_UP)),
+            'choose'  => fn (): mixed => $this->sessions()->choose($credential, $identity),
+            'discard' => fn (): mixed => $this->sessions()->discard($credential),
+        ];
+
+        foreach ($actions as $name => $action) {
+            $locks = [];
+
+            $action();
+
+            self::assertTrue($locks[0] ?? false, $name . ' read the pending session without a lock first.');
+        }
+    }
+
+    /**
      * A pending session is no active session: the list of the identity's
      * sessions leaves it out, and a session that is made pending refuses its
      * access token on every request (`session_pending`, a 401) and its refresh
@@ -1448,6 +1553,27 @@ final class PendingSessionsTest extends TestCase
             ->getJson('/choosers/tenant')
             ->assertOk()
             ->assertExactJson(['tenant' => $descendant->getKey()]);
+    }
+
+    /**
+     * A pending session waits from its sign-in: a further factor proved the
+     * second before it is refused as `proof_invalid`, and one proved in its
+     * second activates it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingSessionRefusesAProofFromBeforeItsSignIn(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$credential, $pending] = $this->pendingSignIn();
+
+        $early = self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN, at: $this->now->subSecond());
+
+        self::assertSame(FailureReason::PROOF_INVALID, $this->sessions()->satisfy($credential, $early)->reason);
+        self::assertTrue($this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN, at: $this->now))->isSignedIn());
     }
 
     /**

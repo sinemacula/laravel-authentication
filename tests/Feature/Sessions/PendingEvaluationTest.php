@@ -214,7 +214,8 @@ final class PendingEvaluationTest extends TestCase
 
     /**
      * A principal the application access refuses is left out as
-     * `principal_ineligible`.
+     * `principal_ineligible`; with the one before it left out too (its tenant
+     * inactive), none is listed and the reason is the last one's.
      *
      * @return void
      *
@@ -232,6 +233,10 @@ final class PendingEvaluationTest extends TestCase
 
         self::assertSame([$first->getKey()], array_map(static fn (ChoosingMembership $membership): mixed => $membership->getKey(), $principals));
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $refusal);
+
+        ActivatableTenant::query()->whereKey($first->tenant_id)->update(['is_active' => false]);
+
+        self::assertSame([[], FailureReason::PRINCIPAL_INELIGIBLE], $this->evaluation(self::CHOOSERS)->principals($member));
     }
 
     /**
