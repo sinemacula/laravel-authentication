@@ -1,4 +1,4 @@
-# Sessions: proofs, switching principal and signing out
+# Sessions: proofs, stepping up, freshness, switching principal and signing out
 
 ## Proofs and provenance
 
@@ -35,6 +35,117 @@ session with its own proofs; the replaced session keeps its own. `auth_time` and
 an access token is issued, never stored in their place. Every read of them is from the write connection, so a lagging
 replica cannot hide a proof just written. They hold personal data (a code's destination), are hidden from a model's
 serialised form, and are pruned with their session (see [Pruning](operations.md#pruning)).
+
+## Stepping up
+
+A session steps up when your further-factor adapter verifies a factor on it: a one-time password, a passkey used as a
+factor, or a recovery code in its place. Hand the adapter's `Proofs\ProofResult` to the session service; it records the
+proof on the session and issues the session a new access token, and nothing else:
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+Route::middleware('auth:api')->post('/step-up', function (Request $request) {
+    $proof  = $factors->verify(Auth::identity(), Auth::session(), $request->input('code')); // your adapter's ProofResult
+    $result = Auth::sessions('api')->stepUp($proof);
+
+    return $result->isIssued()
+        ? response()->json(['access_token' => $result->accessToken, 'expires_at' => $result->expiresAt->toIso8601String()])
+        : response()->json(['message' => 'The code was not accepted.'], 403);
+});
+```
+
+The proof must be an `additional_factor` or a `recovery_code`, made for `Purpose::STEP_UP`, accepted by its adapter's
+`Evaluation`, and made no later than now and no earlier than the session started (`proof_invalid` otherwise); its
+`ProofBinding` must name the session's owner, this guard and the session's key (`proof_binding_mismatch`). The session
+is read again and locked while the proof is recorded, so it must still be one of the guard's live sessions of a person
+(`session_unknown`, `session_guard_mismatch`, `session_revoked`, `session_expired`, `machine_identity`), and it is
+admitted again as a refresh admits it (its owner, principal and tenant active, the method still allowed, the principal
+still eligible). A revocation that commits first refuses the step-up; one that commits after ends the new token at its
+next request, as it ends every access token of the session.
+
+The new access token's `auth_time` is the proof's time, and its `amr` gains the proof's values, and `mfa` when the
+evaluation reports multifactor authentication. The session keeps its key, its refresh token and its deadlines: a refresh
+afterwards issues tokens that still carry the step-up, since `auth_time` and `amr` are derived from the session's proofs
+each time a token is issued. No refresh token is issued and nothing is bound to the request, which is already
+authenticated. `SteppedUp` reports it once committed, with the proof's kind; a refusal is an `AccessTokenResult` whose
+`reason` says why, reported by `AuthenticationFailed` with the flow `step_up`, and never thrown.
+
+## Reauthenticating
+
+A session reauthenticates when its identity proves its first factor again, through one of the guard's sign-in methods
+and the input the client sent:
+
+```php
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+Route::middleware('auth:api')->post('/reauthenticate', function (Request $request) {
+    $result = Auth::sessions('api')->reauthenticate(Auth::session(), 'password', $request->only('email', 'password'));
+
+    return match (true) {
+        $result->isIssued()                                => response()->json(['access_token' => $result->accessToken]),
+        $result->reason === FailureReason::RATE_LIMITED    => response()->json([], 429, ['Retry-After' => $result->retryAfter]),
+        default                                            => response()->json(['message' => 'Those details are not correct.'], 403),
+    };
+});
+```
+
+The method must be one the guard's application allows (`method_not_allowed`, nothing counted) and not a machine
+credential's (an `InvalidArgumentException`). The session must be one of the guard's live sessions of a person, as for a
+step-up. The attempt counts against the guard's `sign_in` limits, on the identifier and the IP address, before any
+transaction opens (`rate_limited`, with the wait), and the method verifies the input in the guard's credential timebox,
+its account checks counted as a sign-in's are. The identity it verifies must be the session's owner: another identity's
+correct credential is `invalid_credentials`, as a wrong one is, and never says whose it was. A concealed reason
+(`account_rate_limited`, an expired or exhausted code, a passkey's sign counter that did not advance) is answered as
+`invalid_credentials`, with no wait. The session is then locked, checked again and admitted again, as for a step-up, the
+proof is recorded as `first_factor_reauthentication`, and the slots are given back.
+
+A reauthentication renews the session's authentication time and nothing else: the new access token's `auth_time` is now,
+its `amr` is the session's as it was, and a further factor the session holds keeps its own time, so an operation that
+asks for a further factor within a minute is not met by a fresh password. `Reauthenticated` reports it once committed; a
+refusal is reported by `AuthenticationFailed` with the flow `reauthentication`. An `external_reauthentication`, at the
+provider the session began with, has no entry point yet: the kind is reserved for the provider's reauthentication
+handoff, and a step-up refuses it.
+
+## Freshness
+
+Whether a session's authentication is fresh enough for a sensitive operation is the `Contracts\FreshnessPolicy`'s to
+say, judged on the newest of the session's proofs that meets the operation's requirement, never on the latest
+`auth_time`: a step-up with a one-time password a minute ago does not make a session fresh for an operation that asks
+for a phishing-resistant proof, though its token's `auth_time` is a minute old.
+
+```php
+use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
+use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
+
+$freshness = app(FreshnessPolicy::class);
+
+// The configured requirement for the operation on the session's application.
+$proof = $freshness->freshProof(Auth::session(), 'mfa.add_factor');
+
+// Made stricter by the caller's own: the shorter age, the kinds both take, either's flags.
+$proof = $freshness->freshProof(Auth::session(), 'payouts.change', new FreshnessRequirement(300, [ProofKind::ADDITIONAL_FACTOR], multifactor: true));
+
+if ($proof === null) {
+    return response()->json(['message' => 'Confirm it is you.', 'step_up' => true], 403);
+}
+```
+
+`freshProof()` answers the proof that makes the session fresh (a `Proofs\RecordedProof`, with its kind, method, channel,
+evaluation and time), or `null`. The requirement is configured per operation in `freshness` and per guard (see
+[Freshness](configuration.md#freshness)): the proof kinds that count, how recently one must have been made, and whether
+it must have reported multifactor authentication or been observed to resist phishing. An operation with no configured
+requirement and none of the caller's is never fresh, nor is one whose two requirements take no kind in common. A voided
+proof never counts. The session is never trusted as the caller holds it: it is read again on the write connection and
+must still be live for its guard before its proofs are read, two queries in all, and none when the operation has no
+requirement. A caller that acts on the answer atomically locks the session in its transaction and asks inside it, as an
+identifier change does (see [Changing identifiers](identifier-changes.md#recent-authentication)).
+
+The package binds `Freshness\ConfiguredFreshness`. Rebind the contract for a requirement the stored proofs cannot show,
+such as a minimum assurance level or an additional verification of your own; an implementation keeps no state between
+calls.
 
 ## Switching principal
 

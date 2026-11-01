@@ -7,12 +7,16 @@ namespace Tests\Concerns;
 use Carbon\CarbonInterface;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Schema;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Integration\Fixtures\ChangeableIdentity;
 use Tests\Integration\Fixtures\ChangeableMachine;
 use Tests\Integration\Fixtures\VerifiableIdentity;
@@ -172,5 +176,27 @@ trait InteractsWithChangeableIdentities
         $this->freshGuard($guard);
 
         return Auth::manager()->identifierChanges($guard);
+    }
+
+    /**
+     * Proof of a recent authentication by a session of the guard, for the
+     * identity, that signed in just now: a live session row whose first factor
+     * is fresh for an identifier change under the default freshness.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  string  $guard
+     * @return \SineMacula\Laravel\Authentication\Sessions\Reauthentication
+     */
+    protected static function freshSession(Identity&Model $identity, string $guard = 'web'): Reauthentication
+    {
+        $session = new Session;
+
+        $session->forceFill([
+            ...self::sessionEndingAt(Carbon::now()->addDays(90), Carbon::now()->addDays(180), $guard),
+            'authenticatable_type' => $identity->getMorphClass(),
+            'authenticatable_id'   => IdentifierCoercion::stringify($identity->getKey()),
+        ])->save();
+
+        return Reauthentication::session($session);
     }
 }

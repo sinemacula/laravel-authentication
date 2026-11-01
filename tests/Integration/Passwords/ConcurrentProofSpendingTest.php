@@ -411,7 +411,7 @@ final class ConcurrentProofSpendingTest extends TestCase
     {
         $ada   = self::seedChangeable();
         $grace = self::seedChangeable('grace@example.test');
-        $proof = Reauthentication::confirmedAt($this->now);
+        $proof = self::freshSession($ada);
 
         [$first, $second] = $this->race(
             'update',
@@ -449,7 +449,7 @@ final class ConcurrentProofSpendingTest extends TestCase
 
         $ada   = self::seedChangeable();
         $grace = self::seedChangeable('grace@example.test');
-        $proof = Reauthentication::confirmedAt($this->now);
+        $proof = self::freshSession($ada);
 
         [$first, $second] = $this->race(
             'update',
@@ -479,7 +479,7 @@ final class ConcurrentProofSpendingTest extends TestCase
     {
         $ada   = self::seedChangeable();
         $grace = self::seedChangeable('grace@example.test');
-        $proof = Reauthentication::confirmedAt($this->now);
+        $proof = self::freshSession($ada);
 
         [$first, $second] = $this->race(
             'insert',
@@ -507,7 +507,7 @@ final class ConcurrentProofSpendingTest extends TestCase
     {
         $identity = self::seedChangeable();
 
-        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now))->isSent());
+        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity))->isSent());
 
         [$first, $second] = $this->race(
             'update',
@@ -535,7 +535,7 @@ final class ConcurrentProofSpendingTest extends TestCase
     {
         $identity = self::seedChangeable();
 
-        $proof = Reauthentication::confirmedAt($this->now);
+        $proof = self::freshSession($identity);
 
         self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, $proof)->isSent());
 
@@ -635,7 +635,7 @@ final class ConcurrentProofSpendingTest extends TestCase
      */
     private function requestByLink(ChangeableIdentity $identity): string
     {
-        $link = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now), 'email.confirm')->link();
+        $link = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), 'email.confirm')->link();
 
         self::assertIsString($link);
 

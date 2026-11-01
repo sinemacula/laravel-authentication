@@ -69,8 +69,8 @@ final class NamespaceDependenciesTest extends TestCase
             'forbids' => ['Jwt', 'Sessions', 'Guards'],
             'allows'  => [],
         ],
-        'the proofs name nothing of tokens, the session service or guards' => [
-            'from'    => ['Proofs'],
+        'the proofs and freshness name nothing of tokens, the session service or guards' => [
+            'from'    => ['Proofs', 'Freshness'],
             'except'  => [],
             'forbids' => ['Jwt', 'Sessions', 'Guards'],
             'allows'  => [],

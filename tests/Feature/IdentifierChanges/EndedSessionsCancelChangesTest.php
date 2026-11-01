@@ -133,8 +133,8 @@ final class EndedSessionsCancelChangesTest extends TestCase
         $link     = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::session(self::seedSession($identity)), 'email.confirm')->link();
 
         self::assertIsString($link);
-        self::assertTrue($this->changes('admin')->requestByCode($identity, 'phone', self::NEW_PHONE, Reauthentication::confirmedAt($this->now))->isSent());
-        self::assertTrue($this->changes()->requestByCode($other, 'email', 'grace@new.example.test', Reauthentication::confirmedAt($this->now))->isSent());
+        self::assertTrue($this->changes('admin')->requestByCode($identity, 'phone', self::NEW_PHONE, self::freshSession($identity, 'admin'))->isSent());
+        self::assertTrue($this->changes()->requestByCode($other, 'email', 'grace@new.example.test', self::freshSession($other))->isSent());
 
         $revoke(Auth::sessions('web'), $identity);
 

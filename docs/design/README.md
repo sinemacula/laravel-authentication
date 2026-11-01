@@ -55,6 +55,9 @@ The current note set is:
   its link's token or code with the new password and the revocation.
 - `machine-credentials.md`: how non-human identities authenticate, and the scope convention the suite follows: scopes
   carried, never interpreted, and held to an optional registry when a credential is issued.
+- `proofs-and-freshness.md`: the proofs a session records and its provenance, how `auth_time` and `amr` are derived
+  from them, how a session steps up and reauthenticates in place, and how freshness is judged for a sensitive operation
+  on the proof that meets it.
 - `identifier-changes.md`: how an identity's email address or phone number is replaced once the new one is proven,
   after a recent authentication, unique on its normalised value under a race, invalidating the proofs it outdates.
 - `provider-composition.md`: why every binding the provider makes is a default another provider's binding is never

@@ -6,9 +6,9 @@ namespace SineMacula\Laravel\Authentication\Events\Enums;
 
 /**
  * Machine-readable reason a sign-in, a request's access token or API key, a
- * refresh, a principal switch, a code request, a client credentials exchange, a
- * password reset or an identifier change failed, carried on the
- * `AuthenticationFailed` event and on a failed `SignInResult`.
+ * refresh, a principal switch, a step-up, a reauthentication, a code request, a
+ * client credentials exchange, a password reset or an identifier change failed,
+ * carried on the `AuthenticationFailed` event and on a failed `SignInResult`.
  *
  * Backed, so SIEM consumers count failure modes without scraping log messages.
  * The concealed reasons (`isConcealed()`) are ones a sign-in's result never
@@ -161,9 +161,9 @@ enum FailureReason: string
     // A requested scope is malformed or not granted to the credential
     case SCOPE_INVALID = 'scope_invalid';
 
-    // A change of identifier was asked for without a recent sign-in,
-    // reauthentication or confirmed further factor, or the password given to
-    // reauthenticate was wrong or one the guard does not take
+    // A change of identifier was asked for without a fresh enough proof on the
+    // session it was made from, or the password given to reauthenticate was
+    // wrong or one the guard's freshness does not take
     case REAUTHENTICATION_REQUIRED = 'reauthentication_required';
 
     // The identifier a change would set is held by another identity (found by
@@ -178,7 +178,7 @@ enum FailureReason: string
 
     // A proof handed to a completion or a step-up is of a kind or purpose the
     // operation does not take, was not accepted by its adapter, or is timed
-    // after now or before what it proves
+    // after now or before what it adds to
     case PROOF_INVALID = 'proof_invalid';
 
     // A proof handed to a completion or a step-up was made by another identity,

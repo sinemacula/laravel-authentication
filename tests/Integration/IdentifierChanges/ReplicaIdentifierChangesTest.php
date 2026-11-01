@@ -81,7 +81,7 @@ final class ReplicaIdentifierChangesTest extends TestCase
     {
         $identity = self::seedChangeable();
 
-        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now))->isSent());
+        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity))->isSent());
         self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('identifier_changes')->count());
 
         self::assertSame(self::NEW_EMAIL, $this->changes()->pending($identity, 'email')?->identifier);
@@ -100,7 +100,7 @@ final class ReplicaIdentifierChangesTest extends TestCase
     {
         $identity = self::seedChangeable();
 
-        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now))->isSent());
+        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity))->isSent());
         self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('changeable_identities')->count());
         self::assertSame(1, $this->runQueued(SendIdentifierChangeCode::class));
 

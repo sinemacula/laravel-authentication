@@ -549,26 +549,64 @@ return [
     | `Auth::identifierChanges($guard)` changes an identity's email address or
     | phone number only once the new one is proven, by a one-time code sent to
     | it or a signed link the application sends it; until then the identity
-    | keeps the current one. A request must come within
-    | `recent_authentication_seconds` (60 to 86400) of the identity's sign-in on
-    | the session it is made from, or of a proof the application confirmed
-    | itself, or give the current password. It waits in `table`, on the storage
-    | connection, for at most `ttl_seconds` (300 to 86400; a code request also
-    | no longer than its code), and a newer request for the same identity and
-    | type replaces it. Requests are limited by the `identifier_change` rate
-    | limits, counted on the new identifier and on the identity. Each number is
-    | an integer, or a digit string as `env()` returns one; anything else fails
-    | closed when a change is first requested or confirmed, and
-    | `authentication:check` reports it. The application binds an
-    | `IdentifierChangeNotifier` to tell the old identifier; the change stands
-    | if that notice fails. Prune expired changes with `model:prune`.
+    | keeps the current one. A request must be made from a session with a proof
+    | fresh enough for the `identifier_change` operation (see Freshness), or
+    | give the current password when that freshness takes a first-factor
+    | reauthentication. It waits in `table`, on the storage connection, for at
+    | most `ttl_seconds` (300 to 86400; a code request also no longer than its
+    | code), and a newer request for the same identity and type replaces it.
+    | Requests are limited by the `identifier_change` rate limits, counted on
+    | the new identifier and on the identity. The number is an integer, or a
+    | digit string as `env()` returns one; anything else fails closed when a
+    | change is first requested or confirmed, and `authentication:check`
+    | reports it. The application binds an `IdentifierChangeNotifier` to tell
+    | the old identifier; the change stands if that notice fails. Prune expired
+    | changes with `model:prune`.
     |
     */
 
     'identifier_changes' => [
-        'table'                         => env('AUTHENTICATION_IDENTIFIER_CHANGES_TABLE', 'identifier_changes'),
-        'ttl_seconds'                   => env('AUTHENTICATION_IDENTIFIER_CHANGES_TTL_SECONDS', 3600),
-        'recent_authentication_seconds' => env('AUTHENTICATION_IDENTIFIER_CHANGES_RECENT_AUTHENTICATION_SECONDS', 900),
+        'table'       => env('AUTHENTICATION_IDENTIFIER_CHANGES_TABLE', 'identifier_changes'),
+        'ttl_seconds' => env('AUTHENTICATION_IDENTIFIER_CHANGES_TTL_SECONDS', 3600),
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | Freshness
+    |---------------------------------------------------------------------------
+    |
+    | How fresh a session's authentication must be for each operation, judged
+    | on the newest of its proofs that meets the operation's requirement, never
+    | on the latest `auth_time`: one of the `proofs` kinds, made within
+    | `max_age_seconds` (1 to 86400; an integer, or a digit string as `env()`
+    | returns one), and, when an entry sets `multifactor` or
+    | `phishing_resistant` to true, reported multifactor or observed to resist
+    | phishing. The kinds are `first_factor`, `first_factor_reauthentication`,
+    | `external_reauthentication`, `additional_factor` and `recovery_code`.
+    | Operations are named by this package (below), the application or another
+    | package (`mfa.add_factor`, `sso.reauthenticate`: lower-case segments
+    | separated by dots, read as array keys, never as configuration paths). A
+    | caller may pass a requirement of its own, and the stricter of the two
+    | applies; an operation with neither is never fresh. A guard overrides any
+    | operation in a `freshness` block on its `config/auth.php` entry, where
+    | `null` removes it. A malformed entry fails closed when it is read, and
+    | `authentication:check` reports it.
+    |
+    */
+
+    'freshness' => [
+        'identifier_change' => [
+            'max_age_seconds' => env('AUTHENTICATION_FRESHNESS_IDENTIFIER_CHANGE_SECONDS', 900),
+            'proofs'          => ['first_factor', 'first_factor_reauthentication', 'external_reauthentication', 'additional_factor', 'recovery_code'],
+        ],
+        'password_establishment' => [
+            'max_age_seconds' => env('AUTHENTICATION_FRESHNESS_PASSWORD_ESTABLISHMENT_SECONDS', 900),
+            'proofs'          => ['first_factor', 'first_factor_reauthentication', 'external_reauthentication', 'additional_factor', 'recovery_code'],
+        ],
+        'factor_change' => [
+            'max_age_seconds' => env('AUTHENTICATION_FRESHNESS_FACTOR_CHANGE_SECONDS', 900),
+            'proofs'          => ['first_factor', 'first_factor_reauthentication', 'external_reauthentication', 'additional_factor', 'recovery_code'],
+        ],
     ],
 
     /*

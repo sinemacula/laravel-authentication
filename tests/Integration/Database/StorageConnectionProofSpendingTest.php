@@ -319,7 +319,7 @@ final class StorageConnectionProofSpendingTest extends TestCase
      */
     private function requestChange(StoredIdentity $identity): string
     {
-        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt(CarbonImmutable::now()))->isSent());
+        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD))->isSent());
         self::assertSame(1, $this->storage('identifier_changes')->count());
 
         app()->terminate();

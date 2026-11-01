@@ -7,9 +7,9 @@ namespace SineMacula\Laravel\Authentication\Proofs;
 use Carbon\CarbonImmutable;
 
 /**
- * What a session's authentication amounts to when a token is issued for it: the
- * time of its latest authentication (`auth_time`) and the authentication method
- * references it used (`amr`).
+ * What an access token says about its session's authentication: when it last
+ * authenticated (`auth_time`) and how (`amr`), both derived from the session's
+ * proofs when the token is issued.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -26,10 +26,10 @@ final readonly class AuthenticationSummary
      */
     public function __construct(
 
-        /** When the session last authenticated. */
+        /** When the session last authenticated: its newest counting proof's time. */
         public CarbonImmutable $authenticatedAt,
 
-        /** The authentication method references the session's authentication used. */
+        /** The session's authentication method reference values, possibly none. */
         public array $methods,
     ) {}
 }

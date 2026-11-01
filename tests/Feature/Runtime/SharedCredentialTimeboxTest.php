@@ -4,7 +4,6 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Runtime;
 
-use Carbon\CarbonImmutable;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -65,7 +64,7 @@ final class SharedCredentialTimeboxTest extends TestCase
         $guard    = $this->freshGuard('web');
         $sessions = self::sessionsOf($guard);
         $identity = PasswordIdentity::query()->sole();
-        $recent   = new RecentAuthentication($guard->context(), app(), 300, CarbonImmutable::now());
+        $recent   = new RecentAuthentication($guard->context(), app());
 
         self::assertTrue($guard->attempt(self::credentials(self::EMAIL)));
         self::assertNull($sessions->signIn('password', ['email' => self::EMAIL, 'password' => self::WRONG_PASSWORD])->session);

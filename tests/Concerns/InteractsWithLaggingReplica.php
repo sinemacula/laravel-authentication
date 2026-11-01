@@ -76,9 +76,9 @@ trait InteractsWithLaggingReplica
     }
 
     /**
-     * Run the shipped migrations (sessions, pending sign-ins and rate limits,
-     * and any other shipped migration files named) against the primary and the
-     * replica.
+     * Run the shipped migrations (sessions, pending sign-ins, rate limits, and
+     * the sessions' proofs and provenance, and any other shipped migration
+     * files named) against the primary and the replica.
      *
      * @param  string  ...$others
      * @return void
@@ -91,6 +91,8 @@ trait InteractsWithLaggingReplica
             '2026_04_06_000000_create_authentication_sessions_table.php',
             '2026_04_06_000001_create_pending_sign_ins_table.php',
             '2026_04_06_000002_create_rate_limits_table.php',
+            '2026_04_06_000008_create_authentication_proofs_table.php',
+            '2026_04_06_000009_create_authentication_provenance_table.php',
             ...$others,
         ];
 

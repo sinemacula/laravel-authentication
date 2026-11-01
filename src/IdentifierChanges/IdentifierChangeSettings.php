@@ -26,8 +26,7 @@ final readonly class IdentifierChangeSettings
 
     /** @var array<string, array{0: int, 1: int, 2: int}> Default, least and greatest value of each numeric setting. */
     private const array NUMBERS = [
-        'ttl_seconds'                   => [3600, 300, 86400],
-        'recent_authentication_seconds' => [900, 60, 86400],
+        'ttl_seconds' => [3600, 300, 86400],
     ];
 
     /**
@@ -55,19 +54,6 @@ final readonly class IdentifierChangeSettings
     }
 
     /**
-     * How recently the identity must have authenticated to request a change, in
-     * seconds, 60 to 86400.
-     *
-     * @return int
-     *
-     * @throws \InvalidArgumentException
-     */
-    public function recentAuthenticationSeconds(): int
-    {
-        return $this->number('recent_authentication_seconds');
-    }
-
-    /**
      * Read every setting, failing closed on the first that is malformed;
      * `authentication:check` runs it.
      *
@@ -78,7 +64,6 @@ final readonly class IdentifierChangeSettings
     public function validate(): void
     {
         $this->ttlSeconds();
-        $this->recentAuthenticationSeconds();
     }
 
     /**

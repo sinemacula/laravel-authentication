@@ -47,6 +47,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\ProvesSessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\RefreshesSessions;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -75,10 +76,12 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * once that has returned. The principals an identity may choose from, and the
  * choice a sign-in without a default waits on, are `PrincipalChoices`'. The
  * service also refreshes a session through `SessionRefresh`
- * (`RefreshesSessions`), lets a session switch the principal it acts as, lists
- * sessions, and signs out, revokes sessions and ends sessions on security
- * changes through `SessionRevocations` (`EndsSessions`), which the guard's
- * `logout()` and password changes use too.
+ * (`RefreshesSessions`), steps a session up and reauthenticates it through
+ * `SessionStepUp` and `SessionReauthentication` (`ProvesSessions`), each of
+ * which issues a new access token only, lets a session switch the principal it
+ * acts as, lists sessions, and signs out, revokes sessions and ends sessions on
+ * security changes through `SessionRevocations` (`EndsSessions`), which the
+ * guard's `logout()` and password changes use too.
  *
  * Failures are results, not exceptions: Laravel's `Failed` and the package's
  * `AuthenticationFailed` report them. Exceptions are kept for misconfiguration
@@ -95,7 +98,7 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  */
 final readonly class SessionService
 {
-    use EndsSessions, RefreshesSessions;
+    use EndsSessions, ProvesSessions, RefreshesSessions;
 
     /** @var \SineMacula\Laravel\Authentication\Sessions\SessionEstablishment Takes an admitted sign-in to its session or pending sign-in, never binding. */
     private SessionEstablishment $establishment;
@@ -159,6 +162,11 @@ final readonly class SessionService
         $this->refreshes         = new SessionRefresh($context, $binding, new RefreshTokenExchange($tokens, $context, $connections, $transactions), $this->afterCommit, $container);
         $this->switchRevocations = $sessions;
         $this->rotations         = new RefreshRotationStore($connections);
+
+        $issuance = new ProofIssuance($context, $tokens);
+
+        $this->stepUps           = new SessionStepUp($context, $tokens, $issuance, $this->afterCommit);
+        $this->reauthentications = new SessionReauthentication($context, $tokens, $issuance, $this->afterCommit, $container);
     }
 
     /**

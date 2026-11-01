@@ -4,16 +4,18 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Proofs;
 
-use Carbon\CarbonImmutable;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 
 /**
- * The seam the token service asks for a session's `auth_time` and `amr`.
+ * The `auth_time` and `amr` an access token of a session carries, derived from
+ * the session's proofs when the token is issued (see `ProofHistory`), never
+ * stored in their place: the token service calls it for every access token it
+ * issues for a session.
  *
- * Derived from the session's first-factor sign-in: the time it signed in, and
- * the reference value of the sign-in method that started it (`pwd` for a
- * password, `otp` for an email code, `sms` for a phone code, `pop` for a
- * passkey), none for any other method.
+ * The proofs are read in one aggregate query on the write connection, bounded
+ * by the distinct kinds and `amr` sets the session recorded however long it
+ * lives, so a session with many step-ups costs what one with a few does. Inside
+ * the transaction that writes a proof, the read sees it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -22,23 +24,15 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
  */
 final class AuthenticationClaims
 {
-    /** @var array<string, list<string>> The method references of each package sign-in method. */
-    private const array METHODS = [
-        'password'   => ['pwd'],
-        'email_code' => ['otp'],
-        'phone_code' => ['sms'],
-        'passkey'    => ['pop'],
-    ];
-
     /**
      * Disallow instantiation; utility container only.
      */
     private function __construct() {}
 
     /**
-     * The session's authentication time and method references, refusing a
-     * session that records no sign-in time rather than issuing a token with no
-     * authentication time.
+     * The session's authentication time and `amr` values. A session the package
+     * wrote always has a counting first factor, so one without is a
+     * `LogicException`: no token is issued with no authentication time.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return \SineMacula\Laravel\Authentication\Proofs\AuthenticationSummary
@@ -47,8 +41,13 @@ final class AuthenticationClaims
      */
     public static function forSession(Session $session): AuthenticationSummary
     {
-        $signedInAt = $session->getSignedInAt() ?? throw new \LogicException('Cannot derive the authentication of a session that records no sign-in time.');
+        $history = SessionProofs::history($session);
+        $at      = $history->authenticatedAt();
 
-        return new AuthenticationSummary(CarbonImmutable::instance($signedInAt)->startOfSecond(), self::METHODS[(string) $session->getSignInMethod()] ?? []);
+        if ($at === null || !$history->hasFirstFactor()) {
+            throw new \LogicException('The session records no counting first factor, so no access token can say when or how it authenticated.');
+        }
+
+        return new AuthenticationSummary($at, $history->methods());
     }
 }

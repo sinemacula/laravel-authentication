@@ -17,7 +17,6 @@ use SineMacula\Laravel\Authentication\Events\IdentifierChanged;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeNotice;
 use SineMacula\Laravel\Authentication\IdentifierChanges\SendIdentifierChangeCode;
 use SineMacula\Laravel\Authentication\IdentifierChanges\SendIdentifierChangeNotice;
-use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use Tests\Concerns\ChangesIdentifiers;
 use Tests\Integration\Fixtures\ChangeableIdentity;
 use Tests\TestCase;
@@ -108,12 +107,12 @@ final class IdentifierChangeDeliveryTest extends TestCase
         $identity = $this->requestedByCode();
         $job      = self::job();
 
-        $this->changes('admin')->requestByLink($identity, 'email', 'ada@third.example.test', Reauthentication::confirmedAt($this->now), 'email.confirm');
+        $this->changes('admin')->requestByLink($identity, 'email', 'ada@third.example.test', self::freshSession($identity, 'admin'), 'email.confirm');
 
         $job->handle(app());
 
         DB::table('identifier_changes')->delete();
-        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now));
+        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity));
 
         $live = self::job();
 
@@ -250,7 +249,7 @@ final class IdentifierChangeDeliveryTest extends TestCase
     {
         $identity = self::seedChangeable();
 
-        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now))->isSent());
+        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity))->isSent());
 
         return $identity;
     }

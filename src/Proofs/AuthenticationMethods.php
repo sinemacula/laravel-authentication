@@ -66,4 +66,16 @@ final class AuthenticationMethods
 
         return $methods;
     }
+
+    /**
+     * The values a stored proof kept, as a list of its strings; anything else a
+     * row holds is no value at all.
+     *
+     * @param  mixed  $methods
+     * @return list<string>
+     */
+    public static function kept(mixed $methods): array
+    {
+        return is_array($methods) ? array_values(array_filter($methods, is_string(...))) : [];
+    }
 }

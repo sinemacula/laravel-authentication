@@ -23,8 +23,7 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeSettings
 final class IdentifierChangeSettingsTest extends TestCase
 {
     /**
-     * With no `identifier_changes` block, a change waits an hour and must come
-     * within fifteen minutes of an authentication.
+     * With no `identifier_changes` block, a change waits an hour.
      *
      * @return void
      */
@@ -32,7 +31,7 @@ final class IdentifierChangeSettingsTest extends TestCase
     {
         $settings = self::settings([]);
 
-        self::assertSame([3600, 900], [$settings->ttlSeconds(), $settings->recentAuthenticationSeconds()]);
+        self::assertSame(3600, $settings->ttlSeconds());
     }
 
     /**
@@ -44,10 +43,8 @@ final class IdentifierChangeSettingsTest extends TestCase
     public static function provideAcceptedNumbers(): iterable
     {
         yield from [
-            'shortest wait'   => ['ttl_seconds', 300, 300],
-            'longest wait'    => ['ttl_seconds', '86400', 86400],
-            'shortest window' => ['recent_authentication_seconds', '60', 60],
-            'longest window'  => ['recent_authentication_seconds', 86400, 86400],
+            'shortest wait' => ['ttl_seconds', 300, 300],
+            'longest wait'  => ['ttl_seconds', '86400', 86400],
         ];
     }
 
@@ -63,12 +60,8 @@ final class IdentifierChangeSettingsTest extends TestCase
     public function testReadsNumbersWithinTheirRange(string $key, int|string $value, int $expected): void
     {
         $settings = self::settings([$key => $value]);
-        $readers  = [
-            'ttl_seconds'                   => $settings->ttlSeconds(...),
-            'recent_authentication_seconds' => $settings->recentAuthenticationSeconds(...),
-        ];
 
-        self::assertSame($expected, $readers[$key]());
+        self::assertSame($expected, $settings->ttlSeconds());
     }
 
     /**
@@ -79,22 +72,19 @@ final class IdentifierChangeSettingsTest extends TestCase
      */
     public static function provideMalformedNumbers(): iterable
     {
-        $wait   = 'authentication.identifier_changes.ttl_seconds must be an integer from 300 to 86400.';
-        $window = 'authentication.identifier_changes.recent_authentication_seconds must be an integer from 60 to 86400.';
+        $wait = 'authentication.identifier_changes.ttl_seconds must be an integer from 300 to 86400.';
 
         yield from [
-            'wait too short'    => ['ttl_seconds', 299, $wait],
-            'wait too long'     => ['ttl_seconds', '86401', $wait],
-            'wait null'         => ['ttl_seconds', null, $wait],
-            'wait a float'      => ['ttl_seconds', 3600.0, $wait],
-            'wait padded'       => ['ttl_seconds', '03600', $wait],
-            'wait spaced'       => ['ttl_seconds', ' 3600', $wait],
-            'wait newline'      => ['ttl_seconds', "3600\n", $wait],
-            'window too short'  => ['recent_authentication_seconds', 59, $window],
-            'window too long'   => ['recent_authentication_seconds', 86401, $window],
-            'window a bool'     => ['recent_authentication_seconds', true, $window],
-            'window negative'   => ['recent_authentication_seconds', '-900', $window],
-            'window ten digits' => ['recent_authentication_seconds', '1000000000', $window],
+            'wait too short'  => ['ttl_seconds', 299, $wait],
+            'wait too long'   => ['ttl_seconds', '86401', $wait],
+            'wait null'       => ['ttl_seconds', null, $wait],
+            'wait a float'    => ['ttl_seconds', 3600.0, $wait],
+            'wait padded'     => ['ttl_seconds', '03600', $wait],
+            'wait spaced'     => ['ttl_seconds', ' 3600', $wait],
+            'wait newline'    => ['ttl_seconds', "3600\n", $wait],
+            'wait a bool'     => ['ttl_seconds', true, $wait],
+            'wait negative'   => ['ttl_seconds', '-900', $wait],
+            'wait ten digits' => ['ttl_seconds', '1000000000', $wait],
         ];
     }
 

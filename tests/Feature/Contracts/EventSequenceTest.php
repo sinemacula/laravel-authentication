@@ -32,7 +32,6 @@ use SineMacula\Laravel\Authentication\Passwords\Enums\ResetStatus;
 use SineMacula\Laravel\Authentication\Passwords\PasswordService;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalChoices;
-use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -1026,7 +1025,7 @@ final class EventSequenceTest extends TestCase
         $this->nameKeys($identity, null);
         $this->recordSequence();
 
-        self::assertTrue($this->changes('changes')->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now))->isSent());
+        self::assertTrue($this->changes('changes')->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity, 'changes'))->isSent());
         self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes('changes')->confirmByCode($identity, 'email', self::CODE));
         self::assertSame([
             'IdentifierChangeRequested changes i1/-/-',

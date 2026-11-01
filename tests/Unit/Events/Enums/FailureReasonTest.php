@@ -138,6 +138,8 @@ final class FailureReasonTest extends TestCase
             'client_credentials',
             'password_reset',
             'identifier_change',
+            'step_up',
+            'reauthentication',
         ], $flows);
     }
 

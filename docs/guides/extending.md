@@ -27,6 +27,7 @@ inheritance:
 | Breached-password checks          | Implement `BreachedPasswordChecker` and bind it in the container                                                 |
 | Password reset links              | Implement `PasswordResetLinkSender` and bind it in the container                                                 |
 | Identifier change notices         | Implement `IdentifierChangeNotifier` and bind it in the container                                                |
+| Freshness of sensitive operations | Configure `freshness` per operation and guard, or implement `FreshnessPolicy` and bind it in the container       |
 | Code sign-in for another type     | Register `CodeSignIn` for the type with `SignInMethodManager::extend()`                                          |
 | Credential scope validation       | Implement `ScopeRegistry` and bind it in the container                                                           |
 
@@ -305,8 +306,15 @@ seam has a default that works alone.
   for `sign_in` (see [Additional factors](signing-in.md#additional-factors)). Nothing a factor package keeps about a
   session survives a sign-in: every sign-in starts a new session with a new id and its own proofs, and the session the
   client proved (`AdditionalFactorContext::$provenSession`) is revoked with its proofs left on it.
-- A factor the factor package has just verified proves a recent authentication before an identifier change:
-  `Reauthentication::confirmedAt($verifiedAt)` (see [Changing identifiers](identifier-changes.md)).
+- Step a signed-in session up with a factor the factor package has just verified: `Auth::sessions()->stepUp($proof)`,
+  with the `ProofResult` bound to the session's key for `step_up`. The session keeps its refresh token and deadlines,
+  and every access token issued for it from then on carries the factor in `auth_time` and `amr`; the session then
+  proves an identifier change, or any operation whose freshness takes a further factor (see [Stepping
+  up](sessions.md#stepping-up)). A factor verified outside a session proves nothing on its own.
+- Before a sensitive operation of its own (adding or removing a factor, say), the factor package asks
+  `FreshnessPolicy::freshProof($session, 'mfa.add_factor')`, under an operation name of its own that the application
+  configures under `freshness`, and passes a `FreshnessRequirement` of its own for a floor the configuration may not
+  lower (see [Freshness](sessions.md#freshness)). The package names `factor_change` for this.
 - When every sign-in requires a further factor, a password is no longer the only factor, and `passwords.min_length`
   may be lowered from 15 to 8, as NIST SP 800-63B allows (see [Password policy](passwords.md#password-policy)).
 
@@ -351,6 +359,10 @@ $passed = $result->isVerified();   // else $result->reason
   evidence are the SSO package's: none of them reaches this package's `amr`.
 - Either way the session records the method, so the application can stop allowing it and its sessions stop
   refreshing.
+- A reauthentication at the provider (`external_reauthentication`) is reserved for the provider's reauthentication
+  handoff, which this package does not take yet; until then, a session reauthenticates with
+  `Auth::sessions()->reauthenticate()` through a sign-in method the application allows, the package's or one
+  registered with `SignInMethodManager::extend()`.
 
 ### Audit (`laravel-audit-log`)
 

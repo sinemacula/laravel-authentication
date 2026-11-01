@@ -185,6 +185,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   only so the service stays within phpcs's limit of methods a class may declare);
   `src/Sessions/Concerns/RefreshesSessions.php`: `refresh()` and `refreshFromRequest()`, delegated to
   `src/Sessions/SessionRefresh.php` (a trait for the same reason), and `src/Sessions/RefreshResult.php`.
+  `src/Sessions/Concerns/ProvesSessions.php`: `stepUp()` and `reauthenticate()`, delegated to
+  `src/Sessions/SessionStepUp.php` and `src/Sessions/SessionReauthentication.php` over `src/Sessions/ProofIssuance.php`
+  (see `proofs-and-freshness.md`).
 - `src/Sessions/SessionEstablishment.php`: `proceed()`, `establish()`, `complete()`, `write()`, `signedIn()`,
   `giveBack()`: the session, the factor policy and the scheduled reports, never the bind.
 - `src/Sessions/PrincipalChoices.php`: `offerChoice()`, `admissible()`, `liveChoice()`.

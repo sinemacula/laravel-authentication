@@ -27,25 +27,29 @@ outdates, and why the change stands when the notice to the old identifier fails.
 - Every read that decides a proof, an identity, a session or a pending change is on the write connection. Every
   comparison of a secret or digest uses `hash_equals`. One `now` per operation; a deadline has passed from the second it
   names.
-- A request proves a recent authentication (`Sessions\Reauthentication`) within
-  `identifier_changes.recent_authentication_seconds`: a session of the identity's, of this guard, live, read again by
-  key, signed in within the window (`signed_in_at` is the session's start: a refresh or a switch does not move it, and a
-  sign-in starts a new session); the current password, on a guard whose application allows the `password` method only,
-  checked in the guard's credential timebox against the identity read again through the guard's provider, counted under
-  `sign_in` against the account and the IP address and given back when correct; or a trusted confirmation time, not in
-  the future.
+- A request proves a recent authentication (`Sessions\Reauthentication`) as the freshness policy's `identifier_change`
+  operation requires (`Contracts\FreshnessPolicy`, see `proofs-and-freshness.md`): a session of the identity's, of this
+  guard, live, read again by key, holding a counting proof of a kind the requirement takes, made within its age (a
+  refresh or a switch records no proof; a reauthentication or a step-up does; a sign-in starts a new session); or the
+  current password, a first-factor reauthentication made now, taken only when the requirement takes
+  `first_factor_reauthentication` and asks for neither multifactor authentication nor phishing resistance, on a guard
+  whose application allows the `password` method, checked in the guard's credential timebox against the identity read
+  again through the guard's provider, counted under `sign_in` against the account and the IP address and given back
+  when correct. There is no trusted confirmation time: a further factor proves the change only once recorded on the
+  session by a step-up. The requirement is read before anything is counted, so a malformed one fails every request and
+  confirmation closed.
 - A request checks the proof, the new identifier and the limits first, on the identity's row read again by key on the
   write connection; the limiter never counts inside the transaction that follows, where a counter's row would stay
   locked until the commit and MySQL deadlocks two transactions that each create a counter in one gap of the index. Then,
   in one transaction on the identity's connection, it locks the identity's row (`Database\IdentityLock`), and, for a
   session proof, the session's row (`SessionRecords\SessionLookup::lock()`), and checks again that the proof stands
-  (`RecentAuthentication::stands()`: the session as locked; for a password, the locked row's hash is the one read before
-  the password was checked) and that the new identifier is not the current one. A password write takes the identity's
-  lock with its `UPDATE`, and a standalone bulk revocation updates the session's row before it deletes the pending
-  changes, so a password write racing a request proven by the old password, and a revocation of the proving session,
-  come either before that check, which then fails, or after the change is written, which they then cancel. A
-  `confirmedAt()` proof, and a password proof racing a revocation that leaves the password as it is, are not serialised.
-  The current identifier and whether it is verified are read from the row as locked. A refusal under the lock writes
+  (`RecentAuthentication::stands()`: the session as locked and the freshness policy asked again; for a password, the
+  locked row's hash is the one read before the password was checked) and that the new identifier is not the current one.
+  A password write takes the identity's lock with its `UPDATE`, and a standalone bulk revocation updates the session's
+  row before it deletes the pending changes, so a password write racing a request proven by the old password, and a
+  revocation of the proving session, come either before that check, which then fails, or after the change is written,
+  which they then cancel. A password proof racing a revocation that leaves the password as it is is not serialised. The
+  current identifier and whether it is verified are read from the row as locked. A refusal under the lock writes
   nothing, commits, and gives the `identifier_change` slots back.
 - A request needs a new identifier the type's normaliser accepts (a type without a normaliser is a misconfiguration)
   that is not the current one in canonical form, and a slot of `rate_limits.identifier_change` for the new identifier,
@@ -144,8 +148,9 @@ outdates, and why the change stands when the notice to the old identifier fails.
   `PresentedChangeLink.php`, `IdentifierChangeSettings.php`, `IdentifierChangeRequest.php`,
   `PendingIdentifierChange.php`, `IdentifierChangeNotice.php`, `Enums/*`.
 - `src/IdentifierChanges/SendIdentifierChangeCode.php`, `SendIdentifierChangeNotice.php`.
-- `src/Sessions/Reauthentication.php`, `src/Sessions/RecentAuthentication.php`, `src/SessionRecords/SessionLookup.php`
-  (`lock()`), `src/Database/IdentityLock.php`.
+- `src/Sessions/Reauthentication.php`, `src/Sessions/RecentAuthentication.php`, `src/Contracts/FreshnessPolicy.php`,
+  `src/Freshness/ConfiguredFreshness.php`, `src/SessionRecords/SessionLookup.php` (`lock()`),
+  `src/Database/IdentityLock.php`.
 - `src/Contracts/HasChangeableIdentifiers.php`, `src/Concerns/ProvidesIdentifierChanges.php`
   (`replaceIdentifier()`), `src/Contracts/IdentifierChangeNotifier.php`, `src/Testing/FakeIdentifierChangeNotifier.php`.
 - `src/Models/IdentifierChange.php`, `database/migrations/2026_04_06_000007_create_identifier_changes_table.php`.
@@ -161,8 +166,9 @@ outdates, and why the change stands when the notice to the old identifier fails.
 - `tests/Feature/IdentifierChanges/IdentifierChangeConfirmationTest.php`: codes and links, every outcome, the provider
   check and the unique index (inside a caller's transaction), a lost delete, the conditional replacement, the
   invalidated proofs, notices and their failure.
-- `tests/Feature/IdentifierChanges/RecentAuthenticationTest.php`: the window from its first second to its last, sessions
-  that prove nothing, a refresh that does not renew, passwords checked and counted.
+- `tests/Feature/IdentifierChanges/RecentAuthenticationTest.php`: the requirement's age from its first second to its
+  last, sessions that prove nothing, a refresh that does not renew, a step-up and a reauthentication that do, a password
+  taken only when the requirement allows one, checked and counted.
 - `tests/Feature/IdentifierChanges/IdentifierChangeServiceTest.php` (misconfiguration, the connection rule),
   `IdentifierChangeRoutesTest.php`, `ChangeLinksTest.php`; `tests/Feature/Database/SharedConnectionTest.php`.
 - `tests/Feature/IdentifierChanges/EndedSessionsCancelChangesTest.php`: every bulk revocation of the identity cancels

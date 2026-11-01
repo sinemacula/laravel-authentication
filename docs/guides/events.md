@@ -2,36 +2,38 @@
 
 ## Events
 
-| Event                                             | Fired when                                                               |
-|---------------------------------------------------|--------------------------------------------------------------------------|
-| `Illuminate\Auth\Events\Attempting`               | A sign-in or refresh starts (never a bearer request)                     |
-| `Illuminate\Auth\Events\Validated`                | A sign-in or refresh is about to bind context                            |
-| `Illuminate\Auth\Events\Authenticated`            | Identity bound to the guard, bearer requests included                    |
-| `Illuminate\Auth\Events\Login`                    | A sign-in or refresh bound the guard                                     |
-| `Illuminate\Auth\Events\Failed`                   | A sign-in or refresh was rejected (never a bearer token)                 |
-| `Illuminate\Auth\Events\Logout`                   | `logout()` or `signOut()` ended a signed-in request                      |
-| `SineMacula\...\Events\PrincipalAssigned`         | Principal resolved and bound                                             |
-| `SineMacula\...\Events\SessionAuthenticated`      | Session hydrated and bound; listeners may persist metadata               |
-| `SineMacula\...\Events\Refreshed`                 | Refresh exchange completed, once committed                               |
-| `SineMacula\...\Events\SessionRevoked`            | The package revoked a session, once committed; with reason               |
-| `SineMacula\...\Events\SignedOutEverywhere`       | A bulk revocation ended a scope's sessions, once committed               |
-| `SineMacula\...\Events\SessionCreated`            | The session service created a session, once committed                    |
-| `SineMacula\...\Events\SignedIn`                  | A session started or was refreshed, once committed                       |
-| `SineMacula\...\Events\AdditionalFactorRequired`  | A sign-in waits for a further factor, once committed                     |
-| `SineMacula\...\Events\PrincipalChoiceRequired`   | A sign-in waits for a choice of principal, once committed                |
-| `SineMacula\...\Events\PrincipalSwitched`         | A session switched its principal, once committed                         |
-| `SineMacula\...\Events\IdentifierVerified`        | An identifier was verified (after commit); carries type                  |
-| `SineMacula\...\Events\PasswordSet`               | A password was set or reset, once committed; with flow                   |
-| `SineMacula\...\Events\IdentifierChangeRequested` | A change of identifier waits for its proof, once committed               |
-| `SineMacula\...\Events\IdentifierChanged`         | An identifier was replaced by a proven one, once committed               |
-| `SineMacula\...\Events\PasskeyAdded`              | A passkey was registered, once committed                                 |
-| `SineMacula\...\Events\PasskeyUsed`               | A passkey's assertion was verified, once committed                       |
-| `SineMacula\...\Events\PasskeyRemoved`            | A passkey was removed, once committed                                    |
-| `SineMacula\...\Events\ApiKeyIssued`              | An API key was issued, once committed                                    |
-| `SineMacula\...\Events\ApiKeyRotated`             | An API key was rotated, once committed; previous key id                  |
-| `SineMacula\...\Events\ApiKeyRevoked`             | An API key was revoked, once committed                                   |
-| `SineMacula\...\Events\ClientCredentialsGranted`  | A client credentials exchange issued an access token                     |
-| `SineMacula\...\Events\AuthenticationFailed`      | Any sign-in, refresh, switch, bearer, key, code, reset or change failure |
+| Event                                             | Fired when                                                                                          |
+|---------------------------------------------------|-----------------------------------------------------------------------------------------------------|
+| `Illuminate\Auth\Events\Attempting`               | A sign-in or refresh starts (never a bearer request)                                                |
+| `Illuminate\Auth\Events\Validated`                | A sign-in or refresh is about to bind context                                                       |
+| `Illuminate\Auth\Events\Authenticated`            | Identity bound to the guard, bearer requests included                                               |
+| `Illuminate\Auth\Events\Login`                    | A sign-in or refresh bound the guard                                                                |
+| `Illuminate\Auth\Events\Failed`                   | A sign-in or refresh was rejected (never a bearer token)                                            |
+| `Illuminate\Auth\Events\Logout`                   | `logout()` or `signOut()` ended a signed-in request                                                 |
+| `SineMacula\...\Events\PrincipalAssigned`         | Principal resolved and bound                                                                        |
+| `SineMacula\...\Events\SessionAuthenticated`      | Session hydrated and bound; listeners may persist metadata                                          |
+| `SineMacula\...\Events\Refreshed`                 | Refresh exchange completed, once committed                                                          |
+| `SineMacula\...\Events\SessionRevoked`            | The package revoked a session, once committed; with reason                                          |
+| `SineMacula\...\Events\SignedOutEverywhere`       | A bulk revocation ended a scope's sessions, once committed                                          |
+| `SineMacula\...\Events\SessionCreated`            | The session service created a session, once committed                                               |
+| `SineMacula\...\Events\SignedIn`                  | A session started or was refreshed, once committed                                                  |
+| `SineMacula\...\Events\AdditionalFactorRequired`  | A sign-in waits for a further factor, once committed                                                |
+| `SineMacula\...\Events\PrincipalChoiceRequired`   | A sign-in waits for a choice of principal, once committed                                           |
+| `SineMacula\...\Events\PrincipalSwitched`         | A session switched its principal, once committed                                                    |
+| `SineMacula\...\Events\SteppedUp`                 | A session recorded a further factor or recovery code, once committed; with kind                     |
+| `SineMacula\...\Events\Reauthenticated`           | A session was reauthenticated with its first factor, once committed                                 |
+| `SineMacula\...\Events\IdentifierVerified`        | An identifier was verified (after commit); carries type                                             |
+| `SineMacula\...\Events\PasswordSet`               | A password was set or reset, once committed; with flow                                              |
+| `SineMacula\...\Events\IdentifierChangeRequested` | A change of identifier waits for its proof, once committed                                          |
+| `SineMacula\...\Events\IdentifierChanged`         | An identifier was replaced by a proven one, once committed                                          |
+| `SineMacula\...\Events\PasskeyAdded`              | A passkey was registered, once committed                                                            |
+| `SineMacula\...\Events\PasskeyUsed`               | A passkey's assertion was verified, once committed                                                  |
+| `SineMacula\...\Events\PasskeyRemoved`            | A passkey was removed, once committed                                                               |
+| `SineMacula\...\Events\ApiKeyIssued`              | An API key was issued, once committed                                                               |
+| `SineMacula\...\Events\ApiKeyRotated`             | An API key was rotated, once committed; previous key id                                             |
+| `SineMacula\...\Events\ApiKeyRevoked`             | An API key was revoked, once committed                                                              |
+| `SineMacula\...\Events\ClientCredentialsGranted`  | A client credentials exchange issued an access token                                                |
+| `SineMacula\...\Events\AuthenticationFailed`      | Any sign-in, refresh, switch, step-up, reauthentication, bearer, key, code, reset or change failure |
 
 The credentials on `Attempting` and `Failed` never include a password: every key whose name contains `password`
 (case-insensitive), such as `password`, `current_password`, or `password_confirmation`, is removed before the event is
@@ -108,23 +110,25 @@ and from `start()`, which dispatches no `Attempting`, it is the only event. Comp
 discarding it `AuthenticationFailed` with `additional_factor_failed`. A sign-in that waits for a choice of principal
 dispatches `PrincipalChoiceRequired` the same way; choosing starts the session (or a pending factor) as above, and
 discarding the choice dispatches `AuthenticationFailed` with `principal_choice_abandoned`. A switch of principal is no
-sign-in: it dispatches `PrincipalSwitched`, and no `Login` or `SignedIn`. The event that reports a session's write
+sign-in: it dispatches `PrincipalSwitched`, and no `Login` or `SignedIn`. Nor is a step-up or a reauthentication, which
+keep their session: each dispatches `SteppedUp` or `Reauthenticated` once committed, and a refusal
+`AuthenticationFailed`, never `Attempting`, `Failed`, `Login` or `SignedIn`. The event that reports a session's write
 (`SessionCreated`, `SignedIn`, `Refreshed` or `PrincipalSwitched`) is scheduled before the guard is bound to the
 session, so a listener that throws on `Validated`, `Login`, `Authenticated`, `PrincipalAssigned` or
 `SessionAuthenticated` cannot keep it from being reported (its exception still reaches the caller). Outside a
 transaction it is therefore dispatched before those bind events: read the event's context in its listener, not the
 guard, which may not be bound to the new session yet.
 
-`AuthenticationFailed` reports every failed sign-in, refresh, switch of principal, bearer token, API key, client
-credentials exchange, request for a one-time code, verification by code or link, password reset request or submission,
-and identifier change request or confirmation, after Laravel's `Failed` where that fires, with the flow
-(`AuthenticationFlow`: `sign_in`, `refresh`, `bearer`, `principal_switch`, `api_key`, `client_credentials`,
-`code_request`, `identifier_verification`, `password_reset`, `identifier_change`; see [Failure
-outcomes](#failure-outcomes) for what each answers), a `FailureReason`, the identifier a sign-in's input named (as
-given), and the wait for `rate_limited` and `account_rate_limited`. Its context carries the identity only once a sign-in
-method verified it, a refresh reloaded the session's owner or a token's subject was found (a wrong password or an
-unknown identifier carries none), the principal and tenant once resolved, and the session once found, else the `sid` a
-token named. A bearer token is checked in this order, so its reason is the first that applies: `token_invalid`, for a
+`AuthenticationFailed` reports every failed sign-in, refresh, switch of principal, step-up, reauthentication, bearer
+token, API key, client credentials exchange, request for a one-time code, verification by code or link, password reset
+request or submission, and identifier change request or confirmation, after Laravel's `Failed` where that fires, with
+the flow (`AuthenticationFlow`: `sign_in`, `refresh`, `bearer`, `principal_switch`, `step_up`, `reauthentication`,
+`api_key`, `client_credentials`, `code_request`, `identifier_verification`, `password_reset`, `identifier_change`; see
+[Failure outcomes](#failure-outcomes) for what each answers), a `FailureReason`, the identifier a sign-in's input named
+(as given), and the wait for `rate_limited` and `account_rate_limited`. Its context carries the identity only once a
+sign-in method verified it, a refresh reloaded the session's owner or a token's subject was found (a wrong password or
+an unknown identifier carries none), the principal and tenant once resolved, and the session once found, else the `sid`
+a token named. A bearer token is checked in this order, so its reason is the first that applies: `token_invalid`, for a
 client credentials token `credential_invalid`, `credential_revoked` and `credential_expired`, then `identity_unknown`,
 `machine_identity`, `identity_inactive`, `principal_mismatch`, `principal_inactive`, `tenant_inactive`, then for a token
 that names no session `issued_before_cutoff`, and for one that names a session `session_unknown`,
@@ -199,6 +203,8 @@ reasons its event can carry (each reason's meaning is in [Events](#events)):
 | `bearer`                  | A request through `auth:<jwt guard>`, or `Auth::user()` and the accessors on one                      | `401 {"message": "Unauthenticated."}` from the `auth` middleware; `Auth::user()` is `null`                                                                                                                                                                                                                                                                                                           | `token_invalid`, `credential_invalid`, `credential_revoked` and `credential_expired` (a client credentials token), `identity_unknown`, `machine_identity`, `identity_inactive`, `principal_mismatch`, `principal_inactive`, `tenant_inactive`, `issued_before_cutoff` (a token without a session), `session_unknown`, `session_guard_mismatch`, `session_revoked`, `session_expired`, `session_principal_mismatch`                                                                                                                                                                                                                |
 | `refresh`                 | `Auth::sessions()->refreshFromRequest()`, `refresh()`                                                 | A `RefreshResult` whose `isFailed()`, `reason` and, for `rate_limited`, `retryAfter` say why (`null` from `refreshFromRequest()` when the request carries no token)                                                                                                                                                                                                                                  | `token_invalid`, `refresh_token_conflict`, `cross_site_request`, `rate_limited`, `session_unknown`, `session_guard_mismatch`, `session_revoked`, `session_expired`, `refresh_key_missing`, `rotation_reuse` (the session is revoked), `rotation_conflict`, `session_principal_mismatch`, `identity_unknown`, `machine_identity`, `identity_inactive`, `principal_unresolved`, `principal_mismatch`, `principal_inactive`, `tenant_inactive`, `method_not_allowed`, `principal_ineligible`                                                                                                                                         |
 | `principal_switch`        | `Auth::sessions()->switchPrincipalFromRequest()`, `switchPrincipal()`                                 | A `SwitchResult` whose `isFailed()`, `reason` and, for `rate_limited`, `retryAfter` say why (`null` from `switchPrincipalFromRequest()` when the request carries no token)                                                                                                                                                                                                                           | Those of `refresh`, with `rate_limited` returned rather than thrown, and `additional_factor_required`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `step_up`                 | `Auth::sessions()->stepUp()`                                                                          | An `AccessTokenResult` whose `isIssued()`, `accessToken` and `expiresAt` give the session's new access token, or whose `isFailed()` and `reason` say why (see [Stepping up](sessions.md#stepping-up))                                                                                                                                                                                                | `proof_invalid`, `proof_binding_mismatch`, `session_unknown`, `session_guard_mismatch`, `session_revoked`, `session_expired`, `machine_identity`, `session_principal_mismatch`, `identity_unknown`, `identity_inactive`, `principal_unresolved`, `principal_mismatch`, `principal_inactive`, `tenant_inactive`, `method_not_allowed`, `principal_ineligible`                                                                                                                                                                                                                                                                      |
+| `reauthentication`        | `Auth::sessions()->reauthenticate()`                                                                  | An `AccessTokenResult` as for a step-up, and for `rate_limited` its `retryAfter`; a concealed reason is `invalid_credentials`, with no wait (see [Reauthenticating](sessions.md#reauthenticating))                                                                                                                                                                                                   | `method_not_allowed`, `session_unknown`, `session_guard_mismatch`, `session_revoked`, `session_expired`, `machine_identity`, `rate_limited`, `account_rate_limited`, `invalid_credentials` (another identity's credential included), `identifier_unverified`, `code_expired`, `code_exhausted`, `passkey_challenge_invalid`, `passkey_counter_regressed`, `session_principal_mismatch`, `identity_unknown`, `identity_inactive`, `principal_unresolved`, `principal_mismatch`, `principal_inactive`, `tenant_inactive`, `principal_ineligible`                                                                                    |
 | `api_key`                 | A request through `auth:<api_key guard>`                                                              | `401 {"message": "Unauthenticated."}` from the `auth` middleware; the guard's `attempt()` is `false` and reports `method_not_allowed` on the `sign_in` flow                                                                                                                                                                                                                                          | `credential_invalid`, `credential_guard_mismatch`, `credential_revoked`, `credential_expired`, `method_not_allowed`, `identity_unknown`, `identity_inactive`, `principal_mismatch`, `principal_inactive`, `tenant_inactive`, `principal_ineligible`                                                                                                                                                                                                                                                                                                                                                                               |
 | `client_credentials`      | `Auth::clientCredentials()->fromRequest()`, `exchange()`                                              | A `ClientCredentialsResult` answering RFC 6749's `invalid_request`, `unsupported_grant_type`, `invalid_client`, `unauthorized_client`, `invalid_scope`, or `slow_down` (see [Client credentials](machine-credentials.md#client-credentials))                                                                                                                                                         | `invalid_credentials` (a request refused before a client was found), `method_not_allowed`, `rate_limited`, every reason of `api_key`, `scope_invalid`                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `code_request`            | `Auth::codes()->send()`, `sendVerification()`                                                         | A `CodeRequest` whose `status` is `sent`, `rate_limited` (with `retryAfter`), `method_not_allowed` or `identifier_invalid`; the same for an identifier no one holds                                                                                                                                                                                                                                  | `method_not_allowed` (`send()`), `invalid_credentials` (the result's `identifier_invalid`), `rate_limited`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |

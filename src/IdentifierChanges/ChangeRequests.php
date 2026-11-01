@@ -41,10 +41,11 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * checked the configuration.
  *
  * First, in order, on the identity's row as stored (read again by key on the
- * write connection): the proof of a recent authentication, the new identifier
- * (one the type's normaliser accepts, and not the current one), and a slot of
- * the `identifier_change` limits, counted on the new identifier, on the
- * identity and on the IP address. Each refusal is answered and reported by
+ * write connection): the proof of a recent authentication (fresh enough for the
+ * `identifier_change` operation, see `RecentAuthentication`), the new
+ * identifier (one the type's normaliser accepts, and not the current one), and
+ * a slot of the `identifier_change` limits, counted on the new identifier, on
+ * the identity and on the IP address. Each refusal is answered and reported by
  * `AuthenticationFailed` (flow `identifier_change`, with the identifier as
  * given), and writes nothing. Whether another identity holds the new identifier
  * is not looked at, so the answer says nothing about it. The limiter counts
@@ -127,7 +128,7 @@ final readonly class ChangeRequests
     ): IdentifierChangeRequest {
         $now      = CarbonImmutable::now()->startOfSecond();
         $settings = new IdentifierChangeSettings($this->container->make(Repository::class));
-        $recent   = new RecentAuthentication($this->context, $this->container, $settings->recentAuthenticationSeconds(), $now);
+        $recent   = new RecentAuthentication($this->context, $this->container);
         $before   = self::stored($identity);
         $checked  = $this->checked($identity, $before, $type, $identifier, $proof, $recent, $context);
 

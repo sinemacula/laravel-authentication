@@ -144,7 +144,7 @@ final class IdentifierChangeServiceTest extends TestCase
     public function testEveryMethodRefusesAnIdentityThatCannotChange(\Closure $identity, string $exception, string $message): void
     {
         $identity = $identity();
-        $proof    = Reauthentication::confirmedAt($this->now);
+        $proof    = self::freshSession($identity);
         $changes  = $this->changes();
         $calls    = [
             static fn (): mixed => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof),
@@ -230,7 +230,7 @@ final class IdentifierChangeServiceTest extends TestCase
         $changes  = $this->changes();
 
         try {
-            $changes->requestByCode($identity, $type, 'ada', Reauthentication::confirmedAt($this->now));
+            $changes->requestByCode($identity, $type, 'ada', self::freshSession($identity));
             self::fail('Expected the type to be refused.');
         } catch (\Throwable $e) {
             self::assertInstanceOf($exception, $e);
@@ -273,7 +273,7 @@ final class IdentifierChangeServiceTest extends TestCase
     {
         yield from [
             'the change lifetime' => ['authentication.identifier_changes.ttl_seconds', 60, 'authentication.identifier_changes.ttl_seconds must be an integer from 300 to 86400.'],
-            'the window'          => ['authentication.identifier_changes.recent_authentication_seconds', 'soon', 'recent_authentication_seconds must be an integer'],
+            'the freshness'       => ['authentication.freshness', 'soon', 'authentication.freshness must map operation names to their freshness.'],
             'the code key'        => ['authentication.codes.key', 'too-short', 'authentication.codes.key must be a string of at least 32 bytes'],
             'the delivery queue'  => ['authentication.delivery.queue.connection', 'missing', 'authentication.delivery.queue.connection must name a connection'],
         ];
@@ -320,12 +320,13 @@ final class IdentifierChangeServiceTest extends TestCase
     public function testACodeRequestReadsTheCodeSettings(): void
     {
         $identity   = self::seedChangeable();
+        $proof      = self::freshSession($identity);
         $statements = self::recordStatements();
 
         config()->set('authentication.codes.length', 4);
 
         try {
-            $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now));
+            $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, $proof);
             self::fail('Expected the code settings to be refused.');
         } catch (\InvalidArgumentException $e) {
             self::assertSame('authentication.codes.length must be an integer from 6 to 10.', $e->getMessage());
@@ -373,7 +374,7 @@ final class IdentifierChangeServiceTest extends TestCase
 
         foreach (
             [
-                fn (): mixed => $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now)),
+                fn (): mixed => $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity)),
                 fn (): mixed => $this->changes()->confirmByCode($identity, 'email', self::CODE),
             ] as $call
         ) {
@@ -403,7 +404,7 @@ final class IdentifierChangeServiceTest extends TestCase
         app()->offsetUnset(OneTimeCodeSender::class);
 
         try {
-            $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now));
+            $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity));
             self::fail('A change by code was requested with no sender bound.');
         } catch (\LogicException $exception) {
             self::assertSame(
@@ -413,7 +414,7 @@ final class IdentifierChangeServiceTest extends TestCase
         }
 
         self::assertSame([0, 0, 0], [DB::table('rate_limits')->count(), DB::table('one_time_codes')->count(), DB::table('identifier_changes')->count()]);
-        self::assertTrue($this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now), 'email.confirm')->isSent());
+        self::assertTrue($this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), 'email.confirm')->isSent());
     }
 
     /**
@@ -493,7 +494,7 @@ final class IdentifierChangeServiceTest extends TestCase
 
         foreach (
             [
-                fn (): mixed => $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now)),
+                fn (): mixed => $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity)),
                 fn (): mixed => $this->changes()->confirmByCode($identity, 'email', self::CODE),
             ] as $call
         ) {
@@ -519,7 +520,7 @@ final class IdentifierChangeServiceTest extends TestCase
     {
         $identity = self::seedChangeable();
 
-        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now));
+        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity));
 
         $statements = self::recordStatements();
         $lock       = $identity->newModelQuery()->whereKey($identity->getKey())->lockForUpdate()->limit(1)->toSql();
