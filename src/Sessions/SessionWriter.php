@@ -13,6 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
@@ -156,12 +157,7 @@ final readonly class SessionWriter
 
         $session->forceFill(self::sessionState($session, $rotationId, $described, $lifetimes, $now));
 
-        $revoked = [
-            $previous->getRevokedAtName()          => $previous->fromDateTime($now),
-            $previous->getRevokedReasonName()      => RevocationReason::SUPERSEDED->value,
-            $previous->getRefreshKeyName()         => null,
-            $previous->getPreviousRefreshKeyName() => null,
-        ];
+        $revoked = RefreshRotationStore::revocation($previous, RevocationReason::SUPERSEDED, $now);
 
         return $session->getConnection()->transaction(function () use ($previous, $revoked, $session, $admitted, $method, $rotationId, $now): ?SignedInSession {
 

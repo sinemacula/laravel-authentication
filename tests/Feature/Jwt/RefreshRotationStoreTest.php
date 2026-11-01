@@ -282,6 +282,26 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
+     * The columns a revocation writes are the ones the session writer's
+     * replacement writes too: the time in the model's own format, the reason,
+     * and both digests cleared, and nothing else.
+     *
+     * @return void
+     */
+    public function testRevocationIsTheTimeTheReasonAndBothDigestsCleared(): void
+    {
+        $session = $this->record();
+
+        self::assertSame([
+            'revoked_at'           => $session->fromDateTime($this->now),
+            'revoked_reason'       => 'superseded',
+            'refresh_key'          => null,
+            'previous_refresh_key' => null,
+        ], RefreshRotationStore::revocation($session, RevocationReason::SUPERSEDED, $this->now));
+        self::assertFalse($session->isDirty());
+    }
+
+    /**
      * The re-read returns the row as it now is, from the write connection, with
      * a locking read on engines that support one.
      *

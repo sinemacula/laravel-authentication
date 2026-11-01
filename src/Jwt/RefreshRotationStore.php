@@ -171,18 +171,33 @@ final readonly class RefreshRotationStore
      */
     public function revoke(EloquentSession&Model $session, RevocationReason $reason, CarbonImmutable $now): bool
     {
-        $revoked = [
-            $session->getRevokedAtName()          => $session->fromDateTime($now),
-            $session->getRevokedReasonName()      => $reason->value,
-            $session->getRefreshKeyName()         => null,
-            $session->getPreviousRefreshKeyName() => null,
-        ];
+        $revoked = self::revocation($session, $reason, $now);
 
         $affected = $this->table($session)
             ->whereNull($session->getRevokedAtName())
             ->update($revoked);
 
         return $this->mirror($session, $affected, $revoked);
+    }
+
+    /**
+     * The columns a revocation writes, keyed by column: the time and reason,
+     * and both refresh digests cleared, so no refresh token of the session is
+     * accepted again.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return array<string, mixed>
+     */
+    public static function revocation(EloquentSession&Model $session, RevocationReason $reason, CarbonImmutable $now): array
+    {
+        return [
+            $session->getRevokedAtName()          => $session->fromDateTime($now),
+            $session->getRevokedReasonName()      => $reason->value,
+            $session->getRefreshKeyName()         => null,
+            $session->getPreviousRefreshKeyName() => null,
+        ];
     }
 
     /**
