@@ -719,10 +719,6 @@ final class JwtTokenServiceFactoryTest extends TestCase
      * null so the JWT service uses its NullLogger fallback. Pins the
      * `!$this->app->bound(LoggerInterface::class)` return path.
      *
-     * Verified by building a factory against a container with no logger binding
-     * and parsing an invalid token - the service must return null without
-     * error, proving the NullLogger fallback handles the debug call silently.
-     *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -740,9 +736,6 @@ final class JwtTokenServiceFactoryTest extends TestCase
         $factory = new JwtTokenServiceFactory($bareApp, $config);
         $service = $factory->forGuard('staff');
 
-        // Parsing an invalid token exercises the decode-failure path which
-        // calls logger->debug(). If the NullLogger fallback was not injected
-        // this would throw.
         self::assertNull($service->parse('not-a-valid-jwt'));
     }
 

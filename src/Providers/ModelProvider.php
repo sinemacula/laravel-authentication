@@ -109,10 +109,7 @@ class ModelProvider implements IdentityProvider
      * @return void
      */
     #[\Override]
-    public function updateRememberToken(Authenticatable $user, #[\SensitiveParameter] mixed $token): void
-    {
-        // Intentionally empty: stateless package.
-    }
+    public function updateRememberToken(Authenticatable $user, #[\SensitiveParameter] mixed $token): void {}
 
     /**
      * Retrieve a user by the given credentials.
@@ -281,8 +278,7 @@ class ModelProvider implements IdentityProvider
 
             // Defence in depth: the key becomes an SQL column name downstream,
             // so reject anything that is not a valid identifier (optionally
-            // dotted). Structurally prevents trailing dots, consecutive dots,
-            // and any non-identifier byte from reaching `where()`/`whereIn()`.
+            // dotted).
             if (preg_match('/^[a-zA-Z_]\w*(\.[a-zA-Z_]\w*)*$/', $key) !== 1) {
                 continue;
             }

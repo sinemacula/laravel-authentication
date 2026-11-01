@@ -151,8 +151,6 @@ final class DefaultPrincipalResolverTest extends TestCase
 
         $resolver = new DefaultPrincipalResolver;
 
-        // The hint didn't resolve to a Principal, so the 2D path kicks in and
-        // returns the identity itself.
         self::assertSame($identity, $resolver->resolve($identity, 'non-principal-id'));
     }
 
