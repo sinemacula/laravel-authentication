@@ -87,7 +87,9 @@ final class FirstFactorRecorder
         try {
             ProofWriter::record($session, $guard, $proof);
         } catch (\Throwable $exception) {
-            // A test that migrates its own tables may have no proofs table.
+            // A test that migrates its own tables may have no proofs table. On
+            // PostgreSQL the failed insert aborts any open transaction, so a
+            // test that runs inside one migrates the proofs table too.
             if (!$exception instanceof QueryException) {
                 throw $exception;
             }

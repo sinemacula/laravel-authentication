@@ -58,6 +58,9 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
     /** @var string Path of the shipped rate limits migration, whose table the refresh exchange counts failures in. */
     private const string RATE_LIMITS_MIGRATION_PATH = __DIR__ . '/../../../database/migrations/2026_04_06_000002_create_rate_limits_table.php';
 
+    /** @var string Path of the shipped proofs migration, whose table holds the first factor every session is signed in with. */
+    private const string PROOFS_MIGRATION_PATH = __DIR__ . '/../../../database/migrations/2026_04_06_000008_create_authentication_proofs_table.php';
+
     /** @var \Carbon\Carbon Frozen clock reference. */
     private Carbon $now;
 
@@ -162,11 +165,15 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
     }
 
     /**
-     * Create the shipped sessions and rate limits tables and the identity table
-     * before the wrapping transaction begins. Teardown callbacks run in reverse
-     * order, so on a persistent database the tables are dropped after the
-     * wrapping transaction is rolled back; an in-memory one goes with its
-     * connection.
+     * Create the shipped sessions, rate limits and proofs tables and the
+     * identity table before the wrapping transaction begins. Teardown callbacks
+     * run in reverse order, so on a persistent database the tables are dropped
+     * after the wrapping transaction is rolled back; an in-memory one goes with
+     * its connection.
+     *
+     * The proofs table is needed although nothing here reads a proof: the
+     * session saved is given its first factor, and on PostgreSQL a failed
+     * insert would abort the wrapping transaction.
      *
      * @return void
      *
@@ -176,7 +183,7 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
     #[\Override]
     protected function defineDatabaseMigrations(): void
     {
-        foreach ([self::MIGRATION_PATH, self::RATE_LIMITS_MIGRATION_PATH] as $path) {
+        foreach ([self::MIGRATION_PATH, self::RATE_LIMITS_MIGRATION_PATH, self::PROOFS_MIGRATION_PATH] as $path) {
 
             $migration = include $path;
 
@@ -199,6 +206,7 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
             Schema::dropIfExists('stub_principals');
             Schema::dropIfExists('authentication_sessions');
             Schema::dropIfExists('rate_limits');
+            Schema::dropIfExists('authentication_proofs');
         });
     }
 
