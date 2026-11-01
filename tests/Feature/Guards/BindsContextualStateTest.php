@@ -282,6 +282,8 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     public function testAVerifiedBindHoldsTheTenantItWasGiven(): void
     {
         $other = \Mockery::mock(Tenant::class);
+        $other->shouldReceive('getTenantIdentifier')->andReturn('tenant-2');
+
         $guard = $this->makeGuard();
 
         $guard->loginVerified($this->identity, $this->principal, $this->session, $other, 'password');
@@ -404,6 +406,7 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     {
         $guard = $this->makeGuard();
         $other = \Mockery::mock(Tenant::class);
+        $other->shouldReceive('getTenantIdentifier')->andReturn('tenant-2');
 
         $guard->loginVerified($this->identity, $this->principal, null, $other, 'password');
         $guard->setPrincipal($this->principal);

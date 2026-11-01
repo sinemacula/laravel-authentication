@@ -710,6 +710,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $this->assertDidHintIsRejected(new StubSession([
             'id'                  => self::SESSION_ID,
             'guard'               => self::GUARD_NAME,
+            'status'              => 'active',
             'revoked_at'          => null,
             'idle_expires_at'     => $idleIn     === null ? null : $this->now->copy()->addSeconds($idleIn),
             'absolute_expires_at' => $absoluteIn === null ? null : $this->now->copy()->addSeconds($absoluteIn),

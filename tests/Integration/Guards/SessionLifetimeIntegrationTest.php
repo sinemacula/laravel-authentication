@@ -624,6 +624,9 @@ final class SessionLifetimeIntegrationTest extends TestCase
             'principal_type'       => $identity->getMorphClass(),
             'principal_id'         => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'guard'                => $guard,
+            'status'               => 'active',
+            'tenant_id'            => null,
+            'switched_at'          => null,
             'sign_in_method'       => 'password',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
             'signed_in_at'         => Carbon::now(),

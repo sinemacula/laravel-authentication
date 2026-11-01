@@ -242,7 +242,7 @@ final class RevocationWriterTest extends TestCase
 
     /**
      * A bound session that is not an Eloquent model has nothing to revoke: the
-     * guard only forgets it, and the session is never asked anything.
+     * guard only forgets it, and signing out never asks the session anything.
      *
      * @return void
      */
@@ -254,6 +254,7 @@ final class RevocationWriterTest extends TestCase
 
         $record->shouldReceive('getSignInMethod')->andReturn('password');
         $record->shouldReceive('getSessionIdentifier')->andReturn('mocked-session');
+        $record->shouldReceive('getTenantId')->andReturnNull();
         $record->shouldNotReceive('getGuard');
 
         $guard->login($identity, $identity, $record);

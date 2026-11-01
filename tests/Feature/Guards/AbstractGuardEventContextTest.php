@@ -112,8 +112,8 @@ final class AbstractGuardEventContextTest extends AbstractGuardTestCase
     /**
      * `PrincipalAssigned` and `SessionAuthenticated` of one bind carry the same
      * context: the guard, the request's client, the identity, principal, the
-     * tenant the principal names, the session, and the method the session
-     * records.
+     * tenant the session records (the principal's own), the session, and the
+     * method the session records.
      *
      * @return void
      */
@@ -131,6 +131,7 @@ final class AbstractGuardEventContextTest extends AbstractGuardTestCase
 
         $principal->shouldReceive('getTenant')->andReturn($tenant);
         $session->shouldReceive('getSignInMethod')->andReturn('password');
+        $session->shouldReceive('getTenantId')->andReturn('5');
 
         $events = $this->recordEvents();
 

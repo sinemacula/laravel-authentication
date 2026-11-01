@@ -189,6 +189,7 @@ abstract class AbstractGuardTestCase extends TestCase
             'id'                  => $id,
             'guard'               => self::GUARD_NAME,
             'sign_in_method'      => 'password',
+            'status'              => 'active',
             'principal_type'      => PrincipalReference::type($principal),
             'principal_id'        => PrincipalReference::id($principal),
             'tenant_id'           => null,

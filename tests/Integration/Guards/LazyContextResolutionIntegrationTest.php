@@ -122,7 +122,7 @@ final class LazyContextResolutionIntegrationTest extends TestCase
 
         assert($manager instanceof AuthManager);
 
-        $token = $manager->jwt('api')->issueAccessToken($member, $membership, null, $session);
+        $token = $manager->jwt('api')->issueAccessToken($member, $membership, $tenant, $session);
 
         Route::get('/first-call', static function () use ($accessor): array {
 
@@ -175,7 +175,7 @@ final class LazyContextResolutionIntegrationTest extends TestCase
 
         assert($manager instanceof AuthManager);
 
-        $token = $manager->jwt('api')->issueAccessToken($member, $membership, null, $session);
+        $token = $manager->jwt('api')->issueAccessToken($member, $membership, $tenant, $session);
 
         Route::get('/pin-first', static function () use ($otherMembership, $otherSession): array {
 
@@ -225,7 +225,7 @@ final class LazyContextResolutionIntegrationTest extends TestCase
 
         assert($manager instanceof AuthManager);
 
-        $token = $manager->jwt('api')->issueAccessToken($bearer, $bearerMembership, null, $bearerSession);
+        $token = $manager->jwt('api')->issueAccessToken($bearer, $bearerMembership, $tenant, $bearerSession);
 
         Event::listen(Login::class, static function (): void {
             app('auth')->guard('api')->id();
@@ -284,7 +284,8 @@ final class LazyContextResolutionIntegrationTest extends TestCase
     }
 
     /**
-     * Persist a member with a membership in a tenant and a session.
+     * Persist a member with a membership in a tenant and a session acting as
+     * that membership in its tenant.
      *
      * @formatter:off
      *
@@ -309,11 +310,9 @@ final class LazyContextResolutionIntegrationTest extends TestCase
 
         $session = new Session;
         $session->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession(principal: $membership),
             'authenticatable_type' => ActivatableTenantMember::class,
             'authenticatable_id'   => (string) $member->getKey(), // @phpstan-ignore cast.string
-            'principal_type'       => $membership->getMorphClass(),
-            'principal_id'         => (string) $membership->getKey(), // @phpstan-ignore cast.string
         ])->save();
 
         return [$member, $membership, $tenant, $session];
