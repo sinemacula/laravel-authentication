@@ -31,11 +31,12 @@ are told apart, which claims are checked on every parse, and which the bearer pa
   are derived from the session's proofs when the token is issued (`Proofs\AuthenticationClaims::forSession()`, see
   `proofs-and-freshness.md`), read on the write connection, and `auth_time` is never later than `iat`. A parse holds
   `auth_time` to an integer not after `iat` plus the leeway and `amr` to a list of non-empty strings.
-- `tenant_id` is always the session's active tenant (D20): the tenant the session records (`tenant_id` on the row,
-  an opaque identifier), absent for a session that acts in none, a non-empty string when present. Issuing a session's
-  token refuses any other tenant, and none for a session in a tenant (`TokenProfile::sessionTenant()`); a token
-  without a session acts only in the principal's own tenant, so issuing one refuses any other
-  (`TokenProfile::ownTenant()`). The principal's own tenant is derived from the principal and is no claim.
+- `tenant_id` is always the session's active tenant, never the principal's own when they differ: the tenant the session
+  records (`tenant_id` on the row, an opaque identifier), absent for a session that acts in none, a non-empty string
+  when present. Issuing a session's token refuses any other tenant, and none for a session in a tenant
+  (`TokenProfile::sessionTenant()`); a token without a session acts only in the principal's own tenant, so issuing one
+  refuses any other (`TokenProfile::ownTenant()`). The principal's own tenant is derived from the principal and is no
+  claim.
 - Past the parse, the bearer path reads `sub`, `principal`, `sid`, `iat`, `tenant_id`, `cid` and `scope`. A session's
   token must name the tenant the session records (`session_tenant_mismatch`), be the session's principal's
   (`session_principal_mismatch`), and have been issued no earlier than the session's last context change,

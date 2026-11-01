@@ -21,16 +21,18 @@ Auth::user();           // Identity|null - same as Laravel
 Auth::identity();       // Identity|null   - the authenticated subject
 Auth::principal();      // Principal|null  - the acting principal
 Auth::session();        // Session|null    - the bound session
-Auth::tenant();         // Tenant|null     - the tenant the principal acts within
+Auth::tenant();         // Tenant|null     - the active tenant the request acts in
 Auth::scopes();         // list<string>|null - the credential's scope ceiling (null: no credential limits the request)
 ```
 
 Like `Auth::user()` and `Auth::id()`, each accessor authenticates the request on first access, so they also work on
 routes without `auth` middleware. A request is authenticated at most once, whether its token is accepted or rejected,
-and after `Auth::logout()` it stays signed out for the rest of the request. `Auth::tenant()` throws a
-`TenantUnavailableException` for a principal whose opted-in tenant cannot be loaded, and a `LogicException` for one
-loaded without that tenant's key (or polymorphic type). Sign-in, bearer requests and refresh reject such a principal, so
-that only happens for one bound through `login()`, `setUser()` or `setPrincipal()`, which skip the activity check.
+and after `Auth::logout()` it stays signed out for the rest of the request. `Auth::tenant()` is the active tenant: the one
+the request's session records, or the principal's own for a token without a session, read when the request is
+authenticated and held until the guard is bound again. For a principal bound through `login()`, `setUser()` or
+`setPrincipal()`, which skip the activity check, it is the bound session's recorded tenant, or with no session the
+principal's own, and `null` when that cannot be loaded; a principal loaded without its tenant's key (or polymorphic type)
+is a misconfiguration, and the bind throws its `LogicException`.
 
 `setUser()`, which Laravel's `actingAs()` uses, replaces the whole context: it binds the identity with its default
 principal (and no session), and throws an `InvalidArgumentException` when the identity has none. Use the guard's
@@ -689,20 +691,23 @@ A pending credential allows only the actions of the session's first outstanding 
 | `principal` | `list_principals`, `choose_principal`                                                                                   |
 
 So no principal is listed or chosen while a factor is outstanding, and nothing is allowed because of a route. The
-`mfa.*` names are the factor package's own: listing factors and enrolling one are its calls, which check the credential
-here first with `pending()`:
+`mfa.*` names follow the factor package's actions, spelt with this package's identifiers (`enrollment`), so the
+integration between the two maps them by case rather than by value. Listing factors and enrolling one are the factor
+package's calls, which check the credential here first with `pending()`:
 
 ```php
 $pending = Auth::sessions('api')->pending($credential, PendingAction::VERIFY);
 
 if ($pending === null) {
-    abort(401); // unknown, expired, discarded, activated, another guard's, or not allowed now
+    abort(401); // unknown, expired, discarded, activated, another guard's, refused, or not allowed now
 }
 ```
 
 `pending($credential, $action)` reads only, dispatching nothing; it answers `null` for a credential that names no live
-pending session of this guard, or whose session does not allow the action now (none given: any). Whether a bootstrap
-enrolment applies (a factor is required and the identity has none) is the factor package's to judge.
+pending session of this guard, or whose session does not allow the action now (none given: any), and for a session that
+can never activate because the gate would refuse its identity (a machine identity, an inactive one, or an identifier
+type the application no longer admits) or its method, so no code is sent and no enrolment begun for it. Whether a
+bootstrap enrolment applies (a factor is required and the identity has none) is the factor package's to judge.
 
 ### Satisfying a further factor
 

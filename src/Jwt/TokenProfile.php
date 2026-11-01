@@ -79,7 +79,7 @@ final class TokenProfile
      * Refuse to issue an access token for the session naming another tenant
      * than the one the session acts in: the identifier given must be the one
      * the session records, or both none, so a token of a session always names
-     * its active tenant (D20).
+     * its active tenant, never the principal's own when the two differ.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?string  $tenantId

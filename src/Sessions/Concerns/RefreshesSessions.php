@@ -31,13 +31,20 @@ trait RefreshesSessions
      * In order: Laravel's `Attempting`; the exchange, which fails as
      * `rate_limited` (with the wait in `retryAfter`) once too many refreshes
      * have failed for the token's session or from the request's IP address, and
-     * otherwise judges the token, its session and the session's owner; on
-     * success `Refreshed` and `SignedIn` (with `refresh` set) are scheduled for
-     * once the rotation is committed on the session's connection, and then the
-     * guard is bound to the session as a sign-in (`Validated`, `Login` and the
-     * bind events). A refusal dispatches Laravel's `Failed` and then
-     * `AuthenticationFailed` with the reason, and is returned, never thrown,
-     * `rate_limited` included.
+     * otherwise judges the token, its session and the session's owner; then the
+     * authentication policy of the session's active tenant, judged against the
+     * session's proofs and provenance: one requiring sign-in through a
+     * connection the session was not established through revokes the session
+     * (`tenant_policy_changed`) and refuses the refresh as `sso_required`, and
+     * one asking for a further factor the session lacks returns it to pending
+     * instead of rotating, the result carrying the pending session and its
+     * credential and no pair, with `SessionReturnedToPending` scheduled for
+     * once that is committed; on success `Refreshed` and `SignedIn` (with
+     * `refresh` set) are scheduled for once the rotation is committed on the
+     * session's connection, and then the guard is bound to the session as a
+     * sign-in (`Validated`, `Login` and the bind events). A refusal dispatches
+     * Laravel's `Failed` and then `AuthenticationFailed` with the reason, and
+     * is returned, never thrown, `rate_limited` included.
      *
      * The presented token is rotated before the guard is bound, so an exception
      * from a listener on `Refreshed` or on the binding events propagates after

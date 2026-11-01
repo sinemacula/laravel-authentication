@@ -64,9 +64,10 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * is the one the guard binds; a token without a session acts in the principal's
  * own. Fail closed: a token that names a principal or session that does not
  * resolve exactly is rejected rather than downgraded. No access contract and no
- * tenant policy is asked per request (D23). The token's `auth_time` and `amr`
- * are not read here: they were derived when it was issued, and live no longer
- * than it does.
+ * tenant policy is asked per request: access tokens are short-lived, a policy
+ * change revokes through `tenantPolicyChanged()`, and every refresh asks the
+ * policy again. The token's `auth_time` and `amr` are not read here: they were
+ * derived when it was issued, and live no longer than it does.
  *
  * Built for one request with the guard's current collaborators, so it keeps
  * nothing between requests.

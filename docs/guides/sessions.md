@@ -271,9 +271,12 @@ switch.
 With the previous rotation id inside the grace window, the current credential for the destination is handed back,
 writing nothing, only when the session records the destination principal and tenant and either its last rotation was the
 switch to them (a lost switch response, retried) or the token's own principal is the destination; anything else is
-`rotation_conflict`, without revoking, and the client retries with its current token. When another request changes the
-session between the switch's read and its write, the row is read again with a lock and judged once more under the same
-rules; the swap is never tried twice.
+`rotation_conflict`, without revoking, and the client retries with its current token. The retry is held to the
+destination tenant's authentication policy as a refresh with the same token is: a tenant that now requires a connection
+the session was not established through refuses it as `sso_required`, leaving the session as it was, and one that asks
+for a further factor the session lacks returns the session to pending. When another request changes the session between
+the switch's read and its write, the row is read again with a lock and judged once more under the same rules; the swap
+is never tried twice.
 
 A switch schedules `PrincipalSwitched` for its commit on the session's connection, with the new principal and tenant in
 its context, the previous principal as the session recorded it (`previousPrincipalMorphClass`, `previousPrincipalId`)
@@ -556,15 +559,16 @@ DB::transaction(function () use ($tenant, $policy) {
 });
 ```
 
-It reads the tenant's sessions (`tenant_id`, every guard, pending ones included) on the storage connection in key
-order, a chunk at a time, each chunk under a lock; skips a session recorded at the very version the policy now answers
-(neither `null`); revokes an active one that no longer meets it as `tenant_policy_changed`, and a pending one only when
-it would need another connection (a pending one that lacks a factor is judged when it activates); and records the
-version on an active one that meets it. It returns how many it revoked, and `SessionRevoked` reports each once
-committed. Call it inside the transaction that publishes the change, on the storage connection, so the two commit or
-roll back together (it runs as a savepoint and never commits on its own), and, for a strict cut-off, once more after
-that transaction commits: a session that entered the tenant while the first call ran is then judged too. Change the
-policy's version whenever anything its answer depends on changes, so the helper never skips a session it should judge.
+It reads the tenant's live sessions (`tenant_id`, every guard, pending ones included; one already past a deadline is
+left for pruning) on the storage connection in key order, a chunk at a time, each chunk under a lock; skips a session
+recorded at the very version the policy now answers (neither `null`); revokes an active one that no longer meets it as
+`tenant_policy_changed`, and a pending one only when it would need another connection (a pending one that lacks a factor
+is judged when it activates); and records the version on an active one that meets it. It returns how many it revoked,
+and `SessionRevoked` reports each once committed. Call it inside the transaction that publishes the change, on the
+storage connection, so the two commit or roll back together (it runs as a savepoint and never commits on its own), and,
+for a strict cut-off, once more after that transaction commits: a session that entered the tenant while the first call
+ran is then judged too. Change the policy's version whenever anything its answer depends on changes, so the helper never
+skips a session it should judge.
 
 ### Revocation reasons
 

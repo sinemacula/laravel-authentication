@@ -127,11 +127,11 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
   provider, and step-up and `satisfy()` refuse it.
 - Provenance by connection or tenant: only the indexes exist. There is no lookup, listing or revocation of the
   sessions of a connection or of a tenant's connections.
-- `complete($token)` with no proof stays a transitional trusted assertion: the session records only its first factor,
-  so its `amr` and freshness under-claim, never over-claim, the further factor the caller verified.
 - The freshness requirement (proof kinds, maximum age, multifactor, phishing resistance) is what the stored proofs can
-  show. It is not a requirement value for additional verification or a minimum assurance level, and there is no
-  contract saying whether a session's proofs meet such a requirement. The package gates no factor change itself:
+  show. A tenant's further factor is a `Requirements\Requirement` instead (additional verification, multifactor, a
+  minimum assurance level, phishing resistance, each with an optional maximum age), and whether a session's proofs meet
+  it is `Contracts\RequirementCheck`'s answer, which by default meets nothing; freshness does not use either yet, and
+  the identity-level factor policy is still a yes or no. The package gates no factor change itself:
   `factor_change` and `password_establishment` name requirements for whatever gates those operations. A sibling that
   needs more rebinds `FreshnessPolicy` until the value is extended.
 - A pending session records its first factor and provenance as any session does, when it is written; the further

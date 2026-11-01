@@ -14,7 +14,10 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  * never interprets the answer beyond yes or no; it asks at sign-in and at the
  * choice of principal for the tenant selected, on every switch for the
  * destination, and on refresh for the session's active tenant. A tenant it
- * refuses fails as `tenant_ineligible`.
+ * refuses fails as `tenant_ineligible`. Listing the principals an identity may
+ * use asks only `ApplicationAccess`: which tenant a listed principal acts in is
+ * not known until a selection names it, so this contract is asked when the
+ * principal is selected or chosen, with that selection.
  *
  * `null` asks whether the principal may act in no tenant. The default
  * (`OwnTenantOnly`) lets a principal act only in its own tenant, and a platform

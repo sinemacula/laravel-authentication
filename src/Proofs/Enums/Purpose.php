@@ -11,7 +11,9 @@ namespace SineMacula\Laravel\Authentication\Proofs\Enums;
  * for another, except that a pending session takes an enrolment's confirming
  * factor as the further factor it waits for.
  *
- * The values are the further-factor package's own.
+ * The values follow the further-factor package's purposes, spelt with this
+ * package's identifiers (`enrollment`), so the integration between them maps
+ * one onto the other by case, not by value.
  *
  * @api
  *

@@ -44,13 +44,13 @@ attempt limits and the identifier normalisers meet that policy, since a sign-in 
   `client_credentials` on a `jwt` guard whose client credentials exchange is open; neither is a sign-in method, and the
   manager refuses to register a method under either name (see `machine-credentials.md`).
 - Which principals may use an application is `Contracts\ApplicationAccess::mayUse($application, $principal)`, a yes or
-  no the package never interprets further (AUTH-2.11). The default, `Applications\AdmitAnyPrincipal`, lets any
-  principal use any application (D18). An application with a rule binds its own, and a refusal is
-  `principal_ineligible` on every path: sign-in, the choice and the list of principals, refresh, switch, API keys and
-  their issue; a client credentials exchange answers `unauthorized_client` for it and `invalid_client` for any other
-  reason. The policy has no `admit()`: it only ever delegated to `admitIdentifier()`, and two answers to one question
-  would drift. A caller's category (staff, a client's administrator, a service) is the application's or
-  authorisation's to model, never the token's: no claim carries it and no accessor returns it.
+  no the package never interprets further. The default, `Applications\AdmitAnyPrincipal`, lets any principal use any
+  application. An application with a rule binds its own, and a refusal is `principal_ineligible` on every path: sign-in,
+  the choice and the list of principals, refresh, switch, API keys and their issue; a client credentials exchange
+  answers `unauthorized_client` for it and `invalid_client` for any other reason. The policy has no `admit()`: it only
+  ever delegated to `admitIdentifier()`, and two answers to one question would drift. A caller's category (staff, a
+  client's administrator, a service) is the application's or authorisation's to model, never the token's: no claim
+  carries it and no accessor returns it.
 - Which tenant a principal may act in is `Contracts\TenantAccess::mayActIn($principal, $tenant)` (`null` for none). The
   default, `Tenancy\OwnTenantOnly`, lets a principal act only in its own tenant, by class and identifier, and a platform
   principal only in none; a principal whose own tenant cannot be loaded may act nowhere. A tenant other than the

@@ -18,16 +18,16 @@ return [
     | codes, passkeys and their challenges, API keys, identifier changes, and
     | the rate limit counters unless `rate_limits.connection` names their own.
     | The models read and write them there, and the published migrations create
-    | them there. They share one connection because a session, the activation
-    | of a pending one, a password reset and an identifier change each write
-    | several of them in one transaction, which two connections cannot commit as one: a
-    | custom session model must live on it too, or every session flow fails
-    | closed, and password resets and identifier changes need the identity there
-    | as well. A value that is neither a connection name nor `null` or empty
-    | fails closed when a model is built, and `authentication:check` reports it,
-    | as it does a name `database.connections` does not configure. Keep it fixed
-    | while the application runs: moving the tables is a deploy, with a
-    | migration the application performs and a worker restart.
+    | them there. They share one connection because a session, the activation of
+    | a pending one, a password reset and an identifier change each write
+    | several of them in one transaction, which two connections cannot commit as
+    | one: a custom session model must live on it too, or every session flow
+    | fails closed, and password resets and identifier changes need the identity
+    | there as well. A value that is neither a connection name nor `null` or
+    | empty fails closed when a model is built, and `authentication:check`
+    | reports it, as it does a name `database.connections` does not configure.
+    | Keep it fixed while the application runs: moving the tables is a deploy,
+    | with a migration the application performs and a worker restart.
     |
     */
 

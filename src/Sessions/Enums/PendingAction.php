@@ -9,9 +9,11 @@ namespace SineMacula\Laravel\Authentication\Sessions\Enums;
  * pending session allows only those of its first outstanding requirement, and
  * nothing because of a route's purpose.
  *
- * The `mfa.*` names are the further-factor package's own, so an adapter maps
- * one onto the other by value; listing and choosing principals are this
- * package's.
+ * The `mfa.*` names follow the further-factor package's actions, spelt with
+ * this package's identifiers (`enrollment`), so the two bootstrap actions'
+ * values differ from that package's and the integration between them maps one
+ * onto the other by case, not by value; listing and choosing principals are
+ * this package's own.
  *
  * @api
  *

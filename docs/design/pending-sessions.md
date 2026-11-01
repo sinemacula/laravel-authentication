@@ -24,13 +24,14 @@ checked before it gets here is in `session-service.md`; the choice of principal 
 - Nothing is pending by default: a session waits only when the identity-level factor policy asks for a factor, when an
   identity with several principals names none, or when the destination tenant's authentication policy asks for a
   factor the sign-in did not prove.
-- The order (AUTH-2.6): the credential is verified and the identity admitted (`session-service.md`); its principals are
-  listed and each admitted (`PendingEvaluation::principals()`); one is selected (named, the only one, or none while a
-  choice is outstanding); the identity-level factor policy is asked with no principal or tenant; for a selected
-  principal, its tenant is admitted (`TenantAdmission::select()`) and that tenant's policy judged against the sign-in's
-  own evidence in memory (`sso_required` refuses, writing nothing). `requires` is then `mfa` when the factor is owed,
-  followed by `principal` when none is selected. With nothing required the session is written active; otherwise
-  `SessionWriter::createPending()` writes it pending, with its first proof and provenance, in one transaction.
+- The order, one pipeline for every sign-in: the credential is verified and the identity admitted
+  (`session-service.md`); its principals are listed and each admitted (`PendingEvaluation::principals()`); one is
+  selected (named, the only one, or none while a choice is outstanding); the identity-level factor policy is asked with
+  no principal or tenant; for a selected principal, its tenant is admitted (`TenantAdmission::select()`) and that
+  tenant's policy judged against the sign-in's own evidence in memory (`sso_required` refuses, writing nothing).
+  `requires` is then `mfa` when the factor is owed, followed by `principal` when none is selected. With nothing required
+  the session is written active; otherwise `SessionWriter::createPending()` writes it pending, with its first proof and
+  provenance, in one transaction.
 - The credential is `<session key>.<secret>`: the secret from `RefreshTokenHasher::generate()`, only its digest stored
   and compared in constant time. It is handed out once, in the result's body (`SignInResult::$credential`), never in a
   URL or a cookie, and it is not a JWT: no guard authenticates a request or a refresh with it, and only `pending()`,
@@ -45,8 +46,10 @@ checked before it gets here is in `session-service.md`; the choice of principal 
 - The credential allows only the actions of the first outstanding requirement (`PendingRequirement::actions()`): the
   five `mfa.*` actions while the factor is owed, `list_principals` and `choose_principal` once only the choice is left.
   `pending($credential, $action)` answers `null` for any other, and `satisfy()` or `choose()` out of turn is
-  `pending_action_not_allowed`. The `mfa.*` values are the further-factor package's own action names; whether a
-  bootstrap enrolment applies is that package's to judge.
+  `pending_action_not_allowed`. The `mfa.*` values follow the further-factor package's action names, spelt with this
+  package's identifiers (`enrollment`), so the integration between the two maps them by case, not by value; whether a
+  bootstrap enrolment applies is that package's to judge. `pending()` also answers `null` when the gate would refuse the
+  identity or the method (below), so nothing is sent or enrolled for a session that can never activate.
 - `satisfy()` and `choose()` run in one transaction on the session's connection that locks the row, finds the credential
   again under the lock, and rolls back on any refusal, so a refused proof is never stored, a refused choice records
   nothing, and no refusal revokes the session: it waits until its credential expires, and only `discard()` ends it

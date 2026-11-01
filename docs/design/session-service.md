@@ -22,34 +22,33 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - No event ever receives the sign-in input. `Attempting` and `Failed` carry only `[type => identifier]` (or
   `['identifier' => ...]` for a method without a type, or nothing); `AuthenticationFailed` carries the identifier as
   given.
-- `signIn()` order (AUTH-2.6): the method is resolved (unknown throws); `Attempting`; the application policy must allow
-  the method (`method_not_allowed`, nothing counted, no timebox); the attempt limiter must grant a slot
-  (`rate_limited`); then, in the guard's credential timebox, cut short only for an admitted identity: the method
-  verifies the input, the identity must not be a `MachineIdentity` (`machine_identity`) and must be active, and the
-  application policy must admit it with the identifier type before any principal is resolved (`admitIdentifier()`; the
-  package's finds the identifier verified where the guard requires it); a password is rehashed; then, outside the
-  timebox (`SessionEstablishment::select()` and `proceed()`, over `PendingEvaluation`): the principals the identity may
-  use the application as, read from the writer and each admitted (`Admission\PrincipalAdmission`), with none left the
-  last one's refusal or `principal_unresolved`; the one the context names (`principal_mismatch` when it is not among
-  them), or the only one, or none selected while a choice is outstanding; the proof of a session is checked; the
-  identity-level additional-factor policy is asked, with no principal or tenant; a selected principal's active tenant
-  is admitted (`Admission\TenantAdmission::select()`); that tenant's authentication policy is judged against the
-  sign-in's own evidence in memory (`Tenancy\TenantPolicyCheck`, `SessionEvidence`: `sso_required` refuses, writing
-  nothing; a further factor it lacks makes `mfa` outstanding); and the session is written active, recording the
-  method, the policy's version, its
-  identifier type and the tenant, or pending with its requirements. Only a session that starts active gives the slots
-  back, those the method took on the accounts it checked included; a pending session keeps them all, their windows in
-  its hidden `attempt_windows`, until it first activates (`SessionActivation`). The slots are written on
-  `rate_limits.connection`, outside the session's own transaction but not outside a transaction the caller opened on
-  that connection: with the default (`null`, the storage connection) a caller that rolls back around a sign-in rolls
-  its counts back too, so its attempts go uncounted. Only counters on a connection of their own survive such a rollback.
-  The first activation therefore gives the slots back only once it commits on the session's connection: a rollback
-  leaves the session pending, and slots given back before it would be given back again when it activates. A
-  release that fails then is reported to the exception handler, not thrown, the one limiter error that does not
-  propagate: the session already stands, and Laravel runs a commit's callbacks in order without catching, so a throw
-  would stop the later ones (another activation's events, the caller's own). The release stops at the failure, and the
-  slots not given back stay counted. A handler that throws while reporting is not caught, as with Laravel's `rescue()`:
-  an error that cannot be reported surfaces rather than vanishing.
+- `signIn()` order: the method is resolved (unknown throws); `Attempting`; the application policy must allow the method
+  (`method_not_allowed`, nothing counted, no timebox); the attempt limiter must grant a slot (`rate_limited`); then, in
+  the guard's credential timebox, cut short only for an admitted identity: the method verifies the input, the identity
+  must not be a `MachineIdentity` (`machine_identity`) and must be active, and the application policy must admit it with
+  the identifier type before any principal is resolved (`admitIdentifier()`; the package's finds the identifier verified
+  where the guard requires it); a password is rehashed; then, outside the timebox (`SessionEstablishment::select()` and
+  `proceed()`, over `PendingEvaluation`): the principals the identity may use the application as, read from the writer
+  and each admitted (`Admission\PrincipalAdmission`), with none left the last one's refusal or `principal_unresolved`;
+  the one the context names (`principal_mismatch` when it is not among them), or the only one, or none selected while a
+  choice is outstanding; the proof of a session is checked; the identity-level additional-factor policy is asked, with
+  no principal or tenant; a selected principal's active tenant is admitted (`Admission\TenantAdmission::select()`); that
+  tenant's authentication policy is judged against the sign-in's own evidence in memory (`Tenancy\TenantPolicyCheck`,
+  `SessionEvidence`: `sso_required` refuses, writing nothing; a further factor it lacks makes `mfa` outstanding); and
+  the session is written active, recording the method, the policy's version, its identifier type and the tenant, or
+  pending with its requirements. Only a session that starts active gives the slots back, those the method took on the
+  accounts it checked included; a pending session keeps them all, their windows in its hidden `attempt_windows`, until
+  it first activates (`SessionActivation`). The slots are written on `rate_limits.connection`, outside the session's own
+  transaction but not outside a transaction the caller opened on that connection: with the default (`null`, the storage
+  connection) a caller that rolls back around a sign-in rolls its counts back too, so its attempts go uncounted. Only
+  counters on a connection of their own survive such a rollback. The first activation therefore gives the slots back
+  only once it commits on the session's connection: a rollback leaves the session pending, and slots given back before
+  it would be given back again when it activates. A release that fails then is reported to the exception handler, not
+  thrown, the one limiter error that does not propagate: the session already stands, and Laravel runs a commit's
+  callbacks in order without catching, so a throw would stop the later ones (another activation's events, the caller's
+  own). The release stops at the failure, and the slots not given back stay counted. A handler that throws while
+  reporting is not caught, as with Laravel's `rescue()`: an error that cannot be reported surfaces rather than
+  vanishing.
 - The steps `signIn()` and the guard's `attempt()` take the same way are `Sessions\CredentialAttempt`'s, which each
   calls in its own order: `checkMethod()` (the application policy's method check, before anything is counted), `begin()`
   (the slot on the identifier and IP limits, from the limiter the caller resolved after the method check), the account
