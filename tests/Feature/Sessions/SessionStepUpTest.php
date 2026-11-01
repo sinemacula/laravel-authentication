@@ -62,7 +62,7 @@ use Tests\TestCase;
 #[CoversClass(AccessTokenResult::class)]
 #[CoversClass(SteppedUp::class)]
 #[CoversTrait(ProvesSessions::class)]
-final class StepUpTest extends TestCase
+final class SessionStepUpTest extends TestCase
 {
     use InteractsWithProofs, InteractsWithSessions;
 

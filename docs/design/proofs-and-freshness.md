@@ -160,8 +160,8 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
   write rolled back.
 - `tests/Feature/Proofs/SessionProofsTest.php`, `tests/Unit/Proofs/ProofHistoryTest.php`: what counts, the aggregate
   read, `auth_time` and `amr` (order, `mfa`, reauthentications).
-- `tests/Feature/Sessions/StepUpTest.php`, `SessionReauthenticationTest.php`: every refusal, the token, what is kept,
-  the events.
+- `tests/Feature/Sessions/SessionStepUpTest.php`, `SessionReauthenticationTest.php`: every refusal, the token, what is
+  kept, the events.
 - `tests/Unit/Freshness/*`, `tests/Feature/Freshness/ConfiguredFreshnessTest.php`: requirements, the stricter rule,
   configuration and its failures, the newest meeting proof.
 - `tests/Feature/IdentifierChanges/RecentAuthenticationTest.php`: the identifier change's freshness.

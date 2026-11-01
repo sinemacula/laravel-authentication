@@ -89,7 +89,7 @@ are told apart, which claims are checked on every parse, and which the bearer pa
   `testIssuanceFindsThePrincipalsTenantOnTheWriteConnection`
 - `tests/Performance/AccessTokenIssueQueryBudgetTest.php`: the tenant check's read, none for a tenant loaded through the
   principal.
-- `tests/Feature/Sessions/StepUpTest.php` `testARefreshAndASwitchKeepTheStepUpsAuthentication`, and
+- `tests/Feature/Sessions/SessionStepUpTest.php` `testARefreshAndASwitchKeepTheStepUpsAuthentication`, and
   `tests/Feature/Proofs/SignInProofsTest.php` `testStartWithAProvenanceRecordsTheProvidersFirstFactorAndProvenance`:
   `auth_time` is the authentication's time, never the token's issue time; a refreshed token names the session's
   tenant, and a switched one the tenant of the principal switched to.
