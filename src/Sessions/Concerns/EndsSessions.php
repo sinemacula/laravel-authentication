@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions\Concerns;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Pagination\LengthAwarePaginator;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -12,16 +13,19 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Sessions\ActiveSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
+use SineMacula\Laravel\Authentication\Sessions\TenantPolicyChanges;
 
 /**
  * The session service's session list, and its sign-out, revocation and
  * security-change methods, which `SessionRevocations` carries out: signing out
  * and signing out everywhere for the binding the service is given, the rest for
- * whatever identity, principal or tenant they are given.
+ * whatever identity, principal or tenant they are given; and the application of
+ * a tenant's changed authentication policy, which `TenantPolicyChanges` carries
+ * out.
  *
- * They are delegations with no state of their own but the revocations; they sit
- * in a trait only so the service stays within the number of methods one class
- * may declare.
+ * They are delegations with no state of their own but those two; they sit in a
+ * trait only so the service stays within the number of methods one class may
+ * declare.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -32,6 +36,9 @@ trait EndsSessions
 {
     /** @var \SineMacula\Laravel\Authentication\Sessions\SessionRevocations Signs sessions out and ends them, on the guard's context. */
     private readonly SessionRevocations $revocations;
+
+    /** @var \SineMacula\Laravel\Authentication\Sessions\TenantPolicyChanges Applies a tenant's changed authentication policy to its sessions. */
+    private readonly TenantPolicyChanges $policyChanges;
 
     /**
      * One page of the identity's active sessions, of every guard, for a session
@@ -283,5 +290,31 @@ trait EndsSessions
     public function tenantDeactivated(Tenant $tenant, iterable $principals): int
     {
         return $this->revocations->tenantDeactivated($tenant, $principals);
+    }
+
+    /**
+     * Apply a change of the tenant's authentication policy to the sessions
+     * active in it, on every guard, at once: an active session that no longer
+     * meets the policy is revoked (`tenant_policy_changed`) and one that meets
+     * it records the version answered; a pending one is revoked only when it
+     * would need another connection; a session recorded at the very version
+     * answered (neither `null`) is skipped. Returns how many sessions were
+     * revoked.
+     *
+     * Call it in the transaction that publishes the change, on the storage
+     * connection, so both commit or roll back together (it runs as a savepoint
+     * there and never commits on its own), and for a strict cut-off once more
+     * after that commits: a session that entered the tenant while the first
+     * call ran is then judged too, and every session the first call recorded is
+     * skipped. `SessionRevoked` reports each revocation once committed.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @return int
+     *
+     * @throws \Throwable
+     */
+    public function tenantPolicyChanged(Tenant $tenant): int
+    {
+        return $this->policyChanges->apply($tenant, CarbonImmutable::now()->startOfSecond());
     }
 }

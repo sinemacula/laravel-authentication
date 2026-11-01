@@ -662,16 +662,21 @@ A sign-in follows one order whichever way it starts:
    selected; with several and none named, a choice is outstanding;
 4. the identity-level factor policy is asked, before any principal is chosen (see [Additional
    factors](#additional-factors));
-5. a selected principal's active tenant is admitted: `SignInContext::$tenant`, or the principal's own.
+5. a selected principal's active tenant is admitted: `SignInContext::$tenant`, or the principal's own;
+6. that tenant's authentication policy is asked (see [Tenant authentication
+   policies](sessions.md#tenant-authentication-policies)): one that requires a connection the sign-in was not
+   established through refuses it as `sso_required`, writing nothing, and one that requires a further factor the
+   sign-in lacks makes `mfa` outstanding.
 
-With nothing outstanding the session starts active, as above. Otherwise it is written pending, with the first-factor
-proof and the provenance the active session will carry, and `SessionPending` reports it once committed, with what it
-waits on and its expiry, never the credential. The sign-in's attempt slots, the account's included, stay taken until the
-session first activates, and are given back then; a pending session that is discarded or expires leaves them counted, so
-each guess at a further factor costs a sign-in attempt. With the password method the guesses are bounded by the
-account's own count, whichever spelling of the identifier and whichever guard each sign-in used, held to the most
-permissive `per_identifier` limit among the guards that check the account (see [Rate
-limits](configuration.md#rate-limits)). A sign-in that `start()` began took no slots, since nothing was guessed.
+With nothing outstanding the session starts active, as above, recording the version of the tenant policy's answer.
+Otherwise it is written pending, with the first-factor proof and the provenance the active session will carry, and
+`SessionPending` reports it once committed, with what it waits on and its expiry, never the credential. The sign-in's
+attempt slots, the account's included, stay taken until the session first activates, and are given back then; a pending
+session that is discarded or expires leaves them counted, so each guess at a further factor costs a sign-in attempt.
+With the password method the guesses are bounded by the account's own count, whichever spelling of the identifier and
+whichever guard each sign-in used, held to the most permissive `per_identifier` limit among the guards that check the
+account (see [Rate limits](configuration.md#rate-limits)). A sign-in that `start()` began took no slots, since nothing
+was guessed.
 
 ### Actions
 
@@ -717,8 +722,10 @@ never counts), made for another purpose, not accepted, or made after now or befo
 is not the first requirement.
 
 Under the session's row lock, the session is checked again (the identity, the method still allowed, and the principal
-and tenant it records, if any), the proof is stored with its other proofs, and what it waits on is judged again: with
-nothing left it activates in place (the guard is bound, the pair issued, the credential consumed, `SessionCreated` and
+and tenant it records, if any), the proof is stored with its other proofs, and what it waits on is judged again, the
+tenant's authentication policy included (its further factor is met only as the bound `RequirementCheck` judges the
+stored proofs, and one that requires a connection refuses the call as `sso_required`, storing nothing): with nothing
+left it activates in place (the guard is bound, the pair issued, the credential consumed, `SessionCreated` and
 `SignedIn` reported, the slots given back), with the choice left it moves on to it (the result is pending again, with no
 new credential and the principals listed), and otherwise it stays pending. The access token's `amr` carries the proof's
 values, and `mfa` when its evaluation reports multifactor authentication. A refusal stores nothing and never revokes the
@@ -733,12 +740,13 @@ $result = Auth::sessions('api')->choose($credential, $principal, TenantSelection
 
 `choose()` takes one of `$pending->principals` (also listed by `Auth::sessions('api')->principals($identity,
 $identifierType)`), and the tenant it is to be active in (the principal's own unless one is given). Under the row lock
-the identity and method are checked again, the principal must be the identity's, resolved through the hinted path as
-the very one named (`principal_mismatch`), and allowed to use the application, and the tenant one it may act in and
-active. The identity-level factor policy is then asked again: a further factor it now asks for records the principal and
-tenant and leaves the session waiting for it, with the same credential; otherwise the session activates as the
-principal. A refused choice leaves the session pending for another; `pending_action_not_allowed` while a factor is
-outstanding.
+the identity and method are checked again, the principal must be the identity's, resolved through the hinted path as the
+very one named (`principal_mismatch`), and allowed to use the application, and the tenant one it may act in and active.
+The chosen tenant's authentication policy is asked next: one that requires a connection refuses this principal as
+`sso_required`, leaving the session pending for another choice. The identity-level factor policy is then asked again: a
+further factor it or the tenant now asks for records the principal and tenant and leaves the session waiting for it,
+with the same credential; otherwise the session activates as the principal. A refused choice leaves the session pending
+for another; `pending_action_not_allowed` while a factor is outstanding.
 
 ### Discarding
 

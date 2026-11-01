@@ -13,6 +13,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
@@ -20,7 +21,9 @@ use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\CutoffIdentity;
 
@@ -238,6 +241,30 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
         $sessions = $this->sessions('members');
 
         self::assertSame(2, $this->assertQueryBudget(2, 2, static fn (): int => $sessions->principalDeactivated($membership)));
+    }
+
+    /**
+     * A tenant policy change that every session falls short of reads the
+     * tenant's sessions in one locked chunk, and for each its owner, its
+     * principal and its provenance, and writes each revocation: linear in the
+     * tenant's sessions.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATenantPolicyChangeIsLinearInTheTenantsSessions(): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        $this->memberSignIn();
+        $this->memberSignIn();
+
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement(connections: ['conn-a'])));
+
+        $sessions = $this->sessions('members');
+
+        self::assertSame(2, $this->assertQueryBudget(7, 2, static fn (): int => $sessions->tenantPolicyChanged($tenant)));
     }
 
     /**

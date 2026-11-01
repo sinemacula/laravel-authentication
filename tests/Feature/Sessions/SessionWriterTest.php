@@ -27,6 +27,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
@@ -136,6 +137,43 @@ final class SessionWriterTest extends TestCase
         self::assertSame('Writer/1.0', $record->last_used_user_agent);
         self::assertSame($this->now->addMinutes(60)->getTimestamp(), $record->getIdleExpiresAt()?->getTimestamp());
         self::assertSame($this->now->addMinutes(120)->getTimestamp(), $record->getAbsoluteExpiresAt()?->getTimestamp());
+    }
+
+    /**
+     * A session written under a tenant policy records the version it was
+     * checked against, and its first factor under the id the sign-in chose; a
+     * writer under none records no version.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionRecordsTheTenantPolicyVersionAndItsFirstFactorsId(): void
+    {
+        $identity = $this->seedIdentity();
+        $proof    = SignInProof::unattested('password', $this->now);
+        $session  = $this->writer()->underTenantPolicy('v4')->create(
+            $this->admitted($identity),
+            'email',
+            $this->context(),
+            $this->lifetimes(),
+            $this->now,
+            $this->context()->client,
+            $proof,
+        );
+        $plain = $this->writer()->create(
+            $this->admitted($identity),
+            'email',
+            $this->context(),
+            $this->lifetimes(),
+            $this->now,
+            $this->context()->client,
+            SignInProof::unattested('password', $this->now),
+        );
+
+        self::assertSame('v4', Session::query()->whereKey($session->record->getKey())->firstOrFail()->getTenantPolicyVersion());
+        self::assertNull(Session::query()->whereKey($plain->record->getKey())->firstOrFail()->getTenantPolicyVersion());
+        self::assertTrue(SessionProof::query()->whereKey($proof->id)->where('session_id', IdentifierCoercion::stringify($session->record->getKey()))->exists());
     }
 
     /**

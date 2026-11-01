@@ -62,6 +62,7 @@ final readonly class SessionWriter
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $tokens
      * @param  \Illuminate\Database\ConnectionResolverInterface  $connections
+     * @param  ?string  $policyVersion
      */
     public function __construct(
 
@@ -73,7 +74,22 @@ final readonly class SessionWriter
 
         /** Resolver for the session's own connection. */
         private ConnectionResolverInterface $connections,
+
+        /** The tenant authentication policy version the sessions it writes were checked against, if any. */
+        private ?string $policyVersion = null,
     ) {}
+
+    /**
+     * The same writer, for sessions checked against the tenant authentication
+     * policy at the version given (`null` for none), which they record.
+     *
+     * @param  ?string  $version
+     * @return self
+     */
+    public function underTenantPolicy(?string $version): self
+    {
+        return new self($this->guard, $this->tokens, $this->connections, $version);
+    }
 
     /**
      * Create a session of the configured model for the admitted sign-in and
@@ -266,9 +282,10 @@ final readonly class SessionWriter
     /**
      * A new, unsaved session of the configured model for the sign-in, created
      * from the origin's client, with the context's client name and platform,
-     * the principal (`null` while a choice is outstanding) and the active
-     * tenant's id (`null` for none), and none of the state it starts with
-     * (`sessionState()`, `pendingState()`) yet.
+     * the principal (`null` while a choice is outstanding), the active tenant's
+     * id (`null` for none) and the tenant policy version it was checked
+     * against, and none of the state it starts with (`sessionState()`,
+     * `pendingState()`) yet.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -302,6 +319,7 @@ final readonly class SessionWriter
             $principalType                                   => $principal === null ? null : PrincipalReference::type($principal),
             $principalId                                     => $principal === null ? null : PrincipalReference::id($principal),
             $session->getTenantIdName()                      => IdentifierCoercion::stringify($tenant?->getTenantIdentifier()),
+            $session->getTenantPolicyVersionName()           => $this->policyVersion,
             $session->getGuardName()                         => $this->guard,
             $session->getSignInMethodName()                  => $method,
             $session->getSignInIdentifierTypeName()          => $identifierType,
@@ -498,7 +516,7 @@ final readonly class SessionWriter
     private function record(EloquentSession&Model $session, SignInProof $proof): void
     {
         ProofWriter::clear($session);
-        ProofWriter::record($session, $this->guard, $proof->firstFactor());
+        ProofWriter::record($session, $this->guard, $proof->firstFactor(), $proof->id);
 
         if ($proof->provenance === null) {
             return;

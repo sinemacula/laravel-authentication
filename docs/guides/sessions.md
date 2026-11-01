@@ -480,24 +480,74 @@ session-less token issued in that second is rejected too. Tokens that name a ses
 moves forward, with one conditional update on the model's own connection (`invalidateTokensIssuedBefore()`); the column
 must be loaded, or reading it throws a `LogicException`, and the column name comes from `getTokensValidAfterName()`.
 
+### Tenant authentication policies
+
+A tenant may ask more of the sessions active in it than the identity's own sign-in did: a further factor, or a sign-in
+through one of its connections (single sign-on). The package asks the bound `Contracts\TenantAuthenticationPolicy`
+(the default, `RequireNothingOfTenants`, asks nothing; see [Tenant authentication
+policies](extending.md#tenant-authentication-policies)) whenever a session comes to act in a tenant or keeps acting in
+it: at sign-in once a principal is selected, at a choice of principal, when a pending session activates, and at every
+refresh, never on a bearer request. A session that falls short:
+
+| Where                       | Needs a connection                                                       | Lacks a further factor                                                   |
+|-----------------------------|--------------------------------------------------------------------------|--------------------------------------------------------------------------|
+| Sign-in                     | refused as `sso_required`, nothing written                               | written pending on `mfa`                                                 |
+| Choice of principal         | that principal refused as `sso_required`, the session stays pending      | the principal recorded, the session pending on `mfa`                     |
+| Satisfying a further factor | refused as `sso_required`, the session stays pending until it expires    | stays pending                                                            |
+| Refresh                     | refused as `sso_required`, the session revoked (`tenant_policy_changed`) | returned to pending: the result `isPending()`, with a pending credential |
+| `attempt()`                 | refused as `sso_required`                                                | refused as `additional_factor_required`                                  |
+
+A further factor is met only as the bound `Contracts\RequirementCheck` judges the session's proofs (the default,
+`MeetNoRequirement`, meets nothing, so a tenant that requires a further factor admits no session until a factor package
+binds its check). A session established through a connection carries it in its provenance (`start()` with a
+`Provenance`). A session that meets the policy records the version of the answer in `tenant_policy_version`.
+
+A refresh that returns a session to pending hands out no pair: `RefreshResult::isPending()`, with `pending` (what it
+waits on, `["mfa"]`) and `credential`, and `SessionReturnedToPending` reports it. From then on the session's access
+tokens and its refresh token are refused (`session_pending`, never taken for a replay), until the factor is satisfied
+with `Auth::sessions()->satisfy($credential, $proof)` (see [Pending sessions](signing-in.md#pending-sessions)): the
+session activates again in place, same id and proofs, with a new pair, `SessionActivated` reports it, and every token
+issued before the return stays refused.
+
+When a tenant's policy changes, call the helper, which revokes the sessions that no longer meet it at once:
+
+```php
+DB::transaction(function () use ($tenant, $policy) {
+    $policy->save();
+
+    Auth::sessions('api')->tenantPolicyChanged($tenant);
+});
+```
+
+It reads the tenant's sessions (`tenant_id`, every guard, pending ones included) on the storage connection in key
+order, a chunk at a time, each chunk under a lock; skips a session recorded at the very version the policy now answers
+(neither `null`); revokes an active one that no longer meets it as `tenant_policy_changed`, and a pending one only when
+it would need another connection (a pending one that lacks a factor is judged when it activates); and records the
+version on an active one that meets it. It returns how many it revoked, and `SessionRevoked` reports each once
+committed. Call it inside the transaction that publishes the change, on the storage connection, so the two commit or
+roll back together (it runs as a savepoint and never commits on its own), and, for a strict cut-off, once more after
+that transaction commits: a session that entered the tenant while the first call ran is then judged too. Change the
+policy's version whenever anything its answer depends on changes, so the helper never skips a session it should judge.
+
 ### Revocation reasons
 
 Every revocation records one of these reasons in the session's `revoked_reason` and in `SessionRevoked::$reason`
 (`RevocationReason`); a bulk revocation reports it in `SignedOutEverywhere::$reason` as well:
 
-| Reason                  | Recorded when                                                                                                                |
-|-------------------------|------------------------------------------------------------------------------------------------------------------------------|
-| `signed_out`            | The session signed itself out: `logout()`, `Auth::sessions()->signOut()`                                                     |
-| `signed_out_everywhere` | `signOutEverywhere()` ended the identity's sessions                                                                          |
-| `revoked`               | The application revoked it: `revokeSession()`, `revokeSessions()`, `revokePrincipalSessions()`                               |
-| `rotation_reuse`        | A rotated refresh token was replayed, by a refresh or a switch of principal                                                  |
-| `superseded`            | A sign-in that proved the client holds the session, with its current refresh token, replaced it with a new session           |
-| `password_changed`      | `passwordChanged()`: directly, through `Auth::passwords()->set()` with `CHANGE`, or through `RevokeSessionsOnPasswordChange` |
-| `password_reset`        | `passwordReset()`: directly, through a reset or `set()` with `RESET`, or through `RevokeSessionsOnPasswordReset`             |
-| `factor_removed`        | `factorRemoved()`, directly or through `RevokeSessionsOnPasskeyRemoval`                                                      |
-| `identity_deactivated`  | `identityDeactivated()`, directly or through `RevokeSessionsOnDeactivation`                                                  |
-| `principal_deactivated` | `principalDeactivated()`, directly or through `RevokeSessionsOnDeactivation`                                                 |
-| `tenant_deactivated`    | `tenantDeactivated()`                                                                                                        |
+| Reason                  | Recorded when                                                                                                                 |
+|-------------------------|-------------------------------------------------------------------------------------------------------------------------------|
+| `signed_out`            | The session signed itself out: `logout()`, `Auth::sessions()->signOut()`                                                      |
+| `signed_out_everywhere` | `signOutEverywhere()` ended the identity's sessions                                                                           |
+| `revoked`               | The application revoked it: `revokeSession()`, `revokeSessions()`, `revokePrincipalSessions()`                                |
+| `rotation_reuse`        | A rotated refresh token was replayed, by a refresh or a switch of principal                                                   |
+| `superseded`            | A sign-in that proved the client holds the session, with its current refresh token, replaced it with a new session            |
+| `password_changed`      | `passwordChanged()`: directly, through `Auth::passwords()->set()` with `CHANGE`, or through `RevokeSessionsOnPasswordChange`  |
+| `password_reset`        | `passwordReset()`: directly, through a reset or `set()` with `RESET`, or through `RevokeSessionsOnPasswordReset`              |
+| `factor_removed`        | `factorRemoved()`, directly or through `RevokeSessionsOnPasskeyRemoval`                                                       |
+| `identity_deactivated`  | `identityDeactivated()`, directly or through `RevokeSessionsOnDeactivation`                                                   |
+| `principal_deactivated` | `principalDeactivated()`, directly or through `RevokeSessionsOnDeactivation`                                                  |
+| `tenant_deactivated`    | `tenantDeactivated()`                                                                                                         |
+| `tenant_policy_changed` | `tenantPolicyChanged()`, or a refresh that finds the tenant now requires a connection the session was not established through |
 
 `revokeSession()`, `revokeSessions()` and `revokePrincipalSessions()` take the reason as an argument (`REVOKED` in the
 examples above); the others set their own.

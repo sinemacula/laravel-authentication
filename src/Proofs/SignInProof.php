@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Proofs;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Str;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
@@ -17,7 +18,9 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
  *
  * The session records them as it is written, pending or active, so the time the
  * credentials were verified carries to the active session unchanged; a further
- * factor a pending session waits for is recorded on it when it is given.
+ * factor a pending session waits for is recorded on it when it is given. The
+ * first factor's id is chosen here, so a tenant policy judged against it in
+ * memory at sign-in judges the very proof the session then records.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -29,6 +32,7 @@ final readonly class SignInProof
     /**
      * Constructor.
      *
+     * @param  string  $id
      * @param  string  $method
      * @param  \SineMacula\Laravel\Authentication\Proofs\Channel  $channel
      * @param  \SineMacula\Laravel\Authentication\Proofs\ObservedProperties  $observed
@@ -37,6 +41,9 @@ final readonly class SignInProof
      * @param  ?\SineMacula\Laravel\Authentication\Proofs\Provenance  $provenance
      */
     private function __construct(
+
+        /** The id the first factor is recorded under. */
+        public string $id,
 
         /** The sign-in method that verified the first factor. */
         public string $method,
@@ -68,7 +75,7 @@ final readonly class SignInProof
      */
     public static function verified(string $method, FirstFactor $factor, CarbonImmutable $at): self
     {
-        return new self($method, $factor->channel, $factor->observed, $factor->methods, $at->startOfSecond());
+        return new self(self::newId(), $method, $factor->channel, $factor->observed, $factor->methods, $at->startOfSecond());
     }
 
     /**
@@ -88,6 +95,7 @@ final readonly class SignInProof
         $at  = $provenance->providerAuthenticatedAt;
 
         return new self(
+            self::newId(),
             $method,
             new Channel(ChannelKind::EXTERNAL_PROVIDER, $provenance->connectionId),
             new ObservedProperties,
@@ -108,7 +116,7 @@ final readonly class SignInProof
      */
     public static function unattested(string $method, CarbonImmutable $now): self
     {
-        return new self($method, new Channel(ChannelKind::UNKNOWN), new ObservedProperties, [], $now->startOfSecond());
+        return new self(self::newId(), $method, new Channel(ChannelKind::UNKNOWN), new ObservedProperties, [], $now->startOfSecond());
     }
 
     /**
@@ -119,5 +127,38 @@ final readonly class SignInProof
     public function firstFactor(): NewProof
     {
         return new NewProof(ProofKind::FIRST_FACTOR, Purpose::SIGN_IN, $this->method, $this->channel, null, $this->observed, null, $this->methods, $this->authenticatedAt);
+    }
+
+    /**
+     * The first factor as it reads back once recorded, under its id.
+     *
+     * @return \SineMacula\Laravel\Authentication\Proofs\RecordedProof
+     */
+    public function recorded(): RecordedProof
+    {
+        $factor = $this->firstFactor();
+
+        return new RecordedProof(
+            $this->id,
+            $factor->kind,
+            $factor->purpose,
+            $factor->method,
+            $factor->channel,
+            null,
+            $factor->observed,
+            null,
+            $factor->methods,
+            $factor->authenticatedAt,
+        );
+    }
+
+    /**
+     * A new proof id, time-ordered like the ones `ProofWriter` chooses.
+     *
+     * @return string
+     */
+    private static function newId(): string
+    {
+        return Str::uuid7()->toString();
     }
 }

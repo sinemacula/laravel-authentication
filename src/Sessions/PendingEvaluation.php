@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
@@ -26,6 +27,10 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
+use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
+use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
+use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
+use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 
 /**
@@ -272,6 +277,35 @@ final readonly class PendingEvaluation
         );
 
         return $required && ($session === null || !SessionProofs::hasAcceptedAdditional($session));
+    }
+
+    /**
+     * How the session, or the sign-in's evidence, stands against the
+     * authentication policy of the tenant the principal is to act in; with no
+     * principal selected yet there is none to ask, and nothing falls short.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  \Carbon\CarbonImmutable  $now
+     * @param  ?\SineMacula\Laravel\Authentication\Tenancy\SessionEvidence  $evidence
+     * @return \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     */
+    public function tenantPolicy(
+        Identity $identity,
+        ?Principal $principal,
+        ?Tenant $tenant,
+        ?Session $session,
+        CarbonImmutable $now,
+        ?SessionEvidence $evidence = null,
+    ): TenantPolicyVerdict {
+        return $principal === null
+            ? new TenantPolicyVerdict(TenantPolicyStanding::MET, null)
+            : TenantPolicyCheck::check($this->context->name(), $identity, $principal, $tenant, $session, $now, $evidence);
     }
 
     /**

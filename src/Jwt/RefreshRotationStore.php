@@ -54,13 +54,17 @@ final readonly class RefreshRotationStore
      * makes it affect no row. Its status is matched as well as its deadlines,
      * since a pending session's deadline can equal the one it held while
      * active. It records the presented id as the previous one and `$now` as the
-     * rotation time. Returns whether the row was rotated.
+     * rotation time. The tenant authentication policy version the refresh was
+     * checked against is matched as loaded, so a version the policy-change
+     * helper wrote meanwhile makes the swap miss and the refresh be judged
+     * again, and written when it differs. Returns whether the row was rotated.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  string  $presentedRotationId
      * @param  string  $nextRotationId
      * @param  \Carbon\CarbonImmutable  $idle
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  ?string  $policyVersion
      * @return bool
      *
      * @imperative
@@ -71,6 +75,7 @@ final readonly class RefreshRotationStore
         #[\SensitiveParameter] string $nextRotationId,
         CarbonImmutable $idle,
         CarbonImmutable $now,
+        ?string $policyVersion = null,
     ): bool {
         $presentedDigest = RefreshTokenHasher::hash($presentedRotationId);
 
@@ -81,11 +86,19 @@ final readonly class RefreshRotationStore
             $session->getIdleExpiresAtName()      => $session->fromDateTime($idle),
         ];
 
+        $version = $session->getTenantPolicyVersionName();
+        $loaded  = $session->getRawOriginal($version);
+
+        if ($loaded !== $policyVersion) {
+            $rotated[$version] = $policyVersion;
+        }
+
         $affected = $this->table($session)
             ->where($session->getRefreshKeyName(), $presentedDigest)
             ->where($session->getStatusName(), SessionStatus::ACTIVE->value)
             ->whereNull($session->getRevokedAtName())
             ->where($this->loadedDeadlines($session))
+            ->where($version, $loaded)
             ->update($rotated);
 
         return $this->mirror($session, $affected, $rotated);

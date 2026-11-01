@@ -118,6 +118,15 @@ deleted. Starting a session is in
 - A pruned session is indistinguishable from an unknown one: its tokens already failed once it was revoked or ended, so
   retention never changes who authenticates.
 
+- `tenantPolicyChanged($tenant)` (`Sessions\TenantPolicyChanges`) is the synchronous revocation for a tenant
+  authentication policy that changed: in one transaction on the session model's connection (a savepoint inside the
+  caller's), it reads the unrevoked sessions whose `tenant_id` is the tenant's, every guard, pending ones included, in
+  key order 500 at a time with a locking read; skips one recorded at the very version answered (neither `null`);
+  revokes an active one that falls short, and a pending one only when it needs another connection, as
+  `tenant_policy_changed` with a conditional update on `tenant_id` and `revoked_at IS NULL`; and records the version on
+  an active one that meets it. `SessionRevoked` follows each revocation's commit. A session that enters the tenant
+  after the scan is bounded by its first refresh, which always asks the policy.
+
 ## Success Path
 
 - `Auth::sessions('api')->sessions($identity, 20)` costs a count and a select and returns a `LengthAwarePaginator` of

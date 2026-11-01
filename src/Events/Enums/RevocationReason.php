@@ -50,4 +50,9 @@ enum RevocationReason: string
     // The tenant the session's principal acts within was deactivated:
     // `tenantDeactivated()`
     case TENANT_DEACTIVATED = 'tenant_deactivated';
+
+    // The authentication policy of the tenant the session is active in changed
+    // and the session no longer meets it: `tenantPolicyChanged()`, or a refresh
+    // that finds it must be established through a connection it was not
+    case TENANT_POLICY_CHANGED = 'tenant_policy_changed';
 }

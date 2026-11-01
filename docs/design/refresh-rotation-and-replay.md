@@ -80,6 +80,15 @@ other rotated token as a replay that revokes the session.
   switched from fails with `session_principal_mismatch` and is not a replay, so the session is left alone, while the
   same token after the grace window is judged a replay as any rotated token is. The switch itself runs the same
   judgement (`RefreshJudgment::classify()`) with its own retry rule; see `principal-choice-and-switch.md`.
+- After admission, every refresh asks the authentication policy of the session's active tenant
+  (`Tenancy\TenantPolicyCheck`; never skipped on a recorded version): a session that must have been established
+  through a connection it was not is revoked (`tenant_policy_changed`) and refused as `sso_required`; one that lacks a
+  further factor returns to pending (`PendingTransitions::returnToPending()`, one compare-and-swap on the loaded refresh
+  digest, principal, tenant, policy version, deadlines and `status = active`), and the result is pending, with a pending
+  credential and no pair; one that meets it rotates, the swap matching the loaded `tenant_policy_version` and writing
+  the answered one when it differs, so a version the policy-change helper wrote in between makes the swap miss and the
+  refresh be judged again. A lost return to pending is judged again as a lost rotation is. A pending session's refresh
+  token is refused as `session_pending` before any digest is compared, so it is never taken for a replay.
 - The package opens no transaction around a refresh.
 
 ## Success Path

@@ -8,10 +8,10 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
@@ -85,15 +85,15 @@ final readonly class SessionActivation
     ) {}
 
     /**
-     * Activate the locked pending session as the principal in the tenant, for
+     * Activate the locked pending session as the destination's principal in its
+     * tenant, recording the tenant policy version it was checked against, for
      * the client acting on it, and issue its pair at `$now`, superseding on a
      * first activation the session its sign-in's client proved it holds, as the
      * caller found it still is.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
+     * @param  ?string  $policyVersion
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  \Carbon\CarbonImmutable  $now
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $proven
@@ -107,19 +107,23 @@ final readonly class SessionActivation
      */
     public function activate(
         EloquentSession&Model $session,
-        Identity $identity,
-        Principal $principal,
-        ?Tenant $tenant,
+        Admitted $destination,
+        ?string $policyVersion,
         ClientContext $client,
         CarbonImmutable $now,
         (EloquentSession&Model)|null $proven = null,
     ): SignedInSession {
+        [$identity, $principal, $tenant] = [$destination->identity, $destination->principal, $destination->tenant];
+
         $first        = $session->getRefreshKey() === null;
         $rotationId   = RefreshTokenHasher::generate();
         $reservations = $first ? self::reservations($session) : [];
         $superseded   = $first && $proven !== null ? $this->supersede($session, $proven, $principal, $now) : null;
 
-        $this->write($session, self::activeState($session, $principal, $tenant, $rotationId, $first, $client, $now, $this->idleDeadline($session, $now)));
+        $this->write($session, [
+            ...self::activeState($session, $principal, $tenant, $rotationId, $first, $client, $now, $this->idleDeadline($session, $now)),
+            $session->getTenantPolicyVersionName() => $policyVersion,
+        ]);
 
         $tokens = new TokenPair(
             $this->tokens->issueAccessToken($identity, $principal, $tenant, $session, $now),

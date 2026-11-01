@@ -41,6 +41,7 @@ final class FailureReasonTest extends TestCase
             'principal_inactive',
             'tenant_inactive',
             'principal_ineligible',
+            'sso_required',
             'identifier_unverified',
             'session_mismatch',
             'additional_factor_required',
@@ -163,6 +164,7 @@ final class FailureReasonTest extends TestCase
             'identity_deactivated',
             'principal_deactivated',
             'tenant_deactivated',
+            'tenant_policy_changed',
         ], array_map(static fn (RevocationReason $reason): string => $reason->value, RevocationReason::cases()));
     }
 }

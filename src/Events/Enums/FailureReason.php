@@ -62,6 +62,10 @@ enum FailureReason: string
     // The application policy does not admit the identity as the principal
     case PRINCIPAL_INELIGIBLE = 'principal_ineligible';
 
+    // The tenant's authentication policy requires a session established through
+    // one of its connections, and this one was not
+    case SSO_REQUIRED = 'sso_required';
+
     // The guard requires the identifier the sign-in used to be verified, and it
     // is not
     case IDENTIFIER_UNVERIFIED = 'identifier_unverified';

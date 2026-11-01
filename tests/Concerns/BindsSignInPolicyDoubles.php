@@ -8,17 +8,22 @@ use Illuminate\Contracts\Container\Container;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use SineMacula\Laravel\Authentication\Requirements\MeetNoRequirement;
+use SineMacula\Laravel\Authentication\Tenancy\RequireNothingOfTenants;
 use Tests\Fixtures\Sessions\PermissiveApplicationPolicy;
 use Tests\Fixtures\Sessions\UnlimitedAttemptLimiter;
 
 /**
  * Binds permissive sign-in policies (every method allowed, every principal
- * admitted with the given lifetimes, no attempt limits, no further factor) for
- * guard tests that build guards over mocked collaborators without the package
- * service provider: no configuration describes their guards, so the shipped
- * policy and limiter could not serve them.
+ * admitted with the given lifetimes, no attempt limits, no further factor, no
+ * tenant requirement) for guard tests that build guards over mocked
+ * collaborators without the package service provider: no configuration
+ * describes their guards, so the shipped policy and limiter could not serve
+ * them.
  *
  * A trait rather than a base-class method because those tests extend different
  * base cases.
@@ -42,5 +47,7 @@ trait BindsSignInPolicyDoubles
         $app->instance(ApplicationPolicy::class, new PermissiveApplicationPolicy($lifetimes));
         $app->singleton(AttemptLimiter::class, UnlimitedAttemptLimiter::class);
         $app->singleton(AdditionalFactorPolicy::class, NeverRequireAdditionalFactor::class);
+        $app->singleton(TenantAuthenticationPolicy::class, RequireNothingOfTenants::class);
+        $app->singleton(RequirementCheck::class, MeetNoRequirement::class);
     }
 }

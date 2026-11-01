@@ -40,7 +40,9 @@ use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
@@ -62,11 +64,13 @@ use SineMacula\Laravel\Authentication\Passwords\NoBreachedPasswordCheck;
 use SineMacula\Laravel\Authentication\Passwords\NotifyingResetLinkSender;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
+use SineMacula\Laravel\Authentication\Requirements\MeetNoRequirement;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Scopes\AcceptAnyScope;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
+use SineMacula\Laravel\Authentication\Tenancy\RequireNothingOfTenants;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
@@ -546,6 +550,25 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         self::assertTrue($app->isShared(AdditionalFactorPolicy::class));
         self::assertInstanceOf(NeverRequireAdditionalFactor::class, app(AdditionalFactorPolicy::class));
+    }
+
+    /**
+     * The default tenant authentication policy, which requires nothing, and the
+     * default requirement check, which meets nothing, are bound as singletons
+     * so a single sign-on or further-factor package can rebind them.
+     *
+     * @return void
+     */
+    public function testRegistersTheDefaultTenantPolicyAndRequirementCheck(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        self::assertTrue($app->isShared(TenantAuthenticationPolicy::class));
+        self::assertInstanceOf(RequireNothingOfTenants::class, app(TenantAuthenticationPolicy::class));
+        self::assertTrue($app->isShared(RequirementCheck::class));
+        self::assertInstanceOf(MeetNoRequirement::class, app(RequirementCheck::class));
     }
 
     /**

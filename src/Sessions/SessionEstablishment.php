@@ -27,6 +27,8 @@ use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
+use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
+use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
 
 /**
  * Takes a sign-in whose identity is admitted on to its session, in the order
@@ -216,13 +218,22 @@ final readonly class SessionEstablishment
             return new Refused($tenant, $identity, $principal, session: $proven);
         }
 
-        $requires = PendingEvaluation::requirements($owes, $principal);
+        $policy = $this->evaluation->tenantPolicy($identity, $principal, $tenant, null, $now, SessionEvidence::of($proof));
 
-        if ($principal === null || $requires !== []) {
-            return $this->wait($identity, $principal, $tenant, $requires, $principals, $identifierType, $context, $proof, $proven, $attemptWindows, $now);
+        if ($policy->standing === TenantPolicyStanding::SSO_REQUIRED) {
+            return new Refused(FailureReason::SSO_REQUIRED, $identity, $principal, $tenant, $proven);
         }
 
-        $session = $this->write(new Admitted($identity, $principal, $tenant, $proven), $proven, $identifierType, $context, $proof, $now);
+        $requires = PendingEvaluation::requirements($owes || $policy->standing === TenantPolicyStanding::FACTOR_REQUIRED, $principal);
+        $writer   = $this->writer->underTenantPolicy($policy->version);
+
+        if ($principal === null || $requires !== []) {
+            $draft = new PendingSessionDraft($identity, $principal, $tenant, $requires, $identifierType, $proof, $proven, $attemptWindows);
+
+            return $this->wait($writer, $draft, $principals, $context, $now);
+        }
+
+        $session = $this->write($writer, new Admitted($identity, $principal, $tenant, $proven), $identifierType, $context, $proof, $now);
 
         return $session === null
             ? $this->establish($identity, $selection, $method, $identifierType, $context, $proof, $attemptWindows, null, $now)
@@ -233,47 +244,22 @@ final readonly class SessionEstablishment
      * Write the sign-in's session pending, waiting on what is outstanding, and
      * schedule `SessionPending` for once it is committed.
      *
-     * @formatter:off
-     *
-     * @phpcs:disable Generic.Files.LineLength.TooLong
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
-     * @param  non-empty-list<\SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement>  $requires
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SessionWriter  $writer
+     * @param  \SineMacula\Laravel\Authentication\Sessions\PendingSessionDraft  $draft
      * @param  list<\SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
-     * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
-     * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
-     * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $proven
-     * @param  ?list<array<string, string>>  $attemptWindows
      * @param  \Carbon\CarbonImmutable  $now
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
-     * @phpcs:enable Generic.Files.LineLength.TooLong
-     *
-     * @formatter:on
-     *
      * @throws \Throwable
      */
-    private function wait(
-        Identity $identity,
-        ?Principal $principal,
-        ?Tenant $tenant,
-        array $requires,
-        array $principals,
-        ?string $identifierType,
-        SignInContext $context,
-        SignInProof $proof,
-        (EloquentSession&Model)|null $proven,
-        ?array $attemptWindows,
-        CarbonImmutable $now,
-    ): SignInResult {
+    private function wait(SessionWriter $writer, PendingSessionDraft $draft, array $principals, SignInContext $context, CarbonImmutable $now): SignInResult
+    {
         $ttl = PendingState::ttlSeconds($this->container->make(Repository::class));
 
-        $draft = new PendingSessionDraft($identity, $principal, $tenant, $requires, $identifierType, $proof, $proven, $attemptWindows);
+        [$record, $credential] = $writer->createPending($draft, $context, $this->lifetimes(), $now, $ttl);
 
-        [$record, $credential] = $this->writer->createPending($draft, $context, $this->lifetimes(), $now, $ttl);
+        [$identity, $principal, $tenant, $requires, $method] = [$draft->identity, $draft->principal, $draft->tenant, $draft->requires, $draft->proof->method];
 
         $expiresAt = PendingState::expiry($now, $ttl, $record->getAbsoluteExpiresAt());
         $pending   = new PendingSession(
@@ -283,13 +269,13 @@ final readonly class SessionEstablishment
             $principal,
             $tenant,
             $requires,
-            $proof->method,
+            $method,
             $expiresAt,
             $record,
             $principals,
         );
         $event = new SessionPending(
-            new EventContext($this->context->name(), $context->client, $identity, $principal, $tenant, $record, $proof->method),
+            new EventContext($this->context->name(), $context->client, $identity, $principal, $tenant, $record, $method),
             array_map(static fn (PendingRequirement $requirement): string => $requirement->value, $requires),
             $expiresAt,
         );
@@ -301,33 +287,28 @@ final readonly class SessionEstablishment
 
     /**
      * Write the active session of an admitted sign-in, with the guard's
-     * lifetimes: a new session, replacing the proven one when there is one. The
-     * session records the method (the proof's) and the type of identifier the
-     * sign-in used, which a later switch admits its target with, and the
-     * sign-in's proofs and provenance. `null` when the proven session changed
-     * before it could be replaced.
+     * lifetimes, by the writer for the tenant policy version it answered at: a
+     * new session, replacing the proven one (the admission's) when there is
+     * one. The session records the method (the proof's) and the type of
+     * identifier the sign-in used, which a later switch admits its target with,
+     * and the sign-in's proofs and provenance. `null` when the proven session
+     * changed before it could be replaced.
      *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SessionWriter  $writer
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
-     * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $proven
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
      * @param  \Carbon\CarbonImmutable  $now
-     * @return ($proven is null ? \SineMacula\Laravel\Authentication\Sessions\SignedInSession : ?\SineMacula\Laravel\Authentication\Sessions\SignedInSession)
+     * @return ?\SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
      * @throws \Throwable
      */
-    private function write(
-        Admitted $admitted,
-        (EloquentSession&Model)|null $proven,
-        ?string $identifierType,
-        SignInContext $context,
-        SignInProof $proof,
-        CarbonImmutable $now,
-    ): ?SignedInSession {
-        return $proven === null
-            ? $this->writer->create($admitted, $identifierType, $context, $this->lifetimes(), $now, $context->client, $proof)
-            : $this->writer->replace($admitted, $identifierType, $context, $this->lifetimes(), $now, $context->client, $proof);
+    private function write(SessionWriter $writer, Admitted $admitted, ?string $identifierType, SignInContext $context, SignInProof $proof, CarbonImmutable $now): ?SignedInSession
+    {
+        return $admitted->session === null
+            ? $writer->create($admitted, $identifierType, $context, $this->lifetimes(), $now, $context->client, $proof)
+            : $writer->replace($admitted, $identifierType, $context, $this->lifetimes(), $now, $context->client, $proof);
     }
 
     /**

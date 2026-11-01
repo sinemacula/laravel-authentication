@@ -106,6 +106,27 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
+     * A rotation records the tenant policy version the refresh was checked
+     * against when it differs from the one the session was loaded with, and
+     * leaves it when it is the same.
+     *
+     * @return void
+     */
+    public function testRotateRecordsTheTenantPolicyVersionWhenItChanges(): void
+    {
+        $session = $this->record(['tenant_policy_version' => 'v1']);
+
+        self::assertTrue($this->store()->rotate($session, self::CURRENT, self::NEXT, $this->now->addDays(90), $this->now, 'v2'));
+        self::assertSame('v2', $this->row($session)['tenant_policy_version']);
+        self::assertSame('v2', $session->getTenantPolicyVersion());
+
+        $same = $this->record(['tenant_policy_version' => 'v1']);
+
+        self::assertTrue($this->store()->rotate($same, self::CURRENT, self::NEXT, $this->now->addDays(90), $this->now, 'v1'));
+        self::assertSame('v1', $this->row($same)['tenant_policy_version']);
+    }
+
+    /**
      * Rows of `[change committed after the session was loaded]` that the swap
      * must not overwrite.
      *
@@ -119,6 +140,7 @@ final class RefreshRotationStoreTest extends TestCase
             'returned to pending'     => [['status' => 'pending', 'requires' => '["mfa"]']],
             'idle deadline moved'     => [['idle_expires_at' => '2026-07-06 12:00:00']],
             'absolute deadline moved' => [['absolute_expires_at' => '2026-05-06 12:00:00']],
+            'policy version recorded' => [['tenant_policy_version' => 'v9']],
         ];
     }
 

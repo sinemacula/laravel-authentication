@@ -94,4 +94,25 @@ final class SignInProofTest extends TestCase
         self::assertSame(['sso', ChannelKind::UNKNOWN, null, []], [$proof->method, $proof->channel->kind, $proof->channel->reference, $proof->methods]);
         self::assertSame('2026-04-06 12:00:00.000000', $proof->authenticatedAt->format('Y-m-d H:i:s.u'));
     }
+
+    /**
+     * Each sign-in proof chooses its first factor's id, distinct per proof, and
+     * reads back as the proof the session records under it.
+     *
+     * @return void
+     */
+    public function testTheFirstFactorReadsBackUnderItsOwnId(): void
+    {
+        $now      = CarbonImmutable::parse('2026-04-06 12:00:00');
+        $proof    = SignInProof::unattested('sso', $now);
+        $recorded = $proof->recorded();
+
+        self::assertNotSame($proof->id, SignInProof::unattested('sso', $now)->id);
+        self::assertSame($proof->id, $recorded->id);
+        self::assertSame(
+            [ProofKind::FIRST_FACTOR, Purpose::SIGN_IN, 'sso', null, null, [], $proof->authenticatedAt],
+            [$recorded->kind, $recorded->purpose, $recorded->method, $recorded->factor, $recorded->evaluation, $recorded->methods, $recorded->authenticatedAt],
+        );
+        self::assertSame([$proof->channel, $proof->observed], [$recorded->channel, $recorded->observed]);
+    }
 }

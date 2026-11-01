@@ -74,7 +74,10 @@ final readonly class SessionRefresh
     ) {}
 
     /**
-     * Refresh with a refresh token the caller read itself.
+     * Refresh with a refresh token the caller read itself. A session that no
+     * longer meets its tenant's authentication policy for want of a further
+     * factor returns to pending: the result is pending, with the pending
+     * credential instead of a pair, and nothing is bound.
      *
      * @param  string  $refreshToken
      * @return \SineMacula\Laravel\Authentication\Sessions\RefreshResult
@@ -94,6 +97,10 @@ final readonly class SessionRefresh
 
         if ($outcome instanceof AuthenticationFailed) {
             return $this->refuse($outcome);
+        }
+
+        if ($outcome instanceof ReturnedToPending) {
+            return RefreshResult::pending($outcome->pending, $outcome->credential);
         }
 
         $this->report($outcome, $client);

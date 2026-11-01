@@ -165,6 +165,7 @@ final readonly class SessionService
         $this->establishment     = new SessionEstablishment($context, $writer, $proof, $this->evaluation, $this->afterCommit, $container);
         $this->pendings          = new PendingSessions($context, $this->evaluation, new SessionActivation($context, $tokens, $this->afterCommit, $container), $sessions);
         $this->revocations       = new SessionRevocations($context, $sessions, $container);
+        $this->policyChanges     = new TenantPolicyChanges($context, $this->afterCommit);
         $this->refreshes         = new SessionRefresh($context, $binding, new RefreshTokenExchange($tokens, $context, $connections, $transactions), $this->afterCommit, $container);
         $this->switchRevocations = $sessions;
         $this->rotations         = new RefreshRotationStore($connections);

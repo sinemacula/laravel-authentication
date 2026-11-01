@@ -112,6 +112,51 @@ holds an `api_key` guard to allowing `api_key`, and checks the passkey relying p
 `passkey`. It does not warn about an application that allows nothing: that warning reads the package's settings, and
 the names your policy allows are its own.
 
+### Tenant authentication policies
+
+Bind `Contracts\TenantAuthenticationPolicy` to say what a tenant requires of the sessions active in it. It is asked
+with a `Tenancy\TenantPolicyContext` (the application, the identity, the principal acting in the tenant, the tenant,
+and the session, or `null` before one is written) and answers a `Tenancy\TenantRequirement`: a `version` (1 to 64
+characters, or `null`), a further factor as a `Requirements\Requirement` (empty asks for none), and the
+`connections` a session must have been established through (`null` for no such requirement, `[]` for none that
+satisfies). Exemptions are the policy's own answer: answer an exempt identity's sessions with nothing required.
+
+```php
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
+use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext;
+use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
+
+final class OrganisationPolicy implements TenantAuthenticationPolicy
+{
+    public function requirementFor(TenantPolicyContext $context): TenantRequirement
+    {
+        $settings = TenantSecurity::query()->where('tenant_id', $context->tenant->getTenantIdentifier())->first();
+
+        return new TenantRequirement(
+            version: $settings?->version,
+            factor: $settings?->requires_mfa ? new Requirement(new RequirementPart(maxAgeSeconds: 43200)) : new Requirement,
+            connections: $settings?->sso_connections,
+        );
+    }
+}
+
+$this->app->singleton(TenantAuthenticationPolicy::class, OrganisationPolicy::class);
+```
+
+The package asks it inside `WriteConnection::during()` for the tenant, so read the policy's own state from the write
+connection, as there. Change the version whenever anything the answer depends on changes, the exemptions included, and
+call `Auth::sessions()->tenantPolicyChanged($tenant)` when it does (see [Tenant authentication
+policies](sessions.md#tenant-authentication-policies)). A `null` version is never taken as already checked.
+
+Whether a session's proofs meet a further factor is `Contracts\RequirementCheck`'s to judge: `evaluate()` takes a
+`Requirements\RequirementSubject` (the identity, the application, the session, the first factor it signed in with, the
+time, and `proofs($since, $kinds, $limit)`, a bounded query over its counting proofs, newest first, at most
+`RequirementSubject::MAX_LIMIT`) and the `Requirement`, and answers a `Requirements\RequirementEvaluation` listing the
+kinds left unmet. The default, `MeetNoRequirement`, meets nothing: a tenant that requires a further factor admits no
+session until a factor package binds its check. The package never asks it with an empty requirement.
+
 `AbstractGuard` is not final and may be extended for entirely new guard types.
 
 ### Writing a guard type
@@ -367,6 +412,9 @@ $passed = $result->isVerified();   // else $result->reason
   evidence are the SSO package's: none of them reaches this package's `amr`.
 - Either way the session records the method, so the application can stop allowing it and its sessions stop
   refreshing.
+- A tenant that requires sign-in through its connections says so through its `TenantAuthenticationPolicy` (see
+  [Tenant authentication policies](#tenant-authentication-policies)): a session established through none of them is
+  refused as `sso_required`, at sign-in and at refresh (which also revokes it).
 - A reauthentication at the provider (`external_reauthentication`) is reserved for the provider's reauthentication
   handoff, which this package does not take yet; until then, a session reauthenticates with
   `Auth::sessions()->reauthenticate()` through a sign-in method the application allows, the package's or one

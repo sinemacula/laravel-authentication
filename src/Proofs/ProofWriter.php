@@ -36,24 +36,26 @@ final class ProofWriter
     private function __construct() {}
 
     /**
-     * Record the proof on the session, of the guard given.
+     * Record the proof on the session, of the guard given, under the id given
+     * (one already judged in memory) or a new one.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Proofs\NewProof  $proof
+     * @param  ?string  $id
      * @return void
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public static function record(EloquentSession&Model $session, string $guard, NewProof $proof): void
+    public static function record(EloquentSession&Model $session, string $guard, NewProof $proof, ?string $id = null): void
     {
         $owner    = $session->authenticatable();
         $observed = $proof->observed;
         $row      = new SessionProof;
 
         $row->forceFill([
-            'id'                   => Str::uuid7()->toString(),
+            'id'                   => $id ?? Str::uuid7()->toString(),
             'session_id'           => self::sessionId($session),
             'kind'                 => $proof->kind->value,
             'purpose'              => $proof->purpose->value,

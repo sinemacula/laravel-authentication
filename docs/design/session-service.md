@@ -33,7 +33,10 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   last one's refusal or `principal_unresolved`; the one the context names (`principal_mismatch` when it is not among
   them), or the only one, or none selected while a choice is outstanding; the proof of a session is checked; the
   identity-level additional-factor policy is asked, with no principal or tenant; a selected principal's active tenant
-  is admitted (`Admission\TenantAdmission::select()`); and the session is written active, recording the method, its
+  is admitted (`Admission\TenantAdmission::select()`); that tenant's authentication policy is judged against the
+  sign-in's own evidence in memory (`Tenancy\TenantPolicyCheck`, `SessionEvidence`: `sso_required` refuses, writing
+  nothing; a further factor it lacks makes `mfa` outstanding); and the session is written active, recording the
+  method, the policy's version, its
   identifier type and the tenant, or pending with its requirements. Only a session that starts active gives the slots
   back, those the method took on the accounts it checked included; a pending session keeps them all, their windows in
   its hidden `attempt_windows`, until it first activates (`SessionActivation`). The slots are written on
@@ -231,8 +234,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - `src/Sessions/SignInRequest.php` (`reserveAccountAttempt()`) and `src/RateLimiting/AccountAttempts.php`: the slots a
   sign-in's method takes on the accounts it checks, held with the sign-in's own.
 - `src/Sessions/SessionWriter.php`: `create()`, `replace()`, `createPending()`, `record()` and the compare-and-swap.
-- `src/Proofs/SignInProof.php`, `src/Proofs/ProofWriter.php`, `src/Proofs/ProofAcceptance.php`, `src/Proofs/FirstFactor.php`
-  and the drivers' `authenticate()`: what a sign-in proves and how its session records it.
+- `src/Proofs/SignInProof.php`, `src/Proofs/ProofWriter.php`, `src/Proofs/ProofAcceptance.php`,
+  `src/Proofs/FirstFactor.php` and the drivers' `authenticate()`: what a sign-in proves and how its session records it.
 - `src/Sessions/ProvenSessions.php`, `src/Jwt/JwtTokenService.php` (`parseRefreshProof()`),
   `src/SessionRecords/SessionLookup.php`.
 - `src/Sessions/SessionPreconditions.php`: the `HasSessions` refusal, and `start()`'s one-principal rule and

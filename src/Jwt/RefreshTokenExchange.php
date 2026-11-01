@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\Jwt;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Container\Container;
+use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
@@ -34,8 +35,13 @@ use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
+use SineMacula\Laravel\Authentication\Sessions\PendingTransitions;
+use SineMacula\Laravel\Authentication\Sessions\ReturnedToPending;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
+use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
+use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
+use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict;
 
 /**
  * Refresh-token exchange service.
@@ -50,6 +56,13 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * the principal it left fail as `session_principal_mismatch`, without revoking
  * the session. The next idle deadline follows the lifetimes the policy gives
  * the guard.
+ *
+ * Every exchange then asks the authentication policy of the session's active
+ * tenant: a session that must have been established through a connection it
+ * was not is revoked (`tenant_policy_changed`) and refused as `sso_required`;
+ * one that lacks a further factor returns to pending and the exchange hands out
+ * a pending credential instead of a pair; one that meets it records the version
+ * answered in the rotation.
  *
  * Failed exchanges are counted against the token's session and the client's IP
  * address; once either count is full the exchange is refused as `rate_limited`
@@ -122,7 +135,7 @@ final readonly class RefreshTokenExchange
      *
      * @param  string  $refreshToken
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
@@ -131,7 +144,7 @@ final readonly class RefreshTokenExchange
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function exchange(#[\SensitiveParameter] string $refreshToken, ClientContext $client): AuthenticationFailed|ExchangedRefresh
+    public function exchange(#[\SensitiveParameter] string $refreshToken, ClientContext $client): AuthenticationFailed|ExchangedRefresh|ReturnedToPending
     {
         $claims  = $this->tokens->parse($refreshToken, TokenType::REFRESH);
         $subject = new AttemptSubject($this->context->name(), AttemptFlow::REFRESH, IdentifierCoercion::stringify($claims[Claims::SESSION_ID->value] ?? null), null, $client->ip);
@@ -177,7 +190,7 @@ final readonly class RefreshTokenExchange
      *
      * @param  ?array<string, mixed>  $claims
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
@@ -186,7 +199,7 @@ final readonly class RefreshTokenExchange
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    private function exchangeClaims(#[\SensitiveParameter] ?array $claims, ClientContext $client): AuthenticationFailed|ExchangedRefresh
+    private function exchangeClaims(#[\SensitiveParameter] ?array $claims, ClientContext $client): AuthenticationFailed|ExchangedRefresh|ReturnedToPending
     {
         $claims = $this->extractRefreshClaims($claims, $client);
 
@@ -215,7 +228,7 @@ final readonly class RefreshTokenExchange
      * @param  mixed  $principalHint
      * @param  \Carbon\CarbonImmutable  $now
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
@@ -229,7 +242,7 @@ final readonly class RefreshTokenExchange
         mixed $principalHint,
         CarbonImmutable $now,
         ClientContext $client,
-    ): AuthenticationFailed|ExchangedRefresh {
+    ): AuthenticationFailed|ExchangedRefresh|ReturnedToPending {
         $guard   = WriteConnection::during($record, static fn (): ?string => $record->getGuard());
         $verdict = $guard === $this->context->name()
             ? RefreshJudgment::classify($record, $rotationId, $now, $this->tokens->lifetimes())
@@ -245,9 +258,106 @@ final readonly class RefreshTokenExchange
             return $session;
         }
 
+        return $this->underTenantPolicy($record, $session, $verdict, $rotationId, $now, $client);
+    }
+
+    /**
+     * Judge the admitted session against its tenant's authentication policy
+     * and, when it meets it, rotate the current rotation id (recording the
+     * version answered) or hand a grace retry the current credential;
+     * otherwise answer the shortfall.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $record
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $session
+     * @param  array{0: \SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch, 1: ?\Carbon\CarbonInterface}  $verdict
+     * @param  string  $rotationId
+     * @param  \Carbon\CarbonImmutable  $now
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \JsonException
+     * @throws \LogicException
+     * @throws \Random\RandomException
+     */
+    private function underTenantPolicy(
+        EloquentSession&Model $record,
+        Admitted $session,
+        array $verdict,
+        #[\SensitiveParameter] string $rotationId,
+        CarbonImmutable $now,
+        ClientContext $client,
+    ): AuthenticationFailed|ExchangedRefresh|ReturnedToPending {
+        $policy = TenantPolicyCheck::check($this->context->name(), $session->identity, $session->principal, $session->tenant, $record, $now);
+
+        if (!$policy->isMet()) {
+            return $this->fallShort($record, $session, $policy, $rotationId, $now, $client);
+        }
+
         return $verdict[0] === RotationMatch::CURRENT
-            ? $this->rotate($record, $session, $rotationId, $now, $verdict[1], $client)
+            ? $this->rotate($record, $session, $rotationId, $now, $verdict[1], $client, $policy->version)
             : $this->reissue($record, $session, $rotationId, $now);
+    }
+
+    /**
+     * Answer a session that no longer meets its tenant's authentication policy:
+     * one that must be established through a connection it was not can never
+     * meet it, so it is revoked (`tenant_policy_changed`) and the exchange
+     * refused as `sso_required`; one that lacks a further factor returns to
+     * pending, handing the client a pending credential instead of a pair. A
+     * return that loses its compare-and-swap judges the row again, as after a
+     * lost rotation.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $record
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $session
+     * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict  $policy
+     * @param  string  $rotationId
+     * @param  \Carbon\CarbonImmutable  $now
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \JsonException
+     * @throws \LogicException
+     * @throws \Random\RandomException
+     */
+    private function fallShort(
+        EloquentSession&Model $record,
+        Admitted $session,
+        TenantPolicyVerdict $policy,
+        #[\SensitiveParameter] string $rotationId,
+        CarbonImmutable $now,
+        ClientContext $client,
+    ): AuthenticationFailed|ExchangedRefresh|ReturnedToPending {
+        if ($policy->standing === TenantPolicyStanding::SSO_REQUIRED) {
+
+            $this->revoke($record, RevocationReason::TENANT_POLICY_CHANGED, $now, $client);
+
+            return $this->refused(FailureReason::SSO_REQUIRED, $this->sessionContext($client, $record, $session->identity, $session->principal, $session->tenant));
+        }
+
+        $transitions = new PendingTransitions($this->context, $this->afterCommit, Container::getInstance()->make(Repository::class));
+
+        return $transitions->returnToPending($record, $session, AuthenticationFlow::REFRESH, $now)
+            ?? $this->afterLostRotation($record, $session, $rotationId, $now, $client);
     }
 
     /**
@@ -420,6 +530,7 @@ final readonly class RefreshTokenExchange
      * @param  \Carbon\CarbonImmutable  $now
      * @param  ?\Carbon\CarbonInterface  $absolute
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  ?string  $policyVersion
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
@@ -438,6 +549,7 @@ final readonly class RefreshTokenExchange
         CarbonImmutable $now,
         ?CarbonInterface $absolute,
         ClientContext $client,
+        ?string $policyVersion,
     ): AuthenticationFailed|ExchangedRefresh {
         $next = RefreshTokenHasher::successor($rotationId);
         $idle = Container::getInstance()->make(ApplicationPolicy::class)->lifetimes($this->context->name())->idleDeadline($now, $absolute);
@@ -449,7 +561,7 @@ final readonly class RefreshTokenExchange
             $this->tokens->issueRefreshToken($record, $next, $session->principal, $now),
         );
 
-        if ($this->store->rotate($record, $rotationId, $next, $idle, $now)) {
+        if ($this->store->rotate($record, $rotationId, $next, $idle, $now, $policyVersion)) {
             return self::exchanged($record, $session, $tokens);
         }
 
