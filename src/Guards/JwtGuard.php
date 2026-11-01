@@ -15,7 +15,7 @@ use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 
 /**
- * Sessionless JWT bearer-token guard.
+ * Stateless JWT bearer-token guard.
  *
  * Reads `Authorization: Bearer <token>` from the active request, decodes via
  * `JwtTokenService`, then rehydrates the live identity, principal, and optional

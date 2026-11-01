@@ -545,8 +545,8 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * An access token never expires after the absolute deadline of its
-     * session's session, even when the idle deadline lies beyond it.
+     * An access token never expires after the absolute deadline of its session,
+     * even when the idle deadline lies beyond it.
      *
      * @return void
      *

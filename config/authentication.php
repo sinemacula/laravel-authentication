@@ -137,7 +137,7 @@ return [
     | JWT
     |---------------------------------------------------------------------------
     |
-    | Sessionless JWT defaults consumed by JwtTokenService and JwtGuard. Access
+    | Stateless JWT defaults consumed by JwtTokenService and JwtGuard. Access
     | tokens are self-verifying and are not backed by a server-side access-token
     | store, but JwtGuard still rehydrates identity, principal, and optional
     | session state on bearer authentication. A resolved, persisted session may

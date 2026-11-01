@@ -150,7 +150,7 @@ final readonly class RevocationScope
     /**
      * The same sessions with the cutoff left where it is, so the scope's
      * session-less access tokens keep working: how the request's own
-     * session-less session is kept when its identity signs out everywhere else.
+     * session-less token is kept when its identity signs out everywhere else.
      *
      * @return self
      */
