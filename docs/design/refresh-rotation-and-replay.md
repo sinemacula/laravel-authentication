@@ -174,7 +174,7 @@ other rotated token as a replay that revokes the device.
   revoked device is rejected on its next use, so nothing outlives the revocation.
 - Transactions: in autocommit or READ COMMITTED, a parallel refresh inside the window resolves to GRACE. Inside a
   caller's REPEATABLE READ transaction, MySQL's locking re-read sees the latest committed row and the outcome is the
-  same; PostgreSQL raises a serialization failure (SQLSTATE 40001) on the swap or the re-read, which propagates as a
+  same; PostgreSQL raises a serialisation failure (SQLSTATE 40001) on the swap or the re-read, which propagates as a
   server error for the caller to retry, with nothing revoked. A caller that rolls back a transaction on the device's
   connection around `refresh()` also rolls back a replay revocation, and `DeviceRevoked` is then never dispatched; do
   not roll back around refresh.

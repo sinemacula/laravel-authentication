@@ -88,7 +88,7 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
      * The same identity can authenticate through two guards that resolve
      * different principals, and a token minted for one guard's resolver is
      * rejected by the other guard's resolver. Rebinding the request clears the
-     * previously memoized principal on the old guard instance.
+     * previously memoised principal on the old guard instance.
      *
      * @return void
      *

@@ -279,7 +279,7 @@ class ModelProvider implements IdentityProvider
                 continue;
             }
 
-            // Defense in depth: the key becomes an SQL column name downstream,
+            // Defence in depth: the key becomes an SQL column name downstream,
             // so reject anything that is not a valid identifier (optionally
             // dotted). Structurally prevents trailing dots, consecutive dots,
             // and any non-identifier byte from reaching `where()`/`whereIn()`.

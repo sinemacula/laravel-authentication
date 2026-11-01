@@ -95,9 +95,9 @@ specific principal or device and the runtime cannot prove that claim, authentica
 - `src/Database/WriteConnection.php`: `query()` and `during()`, which pin the identity, principal, tenant, and device
   reads to the write connection; `src/Database/PinningConnectionResolver.php` carries the pin to every connection a
   model resolves inside `during()`.
-- `src/Resolvers/DefaultPrincipalResolver.php`: default resolver behavior that the guard hardens with explicit pid
+- `src/Resolvers/DefaultPrincipalResolver.php`: default resolver behaviour that the guard hardens with explicit pid
   matching, including the optional `ResolvesHintedPrincipal` shortcut ahead of the generic `HasPrincipals` lookup.
-- `src/Contracts/ResolvesHintedPrincipal.php`: optional 3D optimization seam for hinted principal hydration.
+- `src/Contracts/ResolvesHintedPrincipal.php`: optional 3D optimisation seam for hinted principal hydration.
 - `src/AuthenticationServiceProvider.php` and `src/Guards/JwtGuard.php`: resolver-rebind wiring so bearer and refresh
   stay on the same principal policy.
 

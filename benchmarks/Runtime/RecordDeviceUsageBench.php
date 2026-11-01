@@ -51,7 +51,7 @@ final class RecordDeviceUsageBench
     }
 
     /**
-     * Lazily initialize the shared harness.
+     * Lazily initialise the shared harness.
      *
      * @return \Benchmarks\Support\RecordDeviceUsageBenchHarness
      */

@@ -367,7 +367,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * A failed attempt keeps the slot it took, so it counts toward the limit.
+     * A failed attempt keeps the slot it took, so it counts towards the limit.
      *
      * @return void
      *

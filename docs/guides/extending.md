@@ -315,10 +315,10 @@ $result = Auth::passkeys()->verifyFactor($identity, $challenge, $credential);
 $passed = $result->isVerified();   // else $result->reason
 ```
 
-### Authorization (`laravel-authorization`)
+### Authorisation (`laravel-authorization`)
 
-- `Auth::principal()` and `Auth::tenant()` are the subject an authorization decision is about; a caller's category is
-  authorization's to model, from the principal and its tenant.
+- `Auth::principal()` and `Auth::tenant()` are the subject an authorisation decision is about; a caller's category is
+  authorisation's to model, from the principal and its tenant.
 - `Auth::scopes()` is the ceiling the request's credential grants: `null` for a human's session, which no credential
   limits, the granted list for an API key or a client credentials token, and `[]` for a machine bound without one.
   Intersect the principal's permissions with it; a scope never grants anything by itself (see

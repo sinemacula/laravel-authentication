@@ -548,7 +548,7 @@ final class AuthenticationServiceProviderTest extends TestCase
 
     /**
      * The default scope registry, which accepts every well-formed scope, is
-     * bound as a singleton so an authorization package or the application can
+     * bound as a singleton so an authorisation package or the application can
      * rebind it.
      *
      * @return void

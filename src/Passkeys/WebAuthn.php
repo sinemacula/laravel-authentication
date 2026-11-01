@@ -75,7 +75,7 @@ final readonly class WebAuthn
     /** @var \Webauthn\AttestationStatement\AttestationStatementSupportManager The attestation statement formats accepted. */
     private AttestationStatementSupportManager $statements;
 
-    /** @var \Symfony\Component\Serializer\Serializer The library's serializer. */
+    /** @var \Symfony\Component\Serializer\Serializer The library's serialiser. */
     private Serializer $serializer;
 
     /**

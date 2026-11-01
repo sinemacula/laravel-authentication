@@ -35,7 +35,7 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 trait SerializesLiveModels
 {
     /**
-     * Prepare the object for serialization: each live model as its model
+     * Prepare the object for serialisation: each live model as its model
      * identifier, or `null`, and the other properties as they are.
      *
      * @return array<string, mixed>
@@ -48,7 +48,7 @@ trait SerializesLiveModels
     }
 
     /**
-     * Restore the object after serialization, fetching each live model again.
+     * Restore the object after serialisation, fetching each live model again.
      *
      * @param  array<string, mixed>  $values
      * @return void

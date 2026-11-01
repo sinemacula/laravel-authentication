@@ -191,7 +191,7 @@ final class DefaultPrincipalResolverTest extends TestCase
 
     /**
      * A null result from `resolveHintedPrincipal()` must preserve the existing
-     * fallback behavior: try `principals()->find($hint)` and then the default
+     * fallback behaviour: try `principals()->find($hint)` and then the default
      * 3D principal policy.
      *
      * @return void

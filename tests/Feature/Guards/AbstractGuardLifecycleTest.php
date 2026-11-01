@@ -332,7 +332,7 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
     }
 
     /**
-     * Rebinding the request must clear any previously memoized contextual state
+     * Rebinding the request must clear any previously memoised contextual state
      * so guard instances cannot leak auth context across requests.
      *
      * @return void

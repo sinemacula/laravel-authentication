@@ -748,7 +748,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
     /**
      * Repeated calls to `forGuard()` with the same guard name return the same
-     * memoized instance rather than constructing a new service.
+     * memoised instance rather than constructing a new service.
      *
      * @return void
      */
@@ -761,7 +761,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Different guard names resolve distinct memoized instances.
+     * Different guard names resolve distinct memoised instances.
      *
      * @return void
      */

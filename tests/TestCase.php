@@ -259,8 +259,8 @@ abstract class TestCase extends OrchestraTestCase
     /**
      * Return the queries that read the options, columns, indexes, constraints
      * and triggers of the tables the placeholders name, from PostgreSQL's
-     * catalog, which answers far faster than its `information_schema` views, or
-     * from MySQL's `information_schema`.
+     * catalogue, which answers far faster than its `information_schema` views,
+     * or from MySQL's `information_schema`.
      *
      * @param  string  $driver
      * @param  string  $in

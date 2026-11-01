@@ -13,7 +13,7 @@ binding and what it takes over from the manager it replaces.
   `BreachedPasswordChecker`, `PasswordResetLinkSender`, the `IdentifierNormalisers` and `SignInMethodManager`
   registries, the `auth` middleware, and the internal `WebAuthn`, `Rehashing` and `JwtTokenServiceFactory`. A binding
   made before the provider registers is kept, so a factor package's `AdditionalFactorPolicy` is never replaced by
-  `NeverRequireAdditionalFactor`, nor an authorization package's `ScopeRegistry` by `AcceptAnyScope`, whichever order
+  `NeverRequireAdditionalFactor`, nor an authorisation package's `ScopeRegistry` by `AcceptAnyScope`, whichever order
   the providers are listed in; a binding made after replaces the default, as any later binding does. The internals are
   conditional so the rule has no exceptions, not because they are extension points.
 - `Application::bound()` counts deferred services, so a deferred provider's service is never shadowed by a default the
@@ -43,7 +43,7 @@ binding and what it takes over from the manager it replaces.
 
 ## Success Path
 
-- A factor, authorization or IAM package binds its policies in `register()`, in any order relative to this package's
+- A factor, authorisation or IAM package binds its policies in `register()`, in any order relative to this package's
   provider; sign-in, scope validation and principal resolution use them.
 - A package registers a sign-in method with `callAfterResolving(SignInMethodManager::class, ...)` in `register()` (or on
   the resolved registry in `boot()`), so the method lands on the registry the package uses in either order.

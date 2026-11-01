@@ -10,7 +10,7 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
 /**
  * Plain-object `Device` fixture used by the event serialisation round-trip
  * tests. Intentionally NOT an Eloquent model so the `SerializesModels` trait
- * leaves the instance untouched during serialize.
+ * leaves the instance untouched during serialisation.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

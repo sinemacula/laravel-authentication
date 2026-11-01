@@ -4,7 +4,7 @@
 
 This note describes how non-human identities authenticate and what the package guarantees about the scopes their
 credentials carry. It is the convention the other packages of the suite follow: this package carries scopes, an
-authorization package decides what they allow.
+authorisation package decides what they allow.
 
 ## Invariants
 
@@ -21,7 +21,7 @@ authorization package decides what they allow.
   space-separated, is at most 8,192 bytes (`Scopes::MAX_LIST_LENGTH`), else `InvalidScopeException` at issue: the JSON
   stored in the `TEXT` column (65,535 bytes on MySQL) then never exceeds about 20 KB even with every `/` escaped, and
   an insert that ignores duplicate keys, which on MySQL turns every error into a warning, can never cut it short.
-- Scopes are a ceiling, never a permission: an authorization package intersects them with the principal's permissions.
+- Scopes are a ceiling, never a permission: an authorisation package intersects them with the principal's permissions.
 - `Auth::scopes()` is `null` when no credential limits the request (a human identity's session, or nothing bound), the
   credential's granted list for an API key or a client credentials token, and `[]` for a `MachineIdentity` bound
   without a credential: a machine is never left without a ceiling.

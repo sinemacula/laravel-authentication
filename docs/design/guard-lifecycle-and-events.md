@@ -43,7 +43,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   application) all act on the application now serving, never the booted one. A package service the booted
   application resolved itself (one added to `octane.warm`, say) is shared by every sandbox and keeps the booted
   configuration.
-- Request-local memoization is always on: `user()` resolves a request at most once, whether it succeeds or fails, so a
+- Request-local memoisation is always on: `user()` resolves a request at most once, whether it succeeds or fails, so a
   rejected token fires its `AuthenticationFailed` once. `setRequest()` starts over, an explicit `login()`, `attempt()`,
   or `setUser()` still binds after a failed resolution, and after `logout()` the guard stays signed out for the rest of
   the request. A successful `login()`, `attempt()` or refresh settles the request before it fires `Login`, so a listener
@@ -351,7 +351,7 @@ Update this note when any of the following change:
 - the response a guest gets on a route protected by package guards
 - the decision that a bearer request binds without a sign-in and refresh as one
 - what `setUser()` binds
-- the listener or persistence behavior attached to `DeviceAuthenticated`
+- the listener or persistence behaviour attached to `DeviceAuthenticated`
 - how dispatcher and resolver rebinds reach the guard and the refresh exchange
 - which application (the one serving, or the one a collaborator was built with) the guards, the manager's services,
   the sign-in methods and the revoking listeners resolve from

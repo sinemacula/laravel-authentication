@@ -195,7 +195,7 @@ A browser attaches the cookie by itself, to any request for its path, so a refre
 cross-site page cannot pass: its `Origin` must be the API's own (the request's scheme and host) or one of
 `cookie.allowed_origins` (each exactly `scheme://host[:port]`), and it must carry the `cookie.csrf_header` header
 (`X-Requested-With` by default) with a value, which a form or a simple request cannot send; a header a browser sends on
-its own (`Content-Type`, `Origin`, any `Sec-` header and the like, also when spelled with `_` for `-`) is refused as the
+its own (`Content-Type`, `Origin`, any `Sec-` header and the like, also when spelt with `_` for `-`) is refused as the
 `csrf_header`. Anything else is `cross_site_request`. A route that sets the cookie must hold its request to the same
 checks, the sign-in above all: a cross-site page can auto-submit a form to it with an attacker's credentials, and a
 browser keeps a `SameSite=Strict` cookie set by the response to such a top-level navigation, so without the check the
@@ -278,5 +278,5 @@ committed on the device's own connection: at once outside a transaction, so befo
 and after the commit inside one, so after them; a rolled-back revocation is never reported, and a transaction on another
 connection neither delays nor withdraws it. The transaction that Laravel's `DatabaseTransactions` and `RefreshDatabase`
 testing traits wrap around each test does not count either, so a test sees `DeviceRevoked` when the application would.
-Under PostgreSQL's REPEATABLE READ, a parallel refresh that commits first makes this one fail with a serialization
+Under PostgreSQL's REPEATABLE READ, a parallel refresh that commits first makes this one fail with a serialisation
 error, which surfaces as a server error for you to retry.

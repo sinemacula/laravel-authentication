@@ -92,8 +92,8 @@ final class ClientCredentialsRequest
     }
 
     /**
-     * The credentials of the request's HTTP Basic authorization (empty for the
-     * bare scheme), or `null` when it uses another scheme or none.
+     * The credentials of the request's Basic `Authorization` header (empty for
+     * the bare scheme), or `null` when it uses another scheme or none.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return ?string

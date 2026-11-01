@@ -371,7 +371,7 @@ final class ActsAsDeviceTest extends TestCase
     public function testBothDigestsAreHiddenFromSerialisation(): void
     {
         $device = new class extends StubUncastDevice {
-            /** @var list<string> The attributes that should be hidden for serialization. */
+            /** @var list<string> The attributes that should be hidden for serialisation. */
             protected $hidden = ['created_ip'];
         };
 

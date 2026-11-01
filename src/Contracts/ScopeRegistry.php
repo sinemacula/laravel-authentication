@@ -10,9 +10,9 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  * Asked whenever a credential (an API key) is issued or rotated which of the
  * scopes it is to grant may not be granted to its principal on the guard. The
  * package carries scopes and never interprets them: a scope is an opaque
- * string, and a ceiling the application's authorization intersects with the
+ * string, and a ceiling the application's authorisation intersects with the
  * principal's permissions, never a permission itself. The package's default
- * accepts every well-formed scope; an authorization package or the application
+ * accepts every well-formed scope; an authorisation package or the application
  * binds its own registry so a credential can only carry scopes that name real
  * permissions.
  *
