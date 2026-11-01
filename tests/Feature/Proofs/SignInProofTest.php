@@ -54,7 +54,6 @@ final class SignInProofTest extends TestCase
         self::assertSame('2026-04-06 12:00:00.000000', $proof->authenticatedAt->format('Y-m-d H:i:s.u'));
         self::assertNull($proof->provenance);
         self::assertNull($proof->additional);
-        self::assertNull($proof->notAfter());
         self::assertSame(
             [ProofKind::FIRST_FACTOR, Purpose::SIGN_IN, 'passkey', null, null, ['pop']],
             [$first->kind, $first->purpose, $first->method, $first->factor, $first->evaluation, $first->methods],
@@ -79,7 +78,6 @@ final class SignInProofTest extends TestCase
         self::assertSame([FirstFactor::EXTERNAL_PROVIDER_METHOD], $proof->methods);
         self::assertSame($now->subMinutes(5)->startOfSecond()->getTimestamp(), $proof->authenticatedAt->getTimestamp());
         self::assertSame($provenance, $proof->provenance);
-        self::assertSame($provenance->sessionNotAfter, $proof->notAfter());
         self::assertEquals(new ObservedProperties, $proof->observed);
 
         $atTheSecond = SignInProof::external('sso', new Provenance('connection-7', providerAuthenticatedAt: $now->startOfSecond()), $now);

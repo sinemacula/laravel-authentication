@@ -179,16 +179,6 @@ final readonly class SignInProof
     }
 
     /**
-     * The provider's deadline for the session it began, if any.
-     *
-     * @return ?\Carbon\CarbonImmutable
-     */
-    public function notAfter(): ?CarbonImmutable
-    {
-        return $this->provenance?->sessionNotAfter;
-    }
-
-    /**
      * The first factor as a pending sign-in keeps it.
      *
      * @return array<string, mixed>
