@@ -69,7 +69,7 @@ never from the future.
 
 An identity that signs in only with codes or passkeys reauthenticates by signing in again and making the change from the
 new session. A token with no session (in [access-only mode](installation.md#access-only-mode-no-sessions-no-refresh), or
-any access token without a `did`) has none to offer, so `Auth::session()` is `null` there and the request must ask for
+any access token without a `sid`) has none to offer, so `Auth::session()` is `null` there and the request must ask for
 another proof. The first route below takes the password whenever one is sent, so a session signed in longer ago than the
 window can confirm it instead of signing in again, and the session's recent sign-in otherwise.
 

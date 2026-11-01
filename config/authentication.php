@@ -152,11 +152,15 @@ return [
     | `algorithm` must be HS256, HS384, or HS512, and every key must be at
     | least 32, 48, or 64 bytes respectively. Invalid signing material fails
     | closed when a JWT guard or token service is resolved. Every token carries
-    | a `grd` claim naming the guard that issued it, and a guard rejects tokens
-    | issued by any other guard, even with a shared key. `issuer`/`audience`
-    | are optional; when set they are strictly verified on every parse. Each
-    | must be a string or null, and `algorithm` a string, here and in a guard
-    | override; any other type fails closed rather than being ignored. Each
+    | a `client_id` claim naming the guard (the application) that issued it,
+    | and a guard rejects tokens issued by any other guard, even with a shared
+    | key. `issuer` and `audience` are required, with no default: every token
+    | carries them as `iss` and `aud`, every parse checks them strictly, and a
+    | guard that has neither a package value nor an override fails closed
+    | (`authentication:check` reports it), so a fresh install must set
+    | AUTHENTICATION_JWT_ISSUER and AUTHENTICATION_JWT_AUDIENCE. Each must be
+    | a non-empty string, and `algorithm` a string, here and in a guard
+    | override; any other value fails closed rather than being ignored. Each
     | guard's token service is built from these values once and kept while the
     | token service factory lives, so a change needs a worker restart under
     | Octane or a queue worker (see Configuration lifetimes in
@@ -204,6 +208,8 @@ return [
         // absolute deadline is rejected however recent its access token.
         'leeway_seconds' => env('AUTHENTICATION_JWT_LEEWAY_SECONDS', 30),
 
+        // The `iss` (who issues the tokens, such as https://auth.example.com)
+        // and the `aud` (the API they are for) of every token. Required.
         'issuer'   => env('AUTHENTICATION_JWT_ISSUER'),
         'audience' => env('AUTHENTICATION_JWT_AUDIENCE'),
     ],

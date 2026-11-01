@@ -1,8 +1,8 @@
 # Operations
 
 Running the package in production: where its reads go, what a long-running process keeps between requests and jobs,
-which settings it reads once, rotating signing keys, pruning the rows sessions and credentials leave behind, and checking
-the configuration before a deploy.
+which settings it reads once, rotating signing keys, pruning the rows sessions and credentials leave behind, and
+checking the configuration before a deploy.
 
 ## Read replicas
 
@@ -204,8 +204,8 @@ see how many sessions would go. Pruning changes nothing about authentication: a 
 unknown session, exactly as they already failed once it was revoked or ended. Queued listeners of an event about a
 session that has since been pruned cannot re-fetch it (see [Events](events.md#events)).
 
-Before a token's `did` is looked up, it is checked against the session model's primary key: a UUID for `HasUuids`, a
-ULID for `HasUlids`, an integer for an integer key, and a non-empty string otherwise. A `did` that cannot be a key is
+Before a token's `sid` is looked up, it is checked against the session model's primary key: a UUID for `HasUuids`, a
+ULID for `HasUlids`, an integer for an integer key, and a non-empty string otherwise. A `sid` that cannot be a key is
 treated as an unknown session without a query. A model whose key has some other format implements `ValidatesSessionKey`
 to describe it. Database errors are never read as an unknown session: they propagate as server errors.
 

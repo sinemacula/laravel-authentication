@@ -12,21 +12,25 @@ use Psr\Log\LoggerInterface;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 
 /**
- * Claim-policy unit tests for `JwtTokenService`: the `grd` claim that binds
- * every token to its issuing guard, and the claims each token type must carry.
+ * Claim-policy unit tests for `JwtTokenService`: the header `typ` that tells
+ * the token types apart, the `client_id` claim that binds every token to its
+ * issuing guard, the claims each token type must carry, and the access token's
+ * shape.
  *
  * Every service here shares one keyring, so a token from another guard is
  * signed with a key the verifier holds and only the guard claim rejects it.
- * Both token types require `exp`, `iat`, `jti`, `typ`, and `grd`; access tokens
- * also require `sub` and `pid`, and refresh tokens `did`. Each required-claim
- * row starts from a correctly signed token that parses, then removes or blanks
- * one claim, so a rejection can only come from that claim.
+ * Both token types require `iss`, `aud`, `client_id`, `jti`, `iat` and `exp`;
+ * access tokens also require `sub`, `sub_type` and `principal`, and refresh
+ * tokens `sid`. Each required-claim row starts from a correctly signed token
+ * that parses, then removes or blanks one claim, so a rejection can only come
+ * from that claim.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -51,7 +55,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     public function testCompleteTokensParse(): void
     {
         self::assertIsArray($this->makeService()->parse($this->encode($this->completeClaims(TokenType::ACCESS)), TokenType::ACCESS));
-        self::assertIsArray($this->makeService()->parse($this->encode($this->completeClaims(TokenType::REFRESH)), TokenType::REFRESH));
+        self::assertIsArray($this->makeService()->parse($this->encode($this->completeClaims(TokenType::REFRESH), TokenType::REFRESH), TokenType::REFRESH));
     }
 
     /**
@@ -63,7 +67,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     public function testAClaimWithANumericNameIsLeftOut(): void
     {
         $claims = $this->completeClaims(TokenType::ACCESS);
-        $token  = JWT::encode([...$claims, 7 => 'numeric'], self::SECRET, self::ALGORITHM, self::KID);
+        $token  = JWT::encode([...$claims, 7 => 'numeric'], self::SECRET, self::ALGORITHM, self::KID, ['typ' => TokenType::ACCESS->value]);
 
         self::assertSame($claims, $this->makeService()->parse($token, TokenType::ACCESS));
     }
@@ -97,7 +101,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
 
         unset($claims[$claim->value]);
 
-        $token = $this->encode($claims);
+        $token = $this->encode($claims, $type);
 
         self::assertNull($this->makeService()->parse($token, $type));
         self::assertNull($this->makeService()->parse($token));
@@ -117,7 +121,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
 
         $claims[$claim->value] = null;
 
-        self::assertNull($this->makeService()->parse($this->encode($claims), $type));
+        self::assertNull($this->makeService()->parse($this->encode($claims, $type), $type));
     }
 
     /**
@@ -128,12 +132,16 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
      */
     public static function provideRequiredStringClaims(): iterable
     {
+        foreach ([Claims::ISSUER, Claims::AUDIENCE, Claims::CLIENT_ID, Claims::JWT_ID] as $claim) {
+            yield "access {$claim->value}" => [TokenType::ACCESS, $claim];
+            yield "refresh {$claim->value}" => [TokenType::REFRESH, $claim];
+        }
+
         yield from [
-            'access jti'  => [TokenType::ACCESS, Claims::JWT_ID],
-            'access sub'  => [TokenType::ACCESS, Claims::SUBJECT],
-            'access pid'  => [TokenType::ACCESS, Claims::PRINCIPAL_ID],
-            'refresh jti' => [TokenType::REFRESH, Claims::JWT_ID],
-            'refresh did' => [TokenType::REFRESH, Claims::SESSION_ID],
+            'access sub'       => [TokenType::ACCESS, Claims::SUBJECT],
+            'access sub_type'  => [TokenType::ACCESS, Claims::SUBJECT_TYPE],
+            'access principal' => [TokenType::ACCESS, Claims::PRINCIPAL],
+            'refresh sid'      => [TokenType::REFRESH, Claims::SESSION_ID],
         ];
     }
 
@@ -151,37 +159,36 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
 
         $claims[$claim->value] = '';
 
-        self::assertNull($this->makeService()->parse($this->encode($claims), $type));
+        self::assertNull($this->makeService()->parse($this->encode($claims, $type), $type));
     }
 
     /**
-     * `did` stays optional on access tokens (access-only mode), whether absent
-     * or `null`, and `pid` stays optional on refresh tokens.
+     * `sid` stays optional on access tokens (access-only mode), whether absent
+     * or `null`, so long as the token then carries no `auth_time` or `amr`;
+     * and `principal` stays optional on refresh tokens.
      *
      * @return void
      */
     public function testParseAcceptsTheOptionalClaimsBeingAbsent(): void
     {
-        $access = $this->completeClaims(TokenType::ACCESS);
+        $access = $this->sessionless($this->completeClaims(TokenType::ACCESS));
 
-        unset($access[Claims::SESSION_ID->value]);
-
-        $nullSession                            = $this->completeClaims(TokenType::ACCESS);
+        $nullSession                            = $access;
         $nullSession[Claims::SESSION_ID->value] = null;
 
         $refresh = $this->completeClaims(TokenType::REFRESH);
 
-        unset($refresh[Claims::PRINCIPAL_ID->value]);
+        unset($refresh[Claims::PRINCIPAL->value]);
 
         self::assertIsArray($this->makeService()->parse($this->encode($access), TokenType::ACCESS));
         self::assertIsArray($this->makeService()->parse($this->encode($nullSession), TokenType::ACCESS));
-        self::assertIsArray($this->makeService()->parse($this->encode($refresh), TokenType::REFRESH));
+        self::assertIsArray($this->makeService()->parse($this->encode($refresh, TokenType::REFRESH), TokenType::REFRESH));
     }
 
     /**
-     * Without an expected type, the token's own `typ` selects the required
-     * claims: a refresh token without `did` is rejected even though an access
-     * token needs no `did`.
+     * Without an expected type, the token's own header type selects the
+     * required claims: a refresh token without `sid` is rejected even though an
+     * access token needs no `sid`.
      *
      * @return void
      */
@@ -191,26 +198,129 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
 
         unset($claims[Claims::SESSION_ID->value]);
 
-        self::assertNull($this->makeService()->parse($this->encode($claims)));
+        self::assertNull($this->makeService()->parse($this->encode($claims, TokenType::REFRESH)));
     }
 
     /**
-     * Without an expected type, a token whose `typ` is not a known type is
-     * rejected and the unknown value is debug-logged.
+     * Rows of `[header typ, the type it names or null]`: the two types, in any
+     * case and with or without the `application/` media type prefix, and the
+     * values that name neither.
+     *
+     * @return iterable<string, array{0: mixed, 1: ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType}>
+     */
+    public static function provideHeaderTypes(): iterable
+    {
+        yield from [
+            'access'                       => ['at+jwt', TokenType::ACCESS],
+            'access upper case'            => ['AT+JWT', TokenType::ACCESS],
+            'access media type'            => ['application/at+jwt', TokenType::ACCESS],
+            'access mixed-case media type' => ['Application/At+Jwt', TokenType::ACCESS],
+            'refresh'                      => ['refresh+jwt', TokenType::REFRESH],
+            'refresh media type'           => ['application/refresh+jwt', TokenType::REFRESH],
+            'php-jwt default'              => ['JWT', null],
+            'old access claim value'       => ['access', null],
+            'old refresh claim value'      => ['refresh', null],
+            'empty'                        => ['', null],
+            'prefix only'                  => ['application/', null],
+            'padded'                       => [' at+jwt', null],
+            'other media type'             => ['text/at+jwt', null],
+            'doubled prefix'               => ['application/application/at+jwt', null],
+            'number'                       => [1, null],
+            'null'                         => [null, null],
+        ];
+    }
+
+    /**
+     * A token parses only when its header type names its type: with an expected
+     * type it must name that type, and without one it may name either, whose
+     * own claims are then required. A header type that names neither is
+     * rejected, whatever the claims.
+     *
+     * @param  mixed  $typ
+     * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $named
+     * @return void
+     */
+    #[DataProvider('provideHeaderTypes')]
+    public function testParseHoldsTheTokenToItsHeaderType(mixed $typ, ?TokenType $named): void
+    {
+        $service = $this->makeService();
+
+        foreach (TokenType::cases() as $type) {
+
+            $token = $this->sign(['alg' => self::ALGORITHM, 'kid' => self::KID, 'typ' => $typ], $this->completeClaims($type));
+
+            foreach (TokenType::cases() as $expected) {
+                self::assertSame($named === $type && $expected === $type, is_array($service->parse($token, $expected)), "{$type->name} claims expected as {$expected->name}");
+            }
+
+            if ($named !== null && $named !== $type) {
+                continue;
+            }
+
+            self::assertSame($named === $type, is_array($service->parse($token)), "{$type->name} claims without an expected type");
+        }
+    }
+
+    /**
+     * A correctly signed token whose header has no `typ` at all is rejected:
+     * the profile has no default type.
      *
      * @return void
      */
-    public function testParseRejectsAnUnknownTypeAndLogsIt(): void
+    public function testParseRejectsATokenWithoutAHeaderType(): void
+    {
+        $token = $this->sign(['alg' => self::ALGORITHM, 'kid' => self::KID], $this->completeClaims(TokenType::ACCESS));
+
+        self::assertNull($this->makeService()->parse($token, TokenType::ACCESS));
+        self::assertNull($this->makeService()->parse($token));
+    }
+
+    /**
+     * A token whose header type is not the one expected is rejected, and the
+     * expected and received types are debug-logged, an unknown one included.
+     *
+     * @return void
+     */
+    public function testParseLogsAHeaderTypeMismatch(): void
     {
         $logger = \Mockery::mock(LoggerInterface::class);
         $logger->shouldReceive('debug')
             ->once()
-            ->with('JWT typ unknown', ['received' => 'id']);
+            ->with('JWT typ header mismatch', ['expected' => 'at+jwt', 'received' => 'refresh+jwt']);
+        $logger->shouldReceive('debug')
+            ->once()
+            ->with('JWT typ header mismatch', ['expected' => null, 'received' => 'JWT']);
 
-        $claims                      = $this->completeClaims(TokenType::ACCESS);
-        $claims[Claims::TYPE->value] = 'id';
+        $service = $this->makeServiceWithLogger($logger);
 
-        self::assertNull($this->makeServiceWithLogger($logger)->parse($this->encode($claims)));
+        self::assertNull($service->parse($this->encode($this->completeClaims(TokenType::ACCESS), TokenType::REFRESH), TokenType::ACCESS));
+        self::assertNull($service->parse(JWT::encode($this->completeClaims(TokenType::ACCESS), self::SECRET, self::ALGORITHM, self::KID)));
+    }
+
+    /**
+     * A token in the profile the package used before (a `typ` claim, `pid`,
+     * `did` and `grd`, and php-jwt's default header type) is rejected: no
+     * compatibility path exists.
+     *
+     * @return void
+     */
+    public function testParseRejectsATokenInTheOldProfile(): void
+    {
+        $old = [
+            'iss' => self::ISSUER,
+            'aud' => self::AUDIENCE,
+            'sub' => 'identity-7',
+            'pid' => 'principal-3',
+            'did' => 'session-42',
+            'grd' => self::GUARD,
+            'typ' => 'access',
+            'jti' => 'token-id',
+            'iat' => $this->now->getTimestamp(),
+            'exp' => $this->now->getTimestamp() + 600,
+        ];
+
+        self::assertNull($this->makeService()->parse(JWT::encode($old, self::SECRET, self::ALGORITHM, self::KID), TokenType::ACCESS));
+        self::assertNull($this->makeService()->parse($this->encode($old), TokenType::ACCESS));
     }
 
     /**
@@ -223,19 +333,19 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $logger = \Mockery::mock(LoggerInterface::class);
         $logger->shouldReceive('debug')
             ->once()
-            ->with('JWT required claim missing', ['claim' => 'pid', 'typ' => 'access']);
+            ->with('JWT required claim missing', ['claim' => 'principal', 'typ' => 'at+jwt']);
 
         $claims = $this->completeClaims(TokenType::ACCESS);
 
-        unset($claims[Claims::PRINCIPAL_ID->value]);
+        unset($claims[Claims::PRINCIPAL->value]);
 
         self::assertNull($this->makeServiceWithLogger($logger)->parse($this->encode($claims), TokenType::ACCESS));
     }
 
     /**
-     * A guard, issuer, audience, or `typ` mismatch is reported before a missing
-     * claim, so a token from another guard is logged as such even when it also
-     * lacks a claim this guard's tokens require.
+     * A guard, issuer or audience mismatch is reported before a missing claim,
+     * so a token from another guard is logged as such even when it also lacks a
+     * claim this guard's tokens require.
      *
      * @return void
      */
@@ -244,18 +354,59 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $logger = \Mockery::mock(LoggerInterface::class);
         $logger->shouldReceive('debug')
             ->once()
-            ->with('JWT guard mismatch', ['expected' => self::GUARD, 'received' => self::OTHER_GUARD]);
+            ->with('JWT client_id mismatch', ['expected' => self::GUARD, 'received' => self::OTHER_GUARD]);
 
-        $claims                       = $this->completeClaims(TokenType::ACCESS);
-        $claims[Claims::GUARD->value] = self::OTHER_GUARD;
+        $claims                           = $this->completeClaims(TokenType::ACCESS);
+        $claims[Claims::CLIENT_ID->value] = self::OTHER_GUARD;
 
-        unset($claims[Claims::PRINCIPAL_ID->value]);
+        unset($claims[Claims::PRINCIPAL->value]);
 
         self::assertNull($this->makeServiceWithLogger($logger)->parse($this->encode($claims), TokenType::ACCESS));
     }
 
     /**
-     * Access and refresh tokens both carry the issuing guard's name.
+     * Rows of `[claim, value]` for a guard, issuer or audience that is not the
+     * service's: another string, one that differs only in case, and an array
+     * holding the service's own value.
+     *
+     * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Jwt\Enums\Claims, 1: mixed}>
+     */
+    public static function provideForeignBindings(): iterable
+    {
+        foreach (['client_id' => self::GUARD, 'iss' => self::ISSUER, 'aud' => self::AUDIENCE] as $name => $own) {
+
+            $claim = Claims::from($name);
+
+            yield "{$name} another" => [$claim, 'another'];
+            yield "{$name} other case" => [$claim, strtoupper($own)];
+            yield "{$name} array" => [$claim, [$own]];
+        }
+    }
+
+    /**
+     * A token of either type whose guard, issuer or audience is not the
+     * service's is rejected, an array audience holding the service's own
+     * included.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\Claims  $claim
+     * @param  mixed  $value
+     * @return void
+     */
+    #[DataProvider('provideForeignBindings')]
+    public function testParseRejectsAForeignBinding(Claims $claim, mixed $value): void
+    {
+        foreach (TokenType::cases() as $type) {
+
+            $claims                = $this->completeClaims($type);
+            $claims[$claim->value] = $value;
+
+            self::assertNull($this->makeService()->parse($this->encode($claims, $type), $type));
+        }
+    }
+
+    /**
+     * Access and refresh tokens both carry the issuing guard's name in
+     * `client_id`, and the service's issuer and audience.
      *
      * @return void
      *
@@ -263,20 +414,24 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
      */
     public function testIssuedTokensCarryTheIssuingGuard(): void
     {
-        $service = $this->makeService();
+        $service = $this->makeServiceFor(self::OTHER_GUARD);
 
-        $access  = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null), TokenType::ACCESS);
+        $access  = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null), TokenType::ACCESS);
         $refresh = $service->parse($service->issueRefreshToken($this->mockSession('session-42'), 'rotation-id'), TokenType::REFRESH);
 
         self::assertIsArray($access);
         self::assertIsArray($refresh);
-        self::assertSame(self::GUARD, $access[Claims::GUARD->value]);
-        self::assertSame(self::GUARD, $refresh[Claims::GUARD->value]);
+
+        foreach ([$access, $refresh] as $claims) {
+            self::assertSame(self::OTHER_GUARD, $claims[Claims::CLIENT_ID->value]);
+            self::assertSame(self::ISSUER, $claims[Claims::ISSUER->value]);
+            self::assertSame(self::AUDIENCE, $claims[Claims::AUDIENCE->value]);
+        }
     }
 
     /**
      * Issuing never reads the principal's tenant: the token needs only the
-     * principal's identifier.
+     * principal's identifier, and the tenant comes from the caller.
      *
      * @return void
      *
@@ -288,10 +443,10 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $principal->shouldReceive('getPrincipalIdentifier')->andReturn('principal-3');
         $principal->shouldNotReceive('getTenant');
 
-        $claims = $this->makeService()->parse($this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $principal, null), TokenType::ACCESS);
+        $claims = $this->makeService()->parse($this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $principal, null, null), TokenType::ACCESS);
 
         self::assertIsArray($claims);
-        self::assertSame('principal-3', $claims[Claims::PRINCIPAL_ID->value]);
+        self::assertSame('principal-3', $claims[Claims::PRINCIPAL->value]);
     }
 
     /**
@@ -304,7 +459,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
      */
     public function testParseRejectsAnAccessTokenIssuedForAnotherGuard(): void
     {
-        $token = $this->makeServiceFor(self::OTHER_GUARD)->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null);
+        $token = $this->makeServiceFor(self::OTHER_GUARD)->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null);
 
         self::assertNull($this->makeService()->parse($token, TokenType::ACCESS));
         self::assertNull($this->makeService()->parse($token));
@@ -324,27 +479,18 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A correctly signed token with every other claim but no `grd` is rejected.
+     * A correctly signed token with every other claim but no `client_id` is
+     * rejected.
      *
      * @return void
      */
     public function testParseRejectsATokenWithoutAGuardClaim(): void
     {
-        $token = JWT::encode(
-            [
-                Claims::SUBJECT->value      => 'identity-7',
-                Claims::PRINCIPAL_ID->value => 'principal-3',
-                Claims::JWT_ID->value       => 'access-token-id',
-                Claims::ISSUED_AT->value    => $this->now->getTimestamp(),
-                Claims::EXPIRES_AT->value   => $this->now->getTimestamp() + 600,
-                Claims::TYPE->value         => TokenType::ACCESS->value,
-            ],
-            self::SECRET,
-            self::ALGORITHM,
-            self::KID,
-        );
+        $claims = $this->completeClaims(TokenType::ACCESS);
 
-        self::assertNull($this->makeService()->parse($token, TokenType::ACCESS));
+        unset($claims[Claims::CLIENT_ID->value]);
+
+        self::assertNull($this->makeService()->parse($this->encode($claims), TokenType::ACCESS));
     }
 
     /**
@@ -359,19 +505,11 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $logger = \Mockery::mock(LoggerInterface::class);
         $logger->shouldReceive('debug')
             ->once()
-            ->with('JWT guard mismatch', ['expected' => self::GUARD, 'received' => self::OTHER_GUARD]);
+            ->with('JWT client_id mismatch', ['expected' => self::GUARD, 'received' => self::OTHER_GUARD]);
 
-        $verifier = new JwtTokenService(
-            $this->makeKeyring(),
-            self::GUARD,
-            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
-            30,
-            null,
-            null,
-            $logger,
-        );
+        $verifier = $this->makeServiceWithLogger($logger);
 
-        $token = $this->makeServiceFor(self::OTHER_GUARD)->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null);
+        $token = $this->makeServiceFor(self::OTHER_GUARD)->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null);
 
         self::assertNull($verifier->parse($token, TokenType::ACCESS));
     }
@@ -418,7 +556,9 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
      * refresh token, that another guard issued, that is signed with another
      * key, that is issued in the future, that lacks a claim a refresh token
      * requires, or that is not a JWT at all, proves nothing; and a failure is
-     * logged as `parse()` logs it.
+     * logged as `parse()` logs it. Its header and binding are checked on an
+     * expired one too: an expired token with an access header, another guard's,
+     * issuer's or audience's proves nothing either.
      *
      * @return void
      *
@@ -429,13 +569,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $logger = \Mockery::mock(LoggerInterface::class);
         $logger->shouldReceive('debug')->atLeast()->once();
 
-        $service = new JwtTokenService(
-            $this->makeKeyring(),
-            self::GUARD,
-            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
-            30,
-            logger: $logger,
-        );
+        $service = $this->makeServiceWithLogger($logger);
 
         $claims = $this->completeClaims(TokenType::REFRESH);
 
@@ -445,15 +579,26 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
 
         $future[Claims::ISSUED_AT->value] = $this->now->getTimestamp() + 3600;
 
-        $otherKey = new JwtTokenService($this->makeKeyring(str_repeat('k', 32)), self::GUARD, $service->lifetimes(), 30);
+        $otherKey = new JwtTokenService($this->makeKeyring(str_repeat('k', 32)), self::GUARD, $service->lifetimes(), 30, self::ISSUER, self::AUDIENCE);
 
-        self::assertNull($service->parseRefreshProof($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null)));
+        self::assertNull($service->parseRefreshProof($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null)));
         self::assertNull($service->parseRefreshProof($this->makeServiceFor(self::OTHER_GUARD)->issueRefreshToken($this->mockSession('session-42'), 'rotation-id')));
         self::assertNull($service->parseRefreshProof($otherKey->issueRefreshToken($this->mockSession('session-42'), 'rotation-id')));
-        self::assertNull($service->parseRefreshProof($this->encode($future)));
-        self::assertNull($service->parseRefreshProof($this->encode($claims)));
+        self::assertNull($service->parseRefreshProof($this->encode($future, TokenType::REFRESH)));
+        self::assertNull($service->parseRefreshProof($this->encode($claims, TokenType::REFRESH)));
         self::assertNull($service->parseRefreshProof('not-a-jwt'));
-        self::assertIsArray($service->parseRefreshProof($this->encode($this->completeClaims(TokenType::REFRESH))));
+        self::assertIsArray($service->parseRefreshProof($this->encode($this->completeClaims(TokenType::REFRESH), TokenType::REFRESH)));
+
+        $expired                            = $this->completeClaims(TokenType::REFRESH);
+        $expired[Claims::EXPIRES_AT->value] = $this->now->getTimestamp() - 3600;
+
+        self::assertIsArray($service->parseRefreshProof($this->encode($expired, TokenType::REFRESH)));
+        self::assertNull($service->parseRefreshProof($this->encode($expired, TokenType::ACCESS)));
+        self::assertNull($service->parseRefreshProof($this->sign(['alg' => self::ALGORITHM, 'kid' => self::KID], $expired)));
+
+        foreach ([Claims::CLIENT_ID, Claims::ISSUER, Claims::AUDIENCE] as $binding) {
+            self::assertNull($service->parseRefreshProof($this->encode([...$expired, $binding->value => 'another'], TokenType::REFRESH)));
+        }
     }
 
     /**
@@ -493,7 +638,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     {
         $lifetimes = new TokenLifetimes(7, 70, 700, 30);
 
-        $service = new JwtTokenService($this->makeKeyring(), self::GUARD, $lifetimes, 30);
+        $service = new JwtTokenService($this->makeKeyring(), self::GUARD, $lifetimes, 30, self::ISSUER, self::AUDIENCE);
 
         self::assertSame($lifetimes, $service->lifetimes());
     }
@@ -595,7 +740,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $service  = $this->makeService();
         $record   = $this->mockSession('session-42');
 
-        $access  = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), $record, $issuedAt), TokenType::ACCESS);
+        $access  = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null, $issuedAt), TokenType::ACCESS);
         $refresh = $this->refreshClaims($service->issueRefreshToken($record, 'rotation-id', null, $issuedAt));
 
         self::assertIsArray($access);
@@ -641,7 +786,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Cannot issue a token for a session that has ended or that has no idle and absolute deadlines.');
 
-        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), $record);
+        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, $record);
     }
 
     /**
@@ -664,8 +809,9 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * An access token carries exactly the access claims, and a client
-     * credentials token those and its `cid` and `scope`, with no session.
+     * A session-less access token carries exactly the access claims, and a
+     * client credentials token those and its `cid` and `scope`, with no session
+     * and the subject type `machine`.
      *
      * @return void
      *
@@ -674,21 +820,170 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     public function testAClientTokenAddsOnlyItsCredentialClaims(): void
     {
         $service = $this->makeService();
-        $access  = ['iat', 'exp', 'jti', 'typ', 'grd', 'sub', 'pid', 'did'];
+        $access  = ['iss', 'aud', 'client_id', 'sub', 'sub_type', 'principal', 'jti', 'iat', 'exp'];
 
-        $session = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null), TokenType::ACCESS);
+        $session = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null), TokenType::ACCESS);
 
         /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\MachineIdentity $machine */
         $machine = \Mockery::mock(MachineIdentity::class);
         $machine->shouldReceive('getAuthIdentifier')->andReturn('machine-7');
 
-        $client = $service->parse($service->issueClientAccessToken($machine, $this->mockPrincipal('principal-3'), self::KEY_ID, ['read']), TokenType::ACCESS);
+        $client = $service->parse($service->issueClientAccessToken($machine, $this->mockPrincipal('principal-3'), null, self::KEY_ID, ['read']), TokenType::ACCESS);
 
         self::assertIsArray($session);
         self::assertIsArray($client);
         self::assertEqualsCanonicalizing($access, array_keys($session));
         self::assertEqualsCanonicalizing([...$access, 'cid', 'scope'], array_keys($client));
-        self::assertSame([self::KEY_ID, 'read', null], [$client['cid'], $client['scope'], $client['did']]);
+        self::assertSame(['person', 'machine'], [$session['sub_type'], $client['sub_type']]);
+        self::assertSame([self::KEY_ID, 'read', 'machine-7'], [$client['cid'], $client['scope'], $client['sub']]);
+    }
+
+    /**
+     * A client credentials token carries the tenant the exchange's admission
+     * loaded, stringified.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAClientTokenCarriesItsTenant(): void
+    {
+        $service = $this->makeService();
+
+        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\MachineIdentity $machine */
+        $machine = \Mockery::mock(MachineIdentity::class);
+        $machine->shouldReceive('getAuthIdentifier')->andReturn('machine-7');
+
+        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Tenant $tenant */
+        $tenant = \Mockery::mock(Tenant::class);
+        $tenant->shouldReceive('getTenantIdentifier')->andReturn(12);
+
+        $client = $service->parse($service->issueClientAccessToken($machine, $this->mockPrincipal('principal-3'), $tenant, self::KEY_ID, []), TokenType::ACCESS);
+
+        self::assertIsArray($client);
+        self::assertSame('12', $client[Claims::TENANT_ID->value]);
+    }
+
+    /**
+     * Rows of `[claims to merge into a session's access token, claims to
+     * remove]` that break the access token's shape.
+     *
+     * @return iterable<string, array{0: array<string, mixed>, 1: list<string>}>
+     */
+    public static function provideMisshapenAccessTokens(): iterable
+    {
+        yield from [
+            'machine subject without a key' => [['sub_type' => 'machine'], []],
+            'unknown subject type'          => [['sub_type' => 'service'], []],
+            'no auth_time with a session'   => [[], ['auth_time']],
+            'no amr with a session'         => [[], ['amr']],
+            'auth_time as a string'         => [['auth_time' => '1775476800'], []],
+            'amr as an object'              => [['amr' => ['first' => 'pwd']], []],
+            'amr holding an empty string'   => [['amr' => ['pwd', '']], []],
+            'amr holding a number'          => [['amr' => [7]], []],
+            'amr as a string'               => [['amr' => 'pwd'], []],
+            'empty tenant'                  => [['tenant_id' => ''], []],
+            'numeric tenant'                => [['tenant_id' => 9], []],
+            'null tenant'                   => [['tenant_id' => null], []],
+        ];
+    }
+
+    /**
+     * An access token that breaks the profile's shape is rejected, whether or
+     * not a type is expected.
+     *
+     * @param  array<string, mixed>  $merge
+     * @param  list<string>  $remove
+     * @return void
+     */
+    #[DataProvider('provideMisshapenAccessTokens')]
+    public function testParseRejectsAMisshapenAccessToken(array $merge, array $remove): void
+    {
+        $claims = [...$this->completeClaims(TokenType::ACCESS), ...$merge];
+
+        foreach ($remove as $name) {
+            unset($claims[$name]);
+        }
+
+        self::assertNull($this->makeService()->parse($this->encode($claims), TokenType::ACCESS));
+        self::assertNull($this->makeService()->parse($this->encode($claims)));
+    }
+
+    /**
+     * A session-less access token carries neither `auth_time` nor `amr`: one
+     * that does is rejected.
+     *
+     * @return void
+     */
+    public function testParseRejectsAuthenticationClaimsWithoutASession(): void
+    {
+        $sessionless = $this->sessionless($this->completeClaims(TokenType::ACCESS));
+
+        self::assertIsArray($this->makeService()->parse($this->encode($sessionless), TokenType::ACCESS));
+        self::assertNull($this->makeService()->parse($this->encode([...$sessionless, Claims::AUTH_TIME->value => $this->now->getTimestamp()]), TokenType::ACCESS));
+        self::assertNull($this->makeService()->parse($this->encode([...$sessionless, Claims::AUTHENTICATION_METHODS->value => []]), TokenType::ACCESS));
+    }
+
+    /**
+     * The well-formed edges of the shape parse: an empty `amr`, an `auth_time`
+     * at the leeway's edge after the issue time, and a tenant; an `auth_time` a
+     * second past that edge does not.
+     *
+     * @return void
+     */
+    public function testParseAcceptsTheEdgesOfTheShape(): void
+    {
+        $claims = $this->completeClaims(TokenType::ACCESS);
+        $edges  = [
+            [Claims::AUTHENTICATION_METHODS->value => []],
+            [Claims::AUTH_TIME->value => $this->now->getTimestamp() + 30],
+            [Claims::TENANT_ID->value => 'tenant-9'],
+        ];
+
+        foreach ($edges as $edge) {
+            self::assertIsArray($this->makeService()->parse($this->encode([...$claims, ...$edge]), TokenType::ACCESS));
+        }
+
+        self::assertNull($this->makeService()->parse($this->encode([...$claims, Claims::AUTH_TIME->value => $this->now->getTimestamp() + 31]), TokenType::ACCESS));
+    }
+
+    /**
+     * A token that breaks the shape is debug-logged with why, and its type.
+     *
+     * @return void
+     */
+    public function testParseLogsAMisshapenAccessToken(): void
+    {
+        $logger = \Mockery::mock(LoggerInterface::class);
+
+        foreach (['JWT subject type mismatch', 'JWT authentication claims malformed', 'JWT tenant claim malformed'] as $message) {
+            $logger->shouldReceive('debug')->once()->with($message, ['typ' => 'at+jwt']);
+        }
+
+        $service = $this->makeServiceWithLogger($logger);
+        $claims  = $this->completeClaims(TokenType::ACCESS);
+
+        self::assertNull($service->parse($this->encode([...$claims, Claims::SUBJECT_TYPE->value => 'machine']), TokenType::ACCESS));
+        self::assertNull($service->parse($this->encode([...$claims, Claims::AUTHENTICATION_METHODS->value => 'pwd']), TokenType::ACCESS));
+        self::assertNull($service->parse($this->encode([...$claims, Claims::TENANT_ID->value => '']), TokenType::ACCESS));
+    }
+
+    /**
+     * A refresh token naming an API key is rejected: a key's token has no
+     * session, and a refresh token always names one.
+     *
+     * @return void
+     */
+    public function testParseRejectsARefreshTokenNamingAnApiKey(): void
+    {
+        $logger = \Mockery::mock(LoggerInterface::class);
+        $logger->shouldReceive('debug')
+            ->once()
+            ->with('JWT credential claims malformed', ['typ' => 'refresh+jwt']);
+
+        $claims = [...$this->completeClaims(TokenType::REFRESH), Claims::CREDENTIAL_ID->value => self::KEY_ID, Claims::SCOPE->value => 'read'];
+
+        self::assertNull($this->makeServiceWithLogger($logger)->parse($this->encode($claims, TokenType::REFRESH), TokenType::REFRESH));
     }
 
     /**
@@ -702,9 +997,14 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $logger = \Mockery::mock(LoggerInterface::class);
         $logger->shouldReceive('debug')
             ->once()
-            ->with('JWT credential claims malformed', ['claims' => ['cid', 'scope', 'did']]);
+            ->with('JWT credential claims malformed', ['typ' => 'at+jwt']);
 
-        $claims = [...$this->completeClaims(TokenType::ACCESS), Claims::CREDENTIAL_ID->value => self::KEY_ID, Claims::SCOPE->value => 'read'];
+        $claims = [
+            ...$this->completeClaims(TokenType::ACCESS),
+            Claims::CREDENTIAL_ID->value => self::KEY_ID,
+            Claims::SCOPE->value         => 'read',
+            Claims::SUBJECT_TYPE->value  => 'machine',
+        ];
 
         self::assertNull($this->makeServiceWithLogger($logger)->parse($this->encode($claims), TokenType::ACCESS));
     }
@@ -722,11 +1022,14 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
             $guard,
             new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
             30,
+            self::ISSUER,
+            self::AUDIENCE,
         );
     }
 
     /**
-     * Build a complete, valid claim set for the token type.
+     * Build a complete, valid claim set for the token type: a session's access
+     * token, or a refresh token naming its principal.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
      * @return array<string, mixed>
@@ -734,31 +1037,67 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     private function completeClaims(TokenType $type): array
     {
         $claims = [
-            Claims::ISSUED_AT->value    => $this->now->getTimestamp(),
-            Claims::EXPIRES_AT->value   => $this->now->getTimestamp() + 600,
-            Claims::JWT_ID->value       => 'token-id',
-            Claims::TYPE->value         => $type->value,
-            Claims::GUARD->value        => self::GUARD,
-            Claims::PRINCIPAL_ID->value => 'principal-3',
-            Claims::SESSION_ID->value   => 'session-42',
+            Claims::ISSUER->value     => self::ISSUER,
+            Claims::AUDIENCE->value   => self::AUDIENCE,
+            Claims::CLIENT_ID->value  => self::GUARD,
+            Claims::PRINCIPAL->value  => 'principal-3',
+            Claims::SESSION_ID->value => 'session-42',
+            Claims::JWT_ID->value     => 'token-id',
+            Claims::ISSUED_AT->value  => $this->now->getTimestamp(),
+            Claims::EXPIRES_AT->value => $this->now->getTimestamp() + 600,
         ];
 
         if ($type === TokenType::ACCESS) {
-            $claims[Claims::SUBJECT->value] = 'identity-7';
+            $claims += [
+                Claims::SUBJECT->value                => 'identity-7',
+                Claims::SUBJECT_TYPE->value           => 'person',
+                Claims::AUTH_TIME->value              => $this->now->getTimestamp() - 60,
+                Claims::AUTHENTICATION_METHODS->value => ['pwd'],
+            ];
         }
 
         return $claims;
     }
 
     /**
-     * Sign the claims with the shared test key.
+     * The claims without the session and the authentication that comes with it,
+     * as an access-only token carries them.
      *
+     * @param  array<string, mixed>  $claims
+     * @return array<string, mixed>
+     */
+    private function sessionless(array $claims): array
+    {
+        unset($claims[Claims::SESSION_ID->value], $claims[Claims::AUTH_TIME->value], $claims[Claims::AUTHENTICATION_METHODS->value]);
+
+        return $claims;
+    }
+
+    /**
+     * Sign the claims with the shared test key, as a token of the type.
+     *
+     * @param  array<string, mixed>  $claims
+     * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
+     * @return string
+     */
+    private function encode(array $claims, TokenType $type = TokenType::ACCESS): string
+    {
+        return JWT::encode($claims, self::SECRET, self::ALGORITHM, self::KID, ['typ' => $type->value]);
+    }
+
+    /**
+     * Sign the claims with the shared test key under exactly the given header,
+     * which php-jwt would otherwise give a `typ` of its own.
+     *
+     * @param  array<string, mixed>  $header
      * @param  array<string, mixed>  $claims
      * @return string
      */
-    private function encode(array $claims): string
+    private function sign(array $header, array $claims): string
     {
-        return JWT::encode($claims, self::SECRET, self::ALGORITHM, self::KID);
+        $signed = JWT::urlsafeB64Encode((string) json_encode($header)) . '.' . JWT::urlsafeB64Encode((string) json_encode($claims));
+
+        return $signed . '.' . JWT::urlsafeB64Encode(JWT::sign($signed, self::SECRET, self::ALGORITHM));
     }
 
     /**
@@ -774,8 +1113,8 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
             self::GUARD,
             new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
             30,
-            null,
-            null,
+            self::ISSUER,
+            self::AUDIENCE,
             $logger,
         );
     }
@@ -818,7 +1157,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     private function accessExpiry(?Session $record): mixed
     {
         $service = $this->makeService();
-        $claims  = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), $record), TokenType::ACCESS);
+        $claims  = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, $record), TokenType::ACCESS);
 
         self::assertIsArray($claims);
 

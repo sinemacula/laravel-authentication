@@ -9,8 +9,8 @@ other rotated token as a replay that revokes the session.
 
 ## Invariants
 
-- Refresh tokens stay signed JWTs and are bound to a session via `did`. A rotation id is only usable inside a token
-  signed with the guard's key and carrying the guard's `grd`.
+- Refresh tokens stay signed JWTs and are bound to a session via `sid`. A rotation id is only usable inside a token
+  signed with the guard's key and carrying the guard's `client_id`.
 - The token carries a plaintext rotation id in `jti`. The session row stores only SHA-256 digests: `refresh_key` for the
   current id and `previous_refresh_key` for the id it replaced, with `refresh_rotated_at` recording when it was
   replaced. Every comparison against a stored digest is constant-time.
@@ -69,8 +69,8 @@ other rotated token as a replay that revokes the session.
 - Refresh counts failures, not attempts: it cannot guess a secret (signed tokens, 256-bit rotation ids), so each failed
   exchange is counted against the token's session and the client's IP address by the bound `AttemptLimiter`, and
   successful ones are not. Once either count is full, the exchange stops before the session lookup.
-- Refresh preserves principal continuity by carrying `pid` forward into both the new refresh token and the new access
-  token.
+- Refresh preserves principal continuity by carrying `principal` forward into both the new refresh token and the new
+  access token.
 - A refresh is accepted only for the principal its session records (`PrincipalReference::isRecordedOn()`), on the
   current, the grace and the lost-rotation paths alike: after a switch of principal, the refresh token of the principal
   switched from fails with `session_principal_mismatch` and is not a replay, so the session is left alone, while the
@@ -80,9 +80,9 @@ other rotated token as a replay that revokes the session.
 
 ## Success Path
 
-- Parse the refresh JWT (which must carry this guard's `grd`). Ask the limiter whether the token's `did` (none for a
-  token that does not parse) or the client's IP address has used up its failures; if so, stop with `rate_limited`.
-- Extract `did`, `jti`, and optional `pid`, and load the configured session model by primary key from the write
+- Parse the refresh JWT (which must carry this guard's `client_id`). Ask the limiter whether the token's `sid` (none for
+  a token that does not parse) or the client's IP address has used up its failures; if so, stop with `rate_limited`.
+- Extract `sid`, `jti`, and optional `principal`, and load the configured session model by primary key from the write
   connection (`SessionLookup::find()`); take `$now`.
 - Refuse a session whose `guard` is not this guard (or is `null`) with `session_guard_mismatch`.
 - Classify the session at `$now`, before any identity or principal is loaded and before any rotation id is compared:
@@ -94,8 +94,8 @@ other rotated token as a replay that revokes the session.
      `refresh_grace_seconds`, and the successor of the presented id matches the current digest: GRACE;
   6. anything else: a replay (`rotation_reuse`).
 - Reload the session's owner through the guard's identity provider, confirm it is that exact owner (see
-  `guard-bound-tokens.md`) and that it is active; resolve the principal (the `pid` one when the token carries it) and
-  confirm it and its tenant are active.
+  `guard-bound-tokens.md`) and that it is active; resolve the principal (the `principal` one when the token carries it)
+  and confirm it and its tenant are active.
 - Ask the application policy: `allowsMethod(guard, sign_in_method)` (a `null` method fails without asking) and
   `admit(guard, identity, principal, null)`.
 - CURRENT: compute the successor and the new idle deadline (from `ApplicationPolicy::lifetimes(guard)`), issue
@@ -123,10 +123,10 @@ other rotated token as a replay that revokes the session.
 - A session whose `sign_in_method` the guard no longer allows, or which records none, produces `method_not_allowed`; an
   owner the application policy no longer admits as the principal produces `principal_ineligible`. Neither writes
   to the session or revokes it.
-- Missing or malformed claims produce `token_invalid`: a refresh token must carry `exp`, `iat`, `jti`, `typ`, `grd`, and
-  `did` (`pid` is optional). The token's own `exp` is checked by `parse()` (with leeway) before `$now` is taken; the
-  row's deadlines are authoritative and apply without leeway.
-- Unknown session ids produce `session_unknown`, and so does a `did` that cannot be a key of the session model, which is
+- Missing or malformed claims produce `token_invalid`: a refresh token must carry the `refresh+jwt` header type and
+  `iss`, `aud`, `client_id`, `sid`, `jti`, `iat` and `exp` (`principal` is optional). The token's own `exp` is checked
+  by `parse()` (with leeway) before `$now` is taken; the row's deadlines are authoritative and apply without leeway.
+- Unknown session ids produce `session_unknown`, and so does a `sid` that cannot be a key of the session model, which is
   rejected before the session lookup.
 - Database errors are not a failure reason: they propagate to the caller as server errors on every query (lookup, swap,
   re-read, revocation), so an outage is never reported as an unknown session.
@@ -234,7 +234,7 @@ other rotated token as a replay that revokes the session.
   `refresh_grace_seconds` with the lifetimes in `src/Jwt/JwtTokenServiceFactory.php`.
 - `src/Jwt/JwtTokenService.php`: `issueRefreshToken()` and `issueAccessToken()`, each with `$issuedAt`.
 - `src/Jwt/Enums/RotationMatch.php`: the CURRENT and PREVIOUS verdicts.
-- `src/SessionRecords/SessionKeyShape.php` and `src/Contracts/ValidatesSessionKey.php`: the `did` shape check run before
+- `src/SessionRecords/SessionKeyShape.php` and `src/Contracts/ValidatesSessionKey.php`: the `sid` shape check run before
   the session lookup.
 - `src/Database/WriteConnection.php`: pins the session and owner reads to the write connection (the principal and tenant
   reads are pinned by the resolver and by `ActivationPolicy`).
@@ -433,7 +433,7 @@ Update this note when any of the following change:
 - when `SessionRevoked` is dispatched
 - whether a rotation can move the absolute deadline, or how the idle deadline and token expiries are derived
 - whether database errors still propagate instead of mapping to a failure reason
-- whether refresh still preserves `pid` across the new pair
+- whether refresh still preserves `principal` across the new pair
 - whether refresh ever starts consulting shared cross-request caches
 - whether refresh still reads the session and its owner from the write connection
 - how session times are stored or read (wall-clock times in the application timezone, to the whole second, with the

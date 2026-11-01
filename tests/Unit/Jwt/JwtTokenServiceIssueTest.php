@@ -7,9 +7,11 @@ namespace Tests\Unit\Jwt;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use Tests\Concerns\InteractsWithJwtTokens;
 
 /**
  * Issuance-side unit tests for `JwtTokenService` - `issueAccessToken()` and
@@ -26,10 +28,15 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 #[CoversClass(JwtTokenService::class)]
 final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
 {
+    use InteractsWithJwtTokens;
+
     /**
-     * Asserts an issued access token decodes back to the supplied identity,
-     * principal, and session claims with an `exp` claim the access lifetime in
-     * the future and `typ = access`.
+     * Asserts an issued access token decodes back to exactly the profile's
+     * claims for the supplied identity and principal: the issuer, audience and
+     * guard, the subject as a person, and an `exp` claim the access lifetime in
+     * the future, with `at+jwt` as its header type. A token for a session adds
+     * the session and its authentication, which the feature tests assert on
+     * sessions the session service started.
      *
      * @return void
      *
@@ -39,20 +46,82 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     {
         $identity  = $this->mockIdentity('identity-7');
         $principal = $this->mockPrincipal('principal-3');
-        $session   = $this->mockSession('session-42');
 
         $service = $this->makeService();
 
-        $token  = $service->issueAccessToken($identity, $principal, $session);
+        $token  = $service->issueAccessToken($identity, $principal, null, null);
         $claims = $service->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
-        self::assertSame('identity-7', $claims[Claims::SUBJECT->value]);
-        self::assertSame('principal-3', $claims[Claims::PRINCIPAL_ID->value]);
-        self::assertSame('session-42', $claims[Claims::SESSION_ID->value]);
-        self::assertSame(TokenType::ACCESS->value, $claims[Claims::TYPE->value]);
-        self::assertSame($this->now->getTimestamp(), $claims[Claims::ISSUED_AT->value]);
-        self::assertSame($this->now->getTimestamp() + (self::ACCESS_TTL_MINUTES * 60), $claims[Claims::EXPIRES_AT->value]);
+        self::assertSame('at+jwt', $this->jwtHeader($token)['typ'] ?? null);
+        self::assertSame([
+            Claims::ISSUER->value       => self::ISSUER,
+            Claims::AUDIENCE->value     => self::AUDIENCE,
+            Claims::CLIENT_ID->value    => self::GUARD,
+            Claims::SUBJECT->value      => 'identity-7',
+            Claims::SUBJECT_TYPE->value => 'person',
+            Claims::PRINCIPAL->value    => 'principal-3',
+            Claims::ISSUED_AT->value    => $this->now->getTimestamp(),
+            Claims::EXPIRES_AT->value   => $this->now->getTimestamp() + (self::ACCESS_TTL_MINUTES * 60),
+        ], array_diff_key($claims, [Claims::JWT_ID->value => true]));
+    }
+
+    /**
+     * The tenant the caller's admission loaded is carried in `tenant_id`,
+     * stringified; without a tenant the claim is absent.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testIssueAccessTokenCarriesTheTenant(): void
+    {
+        $service   = $this->makeService();
+        $identity  = $this->mockIdentity('identity-7');
+        $principal = $this->mockPrincipal('principal-3');
+
+        $tenanted   = $service->parse($service->issueAccessToken($identity, $principal, $this->mockTenant(9), null), TokenType::ACCESS);
+        $untenanted = $service->parse($service->issueAccessToken($identity, $principal, null, null), TokenType::ACCESS);
+
+        self::assertIsArray($tenanted);
+        self::assertIsArray($untenanted);
+        self::assertSame('9', $tenanted[Claims::TENANT_ID->value]);
+        self::assertArrayNotHasKey(Claims::TENANT_ID->value, $untenanted);
+    }
+
+    /**
+     * Identifier values that cannot be written into a required claim: an
+     * unsaved model's `null`, the empty string `parse()` reads as missing, and
+     * values that are not scalar.
+     *
+     * @return iterable<string, array{0: mixed}>
+     */
+    public static function provideUnusableIdentifiers(): iterable
+    {
+        yield from [
+            'null'         => [null],
+            'empty string' => [''],
+            'array'        => [['id' => 7]],
+            'object'       => [new \stdClass],
+        ];
+    }
+
+    /**
+     * An access token is not issued for a tenant whose identifier cannot become
+     * the `tenant_id` claim, since `parse()` would reject the token.
+     *
+     * @param  mixed  $identifier
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideUnusableIdentifiers')]
+    public function testIssueAccessTokenRefusesATenantWithoutUsableIdentifier(mixed $identifier): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('without its `tenant_id` claim');
+
+        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), $this->mockTenant($identifier), null);
     }
 
     /**
@@ -71,8 +140,8 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
 
         $service = $this->makeService();
 
-        $first  = $service->parse($service->issueAccessToken($identity, $principal, null), TokenType::ACCESS);
-        $second = $service->parse($service->issueAccessToken($identity, $principal, null), TokenType::ACCESS);
+        $first  = $service->parse($service->issueAccessToken($identity, $principal, null, null), TokenType::ACCESS);
+        $second = $service->parse($service->issueAccessToken($identity, $principal, null, null), TokenType::ACCESS);
 
         self::assertIsArray($first);
         self::assertIsArray($second);
@@ -99,7 +168,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
 
         $service = $this->makeService();
 
-        $token  = $service->issueAccessToken($identity, $principal, null);
+        $token  = $service->issueAccessToken($identity, $principal, null, null);
         $claims = $service->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
@@ -107,33 +176,37 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Asserts issuing an access token without a session produces a token whose
-     * `did` claim is explicitly present with a null value, so downstream
-     * consumers see "no session hint" rather than a shape change.
+     * Asserts issuing an access token without a session produces a token with
+     * no `sid`, `auth_time` or `amr`: there is no session to name or to have
+     * authenticated.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testIssueAccessTokenWithoutSessionSetsNullSessionClaim(): void
+    public function testIssueAccessTokenWithoutSessionCarriesNoSessionClaims(): void
     {
         $identity  = $this->mockIdentity('identity-7');
         $principal = $this->mockPrincipal('principal-3');
 
         $service = $this->makeService();
 
-        $token  = $service->issueAccessToken($identity, $principal, null);
+        $token  = $service->issueAccessToken($identity, $principal, null, null);
         $claims = $service->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
-        self::assertArrayHasKey(Claims::SESSION_ID->value, $claims);
-        self::assertNull($claims[Claims::SESSION_ID->value]);
+        self::assertSame('person', $claims[Claims::SUBJECT_TYPE->value]);
+        self::assertArrayNotHasKey(Claims::SESSION_ID->value, $claims);
+        self::assertArrayNotHasKey(Claims::AUTH_TIME->value, $claims);
+        self::assertArrayNotHasKey(Claims::AUTHENTICATION_METHODS->value, $claims);
     }
 
     /**
-     * Asserts the refresh-token claims contain the session identifier, the
-     * supplied rotation id (`jti`), and an `exp` claim at the session's idle
-     * deadline. A refresh token issued without a principal omits `pid`.
+     * Asserts the refresh-token claims are exactly the issuer, audience and
+     * guard, the session identifier, the supplied rotation id (`jti`), and an
+     * `exp` claim at the session's idle deadline, with the private
+     * `refresh+jwt` as its header type. A refresh token issued without a
+     * principal omits `principal`.
      *
      * @return void
      */
@@ -146,13 +219,16 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $token  = $service->issueRefreshToken($session, 'opaque-rotation-id');
         $claims = $service->parse($token, TokenType::REFRESH);
 
-        self::assertIsArray($claims);
-        self::assertSame('session-42', $claims[Claims::SESSION_ID->value]);
-        self::assertSame('opaque-rotation-id', $claims[Claims::JWT_ID->value]);
-        self::assertArrayNotHasKey(Claims::PRINCIPAL_ID->value, $claims);
-        self::assertSame(TokenType::REFRESH->value, $claims[Claims::TYPE->value]);
-        self::assertSame($this->now->getTimestamp(), $claims[Claims::ISSUED_AT->value]);
-        self::assertSame($this->now->getTimestamp() + (self::REFRESH_TTL_MINUTES * 60), $claims[Claims::EXPIRES_AT->value]);
+        self::assertSame('refresh+jwt', $this->jwtHeader($token)['typ'] ?? null);
+        self::assertSame([
+            Claims::ISSUER->value     => self::ISSUER,
+            Claims::AUDIENCE->value   => self::AUDIENCE,
+            Claims::CLIENT_ID->value  => self::GUARD,
+            Claims::SESSION_ID->value => 'session-42',
+            Claims::JWT_ID->value     => 'opaque-rotation-id',
+            Claims::ISSUED_AT->value  => $this->now->getTimestamp(),
+            Claims::EXPIRES_AT->value => $this->now->getTimestamp() + (self::REFRESH_TTL_MINUTES * 60),
+        ], $claims);
     }
 
     /**
@@ -174,24 +250,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         self::assertIsArray($claims);
         self::assertSame('session-42', $claims[Claims::SESSION_ID->value]);
         self::assertSame('opaque-rotation-id', $claims[Claims::JWT_ID->value]);
-        self::assertSame('principal-3', $claims[Claims::PRINCIPAL_ID->value]);
-    }
-
-    /**
-     * Identifier values that cannot be written into a required claim: an
-     * unsaved model's `null`, the empty string `parse()` reads as missing, and
-     * values that are not scalar.
-     *
-     * @return iterable<string, array{0: mixed}>
-     */
-    public static function provideUnusableIdentifiers(): iterable
-    {
-        yield from [
-            'null'         => [null],
-            'empty string' => [''],
-            'array'        => [['id' => 7]],
-            'object'       => [new \stdClass],
-        ];
+        self::assertSame('principal-3', $claims[Claims::PRINCIPAL->value]);
     }
 
     /**
@@ -209,12 +268,12 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('without its `sub` claim');
 
-        $this->makeService()->issueAccessToken($this->mockIdentity($identifier), $this->mockPrincipal('principal-3'), null);
+        $this->makeService()->issueAccessToken($this->mockIdentity($identifier), $this->mockPrincipal('principal-3'), null, null);
     }
 
     /**
      * An access token is not issued for a principal whose identifier cannot
-     * become the `pid` claim, since `parse()` would reject the token.
+     * become the `principal` claim, since `parse()` would reject the token.
      *
      * @param  mixed  $identifier
      * @return void
@@ -225,14 +284,14 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     public function testIssueAccessTokenRefusesAPrincipalWithoutUsableIdentifier(mixed $identifier): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('without its `pid` claim');
+        $this->expectExceptionMessage('without its `principal` claim');
 
-        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal($identifier), null);
+        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal($identifier), null, null);
     }
 
     /**
      * An access token issued with a session whose identifier cannot become the
-     * `did` claim is refused rather than silently issued as session-less.
+     * `sid` claim is refused rather than silently issued as session-less.
      *
      * @param  mixed  $identifier
      * @return void
@@ -243,14 +302,14 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     public function testIssueAccessTokenRefusesASessionWithoutUsableIdentifier(mixed $identifier): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('without its `did` claim');
+        $this->expectExceptionMessage('without its `sid` claim');
 
-        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), $this->mockSession($identifier));
+        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, $this->mockSession($identifier));
     }
 
     /**
      * A refresh token is not issued for a session whose identifier cannot
-     * become the `did` claim, since `parse()` would reject the token.
+     * become the `sid` claim, since `parse()` would reject the token.
      *
      * @param  mixed  $identifier
      * @return void
@@ -259,15 +318,15 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     public function testIssueRefreshTokenRefusesASessionWithoutUsableIdentifier(mixed $identifier): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('without its `did` claim');
+        $this->expectExceptionMessage('without its `sid` claim');
 
         $this->makeService()->issueRefreshToken($this->mockSession($identifier), 'opaque-rotation-id');
     }
 
     /**
      * A refresh token issued with a principal whose identifier cannot become
-     * the `pid` claim is refused rather than silently issued without one, which
-     * would refresh into the default principal.
+     * the `principal` claim is refused rather than silently issued without one,
+     * which would refresh into the default principal.
      *
      * @param  mixed  $identifier
      * @return void
@@ -276,7 +335,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     public function testIssueRefreshTokenRefusesAPrincipalWithoutUsableIdentifier(mixed $identifier): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('without its `pid` claim');
+        $this->expectExceptionMessage('without its `principal` claim');
 
         $this->makeService()->issueRefreshToken($this->mockSession('session-42'), 'opaque-rotation-id', $this->mockPrincipal($identifier));
     }
@@ -293,5 +352,20 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $this->expectExceptionMessage('without its `jti` claim');
 
         $this->makeService()->issueRefreshToken($this->mockSession('session-42'), '');
+    }
+
+    /**
+     * A Tenant mock whose getTenantIdentifier() returns the supplied value.
+     *
+     * @param  mixed  $id
+     * @return \SineMacula\Laravel\Authentication\Contracts\Tenant
+     */
+    private function mockTenant(mixed $id): Tenant
+    {
+        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Tenant $tenant */
+        $tenant = \Mockery::mock(Tenant::class);
+        $tenant->shouldReceive('getTenantIdentifier')->andReturn($id);
+
+        return $tenant;
     }
 }

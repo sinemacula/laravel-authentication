@@ -21,14 +21,26 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 final class TokenTypeTest extends TestCase
 {
     /**
-     * Both types require `exp`, `iat`, `jti`, `typ`, and the guard claim, in
+     * Each type's value is its JOSE header type: RFC 9068's `at+jwt` for an
+     * access token and the private `refresh+jwt` for a refresh token.
+     *
+     * @return void
+     */
+    public function testEveryTypeIsItsHeaderType(): void
+    {
+        self::assertSame([TokenType::ACCESS, TokenType::REFRESH], TokenType::cases());
+        self::assertSame(['at+jwt', 'refresh+jwt'], [TokenType::ACCESS->value, TokenType::REFRESH->value]);
+    }
+
+    /**
+     * Both types require `iss`, `aud`, `client_id`, `jti`, `iat` and `exp`, in
      * that order.
      *
      * @return void
      */
     public function testEveryTypeRequiresTheCommonClaims(): void
     {
-        $common = [Claims::EXPIRES_AT, Claims::ISSUED_AT, Claims::JWT_ID, Claims::TYPE, Claims::GUARD];
+        $common = [Claims::ISSUER, Claims::AUDIENCE, Claims::CLIENT_ID, Claims::JWT_ID, Claims::ISSUED_AT, Claims::EXPIRES_AT];
 
         foreach (TokenType::cases() as $type) {
             self::assertSame($common, array_slice($type->requiredClaims(), 0, count($common)));
@@ -36,27 +48,28 @@ final class TokenTypeTest extends TestCase
     }
 
     /**
-     * An access token also requires `sub` and `pid`, and not `did`.
+     * An access token also requires `sub`, `sub_type` and `principal`, and not
+     * `sid`.
      *
      * @return void
      */
     public function testAccessTokensRequireSubjectAndPrincipal(): void
     {
         self::assertSame(
-            [Claims::EXPIRES_AT, Claims::ISSUED_AT, Claims::JWT_ID, Claims::TYPE, Claims::GUARD, Claims::SUBJECT, Claims::PRINCIPAL_ID],
+            [Claims::ISSUER, Claims::AUDIENCE, Claims::CLIENT_ID, Claims::JWT_ID, Claims::ISSUED_AT, Claims::EXPIRES_AT, Claims::SUBJECT, Claims::SUBJECT_TYPE, Claims::PRINCIPAL],
             TokenType::ACCESS->requiredClaims(),
         );
     }
 
     /**
-     * A refresh token also requires `did`, and not `sub` or `pid`.
+     * A refresh token also requires `sid`, and not `sub` or `principal`.
      *
      * @return void
      */
     public function testRefreshTokensRequireSession(): void
     {
         self::assertSame(
-            [Claims::EXPIRES_AT, Claims::ISSUED_AT, Claims::JWT_ID, Claims::TYPE, Claims::GUARD, Claims::SESSION_ID],
+            [Claims::ISSUER, Claims::AUDIENCE, Claims::CLIENT_ID, Claims::JWT_ID, Claims::ISSUED_AT, Claims::EXPIRES_AT, Claims::SESSION_ID],
             TokenType::REFRESH->requiredClaims(),
         );
     }

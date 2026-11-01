@@ -40,23 +40,27 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * not.
  *
  * Checked in order, each failure with its own reason: the token itself
- * (`token_invalid`); for a client credentials token (one with `cid`), its API
- * key: this guard's, live and not revoked (`credential_invalid`,
- * `credential_expired`, `credential_revoked`); the identity its `sub` names,
- * reloaded through the guard's provider (`identity_unknown`), of the kind the
- * token is for (`machine_identity` for a session's token, `credential_invalid`
- * for a client credentials token) and active (`identity_inactive`); the
- * principal its `pid` names, which must resolve to exactly that principal
- * (`principal_mismatch`) and be active in an active tenant
- * (`principal_inactive`, `tenant_inactive`); for a token that names no session,
- * an issue time after the identity's and the principal's "tokens valid after"
- * time (`issued_before_cutoff`); and, for a token that names a session, that
- * session among the identity's own (`session_unknown`), of this guard
- * (`session_guard_mismatch`), not revoked (`session_revoked`), not ended
- * (`session_expired`), and acting as the token's principal with no principal
- * switch after the token was issued (`session_principal_mismatch`). Fail
- * closed: a token that names a principal or session that does not resolve
- * exactly is rejected rather than downgraded.
+ * (`token_invalid`, which includes a subject type that does not match the
+ * token's kind: `machine` exactly when it names an API key in `cid`); for a
+ * client credentials token, its API key: this guard's, live and not revoked
+ * (`credential_invalid`, `credential_expired`, `credential_revoked`); the
+ * identity its `sub` names, reloaded through the guard's provider
+ * (`identity_unknown`), of the kind its subject type says (`machine_identity`
+ * for a `person` token whose subject is a non-human identity,
+ * `credential_invalid` for a `machine` token whose subject is not one) and
+ * active (`identity_inactive`); the principal its `principal` names, which must
+ * resolve to exactly that principal (`principal_mismatch`) and be active in an
+ * active tenant (`principal_inactive`, `tenant_inactive`); for a token that
+ * names no session, an issue time after the identity's and the principal's
+ * "tokens valid after" time (`issued_before_cutoff`); and, for a token that
+ * names a session (`sid`), that session among the identity's own
+ * (`session_unknown`), of this guard (`session_guard_mismatch`), not revoked
+ * (`session_revoked`), not ended (`session_expired`), and acting as the token's
+ * principal with no principal switch after the token was issued
+ * (`session_principal_mismatch`). Fail closed: a token that names a principal
+ * or session that does not resolve exactly is rejected rather than downgraded.
+ * The token's `tenant_id`, `auth_time` and `amr` are not read here: they were
+ * derived when it was issued, and live no longer than it does.
  *
  * Built for one request with the guard's current collaborators, so it keeps
  * nothing between requests.
@@ -173,19 +177,19 @@ final readonly class BearerAuthentication
 
     /**
      * Admit the identity the claims name as the principal they name: the
-     * identity must be found, of the kind the token is for (a non-human
-     * identity's tokens come only from a client credentials exchange, so a
-     * session's token naming one is refused as `machine_identity`, and a client
-     * credentials token naming a human one as `credential_invalid`) and active,
+     * identity must be found, of the kind the token's subject type says (a
+     * non-human identity's tokens come only from a client credentials exchange,
+     * so a `person` token naming one is refused as `machine_identity`, and a
+     * `machine` token naming a human one as `credential_invalid`) and active,
      * and the principal must resolve exactly and be active in an active tenant.
      *
      * @param  array<string, mixed>  $claims
-     * @param  bool  $client
+     * @param  bool  $machine
      * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    private function admit(#[\SensitiveParameter] array $claims, bool $client): Admitted|Refused
+    private function admit(#[\SensitiveParameter] array $claims, bool $machine): Admitted|Refused
     {
         $identity = $this->provider->retrieveById($claims[Claims::SUBJECT->value]);
 
@@ -194,19 +198,19 @@ final readonly class BearerAuthentication
         }
 
         $refusal = match (true) {
-            !$client && $identity instanceof MachineIdentity  => FailureReason::MACHINE_IDENTITY,
-            $client  && !$identity instanceof MachineIdentity => FailureReason::CREDENTIAL_INVALID,
-            !ActivationPolicy::isActive($identity)            => FailureReason::IDENTITY_INACTIVE,
-            default                                           => null,
+            !$machine && $identity instanceof MachineIdentity  => FailureReason::MACHINE_IDENTITY,
+            $machine  && !$identity instanceof MachineIdentity => FailureReason::CREDENTIAL_INVALID,
+            !ActivationPolicy::isActive($identity)             => FailureReason::IDENTITY_INACTIVE,
+            default                                            => null,
         };
 
-        return $refusal === null ? $this->admitAs($identity, $claims[Claims::PRINCIPAL_ID->value]) : new Refused($refusal, $identity);
+        return $refusal === null ? $this->admitAs($identity, $claims[Claims::PRINCIPAL->value]) : new Refused($refusal, $identity);
     }
 
     /**
-     * Admit the active identity as the principal the `pid` names, which the
-     * resolver must return exactly, and which must be active in an active
-     * tenant.
+     * Admit the active identity as the principal the `principal` claim names,
+     * which the resolver must return exactly, and which must be active in an
+     * active tenant.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint

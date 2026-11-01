@@ -378,7 +378,7 @@ final readonly class SessionWriter
     private function issue(EloquentSession&Model $session, Admitted $admitted, string $method, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): SignedInSession
     {
         $tokens = new TokenPair(
-            $this->tokens->issueAccessToken($admitted->identity, $admitted->principal, $session, $now),
+            $this->tokens->issueAccessToken($admitted->identity, $admitted->principal, $admitted->tenant, $session, $now),
             $this->tokens->issueRefreshToken($session, $rotationId, $admitted->principal, $now),
         );
 

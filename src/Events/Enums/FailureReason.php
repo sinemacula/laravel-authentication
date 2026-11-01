@@ -48,8 +48,8 @@ enum FailureReason: string
     // No principal could be resolved for the identity
     case PRINCIPAL_UNRESOLVED = 'principal_unresolved';
 
-    // The principal named (pinned, or a token's pid) does not resolve to that
-    // exact principal of the identity
+    // The principal named (pinned, or a token's `principal` claim) does not
+    // resolve to that exact principal of the identity
     case PRINCIPAL_MISMATCH = 'principal_mismatch';
 
     // The principal reported inactive

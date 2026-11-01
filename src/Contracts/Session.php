@@ -32,7 +32,7 @@ interface Session
 {
     /**
      * Return the session's identifier, which is always its primary key: tokens
-     * carry it in `did` and every lookup finds the session by primary key.
+     * carry it in `sid` and every lookup finds the session by primary key.
      *
      * @return mixed
      */

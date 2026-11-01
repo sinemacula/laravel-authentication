@@ -123,7 +123,7 @@ and identifier change request or confirmation, after Laravel's `Failed` where th
 outcomes](#failure-outcomes) for what each answers), a `FailureReason`, the identifier a sign-in's input named (as
 given), and the wait for `rate_limited` and `account_rate_limited`. Its context carries the identity only once a sign-in
 method verified it, a refresh reloaded the session's owner or a token's subject was found (a wrong password or an
-unknown identifier carries none), the principal and tenant once resolved, and the session once found, else the `did` a
+unknown identifier carries none), the principal and tenant once resolved, and the session once found, else the `sid` a
 token named. A bearer token is checked in this order, so its reason is the first that applies: `token_invalid`, for a
 client credentials token `credential_invalid`, `credential_revoked` and `credential_expired`, then `identity_unknown`,
 `machine_identity`, `identity_inactive`, `principal_mismatch`, `principal_inactive`, `tenant_inactive`, then for a token
@@ -141,7 +141,7 @@ while the sign-in's result says `invalid_credentials`:
 | `identity_unknown`           | The guard's provider does not return the identity or session owner                |
 | `identity_inactive`          | The identity reported inactive                                                    |
 | `principal_unresolved`       | No principal could be resolved for the identity                                   |
-| `principal_mismatch`         | The requested principal (or a token's `pid`) is not the identity's                |
+| `principal_mismatch`         | The requested principal (or a token's `principal`) is not the identity's          |
 | `principal_inactive`         | The principal reported inactive                                                   |
 | `tenant_inactive`            | The principal's tenant inactive, or opted in and missing                          |
 | `principal_ineligible`       | The application policy does not admit the identity as principal                   |

@@ -105,7 +105,7 @@ final class MisconfiguredIdentityIntegrationTest extends TestCase
     public function testBearerRequestAnswersWithServerError(): void
     {
         $identity = $this->seedIdentity();
-        $token    = $this->authManager()->jwt('api')->issueAccessToken($identity, new PlainPrincipalFixture(7), null);
+        $token    = $this->authManager()->jwt('api')->issueAccessToken($identity, new PlainPrincipalFixture(7), null, null);
 
         Route::middleware('auth:api')->get('/me', static fn (): string => 'ok');
 

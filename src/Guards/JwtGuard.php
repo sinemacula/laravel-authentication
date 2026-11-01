@@ -135,9 +135,9 @@ final class JwtGuard extends AbstractGuard
      * at most once per request, so a rejected token is reported once. A request
      * without a token attempts nothing and dispatches nothing.
      *
-     * Fail-closed: a token that claims a specific `pid` or `did` but does not
-     * resolve to that exact principal/session is rejected rather than silently
-     * downgraded.
+     * Fail-closed: a token that claims a specific `principal` or `sid` but does
+     * not resolve to that exact principal/session is rejected rather than
+     * silently downgraded.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      *

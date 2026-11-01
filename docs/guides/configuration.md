@@ -28,8 +28,8 @@ a guard's JWT settings are read once and kept (see [Configuration lifetimes](ope
 | `jwt.refresh_absolute_ttl_minutes`                  | `259200`                                                                     | `AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES`                 | yes       | [Token and session lifetimes](#token-and-session-lifetimes)           |
 | `jwt.refresh_grace_seconds`                         | `30`                                                                         | `AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS`                        | yes       | [Refresh token replay](refreshing.md#refresh-token-replay)            |
 | `jwt.leeway_seconds`                                | `30`                                                                         | `AUTHENTICATION_JWT_LEEWAY_SECONDS`                               | yes       | [Token and session lifetimes](#token-and-session-lifetimes)           |
-| `jwt.issuer`                                        | `null`                                                                       | `AUTHENTICATION_JWT_ISSUER`                                       | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
-| `jwt.audience`                                      | `null`                                                                       | `AUTHENTICATION_JWT_AUDIENCE`                                     | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
+| `jwt.issuer`                                        | none (required)                                                              | `AUTHENTICATION_JWT_ISSUER`                                       | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
+| `jwt.audience`                                      | none (required)                                                              | `AUTHENTICATION_JWT_AUDIENCE`                                     | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
 | `application.methods`                               | `[]`                                                                         |                                                                   | yes       | [Applications](#applications)                                         |
 | `application.require_verified_identifier`           | `false`                                                                      |                                                                   | yes       | [Applications](#applications)                                         |
 | `identifiers.normalizers`                           | `['email' => EmailNormalizer::class, 'phone' => E164PhoneNormalizer::class]` |                                                                   |           | [Identifiers](identity-models.md#identifiers)                         |
@@ -159,25 +159,59 @@ entry; missing fields fall back to the defaults:
 ],
 ```
 
-Routes opt into a boundary via `auth:staff` or `auth:customer` middleware. Every token carries a `grd` claim naming the
-guard that issued it, and a guard rejects any token whose `grd` names another guard, so a staff token cannot
-authenticate as a customer even when both guards share the package key map and identity model. Separate keys and
-audiences, as above, are optional defence in depth on top of that. On refresh, the guard reloads the session's owner
-through its own user provider, so the provider's scoping applies and an owner it does not serve is rejected. The session
-row stores the owner's primary key and the provider looks identities up by their auth identifier, so refresh requires an
-identity model whose auth identifier is its primary key: one that overrides `getAuthIdentifierName()` fails to refresh
-with `identity_unknown`. Every field in the package `jwt` block is overridable (`keys`, `active_kid`,
-`algorithm`, `access_ttl_minutes`, `refresh_idle_ttl_minutes`, `refresh_absolute_ttl_minutes`, `refresh_grace_seconds`,
-`leeway_seconds`, `issuer`, `audience`). `keys` and `active_kid` fall back independently: a guard that overrides `keys`
-should also set `active_kid` to a kid in its own map. A guard's `jwt` entry must be an array (or `null` for no
-overrides). `algorithm` must be a string, and `issuer` and `audience` a string or `null`: a guard that sets either to
-`null` or `''` turns that claim check off even when the package value sets one. A value of any other type, in the
-guard's block or the package block, fails closed with an `InvalidJwtConfigurationException` naming the key and the
-guard, rather than being ignored.
+Routes opt into a boundary via `auth:staff` or `auth:customer` middleware. Every token carries a `client_id` claim
+naming the guard that issued it, and a guard rejects any token whose `client_id` names another guard, so a staff token
+cannot authenticate as a customer even when both guards share the package key map, issuer, audience and identity model.
+Separate keys and audiences, as above, are optional defence in depth on top of that. On refresh, the guard reloads the
+session's owner through its own user provider, so the provider's scoping applies and an owner it does not serve is
+rejected. The session row stores the owner's primary key and the provider looks identities up by their auth identifier,
+so refresh requires an identity model whose auth identifier is its primary key: one that overrides
+`getAuthIdentifierName()` fails to refresh with `identity_unknown`. Every field in the package `jwt` block is
+overridable (`keys`, `active_kid`, `algorithm`, `access_ttl_minutes`, `refresh_idle_ttl_minutes`,
+`refresh_absolute_ttl_minutes`, `refresh_grace_seconds`, `leeway_seconds`, `issuer`, `audience`). `keys` and
+`active_kid` fall back independently: a guard that overrides `keys` should also set `active_kid` to a kid in its own
+map. A guard's `jwt` entry must be an array (or `null` for no overrides). `algorithm` must be a string, and `issuer` and
+`audience` non-empty strings: they are required, every token carries them as `iss` and `aud`, and every request checks
+them strictly (an `aud` that is an array never matches). A guard's override that is present wins, `null` included, so a
+guard that sets either to `null` or `''` fails closed rather than falling back to the package value; a guard with
+neither an override nor a package value fails closed too, and `authentication:check` reports it. A value of any other
+type, in the guard's block or the package block, fails closed with an `InvalidJwtConfigurationException` naming the key
+and the guard, rather than being ignored.
 
 A guard's token service is built from these settings once, when the guard or `Auth::jwt()` first needs it, and kept for
 the life of the token service factory, so a change made at runtime does not reach it (see
 [Configuration lifetimes](operations.md#configuration-lifetimes)).
+
+## Token claims
+
+Tokens follow a private profile that borrows RFC 9068's claims; it does not claim RFC 9068 conformance, which needs
+asymmetric keys. The token's type is its JOSE header `typ`: `at+jwt` for an access token (`application/at+jwt` and any
+case are accepted) and the private `refresh+jwt` for a refresh token, so neither can be presented as the other. A token
+with no header type, php-jwt's default `JWT`, or the other type's is rejected as `token_invalid`.
+
+| Claim               | On                          | Meaning                                                           |
+|---------------------|-----------------------------|-------------------------------------------------------------------|
+| `iss`               | every token                 | the guard's `issuer`, required and checked strictly               |
+| `aud`               | every token                 | the guard's `audience`, one string, required and checked strictly |
+| `client_id`         | every token                 | the application (the guard) that issued the token                 |
+| `sub`               | access                      | the identity, or for a client credentials token the client        |
+| `sub_type`          | access                      | `person` for a human identity, `machine` for a client             |
+| `principal`         | access; refresh, optional   | the principal the identity acts as                                |
+| `sid`               | refresh; a session's access | the session                                                       |
+| `tenant_id`         | access, with a tenant       | the tenant the principal acts within                              |
+| `auth_time`         | a session's access          | when the session last authenticated                               |
+| `amr`               | a session's access          | the session's authentication method references, a list            |
+| `cid`               | client credentials          | the API key the token was exchanged for                           |
+| `scope`             | client credentials          | the scopes it grants, space-separated                             |
+| `jti`, `iat`, `exp` | every token                 | the token's id, issue time and expiry                             |
+
+`sub_type` is `machine` exactly when the token names an API key in `cid`, and is checked against the identity's kind on
+every request, so a human's token can never be read as a machine's or the other way round. A session's access token
+carries `auth_time` and `amr` derived from the session when the token is issued; a token without a session carries
+neither. The bearer path does not read `tenant_id`, `auth_time` or `amr`: they are for the application, and live no
+longer than the access token does. `tenant_id` names the tenant the principal acts within when the token is issued, and
+is carried only: the package does not check it on a request, and `Auth::tenant()` stays the principal's tenant, read
+live.
 
 ## Token and session lifetimes
 
@@ -325,7 +359,7 @@ A session is one sign-in, on one application, on one device. The shipped migrati
 
 | Column                                                 | Holds                                                  |
 |--------------------------------------------------------|--------------------------------------------------------|
-| `id`                                                   | UUID v7 primary key, carried in every token as `did`   |
+| `id`                                                   | UUID v7 primary key, carried in every token as `sid`   |
 | `authenticatable_type`, `authenticatable_id`           | The owning identity (required)                         |
 | `principal_type`, `principal_id`                       | The principal the session acts as (any key type)       |
 | `principal_switched_at`                                | When the session last switched its principal           |
@@ -371,7 +405,7 @@ three.
 
 Subclass the model or swap `session.model` entirely - custom models must implement the `EloquentSession` contract and
 live on the storage connection (see [Storage](#storage)). A session's identifier is always its primary key: tokens carry
-it in `did`, and the bearer path and refresh find the session by primary key, whatever the key column is called. Other
+it in `sid`, and the bearer path and refresh find the session by primary key, whatever the key column is called. Other
 column names come from the contract's accessors (`getRefreshKeyName()`, `getRevokedAtName()`, and so on); the shipped
 migration creates the default names, so a model that renames a column needs its own migration.
 

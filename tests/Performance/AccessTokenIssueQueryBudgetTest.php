@@ -68,7 +68,7 @@ final class AccessTokenIssueQueryBudgetTest extends PerformanceContractTestCase
     {
         [$identity, $membership] = $this->seedMembership();
 
-        $token = $this->assertQueryBudget(0, 0, fn (): string => $this->tokens()->issueAccessToken($identity, $membership, null));
+        $token = $this->assertQueryBudget(0, 0, fn (): string => $this->tokens()->issueAccessToken($identity, $membership, null, null));
 
         self::assertNotSame('', $token);
         self::assertFalse($membership->relationLoaded('tenant'));
@@ -88,7 +88,7 @@ final class AccessTokenIssueQueryBudgetTest extends PerformanceContractTestCase
     {
         [$identity, $membership] = $this->seedMembership();
 
-        $this->bindRequestWithBearer('/perf/typed', $this->tokens()->issueAccessToken($identity, $membership, null));
+        $this->bindRequestWithBearer('/perf/typed', $this->tokens()->issueAccessToken($identity, $membership, null, null));
 
         $guard = $this->freshJwtGuard(self::GUARD);
 

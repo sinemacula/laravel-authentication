@@ -153,7 +153,7 @@ final readonly class PrincipalSwitch
 
         return $session === null
             ? self::refused(FailureReason::SESSION_UNKNOWN, new EventContext($this->context->name(), $this->client, sessionId: IdentifierCoercion::stringify($sessionId)))
-            : $this->switchOn($session, [$rotationId, $claims[Claims::PRINCIPAL_ID->value] ?? null]);
+            : $this->switchOn($session, [$rotationId, $claims[Claims::PRINCIPAL->value] ?? null]);
     }
 
     /**
@@ -496,7 +496,7 @@ final readonly class PrincipalSwitch
     private function issue(Admitted $admitted, EloquentSession&Model $session, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): TokenPair
     {
         return new TokenPair(
-            $this->tokens->issueAccessToken($admitted->identity, $admitted->principal, $session, $now),
+            $this->tokens->issueAccessToken($admitted->identity, $admitted->principal, $admitted->tenant, $session, $now),
             $this->tokens->issueRefreshToken($session, $rotationId, $admitted->principal, $now),
         );
     }

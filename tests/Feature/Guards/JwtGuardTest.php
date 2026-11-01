@@ -28,7 +28,6 @@ use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
-use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
@@ -168,7 +167,7 @@ final class JwtGuardTest extends JwtGuardTestCase
             $dispatched[] = $event;
         });
 
-        $guard = $this->makeGuard($this->makeRequest($this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1'])));
+        $guard = $this->makeGuard($this->makeRequest($this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1'])));
 
         self::assertSame($identity, $guard->user());
         self::assertCount(2, $dispatched);
@@ -272,7 +271,7 @@ final class JwtGuardTest extends JwtGuardTestCase
         self::assertTrue($read?->isRefreshed());
         self::assertSame(RefreshTokenSource::HEADER, $read->source);
         self::assertNotSame('', $read->session?->tokens->accessToken);
-        self::assertSame(TokenType::REFRESH->value, $this->tokens->parse((string) $read->session?->tokens->refreshToken, TokenType::REFRESH)[Claims::TYPE->value] ?? null);
+        self::assertIsArray($this->tokens->parse((string) $read->session?->tokens->refreshToken, TokenType::REFRESH));
         self::assertTrue($passed->isRefreshed());
         self::assertNull($passed->source);
     }
@@ -472,6 +471,6 @@ final class JwtGuardTest extends JwtGuardTestCase
         $this->provider->shouldReceive('retrieveById')->once()->with('18')->andReturn($identity);
         $this->resolver->shouldReceive('resolve')->once()->with($identity, 'p-18')->andReturn($principal);
 
-        return $this->encodeRefreshToken(['pid' => 'p-18', 'did' => $session->id, 'jti' => $rotationId]);
+        return $this->encodeRefreshToken(['principal' => 'p-18', 'sid' => $session->id, 'jti' => $rotationId]);
     }
 }

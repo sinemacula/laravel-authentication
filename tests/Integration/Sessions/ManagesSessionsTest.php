@@ -108,8 +108,8 @@ final class ManagesSessionsTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $record   = $this->signIn($identity);
-        $current  = $this->tokens()->issueAccessToken($identity, $identity, null);
-        $other    = $this->tokens()->issueAccessToken($identity, $identity, null);
+        $current  = $this->tokens()->issueAccessToken($identity, $identity, null, null);
+        $other    = $this->tokens()->issueAccessToken($identity, $identity, null, null);
 
         $this->moveClocksTo($this->now->addMinute());
 
@@ -134,7 +134,7 @@ final class ManagesSessionsTest extends TestCase
     public function testSigningOutEverywhereEndsTheSessionlessTokenToo(): void
     {
         $identity = $this->seedIdentity();
-        $current  = $this->tokens()->issueAccessToken($identity, $identity, null);
+        $current  = $this->tokens()->issueAccessToken($identity, $identity, null, null);
 
         $this->moveClocksTo($this->now->addMinute());
 
@@ -158,7 +158,7 @@ final class ManagesSessionsTest extends TestCase
         $identity    = $this->seedIdentity();
         $current     = $this->signIn($identity);
         $other       = $this->signIn($identity);
-        $sessionless = $this->tokens()->issueAccessToken($identity, $identity, null);
+        $sessionless = $this->tokens()->issueAccessToken($identity, $identity, null, null);
 
         $this->moveClocksTo($this->now->addMinute());
 

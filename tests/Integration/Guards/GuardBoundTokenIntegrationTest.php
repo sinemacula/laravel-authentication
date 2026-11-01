@@ -35,9 +35,10 @@ use Tests\Unit\Stubs\StubPrincipal;
  * Integration tests proving tokens are bound to the guard that issued them.
  *
  * Every guard here uses the package-wide key map, the default configuration in
- * which the guards share a signing key, and none sets an issuer or audience.
- * Only the `grd` claim tells the guards' tokens apart, and refresh reloads the
- * session owner through the refreshing guard's own provider.
+ * which the guards share a signing key, and the package-wide issuer and
+ * audience. Only the `client_id` claim tells the guards' tokens apart, and
+ * refresh reloads the session owner through the refreshing guard's own
+ * provider.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -134,7 +135,7 @@ final class GuardBoundTokenIntegrationTest extends TestCase
     {
         $identity = $this->seedPrincipal('staff@staff.test');
 
-        $token = $this->authManager()->jwt(self::STAFF_GUARD)->issueAccessToken($identity, $identity, null);
+        $token = $this->authManager()->jwt(self::STAFF_GUARD)->issueAccessToken($identity, $identity, null, null);
 
         self::assertTrue($this->guardForBearer(self::STAFF_GUARD, $token)->check());
         self::assertFalse($this->guardForBearer(self::SUPPORT_GUARD, $token)->check());
@@ -185,7 +186,7 @@ final class GuardBoundTokenIntegrationTest extends TestCase
 
         self::assertEquals($identity->getKey(), $partner->getKey());
 
-        $token = $this->authManager()->jwt(self::STAFF_GUARD)->issueAccessToken($identity, $identity, null);
+        $token = $this->authManager()->jwt(self::STAFF_GUARD)->issueAccessToken($identity, $identity, null, null);
 
         self::assertFalse($this->guardForBearer(self::PARTNER_GUARD, $token)->check());
     }

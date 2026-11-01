@@ -27,16 +27,16 @@ The current note set is:
   previous rotation id, and when a replayed refresh token revokes the session (`rotation_reuse`).
 - `refresh-token-transport.md`: where a guard reads the refresh token from, why a request may carry it in only one
   place, the cookie's cross-site checks, and the cookie that carries a browser's refresh token.
-- `fail-closed-pid-did.md`: why `pid` and `did` are treated as commitments rather than advisory hints.
+- `fail-closed-pid-did.md`: why the `principal` and `sid` claims are treated as commitments rather than advisory hints.
 - `storage.md`: where the package's tables live, why the session-backed ones share one connection, and how the models
   and the published migrations choose the same one.
 - `access-only-mode.md`: the supported bearer-only, no-sessions migration path.
-- `guard-bound-tokens.md`: the `grd` claim that ties every token to its issuing guard, and the provider-scoped owner
-  reload on refresh.
+- `guard-bound-tokens.md`: the `client_id` claim that ties every token to its issuing guard, and the provider-scoped
+  owner reload on refresh.
 - `session-service.md`: how a guard's session service signs in, creates a session and revokes the one a client proved,
   issues the first pair, and reports it.
 - `session-record.md`: what the package calls the record it keeps per sign-in and why, the Laravel names it meets, the
-  `did` claim it keeps, what proves a previous session for replacement, the `superseded` reason, and the sessions
+  `sid` claim it keeps, what proves a previous session for replacement, the `superseded` reason, and the sessions
   table's index names.
 - `session-lifecycle.md`: which sessions are active, how an identity's sessions are listed, how a session signs out and
   sessions are revoked (one, every session of an identity or a principal, and on security changes, by method or optional

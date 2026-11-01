@@ -128,7 +128,7 @@ final class SessionModelOverrideTest extends TestCase
     }
 
     /**
-     * Refreshing through the session service with a refresh token whose `did`
+     * Refreshing through the session service with a refresh token whose `sid`
      * claim points at a row in the custom table returns a refreshed access
      * token sourced from the overridden model class, binding an instance of
      * that class as the active session.

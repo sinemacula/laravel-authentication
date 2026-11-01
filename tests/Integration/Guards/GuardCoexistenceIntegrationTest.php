@@ -145,8 +145,8 @@ final class GuardCoexistenceIntegrationTest extends TestCase
         $twoDJwt   = PackageAuth::jwt(self::GUARD_2D);
         $threeDJwt = PackageAuth::jwt(self::GUARD_3D);
 
-        $twoDToken   = $twoDJwt->issueAccessToken($twoD, $twoD, null);
-        $threeDToken = $threeDJwt->issueAccessToken($threeDIdentity, $threeDPrincipal, null);
+        $twoDToken   = $twoDJwt->issueAccessToken($twoD, $twoD, null, null);
+        $threeDToken = $threeDJwt->issueAccessToken($threeDIdentity, $threeDPrincipal, null, null);
 
         $this->bindRequestWithBearer($twoDToken);
 
@@ -217,7 +217,7 @@ final class GuardCoexistenceIntegrationTest extends TestCase
 
         $jwtService = PackageAuth::jwt(self::GUARD_2D);
 
-        $twoDToken = $jwtService->issueAccessToken($twoD, $twoD, null);
+        $twoDToken = $jwtService->issueAccessToken($twoD, $twoD, null, null);
 
         $this->switchDefaultGuard(self::GUARD_2D);
         $this->bindRequestWithBearer($twoDToken);
@@ -250,7 +250,7 @@ final class GuardCoexistenceIntegrationTest extends TestCase
 
         $jwtService = PackageAuth::jwt(self::GUARD_3D);
 
-        $threeDToken = $jwtService->issueAccessToken($threeDIdentity, $threeDPrincipal, null);
+        $threeDToken = $jwtService->issueAccessToken($threeDIdentity, $threeDPrincipal, null, null);
 
         $this->switchDefaultGuard(self::GUARD_3D);
         $this->bindRequestWithBearer($threeDToken);

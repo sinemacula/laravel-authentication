@@ -252,7 +252,7 @@ final readonly class RefreshTokenExchange
 
     /**
      * Extract and shape-check the refresh-token claims. `parse()` has already
-     * rejected a token missing `did` or `jti`, so what remains is a `jti` that
+     * rejected a token missing `sid` or `jti`, so what remains is a `jti` that
      * is not a string. Returns the `token_invalid` failure for any malformed
      * payload.
      *
@@ -268,7 +268,7 @@ final readonly class RefreshTokenExchange
 
         $rawSessionId  = $claims[Claims::SESSION_ID->value];
         $rotationId    = $claims[Claims::JWT_ID->value];
-        $principalHint = $claims[Claims::PRINCIPAL_ID->value] ?? null;
+        $principalHint = $claims[Claims::PRINCIPAL->value] ?? null;
 
         if (!is_string($rotationId)) {
             return $this->refused(FailureReason::TOKEN_INVALID, new EventContext($this->context->name(), $client, sessionId: is_string($rawSessionId) ? $rawSessionId : null));
@@ -445,7 +445,7 @@ final readonly class RefreshTokenExchange
         $record->setAttribute($record->getIdleExpiresAtName(), $idle);
 
         $tokens = new TokenPair(
-            $this->tokens->issueAccessToken($session->identity, $session->principal, $record, $now),
+            $this->tokens->issueAccessToken($session->identity, $session->principal, $session->tenant, $record, $now),
             $this->tokens->issueRefreshToken($record, $next, $session->principal, $now),
         );
 
@@ -549,7 +549,7 @@ final readonly class RefreshTokenExchange
     private function reissue(EloquentSession&Model $record, Admitted $session, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): ExchangedRefresh
     {
         $tokens = new TokenPair(
-            $this->tokens->issueAccessToken($session->identity, $session->principal, $record, $now),
+            $this->tokens->issueAccessToken($session->identity, $session->principal, $session->tenant, $record, $now),
             $this->tokens->issueRefreshToken($record, RefreshTokenHasher::successor($rotationId), $session->principal, $now),
         );
 

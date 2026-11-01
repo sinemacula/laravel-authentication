@@ -11,7 +11,7 @@ use Illuminate\Support\Str;
 use SineMacula\Laravel\Authentication\Contracts\ValidatesSessionKey;
 
 /**
- * Check a `did` claim against the session model's key before it is queried.
+ * Check a `sid` claim against the session model's key before it is queried.
  *
  * A value that cannot be a key of the session model names no session, so the
  * caller treats it as unknown without querying. Everything that does reach the

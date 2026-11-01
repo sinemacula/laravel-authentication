@@ -548,7 +548,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
 
     /**
      * A pinned session whose identifier cannot be a key of the identity's
-     * session model fails the attempt without querying, as a malformed `did`
+     * session model fails the attempt without querying, as a malformed `sid`
      * does.
      *
      * @return void

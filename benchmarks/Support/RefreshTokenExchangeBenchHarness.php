@@ -169,6 +169,8 @@ final class RefreshTokenExchangeBenchHarness
             'api',
             new TokenLifetimes(15, 60 * 24 * 30, 60 * 24 * 180, 30),
             30,
+            'https://issuer.example.test',
+            'https://api.example.test',
         );
         $container->instance(ApplicationPolicy::class, new PermissiveApplicationPolicy($this->tokens->lifetimes()));
         $container->instance(AttemptLimiter::class, new UnlimitedAttemptLimiter);

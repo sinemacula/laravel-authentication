@@ -111,13 +111,13 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 
 - No bearer token means there is nothing to attempt, so `JwtGuard::user()` returns `null` without firing auth events.
 - A rejected bearer token fires only `AuthenticationFailed` (flow `bearer`), once per request, with the first reason in
-  this order: `token_invalid`; `identity_unknown`, `identity_inactive`; `principal_mismatch` (the `pid` does not resolve
-  to exactly that principal); `principal_inactive`, `tenant_inactive`; and for a token that names a session,
+  this order: `token_invalid`; `identity_unknown`, `identity_inactive`; `principal_mismatch` (the `principal` does not
+  resolve to exactly that principal); `principal_inactive`, `tenant_inactive`; and for a token that names a session,
   `session_unknown` (not one of the identity's own, or not a key of the session model), `session_guard_mismatch`,
   `session_revoked`, `session_expired`, `session_principal_mismatch` (the session acts as another principal, or none, or
   switched principal after the token was issued); a token that names no session is checked against the "tokens valid
   after" times instead (`issued_before_cutoff`). Its context carries the identity, principal and session as far as they
-  were found, and the `did` the token named.
+  were found, and the `sid` the token named.
 - A guest on a route that only package guards protect gets a JSON `401` whatever its `Accept` header: the package's
   `Http\Middleware\Authenticate` raises the `AuthenticationException` without evaluating Laravel's guest redirect, and
   `Http\UnauthenticatedResponse` renders it, translating the message into the application's locale as it renders, with
@@ -142,9 +142,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   in the timebox, `Validated`, the pins, the rehash and the factor refusal are `attempt()`'s own (see
   `session-service.md`). `validate()` checks the credentials only, and still fires `Validated` when it accepts them.
 - A principal or session pinned on `attempt()` is verified, not trusted: the principal goes through the resolver's
-  hinted path and must come back as the same class with the same identifier (the bearer `pid` exact-match check) and be
-  owned by the authenticated identity (its `getIdentity()` is that identity), and the session must be found among the
-  identity's own `HasSessions` sessions, of the same class, of this guard (a session of another guard, or of none,
+  hinted path and must come back as the same class with the same identifier (the bearer `principal` exact-match check)
+  and be owned by the authenticated identity (its `getIdentity()` is that identity), and the session must be found among
+  the identity's own `HasSessions` sessions, of the same class, of this guard (a session of another guard, or of none,
   counts as missing), not revoked, not ended, and acting as the principal being bound. The owner is read from the
   principal's stored key, ignoring an identity relation the resolver set and even when lazy loading is prevented, and an
   owner that cannot be read fails the check. The resolved instances are bound; a failed check fails the attempt.

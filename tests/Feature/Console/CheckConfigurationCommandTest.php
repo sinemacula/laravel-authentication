@@ -102,6 +102,22 @@ final class CheckConfigurationCommandTest extends TestCase
             ['authentication.jwt.keys' => ['kid' => 'short']],
             '[api] JWT key \'kid\' is too short for HS256',
         ];
+        yield 'no package issuer' => [
+            ['authentication.jwt.issuer' => null],
+            '[api] JWT `issuer` for guard [api] is required: set `authentication.jwt.issuer` (AUTHENTICATION_JWT_ISSUER) or the guard\'s `jwt.issuer` override.',
+        ];
+        yield 'no package audience' => [
+            ['authentication.jwt.audience' => ''],
+            '[api] JWT `audience` for guard [api] is required: set `authentication.jwt.audience` (AUTHENTICATION_JWT_AUDIENCE) or the guard\'s `jwt.audience` override.',
+        ];
+        yield 'an issuer override that is null' => [
+            ['auth.guards.api.jwt' => ['issuer' => null]],
+            '[api] JWT `issuer` for guard [api] is required',
+        ];
+        yield 'an audience override that is empty' => [
+            ['auth.guards.api.jwt' => ['audience' => '']],
+            '[api] JWT `audience` for guard [api] is required',
+        ];
         yield 'a provider that is not an identity provider' => [
             ['auth.providers.users' => ['driver' => 'eloquent', 'model' => StubAuthenticatableModel::class]],
             '[api] Auth guard [api] provider must resolve to [SineMacula\Laravel\Authentication\Contracts\IdentityProvider]; got [Illuminate\Auth\EloquentUserProvider].',

@@ -20,9 +20,9 @@ use Tests\Integration\Fixtures\RelationSessionsIdentity;
 use Tests\TestCase;
 
 /**
- * Bearer `did` resolution through a real `morphMany` sessions relation.
+ * Bearer `sid` resolution through a real `morphMany` sessions relation.
  *
- * The guard routes the relation to the write connection, checks the `did`
+ * The guard routes the relation to the write connection, checks the `sid`
  * against the relation's session model, and loads the session through it, so
  * this covers the relation (rather than plain builder) form of each step.
  *
@@ -79,7 +79,7 @@ final class JwtGuardSessionRelationIntegrationTest extends TestCase
     }
 
     /**
-     * A `did` naming one of the identity's sessions binds that session.
+     * A `sid` naming one of the identity's sessions binds that session.
      *
      * @return void
      *
@@ -116,7 +116,7 @@ final class JwtGuardSessionRelationIntegrationTest extends TestCase
     }
 
     /**
-     * A `did` that cannot be a key of the relation's session model is rejected
+     * A `sid` that cannot be a key of the relation's session model is rejected
      * without querying the sessions table.
      *
      * @return void
@@ -204,7 +204,7 @@ final class JwtGuardSessionRelationIntegrationTest extends TestCase
      */
     private function accessToken(RelationSessionsIdentity $identity, Session $session): string
     {
-        return $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $session);
+        return $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session);
     }
 
     /**

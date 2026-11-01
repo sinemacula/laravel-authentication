@@ -38,8 +38,9 @@ are caught on the server.
 
 ## Features
 
-- **JWT guard** with guard-bound, kid-rotated HMAC tokens, refresh rotation with replay detection, and a browser
-  refresh cookie with CSRF checks.
+- **JWT guard** with guard-bound, kid-rotated HMAC tokens in a private profile that borrows RFC 9068's claims
+  (`client_id`, `sid`, `auth_time`, `amr`, an `at+jwt` header type), refresh rotation with replay detection, and a
+  browser refresh cookie with CSRF checks.
 - **Sign-in methods**: password, one-time code to a phone or email, and passkeys, behind one contract that SSO and
   custom methods plug into.
 - **Sessions**: list, sign out, sign out everywhere, revoke on security changes, and switch principal.
@@ -61,7 +62,8 @@ composer require sinemacula/laravel-authentication
 
 ## Configuration
 
-Publish the config and the migrations, migrate, and generate a signing key:
+Publish the config and the migrations, migrate, generate a signing key, and name the issuer and audience every token
+carries (a guard without them fails closed):
 
 ```bash
 php artisan vendor:publish --tag=authentication-config
@@ -69,6 +71,8 @@ php artisan vendor:publish --tag=authentication-migrations
 php artisan migrate
 
 echo "AUTHENTICATION_JWT_KEY=$(openssl rand -base64 48)" >> .env
+echo "AUTHENTICATION_JWT_ISSUER=https://auth.example.com" >> .env
+echo "AUTHENTICATION_JWT_AUDIENCE=https://api.example.com" >> .env
 ```
 
 Register a `jwt` guard and a `model` provider in `config/auth.php`. Each guard is an application, and allows only the

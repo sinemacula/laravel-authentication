@@ -30,7 +30,7 @@ final readonly class PlainPrincipalFixture implements CanBeActive, Principal
      */
     public function __construct(
 
-        /** Stable identifier used as the `pid` claim. */
+        /** Stable identifier used as the `principal` claim. */
         public int|string $id,
 
         /** Owning identity, if the test wires one explicitly. */

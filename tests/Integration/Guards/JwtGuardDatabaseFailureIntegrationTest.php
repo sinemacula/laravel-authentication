@@ -108,7 +108,7 @@ final class JwtGuardDatabaseFailureIntegrationTest extends TestCase
     }
 
     /**
-     * A bearer request whose `did` lookup cannot connect answers with a server
+     * A bearer request whose `sid` lookup cannot connect answers with a server
      * error carrying the connection failure, not a 401.
      *
      * @return void
@@ -123,7 +123,7 @@ final class JwtGuardDatabaseFailureIntegrationTest extends TestCase
         $session = new UnreachableSession;
         $session->forceFill([...self::liveSession(), 'id' => self::SESSION_ID]);
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $session);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session);
 
         Route::middleware('auth:api')->get('/me', static fn (): string => 'ok');
 

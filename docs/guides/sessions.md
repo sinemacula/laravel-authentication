@@ -161,7 +161,7 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 Route::middleware('auth:api')->get('/sessions', fn () => Auth::sessions('api')->sessions(Auth::identity(), perPage: 20));
 ```
 
-Each item is a `SessionSummary`, safe to return as it is: the session id (its `did`), guard, sign-in method, client name
+Each item is a `SessionSummary`, safe to return as it is: the session id (its `sid`), guard, sign-in method, client name
 and platform, the creation time (for a model with Eloquent timestamps), IP address and user agent, when the session
 started (the sign-in that created the session), the last use and its IP address and user agent, both deadlines, and
 `current`, which marks the session the request is authenticated with on that guard. It never holds a refresh digest, the

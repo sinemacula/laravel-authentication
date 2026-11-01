@@ -297,7 +297,7 @@ seam has a default that works alone.
   `PasskeyFactorResult` (see [Using passkeys](signing-in.md#using-passkeys)), never `null`.
 - A factor package's credentials and enrolments are its own. Authentication proofs belong on the session in this
   package, which does not record them yet, so for now anything a factor package keeps about a session is its own,
-  keyed by the session id (`Auth::session()?->getSessionIdentifier()`, the `did` every session token carries),
+  keyed by the session id (`Auth::session()?->getSessionIdentifier()`, the `sid` every session token carries),
   and does not survive a sign-in: every sign-in starts a new session with a new id, and the session the client proved
   (`AdditionalFactorContext::$provenSession`) is revoked, so nothing kept about it transfers to the new one.
 - A factor the factor package has just verified proves a recent authentication before an identifier change:

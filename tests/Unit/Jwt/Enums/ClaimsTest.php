@@ -20,16 +20,16 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 final class ClaimsTest extends TestCase
 {
     /**
-     * Every claim keeps its wire name: the session a token names is still the
-     * `did` claim, though the case says what it names.
+     * Every claim keeps the wire name of the package's profile: RFC 9068's
+     * names where it borrows them (`client_id`, `sid`, `auth_time`, `amr`), and
+     * its own (`sub_type`, `principal`, `tenant_id`, `cid`), in order.
      *
      * @return void
      */
     public function testEveryClaimKeepsItsWireName(): void
     {
-        self::assertSame('did', Claims::SESSION_ID->value);
         self::assertSame(
-            ['sub', 'iss', 'aud', 'iat', 'exp', 'jti', 'typ', 'pid', 'did', 'grd', 'cid', 'scope'],
+            ['iss', 'aud', 'sub', 'sub_type', 'client_id', 'principal', 'sid', 'tenant_id', 'auth_time', 'amr', 'jti', 'iat', 'exp', 'cid', 'scope'],
             array_map(static fn (Claims $claim): string => $claim->value, Claims::cases()),
         );
     }

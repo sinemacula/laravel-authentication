@@ -161,7 +161,7 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * A successful JWT authentication whose token carries a `did` claim binds a
+     * A successful JWT authentication whose token carries a `sid` claim binds a
      * session and dispatches exactly one `SessionAuthenticated` event carrying
      * the guard name and session.
      *
@@ -186,9 +186,9 @@ final class CustomEventsIntegrationTest extends TestCase
         ])->save();
 
         $token = $this->encodeAccessToken([
-            'sub' => $user->getKey(),
-            'pid' => $user->getKey(),
-            'did' => $session->getKey(),
+            'sub'       => $user->getKey(),
+            'principal' => $user->getKey(),
+            'sid'       => $session->getKey(),
         ]);
 
         $this->swapRequestWithBearerToken($token);
@@ -209,7 +209,7 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * A JWT authentication whose token has no `did` claim does not dispatch
+     * A JWT authentication whose token has no `sid` claim does not dispatch
      * `SessionAuthenticated`.
      *
      * @return void
@@ -219,8 +219,8 @@ final class CustomEventsIntegrationTest extends TestCase
         $user = $this->freshSeededUser();
 
         $token = $this->encodeAccessToken([
-            'sub' => $user->getKey(),
-            'pid' => $user->getKey(),
+            'sub'       => $user->getKey(),
+            'principal' => $user->getKey(),
         ]);
 
         $this->swapRequestWithBearerToken($token);
@@ -258,16 +258,18 @@ final class CustomEventsIntegrationTest extends TestCase
 
         $refreshToken = JWT::encode(
             [
-                'did' => $session->getKey(),
-                'jti' => $plainRotationId,
-                'iat' => $this->now->getTimestamp(),
-                'exp' => $this->now->getTimestamp() + 3600,
-                'typ' => TokenType::REFRESH->value,
-                'grd' => self::JWT_GUARD,
+                'iss'       => self::JWT_ISSUER,
+                'aud'       => self::JWT_AUDIENCE,
+                'client_id' => self::JWT_GUARD,
+                'sid'       => $session->getKey(),
+                'jti'       => $plainRotationId,
+                'iat'       => $this->now->getTimestamp(),
+                'exp'       => $this->now->getTimestamp() + 3600,
             ],
             self::JWT_SECRET,
             'HS256',
             self::JWT_KID,
+            ['typ' => TokenType::REFRESH->value],
         );
 
         Event::fake([Refreshed::class]);
@@ -413,27 +415,30 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * Encode a JWT access token payload (with `iat`, `exp`, and `typ = access`)
-     * using the shared test secret so the `JwtTokenService::parse()` path
-     * accepts it as a valid, unexpired access token.
+     * Encode a JWT access token payload (with `iat`, `exp`, the test issuer,
+     * audience and guard, and the `at+jwt` header type) using the shared test
+     * secret so the `JwtTokenService::parse()` path accepts it as a valid,
+     * unexpired access token; a token that names a session carries a password
+     * authentication at its issue time.
      *
      * @param  array<string, mixed>  $claims
      * @return string
      */
     private function encodeAccessToken(array $claims): string
     {
-        $now = $this->now->getTimestamp();
+        $now      = $this->now->getTimestamp();
+        $defaults = ['jti' => 'access-token-id', 'sub_type' => 'person'];
+
+        if (($claims['sid'] ?? null) !== null) {
+            $defaults += ['auth_time' => $now, 'amr' => ['pwd']];
+        }
 
         return JWT::encode(
-            array_merge(['jti' => 'access-token-id'], $claims, [
-                'iat' => $now,
-                'exp' => $now + (15 * 60),
-                'typ' => TokenType::ACCESS->value,
-                'grd' => self::JWT_GUARD,
-            ]),
+            [...$defaults, ...$claims, 'iss' => self::JWT_ISSUER, 'aud' => self::JWT_AUDIENCE, 'client_id' => self::JWT_GUARD, 'iat' => $now, 'exp' => $now + (15 * 60)],
             self::JWT_SECRET,
             'HS256',
             self::JWT_KID,
+            ['typ' => TokenType::ACCESS->value],
         );
     }
 

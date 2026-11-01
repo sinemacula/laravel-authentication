@@ -150,7 +150,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
         $jwt      = PackageAuth::jwt(self::ACCESS_ONLY_GUARD);
         self::assertNotNull($jwt);
 
-        $token = $jwt->issueAccessToken($identity, $identity, null);
+        $token = $jwt->issueAccessToken($identity, $identity, null, null);
 
         $this->bindRequestWithBearer('/perf/access-only', $token);
 
@@ -195,7 +195,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
         $jwt = PackageAuth::jwt(self::SESSION_GUARD);
         self::assertNotNull($jwt);
 
-        $token = $jwt->issueAccessToken($identity, $identity, $session);
+        $token = $jwt->issueAccessToken($identity, $identity, null, $session);
 
         $this->bindRequestWithBearer('/perf/session-fresh', $token);
 
@@ -238,7 +238,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
         $jwt = PackageAuth::jwt(self::SESSION_GUARD);
         self::assertNotNull($jwt);
 
-        $token = $jwt->issueAccessToken($identity, $identity, $session);
+        $token = $jwt->issueAccessToken($identity, $identity, null, $session);
 
         $this->bindRequestWithBearer('/perf/session-stale', $token);
 
@@ -270,7 +270,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
         $jwt = PackageAuth::jwt(self::THREE_D_GUARD);
         self::assertNotNull($jwt);
 
-        $token = $jwt->issueAccessToken($identity, $principal, null);
+        $token = $jwt->issueAccessToken($identity, $principal, null, null);
 
         $this->bindRequestWithBearer('/perf/3d', $token);
 
@@ -302,7 +302,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
         $jwt = PackageAuth::jwt(self::TENANT_AWARE_THREE_D_GUARD);
         self::assertNotNull($jwt);
 
-        $token = $jwt->issueAccessToken($identity, $principal, null);
+        $token = $jwt->issueAccessToken($identity, $principal, null, null);
 
         $this->bindRequestWithBearer('/perf/3d-tenant-aware', $token);
 
@@ -337,7 +337,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
         $jwt = PackageAuth::jwt(self::TENANT_AWARE_THREE_D_GUARD);
         self::assertNotNull($jwt);
 
-        $token = $jwt->issueAccessToken($identity, $secondaryPrincipal, null);
+        $token = $jwt->issueAccessToken($identity, $secondaryPrincipal, null, null);
 
         $this->bindRequestWithBearer('/perf/3d-tenant-aware-secondary', $token);
 

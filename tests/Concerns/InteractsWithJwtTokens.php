@@ -4,11 +4,9 @@ declare(strict_types = 1);
 
 namespace Tests\Concerns;
 
-use Carbon\Carbon;
 use Firebase\JWT\JWT;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 
 /**
@@ -46,8 +44,10 @@ trait InteractsWithJwtTokens
     }
 
     /**
-     * Issue an access token for mock identity, principal, and session context
-     * objects, the principal without a type and the session started now.
+     * Issue an access token for mock identity and principal context objects,
+     * the principal within no tenant, with no session: the tests that use it
+     * read the header and the claims every token carries, and a session's token
+     * would derive its authentication from the session's records.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $service
      * @return string
@@ -63,11 +63,6 @@ trait InteractsWithJwtTokens
         $principal->shouldReceive('getPrincipalIdentifier')->andReturn('pid-1');
         $principal->shouldReceive('getTenant')->andReturn(null);
 
-        $session = \Mockery::mock(Session::class);
-        $session->shouldReceive('getSessionIdentifier')->andReturn('did-1');
-        $session->shouldReceive('getIdleExpiresAt')->andReturn(Carbon::now()->addDays(90));
-        $session->shouldReceive('getAbsoluteExpiresAt')->andReturn(Carbon::now()->addDays(180));
-
-        return $service->issueAccessToken($identity, $principal, $session);
+        return $service->issueAccessToken($identity, $principal, null, null);
     }
 }

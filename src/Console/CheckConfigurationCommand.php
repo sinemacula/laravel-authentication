@@ -40,10 +40,11 @@ use Symfony\Component\Console\Attribute\AsCommand;
  *
  * Every check runs, so one run lists every problem, each as
  * `[<guard>] <message>`. For a `jwt` guard: the token service (keys, active
- * kid, algorithm, key lengths, lifetimes, leeway, issuer and audience), the
- * identity provider, a principal resolver override, its application (the
- * package application policy's settings, or that a policy of the application's
- * own answers), every flow's rate limits, the password identifier, the refresh
+ * kid, algorithm, key lengths, lifetimes, leeway, and the issuer and audience,
+ * which are required, so a guard with either unset reports it), the identity
+ * provider, a principal resolver override, its application (the package
+ * application policy's settings, or that a policy of the application's own
+ * answers), every flow's rate limits, the password identifier, the refresh
  * token transport, and the passkey relying party when the guard's application
  * allows passkeys or the guard configures one. For an `api_key` guard: the
  * identity provider, a principal resolver override, its application (that it

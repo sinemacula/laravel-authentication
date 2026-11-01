@@ -96,7 +96,7 @@ final class SessionRevocationsTest extends TestCase
 
         $this->signIn($identity);
 
-        $guard = $this->bearing($this->tokens()->issueAccessToken($identity, $identity, null));
+        $guard = $this->bearing($this->tokens()->issueAccessToken($identity, $identity, null, null));
 
         $this->moveClocksTo($this->now->addMinute());
 
@@ -137,7 +137,7 @@ final class SessionRevocationsTest extends TestCase
     public function testNotKeepingASessionlessTokenMovesTheCutoff(): void
     {
         $identity = $this->seedIdentity();
-        $guard    = $this->bearing($this->tokens()->issueAccessToken($identity, $identity, null));
+        $guard    = $this->bearing($this->tokens()->issueAccessToken($identity, $identity, null, null));
 
         $this->moveClocksTo($this->now->addMinute());
 

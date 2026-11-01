@@ -37,6 +37,18 @@ key this way rather than writing or copying one by hand.
 The package fails closed when a JWT guard or `Auth::jwt(...)` service is resolved with an empty key map, a missing,
 empty, or too-short key, or an `active_kid` that is not in the map.
 
+Name the issuer and the audience of your tokens. Every token carries them as `iss` and `aud`, and every request checks
+them, so they have no default: a JWT guard fails closed until both are set, and `php artisan authentication:check`
+reports a guard that has neither a package value nor an override of its own.
+
+```bash
+echo "AUTHENTICATION_JWT_ISSUER=https://auth.example.com" >> .env
+echo "AUTHENTICATION_JWT_AUDIENCE=https://api.example.com" >> .env
+```
+
+The issuer is who mints the tokens (this application's URL, say) and the audience the API they are for. A guard may
+override either in its `jwt` block (see [Per-guard JWT configuration](configuration.md#per-guard-jwt-configuration)).
+
 ## Guards and providers
 
 Register guards and providers in `config/auth.php` exactly as you would with any first-party guard. Each guard is an
@@ -123,7 +135,8 @@ Session tracking and refresh are opt-in. For simple backends or short-lived toke
 [machine credentials](machine-credentials.md) instead):
 
 1. Do not implement `HasSessions` on your identity model.
-2. Issue access tokens with `Auth::jwt('api')->issueAccessToken($identity, $principal, null)`.
+2. Issue access tokens with `Auth::jwt('api')->issueAccessToken($identity, $principal, $tenant, null)`, passing the
+   tenant the principal acts within (or `null`), which the token carries in `tenant_id`.
 3. Do not refresh (`Auth::sessions('api')->refresh(...)`) or start sessions through the session service (`signIn()`,
    `start()`), which throws a `LogicException` for an identity without `HasSessions`. Clients re-authenticate when the
    access token expires. To end an identity's tokens before they expire, give the identity (or the principal) a "tokens

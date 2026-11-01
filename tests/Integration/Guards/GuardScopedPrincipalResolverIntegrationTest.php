@@ -108,8 +108,8 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
         $staffJwt    = PackageAuth::jwt(self::STAFF_GUARD);
         $customerJwt = PackageAuth::jwt(self::CUSTOMER_GUARD);
 
-        $staffToken    = $staffJwt->issueAccessToken($identity, $staffPrincipal, null);
-        $customerToken = $customerJwt->issueAccessToken($identity, $customerPrincipal, null);
+        $staffToken    = $staffJwt->issueAccessToken($identity, $staffPrincipal, null, null);
+        $customerToken = $customerJwt->issueAccessToken($identity, $customerPrincipal, null, null);
 
         $this->bindRequestWithBearer($staffToken);
 
@@ -158,8 +158,8 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
         $staffJwt    = PackageAuth::jwt(self::STAFF_GUARD);
         $customerJwt = PackageAuth::jwt(self::CUSTOMER_GUARD);
 
-        $staffToken    = $staffJwt->issueAccessToken($identity, $staffPrincipal, null);
-        $customerToken = $customerJwt->issueAccessToken($identity, $customerPrincipal, null);
+        $staffToken    = $staffJwt->issueAccessToken($identity, $staffPrincipal, null, null);
+        $customerToken = $customerJwt->issueAccessToken($identity, $customerPrincipal, null, null);
 
         config()->set('auth.defaults.guard', self::STAFF_GUARD);
         $this->bindRequestWithBearer($staffToken);

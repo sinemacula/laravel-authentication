@@ -29,6 +29,12 @@ use SineMacula\Laravel\Authentication\Models\Session;
  */
 abstract class TestCase extends OrchestraTestCase
 {
+    /** @var string The `iss` every test guard's tokens carry. */
+    protected const string JWT_ISSUER = 'https://issuer.example.test';
+
+    /** @var string The `aud` every test guard's tokens carry. */
+    protected const string JWT_AUDIENCE = 'https://api.example.test';
+
     /** @var string The connection each test runs on, in its worker's database. */
     private const string CONNECTION = 'testing';
 
@@ -116,8 +122,8 @@ abstract class TestCase extends OrchestraTestCase
         $config->set('authentication.jwt.keys', ['test-kid' => 'test-secret-key-with-at-least-32-bytes!']);
         $config->set('authentication.jwt.active_kid', 'test-kid');
         $config->set('authentication.jwt.algorithm', 'HS256');
-        $config->set('authentication.jwt.issuer', null);
-        $config->set('authentication.jwt.audience', null);
+        $config->set('authentication.jwt.issuer', self::JWT_ISSUER);
+        $config->set('authentication.jwt.audience', self::JWT_AUDIENCE);
         $config->set('authentication.jwt.access_ttl_minutes', 15);
         $config->set('authentication.jwt.refresh_idle_ttl_minutes', 60 * 24 * 30);
     }

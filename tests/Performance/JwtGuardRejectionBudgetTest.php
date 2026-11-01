@@ -127,7 +127,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     {
         $identity = $this->seedIdentity();
         $session  = $this->seedSession($identity);
-        $token    = $this->tokens()->issueAccessToken($identity, $identity, $session);
+        $token    = $this->tokens()->issueAccessToken($identity, $identity, null, $session);
 
         match ($rejection) {
             'unknown'  => $identity->delete(),
@@ -176,7 +176,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     public function testBearerTokenFromAnotherGuardUsesNoQueries(): void
     {
         $identity = $this->seedIdentity();
-        $token    = $this->tokens(self::OTHER_GUARD)->issueAccessToken($identity, $identity, null);
+        $token    = $this->tokens(self::OTHER_GUARD)->issueAccessToken($identity, $identity, null, null);
 
         $this->bindRequestWithBearer('/perf/foreign', $token);
 
@@ -198,8 +198,8 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
         $identity = $this->seedIdentity();
 
         $this->bindRequestWithBearer('/perf/missing-claim', $this->encode([
-            Claims::SUBJECT->value => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            Claims::TYPE->value    => TokenType::ACCESS->value,
+            Claims::SUBJECT->value      => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            Claims::SUBJECT_TYPE->value => 'person',
         ]));
 
         $guard = $this->freshJwtGuard(self::GUARD);
@@ -229,7 +229,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A correctly signed refresh token missing its `did` is rejected while
+     * A correctly signed refresh token missing its `sid` is rejected while
      * parsing, before any session or identity query, and counted against the IP
      * address only.
      *
@@ -239,7 +239,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
      */
     public function testRefreshTokenMissingARequiredClaimTouchesOnlyTheIpAddressLimit(): void
     {
-        $token = $this->encode([Claims::TYPE->value => TokenType::REFRESH->value]);
+        $token = $this->encode([], TokenType::REFRESH);
         $guard = $this->refreshGuard();
 
         self::assertNull($this->assertQueryBudget(1, 2, static fn (): mixed => GuardSessions::of($guard)->refresh($token))->session);
@@ -261,7 +261,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     {
         $identity = $this->seedIdentity();
         $session  = $this->seedSession($identity);
-        $token    = $this->tokens()->issueAccessToken($identity, $identity, $session);
+        $token    = $this->tokens()->issueAccessToken($identity, $identity, null, $session);
 
         $session->forceFill(['last_used_at' => $this->now])->save();
 
@@ -362,23 +362,27 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Sign a payload for this guard with the configured key, adding only the
-     * timing, id and guard claims to the supplied ones.
+     * Sign a payload of the type for this guard with the configured key, adding
+     * only the timing, id, issuer, audience and guard claims to the supplied
+     * ones.
      *
      * @param  array<string, mixed>  $claims
+     * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
      * @return string
      */
-    private function encode(array $claims): string
+    private function encode(array $claims, TokenType $type = TokenType::ACCESS): string
     {
         $issuedAt = $this->now->getTimestamp();
 
         return JWT::encode([
+            Claims::ISSUER->value     => self::JWT_ISSUER,
+            Claims::AUDIENCE->value   => self::JWT_AUDIENCE,
+            Claims::CLIENT_ID->value  => self::GUARD,
             Claims::ISSUED_AT->value  => $issuedAt,
             Claims::EXPIRES_AT->value => $issuedAt + 600,
             Claims::JWT_ID->value     => 'token-id',
-            Claims::GUARD->value      => self::GUARD,
             ...$claims,
-        ], 'test-secret-key-with-at-least-32-bytes!', 'HS256', 'test-kid');
+        ], 'test-secret-key-with-at-least-32-bytes!', 'HS256', 'test-kid', ['typ' => $type->value]);
     }
 
     /**

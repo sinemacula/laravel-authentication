@@ -114,9 +114,9 @@ to these events, so the shape and the timing are a contract.
 
 ## Failure / Edge Cases
 
-- A refresh failure carries the session once the token's `did` loaded one, the identity once the owner reloaded, the
+- A refresh failure carries the session once the token's `sid` loaded one, the identity once the owner reloaded, the
   principal once resolved, and the tenant only when it was admitted; before the session loads, the context keeps the
-  token's `did` as the session snapshot (`sessionId`). A failure on the row's own state, before the owner was read,
+  token's `sid` as the session snapshot (`sessionId`). A failure on the row's own state, before the owner was read,
   holds no identity or principal model, and its snapshots name the owner and principal the row records. A replay's
   `SessionRevoked` likewise carries the session and its own guard and method, no identity or principal model (the replay
   is caught before the owner is loaded), and the snapshots of what the row records.

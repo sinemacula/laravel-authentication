@@ -8,8 +8,9 @@ namespace SineMacula\Laravel\Authentication\Support;
  * Coerce identifier values returned by package contracts into JWT claim
  * strings, and compare identifiers in that form.
  *
- * RFC 7519 §4.1.2 requires `sub` (and `pid`/`did`/`jti`) to be a `StringOrURI`,
- * but the contract getters return `mixed`.
+ * RFC 7519 §4.1.2 requires `sub` (and the package's `principal`, `sid`,
+ * `tenant_id` and `jti`) to be a `StringOrURI`, but the contract getters return
+ * `mixed`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

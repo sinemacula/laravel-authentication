@@ -16,13 +16,13 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
-use Tests\Unit\Stubs\PlainSessionFixture;
 
 /**
  * PHPBench suite for JWT token issue and parse paths.
  *
  * Measures the raw cryptographic cost of HS256 token issuance and verification
- * without any guard or provider overhead.
+ * without any guard, provider or session overhead: the access token names no
+ * session, so issuing it derives no authentication from the session's records.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -38,9 +38,6 @@ final readonly class JwtTokenServiceBench
 
     /** @var \Tests\Unit\Stubs\PlainPrincipalFixture */
     private PlainPrincipalFixture $principal;
-
-    /** @var \Tests\Unit\Stubs\PlainSessionFixture */
-    private PlainSessionFixture $session;
 
     /** @var string Pre-issued access token for parse benchmarks. */
     private string $accessToken;
@@ -63,12 +60,13 @@ final readonly class JwtTokenServiceBench
             'api',
             new TokenLifetimes(15, 60 * 24 * 30, 60 * 24 * 180, 30),
             30,
+            'https://issuer.example.test',
+            'https://api.example.test',
         );
 
         $this->identity    = new PlainIdentityFixture('bench-identity');
         $this->principal   = new PlainPrincipalFixture('bench-principal', $this->identity);
-        $this->session     = new PlainSessionFixture('bench-session', $now->copy()->addDays(90), $now->copy()->addDays(180));
-        $this->accessToken = $this->service->issueAccessToken($this->identity, $this->principal, $this->session);
+        $this->accessToken = $this->service->issueAccessToken($this->identity, $this->principal, null, null);
 
         BenchOutcome::assert('access token parse', $this->service->parse($this->accessToken, TokenType::ACCESS) !== null);
     }
@@ -84,7 +82,7 @@ final readonly class JwtTokenServiceBench
     #[Revs(100)]
     public function benchIssueAccessToken(): void
     {
-        $this->service->issueAccessToken($this->identity, $this->principal, $this->session);
+        $this->service->issueAccessToken($this->identity, $this->principal, null, null);
     }
 
     /**

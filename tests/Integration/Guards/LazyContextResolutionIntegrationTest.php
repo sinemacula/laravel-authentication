@@ -122,7 +122,7 @@ final class LazyContextResolutionIntegrationTest extends TestCase
 
         assert($manager instanceof AuthManager);
 
-        $token = $manager->jwt('api')->issueAccessToken($member, $membership, $session);
+        $token = $manager->jwt('api')->issueAccessToken($member, $membership, null, $session);
 
         Route::get('/first-call', static function () use ($accessor): array {
 
@@ -175,7 +175,7 @@ final class LazyContextResolutionIntegrationTest extends TestCase
 
         assert($manager instanceof AuthManager);
 
-        $token = $manager->jwt('api')->issueAccessToken($member, $membership, $session);
+        $token = $manager->jwt('api')->issueAccessToken($member, $membership, null, $session);
 
         Route::get('/pin-first', static function () use ($otherMembership, $otherSession): array {
 
@@ -225,7 +225,7 @@ final class LazyContextResolutionIntegrationTest extends TestCase
 
         assert($manager instanceof AuthManager);
 
-        $token = $manager->jwt('api')->issueAccessToken($bearer, $bearerMembership, $bearerSession);
+        $token = $manager->jwt('api')->issueAccessToken($bearer, $bearerMembership, null, $bearerSession);
 
         Event::listen(Login::class, static function (): void {
             app('auth')->guard('api')->id();

@@ -69,8 +69,8 @@ use Tests\Unit\Stubs\StubSession;
  * - resolver throws `UnresolvableIdentityException` -> the misconfiguration
  *   propagates out of the exchange instead of becoming a refresh failure.
  * - session model outside the explicit `EloquentSession` boundary is rejected.
- * - a `did` that cannot be a key of the session model is `session_unknown`
- *   without a query, and a database error on a well-formed `did` propagates.
+ * - a `sid` that cannot be a key of the session model is `session_unknown`
+ *   without a query, and a database error on a well-formed `sid` propagates.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -106,6 +106,12 @@ final class RefreshTokenExchangeTest extends TestCase
 
     /** @var string Guard name forwarded to the exchange constructor. */
     private const string GUARD_NAME = 'jwt-test';
+
+    /** @var string Issuer the test token service writes into and checks in `iss`. */
+    private const string ISSUER = 'https://issuer.example.test';
+
+    /** @var string Audience the test token service writes into and checks in `aud`. */
+    private const string AUDIENCE = 'https://api.example.test';
 
     /** @var string IP address every exchange comes from. */
     private const string CLIENT_IP = '198.51.100.7';
@@ -168,6 +174,8 @@ final class RefreshTokenExchangeTest extends TestCase
             self::GUARD_NAME,
             new TokenLifetimes(self::ACCESS_TTL, self::REFRESH_TTL, 60 * 24 * 180, self::GRACE),
             30,
+            self::ISSUER,
+            self::AUDIENCE,
         );
 
         $this->context = new GuardContext(self::GUARD_NAME, $this->provider, $this->resolver, $this->events, Request::create('/'), new CredentialTimebox(new Timebox));
@@ -277,7 +285,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $exchange = $this->makeExchange();
 
         $token = $this->encodeRefreshToken([
-            'did' => '01HZZZZZZZZZZZZZZZZZZZZZZZ',
+            'sid' => '01HZZZZZZZZZZZZZZZZZZZZZZZ',
             'jti' => 'rotation-id',
         ]);
 
@@ -324,7 +332,7 @@ final class RefreshTokenExchangeTest extends TestCase
             ->andThrow($exception);
 
         $token = $this->encodeRefreshToken([
-            'did' => $session->id,
+            'sid' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -383,7 +391,7 @@ final class RefreshTokenExchangeTest extends TestCase
             ->andReturn($principal);
 
         $token = $this->encodeRefreshToken([
-            'did' => $session->id,
+            'sid' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -450,7 +458,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->events->shouldNotReceive('dispatch');
 
         $token = $this->encodeRefreshToken([
-            'did' => $session->id,
+            'sid' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -545,7 +553,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $exchange = $this->makeExchange();
 
         $token = $this->encodeRefreshToken([
-            'did' => $session->id,
+            'sid' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -578,7 +586,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $exchange = $this->makeExchange();
 
         $token = $this->encodeRefreshToken([
-            'did' => 'session-non-string-jti',
+            'sid' => 'session-non-string-jti',
             'jti' => 12345,
         ]);
 
@@ -591,8 +599,9 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * When the refresh token carries a `pid` hint, the exchange must pass that
-     * hint into the resolver and reissue follow-up tokens that preserve it.
+     * When the refresh token carries a `principal` hint, the exchange must pass
+     * that hint into the resolver and reissue follow-up tokens that preserve
+     * it.
      *
      * @return void
      *
@@ -638,9 +647,9 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->events->shouldNotReceive('dispatch');
 
         $token = $this->encodeRefreshToken([
-            'pid' => 'p-12',
-            'did' => $session->id,
-            'jti' => $plainRotationId,
+            'principal' => 'p-12',
+            'sid'       => $session->id,
+            'jti'       => $plainRotationId,
         ]);
 
         $result = $exchange->exchange($token, self::client());
@@ -652,7 +661,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $claims = $this->tokens->parse($result->tokens->refreshToken, TokenType::REFRESH);
 
         self::assertIsArray($claims);
-        self::assertSame('p-12', $claims[Claims::PRINCIPAL_ID->value]);
+        self::assertSame('p-12', $claims[Claims::PRINCIPAL->value]);
     }
 
     /**
@@ -696,9 +705,9 @@ final class RefreshTokenExchangeTest extends TestCase
             ->andReturn($principal);
 
         $token = $this->encodeRefreshToken([
-            'pid' => 'p-hinted',
-            'did' => $session->id,
-            'jti' => $plainRotationId,
+            'principal' => 'p-hinted',
+            'sid'       => $session->id,
+            'jti'       => $plainRotationId,
         ]);
 
         $this->events->shouldNotReceive('dispatch');
@@ -710,11 +719,11 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Fail-closed: when the resolver resolves nothing for a hinted `pid`, the
-     * exchange reports `principal_mismatch` rather than falling through to the
-     * unresolved-principal branch, and no rotation happens. Once the owner is
-     * read the failure names it, and no principal: the one the session records
-     * does not stand in for the one that did not resolve.
+     * Fail-closed: when the resolver resolves nothing for a hinted `principal`,
+     * the exchange reports `principal_mismatch` rather than falling through to
+     * the unresolved-principal branch, and no rotation happens. Once the owner
+     * is read the failure names it, and no principal: the one the session
+     * records does not stand in for the one that did not resolve.
      *
      * @return void
      *
@@ -747,9 +756,9 @@ final class RefreshTokenExchangeTest extends TestCase
             ->andReturnNull();
 
         $token = $this->encodeRefreshToken([
-            'pid' => 'p-hinted',
-            'did' => $session->id,
-            'jti' => $plainRotationId,
+            'principal' => 'p-hinted',
+            'sid'       => $session->id,
+            'jti'       => $plainRotationId,
         ]);
 
         $this->events->shouldNotReceive('dispatch');
@@ -765,9 +774,9 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A refresh token without a `pid` whose identity has no default principal
-     * fails as `principal_unresolved`, attributed to the session, and no
-     * rotation happens.
+     * A refresh token without a `principal` whose identity has no default
+     * principal fails as `principal_unresolved`, attributed to the session, and
+     * no rotation happens.
      *
      * @return void
      *
@@ -800,7 +809,7 @@ final class RefreshTokenExchangeTest extends TestCase
             ->andReturnNull();
 
         $token = $this->encodeRefreshToken([
-            'did' => $session->id,
+            'sid' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -866,7 +875,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->events->shouldNotReceive('dispatch');
 
         $token = $this->encodeRefreshToken([
-            'did' => $session->id,
+            'sid' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -1362,7 +1371,7 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A `did` that cannot be a key of the configured session model names no
+     * A `sid` that cannot be a key of the configured session model names no
      * session: the exchange reports `session_unknown` without querying.
      *
      * @return void
@@ -1382,7 +1391,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $exchange = $this->makeExchange();
 
         $token = $this->encodeRefreshToken([
-            'did' => 'not-a-valid-uuid',
+            'sid' => 'not-a-valid-uuid',
             'jti' => 'rotation-id',
         ]);
 
@@ -1395,7 +1404,7 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A database error on a well-formed `did` propagates to the caller as a
+     * A database error on a well-formed `sid` propagates to the caller as a
      * server error instead of being reported as an unknown session.
      *
      * @return void
@@ -1423,7 +1432,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $exchange = $this->makeExchange();
 
         $token = $this->encodeRefreshToken([
-            'did' => self::SESSION_ID,
+            'sid' => self::SESSION_ID,
             'jti' => 'rotation-id',
         ]);
 
@@ -1451,7 +1460,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $exchange = $this->makeExchange();
 
         $token = $this->encodeRefreshToken([
-            'did' => 'bare-session-1',
+            'sid' => 'bare-session-1',
             'jti' => 'rotation-id',
         ]);
 
@@ -1489,7 +1498,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         DB::connection()->enableQueryLog();
 
-        $failure = $this->makeExchange()->exchange($this->encodeRefreshToken(['did' => self::SESSION_ID, 'jti' => self::ROTATION_ID]), self::client());
+        $failure = $this->makeExchange()->exchange($this->encodeRefreshToken(['sid' => self::SESSION_ID, 'jti' => self::ROTATION_ID]), self::client());
 
         self::assertSame([], DB::connection()->getQueryLog());
         self::assertSame([], $this->dispatched);
@@ -1526,7 +1535,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $this->recordEvents();
 
-        $unknown = $this->encodeRefreshToken(['did' => self::SESSION_ID, 'jti' => self::ROTATION_ID]);
+        $unknown = $this->encodeRefreshToken(['sid' => self::SESSION_ID, 'jti' => self::ROTATION_ID]);
 
         $this->refused($this->makeExchange()->exchange($unknown, self::client()));
 
@@ -1729,6 +1738,8 @@ final class RefreshTokenExchangeTest extends TestCase
                 self::GUARD_NAME,
                 new TokenLifetimes(self::ACCESS_TTL, self::REFRESH_TTL, 60 * 24 * 180, $grace),
                 30,
+                self::ISSUER,
+                self::AUDIENCE,
             );
 
         return new RefreshTokenExchange(
@@ -1750,8 +1761,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Encode a refresh-token-style JWT with `iat`, `exp`, and `typ = refresh`
-     * claims.
+     * Encode a refresh-token-style JWT with `iat`, `exp`, the test issuer,
+     * audience and guard, under the `refresh+jwt` header type.
      *
      * @param  array<string, mixed>  $claims
      * @return string
@@ -1760,12 +1771,14 @@ final class RefreshTokenExchangeTest extends TestCase
     {
         $now = $this->now->getTimestamp();
 
-        return JWT::encode(array_merge($claims, [
-            'iat' => $now,
-            'exp' => $now + (self::REFRESH_TTL * 60),
-            'typ' => TokenType::REFRESH->value,
-            'grd' => self::GUARD_NAME,
-        ]), self::SECRET, self::ALGORITHM, self::KID);
+        return JWT::encode([
+            ...$claims,
+            'iss'       => self::ISSUER,
+            'aud'       => self::AUDIENCE,
+            'client_id' => self::GUARD_NAME,
+            'iat'       => $now,
+            'exp'       => $now + (self::REFRESH_TTL * 60),
+        ], self::SECRET, self::ALGORITHM, self::KID, ['typ' => TokenType::REFRESH->value]);
     }
 
     /**
@@ -2053,7 +2066,7 @@ final class RefreshTokenExchangeTest extends TestCase
     private function tokenFor(StubSession $session, string $rotationId): string
     {
         return $this->encodeRefreshToken([
-            'did' => $session->id,
+            'sid' => $session->id,
             'jti' => $rotationId,
         ]);
     }

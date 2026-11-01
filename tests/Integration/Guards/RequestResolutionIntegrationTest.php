@@ -116,7 +116,7 @@ final class RequestResolutionIntegrationTest extends TestCase
 
         assert($manager instanceof AuthManager);
 
-        $token = $manager->jwt('api')->issueAccessToken($user, $user, null);
+        $token = $manager->jwt('api')->issueAccessToken($user, $user, null, null);
 
         Route::get('/logout', static function (): array {
 
@@ -153,7 +153,7 @@ final class RequestResolutionIntegrationTest extends TestCase
 
         assert($manager instanceof AuthManager);
 
-        $token = $manager->jwt('api')->issueAccessToken($bearer, $bearer, null);
+        $token = $manager->jwt('api')->issueAccessToken($bearer, $bearer, null, null);
 
         Route::get('/act-then-logout', static function () use ($acting): array {
 

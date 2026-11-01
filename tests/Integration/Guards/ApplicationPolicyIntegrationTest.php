@@ -138,8 +138,8 @@ final class ApplicationPolicyIntegrationTest extends TestCase
     public function testAccessTokensLiveForTheirGuardsLifetime(): void
     {
         $membership = $this->seedMembership('client_staff', 'staff');
-        $token      = $this->tokens()->issueAccessToken($membership->getIdentity(), $membership, null);
-        $other      = $this->tokens(self::OTHER_GUARD)->issueAccessToken($membership->getIdentity(), $membership, null);
+        $token      = $this->tokens()->issueAccessToken($membership->getIdentity(), $membership, null, null);
+        $other      = $this->tokens(self::OTHER_GUARD)->issueAccessToken($membership->getIdentity(), $membership, null, null);
 
         $this->assertExpiresInMinutes(2, $token);
         $this->assertExpiresInMinutes(15, $other, self::OTHER_GUARD);
@@ -247,7 +247,7 @@ final class ApplicationPolicyIntegrationTest extends TestCase
     public function testATokenCarryingAPrincipalTypeAuthenticates(): void
     {
         $membership = $this->seedMembership('client_staff', 'staff');
-        $claims     = $this->claims($this->tokens()->issueAccessToken($membership->getIdentity(), $membership, null));
+        $claims     = $this->claims($this->tokens()->issueAccessToken($membership->getIdentity(), $membership, null, null));
         $kid        = config('authentication.jwt.active_kid');
 
         self::assertIsString($kid);

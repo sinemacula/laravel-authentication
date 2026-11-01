@@ -27,9 +27,9 @@ final class PinnedPrincipal
 
     /**
      * Resolve the named principal through the resolver's hinted path, with the
-     * exact-match check the bearer path applies to a `pid` claim, and return
-     * the resolver's instance. Returns `null` when the identity does not own a
-     * principal of the same class with that identifier.
+     * exact-match check the bearer path applies to a `principal` claim, and
+     * return the resolver's instance. Returns `null` when the identity does not
+     * own a principal of the same class with that identifier.
      *
      * Ownership is checked here as well, rather than trusted to the resolver:
      * the resolved principal's own identity must be the given one, so a

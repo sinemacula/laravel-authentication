@@ -217,7 +217,7 @@ final class SessionWriterTest extends TestCase
         $claims = Auth::manager()->jwt('api')->parse($session->tokens->refreshToken, TokenType::REFRESH);
 
         self::assertNotNull($claims);
-        self::assertSame($record->getKey(), $claims['did']);
+        self::assertSame($record->getKey(), $claims['sid']);
         self::assertSame($later->getTimestamp(), $claims['iat']);
         self::assertTrue(RefreshTokenHasher::verify((string) $claims['jti'], (string) $record->getRefreshKey())); // @phpstan-ignore cast.string
         self::assertFalse(RefreshTokenHasher::verify((string) $claims['jti'], (string) $first->record->getRefreshKey())); // @phpstan-ignore cast.string

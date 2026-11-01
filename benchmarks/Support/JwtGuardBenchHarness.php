@@ -158,6 +158,8 @@ final class JwtGuardBenchHarness
             'api',
             new TokenLifetimes(15, 60 * 24 * 30, 60 * 24 * 180, 30),
             30,
+            'https://issuer.example.test',
+            'https://api.example.test',
         );
         $this->timebox = new Timebox;
 
@@ -299,7 +301,7 @@ final class JwtGuardBenchHarness
             $identity->save();
         }
 
-        $this->accessOnlyToken = $this->tokens->issueAccessToken($identity, $identity, null);
+        $this->accessOnlyToken = $this->tokens->issueAccessToken($identity, $identity, null, null);
     }
 
     /**
@@ -325,7 +327,7 @@ final class JwtGuardBenchHarness
             $identity->save();
         }
 
-        $this->coexistTwoDToken = $this->tokens->issueAccessToken($identity, $identity, null);
+        $this->coexistTwoDToken = $this->tokens->issueAccessToken($identity, $identity, null, null);
     }
 
     /**
@@ -367,7 +369,7 @@ final class JwtGuardBenchHarness
             ])->save();
         }
 
-        $this->sessionFreshToken = $this->tokens->issueAccessToken($identity, $identity, $freshSession);
+        $this->sessionFreshToken = $this->tokens->issueAccessToken($identity, $identity, null, $freshSession);
 
         if ($this->sessionWriteTokens !== []) {
             return;
@@ -384,7 +386,7 @@ final class JwtGuardBenchHarness
             'last_used_at'         => null,
         ])->save();
 
-        $this->sessionWriteCheckToken = $this->tokens->issueAccessToken($identity, $identity, $checkSession);
+        $this->sessionWriteCheckToken = $this->tokens->issueAccessToken($identity, $identity, null, $checkSession);
 
         for ($index = 0; $index < self::TOKEN_POOL_SIZE; $index++) {
 
@@ -399,7 +401,7 @@ final class JwtGuardBenchHarness
                 'last_used_at'         => null,
             ])->save();
 
-            $this->sessionWriteTokens[] = $this->tokens->issueAccessToken($identity, $identity, $session);
+            $this->sessionWriteTokens[] = $this->tokens->issueAccessToken($identity, $identity, null, $session);
         }
     }
 
@@ -438,7 +440,7 @@ final class JwtGuardBenchHarness
             $principal->save();
         }
 
-        $this->threeDToken = $this->tokens->issueAccessToken($identity, $principal, null);
+        $this->threeDToken = $this->tokens->issueAccessToken($identity, $principal, null, null);
     }
 
     /**
@@ -474,8 +476,8 @@ final class JwtGuardBenchHarness
             'bench-tenant-3d-secondary-principal',
         );
 
-        $this->tenantAwareThreeDToken    = $this->tokens->issueAccessToken($identity, $principal, null);
-        $this->tenantAwareSecondaryToken = $this->tokens->issueAccessToken($identity, $secondaryPrincipal, null);
+        $this->tenantAwareThreeDToken    = $this->tokens->issueAccessToken($identity, $principal, null, null);
+        $this->tenantAwareSecondaryToken = $this->tokens->issueAccessToken($identity, $secondaryPrincipal, null, null);
     }
 
     /**

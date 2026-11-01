@@ -153,7 +153,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     {
         [$member, $membership, $tenant] = $this->seedMembership($guard);
 
-        $this->bindRequestWithBearer('/perf/tenant', $this->tokensFor($guard)->issueAccessToken($member, $membership, null));
+        $this->bindRequestWithBearer('/perf/tenant', $this->tokensFor($guard)->issueAccessToken($member, $membership, null, null));
 
         $resolved = $this->freshJwtGuard($guard);
 
@@ -176,7 +176,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     {
         [$member, $membership] = $this->seedMembership($guard, false);
 
-        $this->bindRequestWithBearer('/perf/tenant', $this->tokensFor($guard)->issueAccessToken($member, $membership, null));
+        $this->bindRequestWithBearer('/perf/tenant', $this->tokensFor($guard)->issueAccessToken($member, $membership, null, null));
 
         $resolved = $this->freshJwtGuard($guard);
 
@@ -253,7 +253,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
         $user = new UncheckedTenantUser;
         $user->forceFill(['email' => 'unchecked@example.test', 'password' => 'irrelevant', 'tenant_id' => $tenant->getKey()])->save();
 
-        $this->bindRequestWithBearer('/perf/unchecked-tenant', $this->tokensFor('unchecked')->issueAccessToken($user, $user, null));
+        $this->bindRequestWithBearer('/perf/unchecked-tenant', $this->tokensFor('unchecked')->issueAccessToken($user, $user, null, null));
 
         $guard = $this->freshJwtGuard('unchecked');
 

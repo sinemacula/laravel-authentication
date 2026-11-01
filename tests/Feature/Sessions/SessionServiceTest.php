@@ -167,7 +167,7 @@ final class SessionServiceTest extends TestCase
         $claims = Auth::manager()->jwt('api')->parse($session->tokens->refreshToken);
 
         self::assertNotNull($claims);
-        self::assertSame($record->getKey(), $claims['did']);
+        self::assertSame($record->getKey(), $claims['sid']);
         self::assertSame(IntegrationIdentity::class, $record->authenticatable_type);
         self::assertSame((string) $identity->id, $record->authenticatable_id);
         self::assertSame(IntegrationIdentity::class, $record->principal_type);

@@ -52,7 +52,7 @@ final readonly class SessionSummary implements \JsonSerializable, Arrayable
      */
     public function __construct(
 
-        /** The session's identifier, as tokens carry it in `did`. */
+        /** The session's identifier, as tokens carry it in `sid`. */
         public string $id,
 
         /** The guard the session belongs to. */

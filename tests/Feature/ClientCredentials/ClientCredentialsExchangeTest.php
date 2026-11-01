@@ -118,7 +118,11 @@ final class ClientCredentialsExchangeTest extends TestCase
         self::assertSame($issued->id, $claims[Claims::CREDENTIAL_ID->value]);
         self::assertSame('invoices:read reports', $claims[Claims::SCOPE->value]);
         self::assertSame(IdentifierCoercion::stringify($machine->getKey()), $claims[Claims::SUBJECT->value]);
-        self::assertNull($claims[Claims::SESSION_ID->value] ?? null);
+        self::assertSame('machine', $claims[Claims::SUBJECT_TYPE->value]);
+        self::assertSame('m2m', $claims[Claims::CLIENT_ID->value]);
+        self::assertArrayNotHasKey(Claims::SESSION_ID->value, $claims);
+        self::assertArrayNotHasKey(Claims::AUTH_TIME->value, $claims);
+        self::assertArrayNotHasKey(Claims::TENANT_ID->value, $claims);
         self::assertArrayNotHasKey('pty', $claims);
         self::assertSame(0, DB::table('authentication_sessions')->count());
 
@@ -772,6 +776,28 @@ final class ClientCredentialsExchangeTest extends TestCase
         $this->expectExceptionMessage('Auth guard [machine] is not a jwt guard, so it has no client credentials exchange.');
 
         Auth::clientCredentials('machine');
+    }
+
+    /**
+     * A client acting as a membership within a tenant gets a token naming the
+     * client in `sub` as a machine, and the tenant the exchange's admission
+     * loaded in `tenant_id`.
+     *
+     * @return void
+     */
+    public function testATenantPrincipalsTokenCarriesTheTenant(): void
+    {
+        [$account, $membership, $tenant] = $this->seedAccount();
+
+        $issued   = $this->apiKeys('m2m_accounts')->issue($account, $membership, ['read']);
+        $response = $this->token('grant_type=client_credentials', $this->basic($issued), '/oauth/accounts/token')->assertOk();
+        $token    = $response->json('access_token');
+        $claims   = is_string($token) ? Auth::manager()->jwt('m2m_accounts')->parse($token) : null;
+
+        self::assertNotNull($claims);
+        self::assertSame(IdentifierCoercion::stringify($account->getKey()), $claims[Claims::SUBJECT->value]);
+        self::assertSame('machine', $claims[Claims::SUBJECT_TYPE->value]);
+        self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $claims[Claims::TENANT_ID->value]);
     }
 
     /**

@@ -54,7 +54,7 @@ names none waits for the identity to choose (`choice()`, `choose()`), and a live
   sign-in; a session whose sign-in used none is not held to one, and a session loaded without the column throws a
   `LogicException` rather than reading as one that used none) so a principal a policy refuses to that identifier cannot
   be reached by switching, and no further factor asked (`additional_factor_required`).
-- With the current rotation id, the token's `pid` must be the principal the session records
+- With the current rotation id, the token's `principal` must be the principal the session records
   (`session_principal_mismatch`). The absolute deadline stays the session's, held to `signed_in_at` plus the guard's
   absolute lifetime (`session_expired` when that has passed), so a lifetime shortened since the sign-in applies and a
   switch never extends the session; the idle deadline restarts under the guard's lifetimes. Both tokens are issued for
@@ -64,7 +64,7 @@ names none waits for the identity to choose (`choice()`, `choose()`), and a live
   principal changes, the target and `principal_switched_at`. A switch to the recorded principal writes no switch.
 - With the previous rotation id inside the grace window, the current credential is reissued for the target, writing
   nothing, only when the session records the target and either its last rotation was a switch
-  (`principal_switched_at = refresh_rotated_at`) or the token's own `pid` is the target; anything else is
+  (`principal_switched_at = refresh_rotated_at`) or the token's own `principal` is the target; anything else is
   `rotation_conflict`, without revoking.
 - A missed swap re-reads the row with a lock and judges it once: a still-current id is `rotation_conflict`, a previous
   id is answered by the retry rule against the row as it now is (after the owner is checked again), and anything else

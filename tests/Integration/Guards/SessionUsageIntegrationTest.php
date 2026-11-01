@@ -170,7 +170,7 @@ final class SessionUsageIntegrationTest extends TestCase
 
         $request = Request::create('/session', 'GET', server: [
             'REMOTE_ADDR'        => '198.51.100.1',
-            'HTTP_AUTHORIZATION' => 'Bearer ' . $this->tokens()->issueAccessToken($identity, $identity, $session),
+            'HTTP_AUTHORIZATION' => 'Bearer ' . $this->tokens()->issueAccessToken($identity, $identity, null, $session),
         ]);
 
         $request->server->remove('HTTP_USER_AGENT');
@@ -457,7 +457,7 @@ final class SessionUsageIntegrationTest extends TestCase
 
             return [
                 'session'       => $session->getKey(),
-                'access_token'  => $tokens->issueAccessToken($identity, $identity, $session),
+                'access_token'  => $tokens->issueAccessToken($identity, $identity, null, $session),
                 'refresh_token' => $tokens->issueRefreshToken($session, $rotation, $identity),
             ];
         });
@@ -477,7 +477,7 @@ final class SessionUsageIntegrationTest extends TestCase
      */
     private function bearerRequest(StubPrincipal $identity, Session $session, string $ip, string $userAgent): TestResponse
     {
-        $token = $this->tokens()->issueAccessToken($identity, $identity, $session);
+        $token = $this->tokens()->issueAccessToken($identity, $identity, null, $session);
 
         return $this->withServerVariables(['REMOTE_ADDR' => $ip])
             ->withHeaders(['Authorization' => 'Bearer ' . $token, 'User-Agent' => $userAgent])

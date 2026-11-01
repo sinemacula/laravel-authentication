@@ -20,8 +20,9 @@ use SineMacula\Laravel\Authentication\Config\IntegerSetting;
  * `config/authentication.php`; nothing here falls back to a literal. A value
  * missing at both levels, of the wrong type, or out of range fails closed with
  * an `InvalidJwtConfigurationException`, at either level: a malformed guard
- * override is never ignored in favour of the package value. Only `issuer` and
- * `audience` may resolve to `null`, which turns that claim check off.
+ * override is never ignored in favour of the package value. `issuer` and
+ * `audience` are required too: every token carries them and every parse checks
+ * them, so a guard with neither set at either level fails closed.
  *
  * Each guard's service is built on first use and kept for the factory's life, a
  * container singleton's, so a later change to the configuration does not reach
@@ -90,8 +91,8 @@ final class JwtTokenServiceFactory
             $guard,
             $this->resolveLifetimes($guard, $guardJwtConfig),
             $this->resolveJwtInteger($guard, $guardJwtConfig, 'leeway_seconds', 0, self::MAX_LEEWAY_SECONDS),
-            $this->resolveJwtNullableString($guard, $guardJwtConfig, 'issuer'),
-            $this->resolveJwtNullableString($guard, $guardJwtConfig, 'audience'),
+            $this->resolveJwtRequiredString($guard, $guardJwtConfig, 'issuer'),
+            $this->resolveJwtRequiredString($guard, $guardJwtConfig, 'audience'),
             $this->resolveOptionalLogger(),
         );
     }
@@ -323,34 +324,33 @@ final class JwtTokenServiceFactory
     }
 
     /**
-     * Resolve a nullable string JWT config value (`issuer` / `audience`): a
-     * per-guard override that is present wins, `null` included, so a guard can
-     * turn off a check the package value sets; otherwise the package value. An
-     * empty string is normalised to `null`. Any other type, at either level,
-     * fails closed: read as `null`, it would silently turn the check off.
+     * Resolve a required string JWT config value (`issuer` / `audience`): a
+     * per-guard override that is present wins, otherwise the package value. It
+     * must be a non-empty string, at whichever level it comes from; a value
+     * missing at both levels, `null`, empty or of any other type fails closed.
      *
      * @param  string  $guard
      * @param  array<string, mixed>  $guardJwtConfig
      * @param  string  $key
-     * @return ?string
+     * @return string
      *
      * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
      */
-    private function resolveJwtNullableString(string $guard, #[\SensitiveParameter] array $guardJwtConfig, string $key): ?string
+    private function resolveJwtRequiredString(string $guard, #[\SensitiveParameter] array $guardJwtConfig, string $key): string
     {
         $value = array_key_exists($key, $guardJwtConfig)
             ? $guardJwtConfig[$key]
             : $this->config->get("authentication.jwt.{$key}");
 
-        if ($value !== null && !is_string($value)) {
+        if (!is_string($value) || $value === '') {
 
-            $message = "JWT `{$key}` for guard [{$guard}] must be a string or null:"
-                . " set `authentication.jwt.{$key}` or the guard's `jwt.{$key}` override.";
+            $message = "JWT `{$key}` for guard [{$guard}] is required: set `authentication.jwt.{$key}`"
+                . ' (AUTHENTICATION_JWT_' . strtoupper($key) . ") or the guard's `jwt.{$key}` override.";
 
             throw new InvalidJwtConfigurationException($message);
         }
 
-        return $value === '' ? null : $value;
+        return $value;
     }
 
     /**

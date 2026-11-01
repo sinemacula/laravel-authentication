@@ -3,7 +3,7 @@
 ## Purpose
 
 This note records what the package calls the record it keeps per sign-in, and the decisions that came with naming it:
-the names and the Laravel names they meet, the claim that still says `did`, what a client proves to have its previous
+the names and the Laravel names they meet, the claim that still says `sid`, what a client proves to have its previous
 session replaced, the `superseded` reason, the flags that went, and the index names of the sessions table. A session
 is one sign-in, on one application, on one device; its refresh state and its revocation live on it. The record was
 called a device before, which mixed it up with the physical client: a client that signs in again on the same device now
@@ -30,8 +30,7 @@ gets a new session, so "the device" and "the record" are no longer one thing.
   session driver, and its indexes are named `<table>_owner_index`, `_principal_index`, `_guard_index`, `_idle_index`,
   `_absolute_index` and `_revoked_index`. Laravel's default name for the owner index of the default table is 69
   characters, over MySQL's 64; with these suffixes, a configured name of up to 47 characters fits PostgreSQL's 63.
-- The access token still names its session in the `did` claim. Only the enum case says what it names
-  (`Claims::SESSION_ID`); the claims change in an item of their own, and nothing here depends on the claim's name.
+- Tokens name their session in the `sid` claim (`Claims::SESSION_ID`); nothing here depends on the claim's name.
 - Every sign-in is a new session. What a client proves to have its previous session replaced (the device key, in the
   package's reading) is that session's current refresh token, validly signed for the guard: possession of the only
   credential the client holds for it. No other key material exists, and the IP address and user agent never count. It

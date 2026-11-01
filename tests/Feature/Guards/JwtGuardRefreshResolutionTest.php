@@ -97,7 +97,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest(null));
 
         $token = $this->encodeRefreshToken([
-            'did' => $session->id,
+            'sid' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -161,7 +161,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest(null));
 
         $token = $this->encodeRefreshToken([
-            'did' => $session->id,
+            'sid' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -204,7 +204,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest(null));
 
         $token = $this->encodeRefreshToken([
-            'did' => $session->id,
+            'sid' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -223,7 +223,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * When a refresh token carries a `pid` hint but the resolver returns
+     * When a refresh token carries a `principal` hint but the resolver returns
      * `null`, refresh fails with `principal_unresolved` instead of downgrading
      * to the default principal.
      *
@@ -258,9 +258,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             ->andReturnNull();
 
         $token = $this->encodeRefreshToken([
-            'pid' => 'p-hinted',
-            'did' => $session->id,
-            'jti' => $plainRotationId,
+            'principal' => 'p-hinted',
+            'sid'       => $session->id,
+            'jti'       => $plainRotationId,
         ]);
 
         $this->expectRefreshFailureEvents();
@@ -276,8 +276,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * When a refresh token carries a `pid` hint but the resolver returns a
-     * different principal, refresh fails with `principal_mismatch`.
+     * When a refresh token carries a `principal` hint but the resolver returns
+     * a different principal, refresh fails with `principal_mismatch`.
      *
      * @return void
      *
@@ -315,9 +315,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             ->andReturn($principal);
 
         $token = $this->encodeRefreshToken([
-            'pid' => 'p-hinted',
-            'did' => $session->id,
-            'jti' => $plainRotationId,
+            'principal' => 'p-hinted',
+            'sid'       => $session->id,
+            'jti'       => $plainRotationId,
         ]);
 
         $this->expectRefreshFailureEvents();
@@ -372,9 +372,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             ->andReturn($principal);
 
         $token = $this->encodeRefreshToken([
-            'pid' => 'p-hinted',
-            'did' => $session->id,
-            'jti' => $plainRotationId,
+            'principal' => 'p-hinted',
+            'sid'       => $session->id,
+            'jti'       => $plainRotationId,
         ]);
 
         $this->expectRefreshFailureEvents();
@@ -428,9 +428,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             ->andReturn($principal);
 
         $token = $this->encodeRefreshToken([
-            'pid' => 'p-11',
-            'did' => $session->id,
-            'jti' => $plainRotationId,
+            'principal' => 'p-11',
+            'sid'       => $session->id,
+            'jti'       => $plainRotationId,
         ]);
 
         $this->expectRefreshFailureEvents();
@@ -445,9 +445,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: when the resolver returns `null` for a hinted `pid` during
-     * refresh, the hint check must fail so the exchange rejects the token.
-     * Mutation guard: pins the null-safe principal read in
+     * Fail-closed: when the resolver returns `null` for a hinted `principal`
+     * during refresh, the hint check must fail so the exchange rejects the
+     * token. Mutation guard: pins the null-safe principal read in
      * `RefreshTokenExchange::resolveRefreshPrincipal()`.
      *
      * @return void
@@ -481,9 +481,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             ->andReturnNull();
 
         $token = $this->encodeRefreshToken([
-            'pid' => 'p-hinted',
-            'did' => $session->id,
-            'jti' => $plainRotationId,
+            'principal' => 'p-hinted',
+            'sid'       => $session->id,
+            'jti'       => $plainRotationId,
         ]);
 
         $this->expectRefreshFailureEvents();
@@ -499,8 +499,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
     /**
      * A successful refresh preserves the original active principal by carrying
-     * the same `pid` through the rotated refresh token and newly issued access
-     * token.
+     * the same `principal` through the rotated refresh token and newly issued
+     * access token.
      *
      * @return void
      *
@@ -545,9 +545,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $session->forceFill(self::recordedPrincipal($principal))->save();
 
         $token = $this->encodeRefreshToken([
-            'pid' => 'p-1',
-            'did' => $session->id,
-            'jti' => $plainRotationId,
+            'principal' => 'p-1',
+            'sid'       => $session->id,
+            'jti'       => $plainRotationId,
         ]);
 
         $dispatched = [];
@@ -564,13 +564,13 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $accessClaims = $this->tokens->parse($result->accessToken, TokenType::ACCESS);
         self::assertIsArray($accessClaims);
         self::assertSame('7', $accessClaims[Claims::SUBJECT->value]);
-        self::assertSame('p-1', $accessClaims[Claims::PRINCIPAL_ID->value]);
+        self::assertSame('p-1', $accessClaims[Claims::PRINCIPAL->value]);
         self::assertSame($session->id, $accessClaims[Claims::SESSION_ID->value]);
 
         $refreshClaims = $this->tokens->parse($result->refreshToken, TokenType::REFRESH);
         self::assertIsArray($refreshClaims);
         self::assertSame($session->id, $refreshClaims[Claims::SESSION_ID->value]);
-        self::assertSame('p-1', $refreshClaims[Claims::PRINCIPAL_ID->value]);
+        self::assertSame('p-1', $refreshClaims[Claims::PRINCIPAL->value]);
         self::assertIsString($refreshClaims[Claims::JWT_ID->value]);
         self::assertNotSame($plainRotationId, $refreshClaims[Claims::JWT_ID->value]);
 
@@ -640,9 +640,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $session->forceFill(self::recordedPrincipal($principal))->save();
 
         $token = $this->encodeRefreshToken([
-            'pid' => 'p-19',
-            'did' => $session->id,
-            'jti' => $plainRotationId,
+            'principal' => 'p-19',
+            'sid'       => $session->id,
+            'jti'       => $plainRotationId,
         ]);
 
         $dispatched = [];
@@ -722,7 +722,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $session->forceFill(self::recordedPrincipal($principal))->save();
 
         $token = $this->encodeRefreshToken([
-            'did' => $session->id,
+            'sid' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -787,7 +787,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $session->forceFill(self::recordedPrincipal($principal))->save();
 
         $token = $this->encodeRefreshToken([
-            'did' => $session->id,
+            'sid' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -808,7 +808,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
      */
     public function testSetPrincipalResolverUpdatesBearerResolutionPath(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 

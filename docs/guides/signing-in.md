@@ -67,7 +67,7 @@ own guards; neither does a bearer request or a refresh, which never see a passwo
 The pins are verified rather than trusted, because they often come from request input: the principal must be one the
 resolver returns for that identifier on the authenticated identity (same class, same identifier) and must belong to that
 identity (its `getIdentity()` is the authenticated identity), and the session must be one of the identity's own sessions
-(through `HasSessions`, looked up the way a bearer `did` is), of this guard (a session of another guard, or of none,
+(through `HasSessions`, looked up the way a bearer `sid` is), of this guard (a session of another guard, or of none,
 counts as missing), not revoked, not ended, and acting as the principal being bound. A pin that fails either check fails
 the attempt. `login()` is the trusted entry point: it binds exactly what it is given, so only pass it a principal and
 session you have already proven belong to the identity. `setPrincipal()` and `setSession()` are trusted binds in the

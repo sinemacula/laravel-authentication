@@ -16,9 +16,13 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
+use SineMacula\Laravel\Authentication\Jwt\Enums\SubjectType;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
+use SineMacula\Laravel\Authentication\Proofs\AuthenticationClaims;
+use SineMacula\Laravel\Authentication\Proofs\AuthenticationSummary;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionDeadlines;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -31,12 +35,17 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  *
  * - signing material and algorithm live in a `JwtKeyring` that fails closed
  * - kid-based rotation via the active kid header and `kid -> Key` map
- * - `typ` claim distinguishes access from refresh, and each type's required
- *   claims (`TokenType::requiredClaims()`) must be present on every parse
- * - `grd` claim binds every token to the guard whose service issued it; a token
- *   from another guard is rejected even when the guards share a key
+ * - the JOSE header's `typ` distinguishes access (`at+jwt`) from refresh
+ *   (`refresh+jwt`), and each type's required claims
+ *   (`TokenType::requiredClaims()`) must be present on every parse
+ * - `client_id` binds every token to the guard (the application) whose service
+ *   issued it; a token from another guard is rejected even when the guards
+ *   share a key
+ * - `iss` and `aud` are required, written on every token and strictly verified
+ *   on every parse
+ * - an access token's subject type, session claims and tenant must keep the
+ *   profile's shape (`TokenProfile::accessFailure()`)
  * - configurable clock skew via `leewaySeconds` on every verification
- * - optional strict `iss` / `aud` verification
  * - token lifetimes from the guard's `TokenLifetimes`; a token for a session
  *   mirrors the session and is never issued for one that has ended
  *
@@ -55,8 +64,8 @@ final class JwtTokenService
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  $lifetimes
      * @param  int  $leewaySeconds
-     * @param  ?string  $issuer
-     * @param  ?string  $audience
+     * @param  string  $issuer
+     * @param  string  $audience
      * @param  ?\Psr\Log\LoggerInterface  $logger
      *
      * @throws \InvalidArgumentException
@@ -66,7 +75,7 @@ final class JwtTokenService
         /** Signing and verification material, keyed by kid. */
         private JwtKeyring $keyring,
 
-        /** Guard the service issues for; written to and required in `grd`. */
+        /** Guard (the application) the service issues for; written to and required in `client_id`. */
         private string $guard,
 
         /** Token and session lifetimes the issued `exp` claims follow. */
@@ -75,11 +84,11 @@ final class JwtTokenService
         /** Clock-skew tolerance applied to every `exp`/`iat` check. */
         private int $leewaySeconds,
 
-        /** Optional `iss` claim; rejects tokens with a different issuer. */
-        private ?string $issuer = null,
+        /** The `iss` every token carries; rejects tokens with a different issuer. */
+        private string $issuer,
 
-        /** Optional `aud` claim; rejects tokens with a different audience. */
-        private ?string $audience = null,
+        /** The `aud` every token carries; rejects tokens with a different audience. */
+        private string $audience,
 
         // Optional PSR-3 logger for parse-failure debug traces; defaults to
         // NullLogger.
@@ -87,6 +96,10 @@ final class JwtTokenService
     ) {
         if ($guard === '') {
             throw new \InvalidArgumentException('JWT token service requires a non-empty guard name.');
+        }
+
+        if ($issuer === '' || $audience === '') {
+            throw new \InvalidArgumentException('JWT token service requires a non-empty issuer and audience.');
         }
 
         $this->logger = $logger ?? new NullLogger;
@@ -115,15 +128,25 @@ final class JwtTokenService
      * session at a given time issues at that same time. Issuing reads nothing
      * from the principal beyond its identifier.
      *
+     * The token's subject type is `person`. `$tenant` is the tenant the
+     * caller's admission loaded for the principal, written to `tenant_id`; the
+     * claim is carried for the application and not checked by the package. A
+     * token for a session carries the session's latest authentication time in
+     * `auth_time` (never after the issue time: an authentication another server
+     * recorded with its clock ahead is carried as the issue time) and its
+     * authentication method references in `amr`, both derived from the session
+     * when the token is issued.
+     *
      * Refuses to issue a token that `parse()` would reject or that would lose
-     * part of its context: the identity and principal, and the session when one
-     * is given, must each have an identifier that can be written into its claim
-     * (a saved model's scalar key). Refuses, too, a session that has ended or
-     * that has no deadlines, and a non-human identity: a machine gets tokens
-     * only from a client credentials exchange.
+     * part of its context: the identity and principal, the tenant when one is
+     * given, and the session when one is given, must each have an identifier
+     * that can be written into its claim (a saved model's scalar key). Refuses,
+     * too, a session that has ended or that has no deadlines, and a non-human
+     * identity: a machine gets tokens only from a client credentials exchange.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\Carbon\CarbonInterface  $issuedAt
      * @return string
@@ -132,18 +155,20 @@ final class JwtTokenService
      * @throws \LogicException
      * @throws \Random\RandomException
      */
-    public function issueAccessToken(Identity $identity, Principal $principal, ?Session $session, ?CarbonInterface $issuedAt = null): string
+    public function issueAccessToken(Identity $identity, Principal $principal, ?Tenant $tenant, ?Session $session, ?CarbonInterface $issuedAt = null): string
     {
         MachineTokens::refuseSession($identity instanceof MachineIdentity);
 
-        return $this->issueAccess($identity, $principal, $session, $issuedAt, null, []);
+        return $this->issueAccess($identity, $principal, $tenant, $session, $issuedAt, null, []);
     }
 
     /**
      * Encode the access token a client credentials exchange hands a non-human
      * identity, acting as the principal, for the API key it was exchanged for:
-     * no session and no refresh, the key's id in `cid` and the granted scopes,
-     * space-separated, in `scope` (`""` for none). The token lives the guard's
+     * the client (the identity) in `sub` with the subject type `machine`, no
+     * session and no refresh, the key's id in `cid` and the granted scopes,
+     * space-separated, in `scope` (`""` for none), and the tenant the
+     * exchange's admission loaded in `tenant_id`. The token lives the guard's
      * access lifetime, never past `$notAfter` (the key's expiry); `$issuedAt`
      * (default now, cut to the whole second) sets `iat`. Every other claim is
      * an access token's, so the bearer path admits the identity and principal
@@ -151,6 +176,7 @@ final class JwtTokenService
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\MachineIdentity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  string  $credentialId
      * @param  list<string>  $scopes
      * @param  ?\Carbon\CarbonInterface  $notAfter
@@ -164,13 +190,14 @@ final class JwtTokenService
     public function issueClientAccessToken(
         MachineIdentity $identity,
         Principal $principal,
+        ?Tenant $tenant,
         #[\SensitiveParameter]
         string $credentialId,
         array $scopes,
         ?CarbonInterface $notAfter = null,
         ?CarbonInterface $issuedAt = null,
     ): string {
-        return $this->issueAccess($identity, $principal, null, $issuedAt, $notAfter, MachineTokens::claims($credentialId, $scopes));
+        return $this->issueAccess($identity, $principal, $tenant, null, $issuedAt, $notAfter, MachineTokens::claims($credentialId, $scopes));
     }
 
     /**
@@ -207,27 +234,33 @@ final class JwtTokenService
 
         $issuedAt = TokenLifetimes::issueTime($issuedAt);
 
-        $payload = $this->baseClaims($issuedAt, $this->sessionEnd($session, $issuedAt)->getTimestamp(), TokenType::REFRESH);
+        $payload = $this->baseClaims();
 
         $payload[Claims::SESSION_ID->value] = $this->requireClaimValue(Claims::SESSION_ID, $session->getSessionIdentifier());
-        $payload[Claims::JWT_ID->value]     = $this->requireClaimValue(Claims::JWT_ID, $rotationId);
 
         if ($principal !== null) {
-            $payload[Claims::PRINCIPAL_ID->value] = $this->requireClaimValue(Claims::PRINCIPAL_ID, $principal->getPrincipalIdentifier());
+            $payload[Claims::PRINCIPAL->value] = $this->requireClaimValue(Claims::PRINCIPAL, $principal->getPrincipalIdentifier());
         }
 
-        return $this->encode($payload);
+        $payload[Claims::JWT_ID->value]     = $this->requireClaimValue(Claims::JWT_ID, $rotationId);
+        $payload[Claims::ISSUED_AT->value]  = $issuedAt->getTimestamp();
+        $payload[Claims::EXPIRES_AT->value] = $this->sessionEnd($session, $issuedAt)->getTimestamp();
+
+        return $this->encode($payload, TokenType::REFRESH);
     }
 
     /**
      * Decode and verify a token, returning claims as an array.
      *
      * Returns `null` on any failure so callers can treat parse as a total
-     * function. A token whose `grd` claim does not name this service's guard is
-     * always rejected. When `$expectedType` is supplied, tokens whose `typ`
-     * claim does not match are rejected to prevent a refresh token being
-     * presented as an access token (and vice versa). A token missing any claim
-     * its type requires, or whose `typ` is not a known type, is rejected.
+     * function. A token whose header `typ` is missing or names no known type is
+     * always rejected, and when `$expectedType` is supplied, so is one whose
+     * header names the other type, to prevent a refresh token being presented
+     * as an access token (and vice versa). A token whose `client_id` does not
+     * name this service's guard, or whose `iss` or `aud` is not this service's
+     * (an `aud` that is an array included), is always rejected, as is one
+     * missing any claim its type requires, and an access token that breaks the
+     * profile's shape (see `TokenProfile::accessFailure()`).
      *
      * @param  string  $token
      * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $expectedType
@@ -243,13 +276,14 @@ final class JwtTokenService
      * a session, accepting one that has expired.
      *
      * Every check `parse($token, TokenType::REFRESH)` makes applies (the
-     * signature and kid, `grd`, `iss` and `aud`, `typ`, the required claims,
-     * and an `iat` that is not in the future) except expiry: firebase/php-jwt
-     * verifies all of those before it rejects an expired token, so the payload
-     * of an expired one is as trustworthy as a live one's. Expiry is not
-     * enforced because the usual proof is from a client signing in again after
-     * its session ended; the session row decides what the proof is worth.
-     * Returns `null` on any other failure.
+     * signature and kid, the header `typ`, `client_id`, `iss` and `aud`, the
+     * required claims, and an `iat` that is not in the future) except expiry:
+     * firebase/php-jwt verifies the signature, kid, algorithm and `iat` before
+     * it rejects an expired token, so the header and payload of an expired one
+     * are as trustworthy as a live one's. Expiry is not enforced because the
+     * usual proof is from a client signing in again after its session ended;
+     * the session row decides what the proof is worth. Returns `null` on any
+     * other failure.
      *
      * @param  string  $token
      * @return ?array<string, mixed>
@@ -276,19 +310,22 @@ final class JwtTokenService
             return null;
         }
 
-        $claims = $this->normalizeClaims($decoded);
+        [$typ, $payload] = $decoded;
 
-        return $this->matchesExpectedClaims($claims, $expectedType) ? $claims : null;
+        $claims = $this->normalizeClaims($payload);
+
+        return $this->matchesExpectedClaims($claims, $typ, $expectedType) ? $claims : null;
     }
 
     /**
      * Encode an access token for the context, with any further claims: its
      * lifetime is the guard's access lifetime, never past the end of the
      * session or, without a session, `$notAfter`, which must be after the issue
-     * time.
+     * time. The subject type follows the identity's kind.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\Carbon\CarbonInterface  $issuedAt
      * @param  ?\Carbon\CarbonInterface  $notAfter
@@ -299,20 +336,64 @@ final class JwtTokenService
      * @throws \LogicException
      * @throws \Random\RandomException
      */
-    private function issueAccess(Identity $identity, Principal $principal, ?Session $session, ?CarbonInterface $issuedAt, ?CarbonInterface $notAfter, array $claims): string
-    {
+    private function issueAccess(
+        Identity $identity,
+        Principal $principal,
+        ?Tenant $tenant,
+        ?Session $session,
+        ?CarbonInterface $issuedAt,
+        ?CarbonInterface $notAfter,
+        array $claims,
+    ): string {
         $issuedAt  = TokenLifetimes::issueTime($issuedAt);
         $ends      = $session === null ? TokenLifetimes::notAfter($notAfter, $issuedAt) : $this->sessionEnd($session, $issuedAt);
         $expiresAt = $this->lifetimes->accessExpiry($issuedAt, $ends);
 
-        $payload = $this->baseClaims($issuedAt, $expiresAt->getTimestamp(), TokenType::ACCESS);
+        $payload = $this->baseClaims();
 
         $payload[Claims::SUBJECT->value]      = $this->requireClaimValue(Claims::SUBJECT, $identity->getAuthIdentifier());
-        $payload[Claims::PRINCIPAL_ID->value] = $this->requireClaimValue(Claims::PRINCIPAL_ID, $principal->getPrincipalIdentifier());
-        $payload[Claims::SESSION_ID->value]   = $session === null ? null : $this->requireClaimValue(Claims::SESSION_ID, $session->getSessionIdentifier());
-        $payload[Claims::JWT_ID->value]       = RefreshTokenHasher::generate();
+        $payload[Claims::SUBJECT_TYPE->value] = ($identity instanceof MachineIdentity ? SubjectType::MACHINE : SubjectType::PERSON)->value;
+        $payload[Claims::PRINCIPAL->value]    = $this->requireClaimValue(Claims::PRINCIPAL, $principal->getPrincipalIdentifier());
 
-        return $this->encode(array_merge($payload, $claims));
+        if ($tenant !== null) {
+            $payload[Claims::TENANT_ID->value] = $this->requireClaimValue(Claims::TENANT_ID, $tenant->getTenantIdentifier());
+        }
+
+        if ($session !== null) {
+            $payload = [...$payload, ...$this->sessionClaims($session, $issuedAt)];
+        }
+
+        $payload[Claims::JWT_ID->value]     = RefreshTokenHasher::generate();
+        $payload[Claims::ISSUED_AT->value]  = $issuedAt->getTimestamp();
+        $payload[Claims::EXPIRES_AT->value] = $expiresAt->getTimestamp();
+
+        return $this->encode([...$payload, ...$claims], TokenType::ACCESS);
+    }
+
+    /**
+     * The claims an access token for the session carries: the session, the time
+     * of its latest authentication, never after the issue time, and its
+     * authentication method references, derived inside
+     * `WriteConnection::during()` for the session, so they are read from the
+     * writer rather than a lagging replica.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  \Carbon\CarbonImmutable  $issuedAt
+     * @return array<string, mixed>
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     */
+    private function sessionClaims(Session $session, CarbonImmutable $issuedAt): array
+    {
+        $sessionId = $this->requireClaimValue(Claims::SESSION_ID, $session->getSessionIdentifier());
+        $summary   = WriteConnection::during($session, static fn (): AuthenticationSummary => AuthenticationClaims::forSession($session));
+
+        return [
+            Claims::SESSION_ID->value             => $sessionId,
+            Claims::AUTH_TIME->value              => min($summary->authenticatedAt->getTimestamp(), $issuedAt->getTimestamp()),
+            Claims::AUTHENTICATION_METHODS->value => $summary->methods,
+        ];
     }
 
     /**
@@ -340,31 +421,17 @@ final class JwtTokenService
     }
 
     /**
-     * Build the base claim set (iat, exp, typ, grd, iss, aud).
+     * Build the claims every token starts with: `iss`, `aud` and `client_id`.
      *
-     * @param  \Carbon\CarbonInterface  $issuedAt
-     * @param  int  $expiresAt
-     * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
      * @return array<string, mixed>
      */
-    private function baseClaims(CarbonInterface $issuedAt, int $expiresAt, TokenType $type): array
+    private function baseClaims(): array
     {
-        $claims = [
-            Claims::ISSUED_AT->value  => $issuedAt->getTimestamp(),
-            Claims::EXPIRES_AT->value => $expiresAt,
-            Claims::TYPE->value       => $type->value,
-            Claims::GUARD->value      => $this->guard,
+        return [
+            Claims::ISSUER->value    => $this->issuer,
+            Claims::AUDIENCE->value  => $this->audience,
+            Claims::CLIENT_ID->value => $this->guard,
         ];
-
-        if ($this->issuer !== null) {
-            $claims[Claims::ISSUER->value] = $this->issuer;
-        }
-
-        if ($this->audience !== null) {
-            $claims[Claims::AUDIENCE->value] = $this->audience;
-        }
-
-        return $claims;
     }
 
     /**
@@ -397,27 +464,34 @@ final class JwtTokenService
     }
 
     /**
-     * Encode the claim payload as a JWT with the keyring's active key, signing
-     * under that key's algorithm and embedding its kid in the header.
+     * Encode the claim payload as a JWT of the type with the keyring's active
+     * key, signing under that key's algorithm and embedding its kid and the
+     * type in the header.
      *
      * @param  array<string, mixed>  $payload
+     * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
      * @return string
      */
-    private function encode(array $payload): string
+    private function encode(array $payload, TokenType $type): string
     {
         return JWT::encode(
             $payload,
             $this->keyring->activeKey()->getKeyMaterial(),
             $this->keyring->activeKey()->getAlgorithm(),
             $this->keyring->activeKid(),
+            ['typ' => $type->value],
         );
     }
 
     /**
-     * Run firebase/php-jwt with the configured leeway. Returns the decoded
-     * payload, or `null` on any decode/signature/expiry failure; with
-     * `$acceptExpired`, the verified payload of a token whose only fault is
-     * that it has expired.
+     * Run firebase/php-jwt with the configured leeway. Returns the header's
+     * `typ` and the decoded payload, or `null` on any decode, signature or
+     * expiry failure; with `$acceptExpired`, the verified header type and
+     * payload of a token whose only fault is that it has expired. php-jwt fills
+     * the header argument only when it is not `null`, and before it checks the
+     * signature, so the header is trusted only once `decode()` returns or
+     * throws `ExpiredException`, which it throws only after the signature, kid,
+     * algorithm and `iat` have been verified.
      *
      * `firebase/php-jwt` exposes leeway only via the public static
      * `JWT::$leeway`. The previous value is captured and restored around the
@@ -427,23 +501,24 @@ final class JwtTokenService
      *
      * @param  string  $token
      * @param  bool  $acceptExpired
-     * @return ?object
+     * @return ?array{0: mixed, 1: object}
      */
-    private function decodeToken(#[\SensitiveParameter] string $token, bool $acceptExpired): ?object
+    private function decodeToken(#[\SensitiveParameter] string $token, bool $acceptExpired): ?array
     {
         $previousLeeway = JWT::$leeway;
+        $header         = new \stdClass;
 
         try {
 
             JWT::$leeway = $this->leewaySeconds;
 
-            return JWT::decode($token, $this->keyring->verificationKeys());
+            $payload = JWT::decode($token, $this->keyring->verificationKeys(), $header);
+
+            return [$header->typ ?? null, $payload];
         } catch (\Throwable $e) {
 
-            // php-jwt checks the signature, kid, algorithm and iat before it
-            // rejects an expired token, so this payload is verified.
             if ($acceptExpired && $e instanceof ExpiredException) {
-                return $e->getPayload();
+                return [$header->typ ?? null, $e->getPayload()];
             }
 
             $this->logger->debug('JWT decode failed', [
@@ -470,19 +545,26 @@ final class JwtTokenService
     }
 
     /**
-     * Verify guard, issuer, audience, and `typ` against expected values, then
-     * that every claim the token's type requires is present.
+     * Verify the header type against the expected one, the guard, issuer and
+     * audience against this service's, then that every claim the token's type
+     * requires is present and, for an access token, that it keeps the profile's
+     * shape.
      *
      * @param  array<string, mixed>  $claims
+     * @param  mixed  $typ
      * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $expectedType
      * @return bool
      */
-    private function matchesExpectedClaims(array $claims, ?TokenType $expectedType): bool
+    private function matchesExpectedClaims(array $claims, mixed $typ, ?TokenType $expectedType): bool
     {
-        $failure = $this->firstClaimMismatch($claims, $expectedType) ?? $this->firstMissingClaim($claims) ?? (MachineTokens::credential($claims) === false ? [
-            'message' => 'JWT credential claims malformed',
-            'context' => ['claims' => [Claims::CREDENTIAL_ID->value, Claims::SCOPE->value, Claims::SESSION_ID->value]],
-        ] : null);
+        $type    = TokenProfile::headerType($typ);
+        $failure = match (true) {
+            $type === null || ($expectedType !== null && $type !== $expectedType) => [
+                'message' => 'JWT typ header mismatch',
+                'context' => ['expected' => $expectedType?->value, 'received' => $typ],
+            ],
+            default => $this->firstClaimMismatch($claims) ?? $this->firstMissingClaim($claims, $type) ?? $this->shapeFailure($claims, $type),
+        };
 
         if ($failure === null) {
             return true;
@@ -495,24 +577,14 @@ final class JwtTokenService
 
     /**
      * Locate the first claim the token's type requires that is absent, `null`,
-     * or empty, or return `null` when all are present. A token whose `typ` is
-     * not a known type fails here too, since its required claims are unknown.
+     * or empty, or return `null` when all are present.
      *
      * @param  array<string, mixed>  $claims
+     * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
      * @return array{message: string, context: array<string, mixed>}|null
      */
-    private function firstMissingClaim(array $claims): ?array
+    private function firstMissingClaim(array $claims, TokenType $type): ?array
     {
-        $typ  = $claims[Claims::TYPE->value] ?? null;
-        $type = is_string($typ) ? TokenType::tryFrom($typ) : null;
-
-        if ($type === null) {
-            return [
-                'message' => 'JWT typ unknown',
-                'context' => ['received' => $typ],
-            ];
-        }
-
         foreach ($type->requiredClaims() as $claim) {
 
             $value = $claims[$claim->value] ?? null;
@@ -529,25 +601,41 @@ final class JwtTokenService
     }
 
     /**
-     * Locate the first guard/issuer/audience/`typ` mismatch, or return `null`
-     * when every check passes. The guard is always checked, so a token missing
-     * `grd` is rejected.
+     * Locate why the token breaks the profile's shape, or return `null` when it
+     * keeps it (see `TokenProfile::accessFailure()` and
+     * `TokenProfile::refreshFailure()`).
      *
      * @param  array<string, mixed>  $claims
-     * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $expectedType
-     * @return array{message: string, context: array{expected: mixed, received: mixed}}|null
+     * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
+     * @return array{message: string, context: array<string, mixed>}|null
      */
-    private function firstClaimMismatch(array $claims, ?TokenType $expectedType): ?array
+    private function shapeFailure(array $claims, TokenType $type): ?array
+    {
+        $message = $type === TokenType::ACCESS
+            ? TokenProfile::accessFailure($claims, $this->leewaySeconds)
+            : TokenProfile::refreshFailure($claims);
+
+        return $message === null ? null : ['message' => $message, 'context' => ['typ' => $type->value]];
+    }
+
+    /**
+     * Locate the first guard/issuer/audience mismatch, or return `null` when
+     * every check passes. Each is compared strictly, so a token missing one, or
+     * with an `aud` that is an array, is rejected.
+     *
+     * @param  array<string, mixed>  $claims
+     * @return array{message: string, context: array{expected: string, received: mixed}}|null
+     */
+    private function firstClaimMismatch(array $claims): ?array
     {
         $checks = [
-            [Claims::GUARD->value, $this->guard, 'JWT guard mismatch'],
+            [Claims::CLIENT_ID->value, $this->guard, 'JWT client_id mismatch'],
             [Claims::ISSUER->value, $this->issuer, 'JWT issuer mismatch'],
             [Claims::AUDIENCE->value, $this->audience, 'JWT audience mismatch'],
-            [Claims::TYPE->value, $expectedType?->value, 'JWT typ mismatch'],
         ];
 
         foreach ($checks as [$claimKey, $expected, $message]) {
-            if ($expected !== null && ($claims[$claimKey] ?? null) !== $expected) {
+            if (($claims[$claimKey] ?? null) !== $expected) {
                 return [
                     'message' => $message,
                     'context' => ['expected' => $expected, 'received' => $claims[$claimKey] ?? null],

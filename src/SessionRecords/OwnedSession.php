@@ -14,7 +14,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * Says whether a guard may authenticate on a session someone named (a `did`
+ * Says whether a guard may authenticate on a session someone named (a `sid`
  * claim, a session pinned on `attempt()`), once `IdentitySessions::find()` has
  * found it among the identity's own sessions.
  *

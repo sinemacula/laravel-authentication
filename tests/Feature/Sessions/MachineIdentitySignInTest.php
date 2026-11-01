@@ -304,7 +304,7 @@ final class MachineIdentitySignInTest extends TestCase
         ]);
 
         $issues = [
-            'an access token'                  => static fn (): string => $tokens->issueAccessToken($machine, $machine, null),
+            'an access token'                  => static fn (): string => $tokens->issueAccessToken($machine, $machine, null, null),
             'a refresh token for its session'  => static fn (): string => $tokens->issueRefreshToken($owned, 'rotation-id'),
             'a refresh token as its principal' => static fn (): string => $tokens->issueRefreshToken($unowned, 'rotation-id', $machine),
         ];
