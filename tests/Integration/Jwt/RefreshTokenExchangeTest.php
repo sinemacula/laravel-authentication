@@ -346,6 +346,59 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
+     * A refresh whose tenant now requires a connection, and whose revocation
+     * loses to a refresh of the same token in the same tenant, is a conflict:
+     * the retry hands out no pair, nothing is revoked or reported, and the
+     * session keeps the competitor's rotation.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARevocationLosingToARotationIsAConflict(): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        $session = $this->signIn();
+
+        $this->advance(5);
+
+        $key = self::keyOf($tenant);
+
+        $this->requirements[$key] = new TenantRequirement('v2', connections: ['conn-a']);
+
+        $rotated = null;
+
+        $this->beforeTheUpdate('revoked_reason', function () use ($session, $key, &$rotated): void {
+
+            $requirement = $this->requirements[$key];
+
+            unset($this->requirements[$key]);
+
+            $rotated = $this->refresh($session->tokens->refreshToken)->session;
+
+            $this->requirements[$key] = $requirement;
+        });
+
+        $this->recordEvents([SessionRevoked::class]);
+
+        $refused = $this->refresh($session->tokens->refreshToken);
+
+        self::assertInstanceOf(SignedInSession::class, $rotated);
+        self::assertSame(FailureReason::ROTATION_CONFLICT, $refused->reason);
+        self::assertNull($refused->session);
+        self::assertSame([], $this->recordedClasses());
+
+        $row      = DB::table('authentication_sessions')->sole();
+        $rotation = self::rotationOf($rotated->tokens->refreshToken);
+
+        self::assertIsString($rotation);
+        self::assertSame('active', $row->status);
+        self::assertNull($row->revoked_at);
+        self::assertSame(RefreshTokenHasher::hash($rotation), $row->refresh_key);
+    }
+
+    /**
      * A refresh that falls short of a factor and loses its return to pending to
      * a revocation of the session fails as `session_revoked` and leaves the
      * revocation in place, the session never pending.

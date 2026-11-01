@@ -159,6 +159,8 @@ checked before it gets here is in `session-service.md`; the choice of principal 
 - `tests/Integration/Sessions/IntegerKeyPendingSessionTest.php` and
   `tests/Integration/Sessions/DottedKeyPendingSessionTest.php` (a credential naming an integer key, and a key that
   holds a `.`)
+- `tests/Integration/Sessions/SeparateCounterConnectionActivationTest.php` (the slots an activation gives back with
+  the counters on a connection of their own: on commit, not on rollback, a failed release reported)
 - `tests/Integration/Jwt/RefreshTokenExchangeTest.php` (a refresh's return to pending and its revocation racing a
   rotation, a revocation and a switch of tenant)
 - `tests/Integration/Migration/SessionsTableSchemaTest.php` (the columns and their lengths)

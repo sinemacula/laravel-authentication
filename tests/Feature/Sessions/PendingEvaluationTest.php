@@ -7,8 +7,10 @@ namespace Tests\Feature\Sessions;
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Applications\AdmitAnyPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
@@ -17,6 +19,7 @@ use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
@@ -44,6 +47,9 @@ use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ChoosingMember;
 use Tests\Integration\Fixtures\ChoosingMembership;
+use Tests\Integration\Fixtures\MemberRole;
+use Tests\Integration\Fixtures\MemberRoleMembership;
+use Tests\Integration\Fixtures\RoleMember;
 use Tests\TestCase;
 
 /**
@@ -226,6 +232,66 @@ final class PendingEvaluationTest extends TestCase
 
         self::assertSame([$first->getKey()], array_map(static fn (ChoosingMembership $membership): mixed => $membership->getKey(), $principals));
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $refusal);
+    }
+
+    /**
+     * A row the identity's `principals()` yields that is not a principal (an
+     * invitation kept beside its memberships, say) is passed over, and the
+     * memberships after it are still listed.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARoleThatIsNotAPrincipalIsPassedOver(): void
+    {
+        Schema::create('member_roles', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->unsignedInteger('identity_id');
+            $blueprint->string('kind');
+            $blueprint->timestamps();
+        });
+
+        try {
+            $member = RoleMember::query()->create(['email' => 'roles@example.test', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
+
+            MemberRole::query()->create(['identity_id' => $member->getKey(), 'kind' => 'invitation']);
+
+            $first  = MemberRole::query()->create(['identity_id' => $member->getKey(), 'kind' => 'membership']);
+            $second = MemberRole::query()->create(['identity_id' => $member->getKey(), 'kind' => 'membership']);
+
+            [$principals, $refusal] = $this->evaluation()->principals($member);
+
+            self::assertContainsOnlyInstancesOf(MemberRoleMembership::class, $principals);
+            self::assertSame([$first->getKey(), $second->getKey()], array_map(static fn (MemberRoleMembership $principal): mixed => $principal->getKey(), $principals));
+            self::assertNull($refusal);
+        } finally {
+            Schema::drop('member_roles');
+        }
+    }
+
+    /**
+     * An identity the resolver finds no default principal for has none to list,
+     * and the application access is never asked about one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentityTheResolverHasNoPrincipalForListsNone(): void
+    {
+        $identity = \Mockery::mock(Identity::class);
+        $resolver = \Mockery::mock(PrincipalResolver::class);
+        $access   = \Mockery::mock(ApplicationAccess::class);
+
+        $resolver->shouldReceive('resolve')->once()->with($identity)->andReturnNull();
+        $access->shouldNotReceive('mayUse');
+
+        app()->instance(ApplicationAccess::class, $access);
+
+        $evaluation = new PendingEvaluation($this->freshGuard()->setPrincipalResolver($resolver)->context(), app());
+
+        self::assertSame([[], null], $evaluation->principals($identity));
     }
 
     /**

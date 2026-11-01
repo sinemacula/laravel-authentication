@@ -59,6 +59,7 @@ use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingSessions;
+use SineMacula\Laravel\Authentication\Sessions\SessionActivation;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -91,6 +92,7 @@ use Tests\TestCase;
 #[CoversClass(SessionService::class)]
 #[CoversClass(SessionEstablishment::class)]
 #[CoversClass(PendingSessions::class)]
+#[CoversClass(SessionActivation::class)]
 #[CoversClass(SignInResult::class)]
 final class SessionServiceTest extends TestCase
 {
