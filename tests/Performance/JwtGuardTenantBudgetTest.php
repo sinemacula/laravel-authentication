@@ -171,6 +171,39 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     }
 
     /**
+     * A bearer request on a session whose active tenant, below the member's
+     * own, was deactivated is rejected once that tenant is read: the reads of a
+     * request on a session acting there, and no write.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testBearerOnASessionWhoseActiveTenantIsInactiveIsRejectedInFiveReads(): void
+    {
+        [$member, $membership, $own] = $this->seedMembership('members');
+
+        $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
+        $tree       = (new DescendantTenants)->place($descendant->getKey(), $own->getKey());
+
+        app()->instance(TenantAccess::class, $tree);
+        app()->instance(TenantResolver::class, $tree);
+
+        $below = $this->seedSession($member, 'members', $membership)->forceFill(['tenant_id' => IdentifierCoercion::stringify($descendant->getKey())]);
+
+        $below->save();
+
+        $this->bindRequestWithBearer('/perf/tenant', $this->tokensFor('members')->issueAccessToken($member, $membership, $descendant, $below));
+
+        $descendant->forceFill(['is_active' => false])->save();
+
+        $guard = $this->freshJwtGuard('members');
+
+        self::assertFalse($this->assertQueryBudget(5, 0, static fn (): bool => $guard->check()));
+    }
+
+    /**
      * Rows of `[guard]`: a member of a tenant that opts into activation, with
      * the tenant eager-loaded with the principal or lazily loaded by the check.
      * Eloquent runs an eager load as a query of its own, so both cost the same.

@@ -10,6 +10,7 @@ use Illuminate\Foundation\Application;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -29,7 +30,6 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Concerns\InteractsWithSessions;
-use Tests\Integration\Fixtures\IntegrationIdentity;
 
 /**
  * Query-budget and timing contracts for the session service: what a sign-in
@@ -210,6 +210,38 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $proof    = self::proofFor($identity, $result->pending->id);
 
         self::assertTrue($this->assertQueryBudget(4, 5, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->isSignedIn());
+    }
+
+    /**
+     * A pending session that records a membership in a tenant costs three reads
+     * more, to look up or to satisfy, than one of an identity that is its own
+     * principal: the membership, its owner and its tenant, which the gate
+     * admits again; the default access contracts read nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingSessionRecordingAMembershipReadsItItsOwnerAndItsTenant(): void
+    {
+        [$member] = $this->seedMember();
+
+        self::requireAFurtherFactor();
+
+        $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'));
+
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
+
+        $credential = $result->credential;
+        $sessions   = $this->sessions('members');
+
+        self::assertNotNull($this->assertQueryBudget(5, 0, static fn (): ?PendingSession => $sessions->pending($credential)));
+
+        $sessions = $this->sessions('members');
+        $proof    = self::proofFor($member, $result->pending->id, 'members');
+
+        self::assertTrue($this->assertQueryBudget(7, 5, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->isSignedIn());
     }
 
     /**
@@ -398,13 +430,14 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * An accepted further factor's proof, made now by the identity for the
-     * pending session.
+     * pending session of the guard.
      *
-     * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $sessionId
+     * @param  string  $guard
      * @return \SineMacula\Laravel\Authentication\Proofs\ProofResult
      */
-    private static function proofFor(IntegrationIdentity $identity, mixed $sessionId): ProofResult
+    private static function proofFor(Identity $identity, mixed $sessionId, string $guard = 'api'): ProofResult
     {
         return new ProofResult(
             ProofKind::ADDITIONAL_FACTOR,
@@ -415,7 +448,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
             new Evaluation(true, true),
             ['otp'],
             CarbonImmutable::now(),
-            new ProofBinding($identity, 'api', $sessionId, Purpose::SIGN_IN),
+            new ProofBinding($identity, $guard, $sessionId, Purpose::SIGN_IN),
         );
     }
 
