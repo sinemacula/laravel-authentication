@@ -13,20 +13,27 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
+use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\SessionSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext;
+use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
@@ -412,6 +419,55 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
+     * A switch whose destination asks for a further factor, and whose return to
+     * pending loses to a refresh of the same token, is judged again as after a
+     * lost switch: the refresh stands, the session never returns to pending nor
+     * records the destination, and the switch is a conflict.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReturnToPendingLosingToARefreshIsAConflict(): void
+    {
+        [$first, $second] = $this->seedMemberships();
+
+        $policy = new ScriptedTenantAuthenticationPolicy;
+
+        $destination = IdentifierCoercion::stringify($second->tenant_id);
+
+        $policy->answer = static fn (TenantPolicyContext $context): TenantRequirement => IdentifierCoercion::stringify($context->tenant->getTenantIdentifier()) === $destination
+            ? new TenantRequirement('v1', new Requirement(new RequirementPart))
+            : new TenantRequirement;
+
+        app()->instance(TenantAuthenticationPolicy::class, $policy);
+
+        $session = $this->signIn();
+
+        $this->advance(5);
+
+        $refreshed = null;
+
+        $this->beforeTheReturn(function () use ($session, &$refreshed): void {
+            $refreshed = self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken)->session;
+        });
+
+        $this->recordEvents([SessionReturnedToPending::class, PrincipalSwitched::class]);
+
+        $result = $this->switch($session, $second);
+
+        self::assertNotNull($refreshed);
+        self::assertSame(FailureReason::ROTATION_CONFLICT, $result->reason);
+        self::assertSame([], $this->recordedClasses());
+
+        $row = DB::table('authentication_sessions')->sole();
+
+        self::assertSame('active', $row->status);
+        self::assertSame(IdentifierCoercion::stringify($first->getKey()), IdentifierCoercion::stringify($row->principal_id));
+        self::assertNull($row->switched_at);
+    }
+
+    /**
      * Register the guards.
      *
      * @param  mixed  $app
@@ -563,6 +619,31 @@ final class SessionSwitchTest extends TestCase
             $statement = strtolower($query);
 
             if ($done || !str_starts_with($statement, 'update') || !str_contains($statement, 'previous_refresh_key')) {
+                return;
+            }
+
+            $done = true;
+
+            $callback();
+        });
+    }
+
+    /**
+     * Run the callback once, just before the next return of a session to
+     * pending executes.
+     *
+     * @param  \Closure(): void  $callback
+     * @return void
+     */
+    private function beforeTheReturn(\Closure $callback): void
+    {
+        $done = false;
+
+        DB::connection()->beforeExecuting(static function (string $query) use ($callback, &$done): void {
+
+            $statement = strtolower($query);
+
+            if ($done || !str_starts_with($statement, 'update') || !str_contains($statement, 'pending_key')) {
                 return;
             }
 

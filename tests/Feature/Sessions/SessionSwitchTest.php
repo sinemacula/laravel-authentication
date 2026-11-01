@@ -1568,6 +1568,92 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
+     * A lost response to a switch made in a second the session's floor already
+     * reached is still answered inside the grace window: that switch moved the
+     * floor one second past its rotation, and the retry, presenting a token of
+     * the principal switched from, is still known for a switch.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALostResponseToASwitchThatMovedTheFloorIsAnsweredAgain(): void
+    {
+        [$first, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+
+        $this->advance(5);
+
+        $away = $this->switched($session, $second);
+        $back = $this->switchedTo($away->tokens->refreshToken, SwitchTarget::principal($first));
+
+        self::assertNotSame($this->storedTime('refresh_rotated_at'), $this->storedTime('switched_at'));
+        self::assertTrue($first->is($back->principal));
+
+        $row = (array) DB::table('authentication_sessions')->sole();
+
+        $this->recordEvents([PrincipalSwitched::class, AuthenticationFailed::class]);
+
+        $retried = $this->sessions(self::GUARD)->switchTo($away->tokens->refreshToken, SwitchTarget::principal($first));
+
+        self::assertTrue($retried->isSwitched());
+        self::assertTrue($first->is($retried->session?->principal));
+        self::assertSame([], $this->recordedClasses());
+        self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
+    }
+
+    /**
+     * A grace retry of a switch to the context the session already acts in is
+     * held to the tenant's authentication policy as a refresh with the same
+     * token is: once the tenant requires a connection the session was not
+     * established through it is refused as `sso_required`, leaving the session
+     * as it was, and once it asks for a further factor the session lacks the
+     * session returns to pending, so the retry is never a refresh that skips
+     * the policy.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAGraceRetryIsHeldToTheTenantsPolicyAgain(): void
+    {
+        [, , , $own] = $this->seedMemberships();
+
+        $session = $this->signIn();
+
+        $this->advance(5);
+
+        self::assertNotNull(self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken)->session);
+
+        $this->advance(1);
+
+        $tenant = IdentifierCoercion::stringify($own->getKey()) ?? '';
+        $target = SwitchTarget::tenant(TenantSelection::principalDefault());
+
+        $this->scriptPolicy([$tenant => new TenantRequirement('v1', connections: ['conn-a'])]);
+
+        $row = (array) DB::table('authentication_sessions')->sole();
+
+        $this->assertTargetFails(FailureReason::SSO_REQUIRED, $session, $target);
+
+        self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
+
+        $this->scriptPolicy([$tenant => new TenantRequirement('v2', new Requirement(new RequirementPart))]);
+
+        $this->recordEvents([SessionReturnedToPending::class, PrincipalSwitched::class]);
+
+        $returned = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, $target);
+
+        self::assertTrue($returned->isPending());
+        self::assertNull($returned->session);
+        self::assertNotNull($returned->credential);
+        self::assertSame([SessionReturnedToPending::class], $this->recordedClasses());
+        self::assertSame(AuthenticationFlow::SWITCH, $this->recordedEvent(SessionReturnedToPending::class)->flow);
+        self::assertSame('pending', DB::table('authentication_sessions')->value('status'));
+    }
+
+    /**
      * Register the guards.
      *
      * @param  mixed  $app

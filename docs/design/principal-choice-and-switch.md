@@ -19,9 +19,12 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
 - Admitted principals (`PendingEvaluation::principals()`, and `SessionService::principals()` for a switch screen) are
   the identity's `principals()` read on the write connection (the resolver's default for an identity that is its own
   principal or has no `principals()`), each admitted by `Admission\PrincipalAdmission` (active, in an active tenant,
-  allowed to use the application) with the sign-in's identifier type, so a principal the policy refuses is neither
-  offered nor listed. `principals($identity, $identifierType)` lists the same way given the type the session records,
-  so it lists only targets the application policy lets that session switch to.
+  allowed to use the application by `ApplicationAccess`), so a principal it refuses is neither offered nor listed. The
+  identifier type gates the identity, not each principal: given one, `admitIdentifier()` is asked first and, when it
+  refuses, nothing is listed (not even which principals there are) and its reason is returned. `principals()` given the
+  identifier type the session records lists the same way, so it lists nothing for a session the application policy would
+  no longer let switch. `TenantAccess` is not asked when listing: the tenant a listed principal acts in is known only
+  once a selection names it, at the sign-in or the choice.
 - Each principal read with the others is checked on a stored copy (`WriteConnection::stored()`): Eloquent strict mode
   prevents lazy loading on models read together, and the activity check (and any application policy that reads it) reads
   its tenant. The list holds the principals as read.
@@ -31,7 +34,7 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   unverified identity's password whether it has been invited anywhere. A policy that wraps the package's keeps this by
   asking the wrapped `admitIdentifier()`. Which principals may use the application is `ApplicationAccess`'s answer,
   asked only once a principal resolves, so for an identity with none the sign-in answers `principal_unresolved`.
-- A choice is a pending session (see `session-service.md`) whose `requires` holds `principal` and which records no
+- A choice is a pending session (see `pending-sessions.md`) whose `requires` holds `principal` and which records no
   principal. The identity-level factor policy is asked before any choice, so a required factor comes first (`mfa`, then
   `principal`), and no principal is listed or chosen while it is outstanding (`pending_action_not_allowed`).
 - `choose()` runs under the session's row lock in one transaction rolled back on any refusal, so a refused choice leaves
@@ -83,9 +86,12 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   session's key does not change, so its proofs and provenance carry over unchanged.
 - With the previous rotation id inside the grace window, the current credential is reissued for the destination, writing
   nothing, only when the session records the destination principal and tenant and either its last rotation was a switch
-  that changed them (`switched_at = refresh_rotated_at`) or the token's own `principal` is the destination; anything
-  else is `rotation_conflict`, without revoking. The tenant policy is not asked again on a retry: the call that recorded
-  the destination asked it.
+  that changed them (`switched_at` not before `refresh_rotated_at`: a switch in a second the floor already reached
+  writes the floor past the rotation, see `SessionRecords\SwitchFloor`) or the token's own `principal` is the
+  destination; anything else is `rotation_conflict`, without revoking. The destination tenant's policy is asked again
+  on a retry, as a refresh with the same token asks it (the rotation that opened the window may have been a refresh, or
+  the policy may have changed since): `sso_required` refuses the retry and leaves the session alone, and a further
+  factor the session lacks returns it to pending, a return that loses its swap answered `rotation_conflict`.
 - A missed swap re-reads the row with a lock and judges it once: a still-current id is `rotation_conflict`, a previous
   id is answered by the retry rule against the row as it now is (after the owner is checked again), and anything else
   fails for its reason, a replay (`rotation_reuse`) revoking the session as a first judgement does. There is never a

@@ -387,7 +387,7 @@ final readonly class SessionSwitch
      * @param  array{0: string, 1: mixed}  $presented
      * @param  array{0: array{0: \Carbon\CarbonImmutable, 1: ?\Carbon\CarbonImmutable}, 1: ?string}  $answered
      * @param  \Carbon\CarbonImmutable  $now
-     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
      *
      * @throws \Throwable
      */
@@ -397,7 +397,7 @@ final readonly class SessionSwitch
         #[\SensitiveParameter] array $presented,
         array $answered,
         CarbonImmutable $now,
-    ): AuthenticationFailed|SwitchedPrincipal {
+    ): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal {
         [$deadlines, $version] = $answered;
         [$type, $id]           = PrincipalReference::columns($session);
         [$principal, $tenant]  = RefreshRotationStore::contextChanges($session, $destination);
@@ -432,17 +432,21 @@ final readonly class SessionSwitch
      * destination principal and tenant and either its last rotation was a
      * switch (a lost switch response retried) or the token's own principal is
      * the destination; anything else is a conflict the client can retry, not a
-     * replay. The destination tenant's policy is not asked again: the call that
-     * recorded the destination asked it.
+     * replay. The destination tenant's policy is asked again, as a refresh
+     * presenting the same token asks it, since the rotation that opened the
+     * window may have been a refresh, or the policy may have changed since:
+     * `sso_required` refuses the retry, leaving the session as it was; a
+     * further factor the session lacks returns it to pending, and a return that
+     * loses its compare-and-swap is a conflict, never judged again.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  array{0: string, 1: mixed}  $presented
-     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
      *
      * @throws \Throwable
      */
-    private function retry(EloquentSession&Model $session, Admitted $admitted, #[\SensitiveParameter] array $presented): AuthenticationFailed|SwitchedPrincipal
+    private function retry(EloquentSession&Model $session, Admitted $admitted, #[\SensitiveParameter] array $presented): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal
     {
         $honored = !in_array(true, RefreshRotationStore::contextChanges($session, $admitted), true)
             && (self::isLastRotationASwitch($session) || IdentifierCoercion::matches($admitted->principal->getPrincipalIdentifier(), $presented[1]));
@@ -451,13 +455,22 @@ final readonly class SessionSwitch
             return self::refused(FailureReason::ROTATION_CONFLICT, $this->eventContext($session, $admitted));
         }
 
-        $now    = CarbonImmutable::now()->startOfSecond();
-        $tokens = $this->issue($admitted, $session, RefreshTokenHasher::successor($presented[0]), $now);
-        $type   = PrincipalReference::type($admitted->principal);
-        $id     = PrincipalReference::id($admitted->principal);
-        $tenant = IdentifierCoercion::stringify($admitted->tenant?->getTenantIdentifier());
+        $now     = CarbonImmutable::now()->startOfSecond();
+        $verdict = TenantPolicyCheck::check($this->context->name(), $admitted->identity, $admitted->principal, $admitted->tenant, $session, $now);
 
-        return new SwitchedPrincipal(self::exchanged($admitted, $session, $tokens), $type, $id, $tenant, false, false);
+        return match ($verdict->standing) {
+            TenantPolicyStanding::SSO_REQUIRED    => self::refused(FailureReason::SSO_REQUIRED, $this->eventContext($session, $admitted)),
+            TenantPolicyStanding::FACTOR_REQUIRED => $this->transitions->returnToPending($session, $admitted, AuthenticationFlow::SWITCH, $now)
+                ?? self::refused(FailureReason::ROTATION_CONFLICT, $this->eventContext($session, $admitted)),
+            TenantPolicyStanding::MET => new SwitchedPrincipal(
+                self::exchanged($admitted, $session, $this->issue($admitted, $session, RefreshTokenHasher::successor($presented[0]), $now)),
+                PrincipalReference::type($admitted->principal),
+                PrincipalReference::id($admitted->principal),
+                IdentifierCoercion::stringify($admitted->tenant?->getTenantIdentifier()),
+                false,
+                false,
+            ),
+        };
     }
 
     /**
@@ -471,7 +484,7 @@ final readonly class SessionSwitch
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  array{0: string, 1: mixed}  $presented
      * @param  \Carbon\CarbonImmutable  $now
-     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
      *
      * @throws \Throwable
      */
@@ -480,7 +493,7 @@ final readonly class SessionSwitch
         Admitted $admitted,
         #[\SensitiveParameter] array $presented,
         CarbonImmutable $now,
-    ): AuthenticationFailed|SwitchedPrincipal {
+    ): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal {
         $fresh = $this->store->reload($session);
 
         if ($fresh === null) {
@@ -601,8 +614,12 @@ final readonly class SessionSwitch
 
     /**
      * Whether the session's last rotation was a switch that changed its
-     * principal or active tenant: the switch and the rotation were recorded at
-     * the same second.
+     * principal or active tenant: its context floor is not before the rotation.
+     * A switch writes the floor at the rotation's second, or past it when the
+     * floor already reached that second (`SwitchFloor`), so the two are
+     * compared by order, not equality. A refresh in a later second leaves the
+     * floor behind; one within the second a bumped floor reaches presents a
+     * token of the principal the session records, so it is honoured either way.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return bool
@@ -612,8 +629,9 @@ final readonly class SessionSwitch
     private static function isLastRotationASwitch(EloquentSession&Model $session): bool
     {
         $switchedAt = $session->getSwitchedAt();
+        $rotatedAt  = $session->getRefreshRotatedAt();
 
-        return $switchedAt !== null && $switchedAt->getTimestamp() === $session->getRefreshRotatedAt()?->getTimestamp();
+        return $switchedAt !== null && $rotatedAt !== null && $switchedAt->getTimestamp() >= $rotatedAt->getTimestamp();
     }
 
     /**
