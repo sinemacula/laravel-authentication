@@ -80,8 +80,9 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A switch to another membership reads the refresh counters, the session,
-     * its owner, the target, its tenant and its owner, writes the switch, and
-     * reads the membership it switched from.
+     * its owner, the target, its tenant and its owner, writes the switch, reads
+     * the session's proofs for the new access token, and reads the membership
+     * it switched from.
      *
      * @return void
      *
@@ -97,7 +98,7 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
         self::assertNotNull($session);
 
         $sessions = $this->sessions('members');
-        $result   = $this->assertQueryBudget(7, 1, static fn (): SwitchResult => $sessions->switchPrincipal($session->tokens->refreshToken, $second));
+        $result   = $this->assertQueryBudget(8, 1, static fn (): SwitchResult => $sessions->switchPrincipal($session->tokens->refreshToken, $second));
 
         self::assertTrue($result->isSwitched());
     }
@@ -147,8 +148,9 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * Choosing reads the pending choice, its identity, the chosen membership,
-     * its owner and its tenant, uses the choice up, writes the session, and
-     * gives each of the choice's three attempt slots back.
+     * its owner and its tenant, uses the choice up, writes the session and its
+     * first proof, reads the session's proofs, and gives each of the choice's
+     * three attempt slots back.
      *
      * @return void
      *
@@ -160,7 +162,7 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
         $chosen = ChoosingMembership::query()->firstOrFail();
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(5, 5, static fn (): SignInResult => $sessions->choose($token, $chosen));
+        $result   = $this->assertQueryBudget(6, 6, static fn (): SignInResult => $sessions->choose($token, $chosen));
 
         self::assertTrue($result->isSignedIn());
     }
@@ -169,7 +171,8 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
      * Choosing the principal of the session the sign-in proved reads what a
      * choice reads and the proven session again on the write connection, uses
      * the choice up, revokes the proven session with one compare-and-swap,
-     * inserts the new session, and gives the three slots back.
+     * inserts the new session and its first proof, reads its proofs, and gives
+     * the three slots back.
      *
      * @return void
      *
@@ -189,7 +192,7 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
         self::assertNotNull($choice);
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(6, 6, static fn (): SignInResult => $sessions->choose($choice->token, $chosen));
+        $result   = $this->assertQueryBudget(7, 7, static fn (): SignInResult => $sessions->choose($choice->token, $chosen));
 
         self::assertNotSame($first->record->getKey(), $result->session?->record->getKey());
         self::assertSame('superseded', Session::query()->whereKey($first->record->getKey())->value('revoked_reason'));
@@ -208,7 +211,7 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
         [$session, $second] = $this->signInWithASecondMembership();
 
         $sessions = self::sessionsOf($this->guardForRequest(['refresh_token' => $session->tokens->refreshToken]));
-        $result   = $this->assertQueryBudget(7, 1, static fn (): ?SwitchResult => $sessions->switchPrincipalFromRequest($second));
+        $result   = $this->assertQueryBudget(8, 1, static fn (): ?SwitchResult => $sessions->switchPrincipalFromRequest($second));
 
         self::assertTrue($result?->isSwitched());
     }
@@ -216,7 +219,8 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
     /**
      * A lost switch response retried inside the grace window reads the refresh
      * counters, the session, its owner, the target, its tenant and its owner,
-     * and writes nothing: the current credential is handed back.
+     * and the session's proofs, and writes nothing: the current credential is
+     * handed back.
      *
      * @return void
      *
@@ -229,7 +233,7 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
         self::assertTrue($this->sessions('members')->switchPrincipal($session->tokens->refreshToken, $second)->isSwitched());
 
         $sessions = $this->sessions('members');
-        $result   = $this->assertQueryBudget(6, 0, static fn (): SwitchResult => $sessions->switchPrincipal($session->tokens->refreshToken, $second));
+        $result   = $this->assertQueryBudget(7, 0, static fn (): SwitchResult => $sessions->switchPrincipal($session->tokens->refreshToken, $second));
 
         self::assertTrue($result->isSwitched());
     }

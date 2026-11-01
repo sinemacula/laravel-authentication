@@ -17,24 +17,29 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
+use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
+use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * Writes a session the session service starts: always a new session, which
- * replaces the existing session a client proved it holds, if any, and the first
- * token pair.
+ * replaces the existing session a client proved it holds, if any, its first
+ * proofs and provenance, and the first token pair.
  *
  * Each runs in one transaction on the session's connection. The session is
- * written first (after the revocation of the session it replaces) and the
- * tokens are issued after it, inside the transaction, so a cancelled insert or
- * any failure while issuing (signing, randomness, an identifier that cannot be
- * read) rolls every write back: no session is left without a client that holds
- * its refresh token, and no session is revoked for a replacement that was not
- * written. Only the digest of the new rotation id is stored. Every time is the
- * one `$now` of the sign-in, formatted with the session model's own date
- * format.
+ * written first (after the revocation of the session it replaces), then the
+ * sign-in's proofs (the first factor, and the further factor a completion was
+ * given), then its provenance when an external provider established it, and the
+ * tokens are issued after them, inside the transaction, so a cancelled insert
+ * or any failure while issuing (signing, randomness, an identifier that cannot
+ * be read) rolls every write back: no session is left without a client that
+ * holds its refresh token, or without the proof its tokens are derived from,
+ * and no session is revoked for a replacement that was not written. Only the
+ * digest of the new rotation id is stored. Every session time is the one `$now`
+ * of the sign-in, formatted with the session model's own date format; each
+ * proof keeps its own time.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -67,24 +72,24 @@ final readonly class SessionWriter
      * issue its first pair.
      *
      * The session records its owner (the identity, which must be an Eloquent
-     * model), the principal, the guard, the sign-in method and the type of
-     * identifier it used, the client's name and platform, the IP address and
-     * user agent of the client the sign-in came from (`$origin`) as its
-     * creation, the context's client and the sign-in as its last use (so
+     * model), the principal, the guard, the sign-in method (the proof's) and
+     * the type of identifier it used, the client's name and platform, the IP
+     * address and user agent of the client the sign-in came from (`$origin`) as
+     * its creation, the context's client and the sign-in as its last use (so
      * recording the use when the guard binds it writes nothing more), the
      * digest of a new rotation id, and both deadlines: the absolute one capped
      * at the context's deadline, if it gives one, and `null` when neither it
-     * nor the application sets one. A context whose deadline has already passed
-     * is an `InvalidArgumentException`: establishment refuses such a sign-in
-     * first.
+     * nor the application sets one; then the sign-in's proofs and provenance
+     * (`$proof`). A context whose deadline has already passed is an
+     * `InvalidArgumentException`: establishment refuses such a sign-in first.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
-     * @param  string  $method
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  $lifetimes
      * @param  \Carbon\CarbonImmutable  $now
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $origin
+     * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
      * @throws \InvalidArgumentException
@@ -93,23 +98,25 @@ final readonly class SessionWriter
      */
     public function create(
         Admitted $admitted,
-        string $method,
         ?string $identifierType,
         SignInContext $context,
         TokenLifetimes $lifetimes,
         CarbonImmutable $now,
         ClientContext $origin,
+        SignInProof $proof,
     ): SignedInSession {
         $rotationId = RefreshTokenHasher::generate();
-        $session    = $this->newSession($admitted, $method, $identifierType, $context, $origin);
+        $session    = $this->newSession($admitted, $proof->method, $identifierType, $context, $origin);
 
         $session->forceFill(self::sessionState($session, $rotationId, $context, $lifetimes, $now));
 
-        return $session->getConnection()->transaction(function () use ($session, $admitted, $method, $rotationId, $now): SignedInSession {
+        return $session->getConnection()->transaction(function () use ($session, $admitted, $proof, $rotationId, $now): SignedInSession {
 
             self::insert($session);
 
-            return $this->issue($session, $admitted, $method, $rotationId, $now);
+            $this->record($session, $proof);
+
+            return $this->issue($session, $admitted, $proof->method, $rotationId, $now);
         });
     }
 
@@ -130,15 +137,16 @@ final readonly class SessionWriter
      * or change makes it affect no row, and then nothing is written. The
      * revocation, the new session and its pair are one transaction, so a
      * cancelled insert or a failure while issuing leaves the proven session as
-     * it was.
+     * it was. The new session records only its own sign-in's proofs: the
+     * replaced session's stay with it.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
-     * @param  string  $method
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  $lifetimes
      * @param  \Carbon\CarbonImmutable  $now
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $origin
+     * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
      * @return ?\SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
      * @throws \InvalidArgumentException
@@ -147,12 +155,12 @@ final readonly class SessionWriter
      */
     public function replace(
         Admitted $admitted,
-        string $method,
         ?string $identifierType,
         SignInContext $context,
         TokenLifetimes $lifetimes,
         CarbonImmutable $now,
         ClientContext $origin,
+        SignInProof $proof,
     ): ?SignedInSession {
         $previous   = self::provenSession($admitted);
         $rotationId = RefreshTokenHasher::generate();
@@ -162,13 +170,13 @@ final readonly class SessionWriter
             $context->platform   ?? self::recorded($previous, $previous->getPlatformName()),
             notAfter: $context->notAfter,
         );
-        $session = $this->newSession($admitted, $method, $identifierType, $described, $origin);
+        $session = $this->newSession($admitted, $proof->method, $identifierType, $described, $origin);
 
         $session->forceFill(self::sessionState($session, $rotationId, $described, $lifetimes, $now));
 
         $revoked = RefreshRotationStore::revocation($previous, RevocationReason::SUPERSEDED, $now);
 
-        return $session->getConnection()->transaction(function () use ($previous, $revoked, $session, $admitted, $method, $rotationId, $now): ?SignedInSession {
+        return $session->getConnection()->transaction(function () use ($previous, $revoked, $session, $admitted, $proof, $rotationId, $now): ?SignedInSession {
 
             if (!$this->swap($previous, $revoked)) {
                 return null;
@@ -176,7 +184,9 @@ final readonly class SessionWriter
 
             self::insert($session);
 
-            return $this->issue($session, $admitted, $method, $rotationId, $now);
+            $this->record($session, $proof);
+
+            return $this->issue($session, $admitted, $proof->method, $rotationId, $now);
         });
     }
 
@@ -333,6 +343,33 @@ final readonly class SessionWriter
             $session->getIdleExpiresAtName()      => $session->fromDateTime($lifetimes->idleDeadline($now, $absolute)),
             $session->getAbsoluteExpiresAtName()  => $session->fromDateTime($absolute),
         ];
+    }
+
+    /**
+     * Record the sign-in's proofs on the new session: its first factor, the
+     * further factor a completion was given, if any, and the provenance of a
+     * session an external provider established.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
+     * @return void
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     */
+    private function record(EloquentSession&Model $session, SignInProof $proof): void
+    {
+        ProofWriter::record($session, $this->guard, $proof->firstFactor());
+
+        if ($proof->additional !== null) {
+            ProofWriter::record($session, $this->guard, $proof->additional);
+        }
+
+        if ($proof->provenance === null) {
+            return;
+        }
+
+        ProofWriter::provenance($session, $proof->provenance);
     }
 
     /**

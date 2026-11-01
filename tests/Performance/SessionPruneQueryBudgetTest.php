@@ -11,9 +11,11 @@ use SineMacula\Laravel\Authentication\Concerns\PrunesSessions;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * Query-budget contracts for pruning sessions: each chunk is one conditional
- * `DELETE`, nothing is read, and the run ends with the one `DELETE` that finds
- * nothing left, so N prunable sessions cost ceil(N / chunk) + 1 statements.
+ * Query-budget contracts for pruning sessions: each chunk reads the keys of up
+ * to a chunk of prunable sessions and deletes, by those keys, their proofs,
+ * their provenance and the sessions themselves, and the run ends with the one
+ * read that finds nothing left, so N prunable sessions cost ceil(N / chunk) + 1
+ * reads and three deletes per chunk.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -29,7 +31,7 @@ final class SessionPruneQueryBudgetTest extends PerformanceContractTestCase
      *
      * @return void
      */
-    public function testPruningIsOneDeletePerChunkPlusOne(): void
+    public function testPruningIsOneReadAndThreeDeletesPerChunkPlusOneRead(): void
     {
         foreach (array_chunk(range(1, 2500), 250) as $chunk) {
             DB::table('authentication_sessions')->insert(array_map(fn (int $index): array => $this->record($index, true), $chunk));
@@ -37,22 +39,22 @@ final class SessionPruneQueryBudgetTest extends PerformanceContractTestCase
 
         DB::table('authentication_sessions')->insert($this->record(0, false));
 
-        $pruned = $this->assertQueryBudget(0, 4, static fn (): int => (new Session)->pruneAll());
+        $pruned = $this->assertQueryBudget(4, 9, static fn (): int => (new Session)->pruneAll());
 
         self::assertSame(2500, $pruned);
         self::assertSame(1, DB::table('authentication_sessions')->count());
     }
 
     /**
-     * With nothing to prune, the run is the one `DELETE` that finds nothing.
+     * With nothing to prune, the run is the one read that finds nothing.
      *
      * @return void
      */
-    public function testNothingToPruneCostsOneDelete(): void
+    public function testNothingToPruneCostsOneRead(): void
     {
         DB::table('authentication_sessions')->insert($this->record(0, false));
 
-        self::assertSame(0, $this->assertQueryBudget(0, 1, static fn (): int => (new Session)->pruneAll()));
+        self::assertSame(0, $this->assertQueryBudget(1, 0, static fn (): int => (new Session)->pruneAll()));
     }
 
     /**

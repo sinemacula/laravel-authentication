@@ -136,14 +136,16 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
     /**
      * Refresh success should read its limits, do the session lookup and
-     * authenticatable hydration, then one CAS write. The timestamp write is
-     * suppressed here by seeding `last_used_at` inside the throttle window.
+     * authenticatable hydration and read the session's proofs for the new
+     * access token's `auth_time` and `amr`, then one CAS write. The timestamp
+     * write is suppressed here by seeding `last_used_at` inside the throttle
+     * window.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testRefreshSuccessUsesThreeReadsAndOneWrite(): void
+    public function testRefreshSuccessUsesFourReadsAndOneWrite(): void
     {
         $identity   = $this->seedIdentity();
         $rotationId = 'refresh-success-rotation-id';
@@ -163,7 +165,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $jwt->issueRefreshToken($session, $rotationId, $identity);
         $guard = $this->freshJwtGuard(self::GUARD);
 
-        $result = $this->assertQueryBudget(3, 1, static fn () => GuardSessions::of($guard)->refresh($token)->session?->tokens);
+        $result = $this->assertQueryBudget(4, 1, static fn () => GuardSessions::of($guard)->refresh($token)->session?->tokens);
 
         self::assertNotNull($result);
     }
@@ -197,7 +199,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $guard = $this->freshJwtGuard(self::GUARD);
 
-        self::assertTrue($this->assertQueryBudget(3, 1, static fn () => GuardSessions::of($guard)->refreshFromRequest())?->isRefreshed());
+        self::assertTrue($this->assertQueryBudget(4, 1, static fn () => GuardSessions::of($guard)->refreshFromRequest())?->isRefreshed());
     }
 
     /**
@@ -229,7 +231,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $guard = $this->freshJwtGuard(self::COOKIE_GUARD);
 
-        self::assertTrue($this->assertQueryBudget(3, 1, static fn () => GuardSessions::of($guard)->refreshFromRequest())?->isRefreshed());
+        self::assertTrue($this->assertQueryBudget(4, 1, static fn () => GuardSessions::of($guard)->refreshFromRequest())?->isRefreshed());
     }
 
     /**
@@ -339,15 +341,15 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * A grace retry is answered from the limits, the session row and the owner
-     * with no write at all: the current credential is re-issued, not rotated
-     * again.
+     * A grace retry is answered from the limits, the session row, the owner and
+     * the session's proofs with no write at all: the current credential is
+     * re-issued, not rotated again.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testGraceRetryUsesThreeReadsAndNoWrites(): void
+    public function testGraceRetryUsesFourReadsAndNoWrites(): void
     {
         $identity = $this->seedIdentity();
         $session  = $this->seedSession($identity, [
@@ -360,19 +362,20 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $this->tokens()->issueRefreshToken($session, 'previous-rotation-id', $identity);
         $guard = $this->freshJwtGuard(self::GUARD);
 
-        self::assertNotNull($this->assertQueryBudget(3, 0, static fn () => GuardSessions::of($guard)->refresh($token))->session);
+        self::assertNotNull($this->assertQueryBudget(4, 0, static fn () => GuardSessions::of($guard)->refresh($token))->session);
     }
 
     /**
      * A refresh that loses its swap to a parallel refresh with the same token
-     * pays the limits, session and owner reads, the missed swap, and one
-     * locking re-read of the session, then succeeds as a grace retry.
+     * pays the limits, session and owner reads, the proofs read of the pair it
+     * issued, the missed swap, and one locking re-read of the session, then
+     * succeeds as a grace retry, reading the proofs again for its pair.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testLostRotationResolvedAsAGraceRetryUsesFourReadsAndOneWrite(): void
+    public function testLostRotationResolvedAsAGraceRetryUsesSixReadsAndOneWrite(): void
     {
         $identity = $this->seedIdentity();
         $session  = $this->seedSession($identity, [
@@ -403,7 +406,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
                 ]);
         });
 
-        self::assertNotNull($this->assertQueryBudget(4, 1, static fn () => GuardSessions::of($guard)->refresh($token))->session);
+        self::assertNotNull($this->assertQueryBudget(6, 1, static fn () => GuardSessions::of($guard)->refresh($token))->session);
     }
 
     /**

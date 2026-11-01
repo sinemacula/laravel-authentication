@@ -48,6 +48,10 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Proofs\Channel;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
+use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
@@ -1044,6 +1048,7 @@ final class SessionServiceTest extends TestCase
             'password',
             'email',
             new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT)),
+            SignInProof::unattested('password', CarbonImmutable::now()->startOfSecond()),
             CarbonImmutable::now()->startOfSecond(),
         );
 
@@ -1076,6 +1081,7 @@ final class SessionServiceTest extends TestCase
             'password',
             'email',
             new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT)),
+            SignInProof::unattested('password', CarbonImmutable::now()->startOfSecond()),
             CarbonImmutable::now()->startOfSecond(),
             [['identifier' => 'window'], ['account' => 'window']],
         );
@@ -1175,6 +1181,7 @@ final class SessionServiceTest extends TestCase
             'password',
             'email',
             new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT)),
+            SignInProof::unattested('password', CarbonImmutable::now()->startOfSecond()),
             CarbonImmutable::now()->startOfSecond(),
             [['identifier' => 'window'], ['account' => 'window']],
         );
@@ -1213,6 +1220,7 @@ final class SessionServiceTest extends TestCase
             'password',
             'email',
             new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT)),
+            SignInProof::unattested('password', CarbonImmutable::now()->startOfSecond()),
             CarbonImmutable::now()->startOfSecond(),
             [['identifier' => 'window'], ['account' => 'window']],
         );
@@ -1526,12 +1534,14 @@ final class SessionServiceTest extends TestCase
              * Vouch for the configured identity, or refuse as configured.
              *
              * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
-             * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+             * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Proofs\FirstFactor
              */
             #[\Override]
-            public function authenticate(SignInRequest $request): FailureReason|Identity
+            public function authenticate(SignInRequest $request): FailureReason|FirstFactor
             {
-                return $this->identity ?? FailureReason::INVALID_CREDENTIALS;
+                return $this->identity instanceof Identity
+                    ? new FirstFactor($this->identity, new Channel(ChannelKind::UNKNOWN))
+                    : $this->identity ?? FailureReason::INVALID_CREDENTIALS;
             }
         };
 

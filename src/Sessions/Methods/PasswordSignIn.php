@@ -13,6 +13,9 @@ use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
+use SineMacula\Laravel\Authentication\Proofs\Channel;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
@@ -69,6 +72,9 @@ final readonly class PasswordSignIn implements SignInMethod
 
     /** @var string Input key holding the password. */
     private const string PASSWORD_KEY = 'password';
+
+    /** @var string The `amr` value of a password (RFC 8176). */
+    private const string AMR = 'pwd';
 
     /** @var string Laravel's setting for rehashing a password on sign-in. */
     private const string REHASH_KEY = 'hashing.rehash_on_login';
@@ -172,15 +178,17 @@ final readonly class PasswordSignIn implements SignInMethod
      * Verify the identifier and password the input carries, counting the
      * password check against the account the identifier finds. Anything else in
      * the input is ignored, and an identifier that is neither a string, a
-     * `Stringable` nor an integer is refused without a lookup.
+     * `Stringable` nor an integer is refused without a lookup. A verified
+     * password is a `password` channel with nothing observed and the `pwd`
+     * `amr` value.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
-     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Proofs\FirstFactor
      *
      * @throws \InvalidArgumentException
      */
     #[\Override]
-    public function authenticate(SignInRequest $request): FailureReason|Identity
+    public function authenticate(SignInRequest $request): FailureReason|FirstFactor
     {
         $identifier = $this->identifier($request->guard, $request->input);
         $password   = $request->input[self::PASSWORD_KEY] ?? null;
@@ -197,7 +205,7 @@ final readonly class PasswordSignIn implements SignInMethod
         $user = $this->retrieve($request->provider, $credentials);
 
         return $user instanceof Identity && self::hasPassword($user) && $request->reserveAccountAttempt($user) && $request->provider->validateCredentials($user, $credentials)
-            ? $user
+            ? new FirstFactor($user, new Channel(ChannelKind::PASSWORD), methods: [self::AMR])
             : FailureReason::INVALID_CREDENTIALS;
     }
 

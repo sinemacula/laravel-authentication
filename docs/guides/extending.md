@@ -295,11 +295,16 @@ seam has a default that works alone.
 - Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity)` and `verifyFactor()`, which count and
   report nothing: the factor's outcome is the factor package's to limit and report. `verifyFactor()` answers a
   `PasskeyFactorResult` (see [Using passkeys](signing-in.md#using-passkeys)), never `null`.
-- A factor package's credentials and enrolments are its own. Authentication proofs belong on the session in this
-  package, which does not record them yet, so for now anything a factor package keeps about a session is its own,
-  keyed by the session id (`Auth::session()?->getSessionIdentifier()`, the `sid` every session token carries),
-  and does not survive a sign-in: every sign-in starts a new session with a new id, and the session the client proved
-  (`AdditionalFactorContext::$provenSession`) is revoked, so nothing kept about it transfers to the new one.
+- A factor package's credentials and enrolments are its own; the proofs of a session are this package's (see
+  [Proofs and provenance](sessions.md#proofs-and-provenance)). The adapter hands each factor it verified to the session
+  service as a `Proofs\ProofResult`: its kind (`additional_factor`, or `recovery_code` for the fallback, kept apart),
+  method, channel, factor, what it observed (`null` for anything it did not), its `Evaluation` (accepted, and
+  multifactor as it judged it: `amr` carries `mfa` only from there, never counted from the values, and a proof's own
+  values may not name `mfa`), its `amr` values, its time and its `ProofBinding` (identity, application, session or
+  pending sign-in, purpose). Complete a pending sign-in with `complete($token, $proof)`, bound to `PendingFactor::$id`
+  for `sign_in` (see [Additional factors](signing-in.md#additional-factors)). Nothing a factor package keeps about a
+  session survives a sign-in: every sign-in starts a new session with a new id and its own proofs, and the session the
+  client proved (`AdditionalFactorContext::$provenSession`) is revoked with its proofs left on it.
 - A factor the factor package has just verified proves a recent authentication before an identifier change:
   `Reauthentication::confirmedAt($verifiedAt)` (see [Changing identifiers](identifier-changes.md)).
 - When every sign-in requires a further factor, a password is no longer the only factor, and `passwords.min_length`
@@ -338,6 +343,12 @@ $passed = $result->isVerified();   // else $result->reason
 - For an assertion the package should verify itself, implement `Contracts\SignInMethod`, register it with
   `SignInMethodManager::extend()` and sign in through `signIn()`, which adds the limits and the timebox (see
   [Writing a sign-in method](signing-in.md#writing-a-sign-in-method)).
+- Pass what the callback checked as a `Proofs\Provenance` (`start($identity, $principal, 'sso', $context,
+  $provenance)`): the session records it once (the connection and its tenant, the provider's authentication time, its
+  session deadline and the policy version), indexed by connection and by tenant, its first proof is the provider's with
+  the private `amr` value `urn:sinemacula:amr:external_provider`, and the provider's deadline caps the session (see
+  [Signing in: the session service](signing-in.md#signing-in-the-session-service)). The provider's own `amr` values and
+  evidence are the SSO package's: none of them reaches this package's `amr`.
 - Either way the session records the method, so the application can stop allowing it and its sessions stop
   refreshing.
 

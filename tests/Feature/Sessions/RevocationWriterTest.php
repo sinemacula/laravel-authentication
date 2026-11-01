@@ -26,6 +26,7 @@ use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\SessionRecords\IdentitySessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\RevocationScope;
@@ -716,6 +717,7 @@ final class RevocationWriterTest extends TestCase
             'authenticatable_id'   => $id,
             'principal_type'       => $type,
             'principal_id'         => $id,
+            'first_factor'         => json_encode(SignInProof::unattested('password', CarbonImmutable::parse('2027-01-15 10:00:00'))->toArray(), JSON_THROW_ON_ERROR),
             'expires_at'           => '2027-01-15 10:05:00',
         ];
     }

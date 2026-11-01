@@ -5,12 +5,17 @@ declare(strict_types = 1);
 namespace Tests;
 
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase as OrchestraTestCase;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Models\Session;
+use Tests\Fixtures\Sessions\FirstFactorRecorder;
 
 /**
  * Shared base test case for the package's integration tests.
@@ -21,6 +26,12 @@ use SineMacula\Laravel\Authentication\Models\Session;
  * shipped tables created. Subclasses may override `defineEnvironment` to add
  * per-test config and `defineDatabaseMigrations` (or use `setUp`) to create
  * additional tables.
+ *
+ * A session row a test inserts itself is given the first-factor proof the
+ * session service records with every session it writes (see
+ * `FirstFactorRecorder`), so tokens issued for it carry `auth_time` and `amr`
+ * as a real sign-in's would; a test of a session without proofs turns that off
+ * with `$recordsSessionProofs`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -40,6 +51,9 @@ abstract class TestCase extends OrchestraTestCase
 
     /** @var string The package's shipped migrations. */
     private const string MIGRATIONS = __DIR__ . '/../database/migrations';
+
+    /** @var bool Whether a session row the test inserts itself is given the first-factor proof a sign-in records. */
+    protected bool $recordsSessionProofs = true;
 
     /** @var array<string, true> Worker databases this process has created. */
     private static array $workerDatabases = [];
@@ -126,14 +140,17 @@ abstract class TestCase extends OrchestraTestCase
         $config->set('authentication.jwt.audience', self::JWT_AUDIENCE);
         $config->set('authentication.jwt.access_ttl_minutes', 15);
         $config->set('authentication.jwt.refresh_idle_ttl_minutes', 60 * 24 * 30);
+
+        $this->recordFirstFactorsOfSessionRows($app);
     }
 
     /**
      * Run the package's shipped migrations so the default
      * `authentication_sessions`, `pending_sign_ins`, `rate_limits`,
-     * `one_time_codes`, `passkeys`, `passkey_challenges`, `api_keys` and
-     * `identifier_changes` tables exist for tests that use the shipped models,
-     * on the connections the storage settings name when they run.
+     * `one_time_codes`, `passkeys`, `passkey_challenges`, `api_keys`,
+     * `identifier_changes`, `authentication_proofs` and
+     * `authentication_provenance` tables exist for tests that use the shipped
+     * models, on the connections the storage settings name when they run.
      *
      * A test may point the storage settings elsewhere once the tables exist;
      * `tearDown()` puts them back before the migrations are rolled back. On a
@@ -214,6 +231,29 @@ abstract class TestCase extends OrchestraTestCase
     }
 
     /**
+     * Give each session row the test inserts itself the first-factor proof a
+     * sign-in records, unless the test turned that off.
+     *
+     * @param  mixed  $app
+     * @return void
+     */
+    private function recordFirstFactorsOfSessionRows(mixed $app): void
+    {
+        assert($app instanceof Application);
+
+        $app->make(Dispatcher::class)->listen('eloquent.created: *', function (string $event, array $payload): void {
+
+            $session = $payload[0] ?? null;
+
+            if (!$this->recordsSessionProofs || !$session instanceof EloquentSession || !$session instanceof Model) {
+                return;
+            }
+
+            FirstFactorRecorder::record($session);
+        });
+    }
+
+    /**
      * Return each package table with the connection it lives on.
      *
      * @param  \Illuminate\Config\Repository  $config
@@ -233,6 +273,8 @@ abstract class TestCase extends OrchestraTestCase
             [$storage, $config->string('authentication.passkeys.challenges_table', 'passkey_challenges')],
             [$storage, $config->string('authentication.api_keys.table', 'api_keys')],
             [$storage, $config->string('authentication.identifier_changes.table', 'identifier_changes')],
+            [$storage, $config->string('authentication.proofs.table', 'authentication_proofs')],
+            [$storage, $config->string('authentication.proofs.provenance_table', 'authentication_provenance')],
         ];
     }
 

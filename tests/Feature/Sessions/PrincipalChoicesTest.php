@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalChoiceRequired;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalChoices;
@@ -211,7 +212,14 @@ final class PrincipalChoicesTest extends TestCase
 
         DB::beginTransaction();
 
-        $result = $this->choices($guard)->offerChoice($member, 'password', 'email', SignInContext::fromRequest(app('request')), self::WINDOWS);
+        $result = $this->choices($guard)->offerChoice(
+            $member,
+            'password',
+            'email',
+            SignInContext::fromRequest(app('request')),
+            SignInProof::unattested('password', CarbonImmutable::now()),
+            self::WINDOWS,
+        );
 
         self::assertInstanceOf(SignInResult::class, $result);
         self::assertTrue($result->requiresPrincipal());
@@ -243,7 +251,14 @@ final class PrincipalChoicesTest extends TestCase
 
         $this->recordEvents([PrincipalChoiceRequired::class]);
 
-        $refused = $this->choices($this->freshGuard(self::GUARD))->offerChoice($member, 'password', null, SignInContext::fromRequest(app('request')), null);
+        $refused = $this->choices($this->freshGuard(self::GUARD))->offerChoice(
+            $member,
+            'password',
+            null,
+            SignInContext::fromRequest(app('request')),
+            SignInProof::unattested('password', CarbonImmutable::now()),
+            null,
+        );
 
         self::assertInstanceOf(Refused::class, $refused);
         self::assertSame(FailureReason::PRINCIPAL_UNRESOLVED, $refused->reason);
@@ -269,7 +284,14 @@ final class PrincipalChoicesTest extends TestCase
 
         app()->instance(ApplicationPolicy::class, new InvitedTenantApplicationPolicy(app(ApplicationPolicy::class), $invited->getKey()));
 
-        $refused = $this->choices($this->freshGuard(self::GUARD))->offerChoice($member, 'password', 'email', SignInContext::fromRequest(app('request')), null);
+        $refused = $this->choices($this->freshGuard(self::GUARD))->offerChoice(
+            $member,
+            'password',
+            'email',
+            SignInContext::fromRequest(app('request')),
+            SignInProof::unattested('password', CarbonImmutable::now()),
+            null,
+        );
 
         self::assertInstanceOf(Refused::class, $refused);
         self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $refused->reason);
@@ -288,7 +310,7 @@ final class PrincipalChoicesTest extends TestCase
         [$member] = $this->seedChooser();
 
         $choices = $this->choices($this->freshGuard(self::GUARD));
-        $result  = $choices->offerChoice($member, 'password', null, SignInContext::fromRequest(app('request')), null);
+        $result  = $choices->offerChoice($member, 'password', null, SignInContext::fromRequest(app('request')), SignInProof::unattested('password', CarbonImmutable::now()), null);
 
         self::assertInstanceOf(SignInResult::class, $result);
 
@@ -310,7 +332,7 @@ final class PrincipalChoicesTest extends TestCase
         [$member] = $this->seedChooser();
 
         $choices = $this->choices($this->freshGuard(self::GUARD));
-        $result  = $choices->offerChoice($member, 'password', null, SignInContext::fromRequest(app('request')), null);
+        $result  = $choices->offerChoice($member, 'password', null, SignInContext::fromRequest(app('request')), SignInProof::unattested('password', CarbonImmutable::now()), null);
 
         self::assertInstanceOf(SignInResult::class, $result);
 

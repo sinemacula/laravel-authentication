@@ -21,6 +21,9 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
+use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
@@ -255,7 +258,14 @@ final class PasswordSignInTest extends TestCase
             'tenant_id' => 7,
         ];
 
-        self::assertSame($identity, $this->method('email')->authenticate($this->request($input)));
+        $verified = $this->method('email')->authenticate($this->request($input));
+
+        self::assertInstanceOf(FirstFactor::class, $verified);
+        self::assertSame($identity, $verified->identity);
+        self::assertSame(ChannelKind::PASSWORD, $verified->channel->kind);
+        self::assertNull($verified->channel->reference);
+        self::assertEquals(new ObservedProperties, $verified->observed);
+        self::assertSame(['pwd'], $verified->methods);
     }
 
     /**
@@ -307,7 +317,7 @@ final class PasswordSignInTest extends TestCase
 
         $method = $this->method('email');
 
-        self::assertSame($identity, $method->authenticate($this->request($credentials, 'staff')));
+        self::assertSame($identity, self::verifiedIdentity($method->authenticate($this->request($credentials, 'staff'))));
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $method->authenticate($this->request($credentials, 'staff')));
 
         self::assertSame('staff', $subjects[0]->guard);
@@ -600,7 +610,7 @@ final class PasswordSignInTest extends TestCase
         $method = $this->method('email');
 
         self::assertSame($identity, $method->verifyCredentials($this->provider, ['email' => 'x', 'password' => 'y']));
-        self::assertSame($identity, $method->authenticate($this->request(['email' => 'x', 'password' => 'y'])));
+        self::assertSame($identity, self::verifiedIdentity($method->authenticate($this->request(['email' => 'x', 'password' => 'y']))));
     }
 
     /**
@@ -638,5 +648,19 @@ final class PasswordSignInTest extends TestCase
     private function request(array $input, string $guard = 'api'): SignInRequest
     {
         return new SignInRequest($guard, $this->provider, $input, new ClientContext('203.0.113.7', 'agent'), (new AccountAttempts($this->limiter, $guard))->reserve(...));
+    }
+
+    /**
+     * The identity a sign-in method's answer verified, failing the test when it
+     * verified none.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Proofs\FirstFactor  $verified
+     * @return \SineMacula\Laravel\Authentication\Contracts\Identity
+     */
+    private static function verifiedIdentity(FailureReason|FirstFactor $verified): Identity
+    {
+        self::assertInstanceOf(FirstFactor::class, $verified);
+
+        return $verified->identity;
     }
 }

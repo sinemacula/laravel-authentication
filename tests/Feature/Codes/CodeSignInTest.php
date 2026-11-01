@@ -26,6 +26,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
@@ -99,7 +100,9 @@ final class CodeSignInTest extends TestCase
 
     /**
      * The code sent to a verified number starts a session for its identity that
-     * records the method and the identifier type, and uses the code up.
+     * records the method and the identifier type, and uses the code up; its
+     * first proof is the text message to the number in its normal form, with
+     * the `sms` value and nothing observed.
      *
      * @return void
      *
@@ -117,6 +120,14 @@ final class CodeSignInTest extends TestCase
         self::assertTrue($identity->is($result->session?->identity));
         self::assertSame(['phone_code', 'phone'], [$result->session?->method, Session::query()->sole()->sign_in_identifier_type]);
         self::assertNotNull(DB::table('one_time_codes')->value('consumed_at'));
+
+        $proof = SessionProof::query()->sole();
+
+        self::assertSame(
+            ['first_factor', 'phone_code', 'sms', self::PHONE, ['sms']],
+            [$proof->kind, $proof->method, $proof->channel_kind, $proof->channel_reference, $proof->methods],
+        );
+        self::assertNull($proof->user_presence);
     }
 
     /**
@@ -573,6 +584,36 @@ final class CodeSignInTest extends TestCase
         self::assertSame('whatsapp', $manager->method('whatsapp_code')->identifierType('mobile'));
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions('mobile')->signIn('whatsapp_code', ['whatsapp' => self::PHONE, 'code' => '000000'])->reason);
         self::assertSame(1, self::storedAttempts());
+    }
+
+    /**
+     * A code sent through another identifier type is a proof over an unknown
+     * channel, to the identifier in its normal form, with the `otp` value.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACodeOfAnotherTypeIsAnUnknownChannel(): void
+    {
+        Schema::table('code_identities', static function (Blueprint $blueprint): void {
+            $blueprint->string('whatsapp')->nullable();
+            $blueprint->dateTime('whatsapp_verified_at')->nullable();
+        });
+
+        config()->set('authentication.identifiers.normalizers.whatsapp', config('authentication.identifiers.normalizers.phone'));
+        config()->set('auth.guards.mobile.application.methods', ['whatsapp_code']);
+
+        app(SignInMethodManager::class)->extend('whatsapp_code', fn (Application $app): CodeSignIn => $app->make(CodeSignIn::class, ['type' => 'whatsapp']));
+
+        self::seedCodeIdentity()->forceFill(['whatsapp' => self::PHONE, 'whatsapp_verified_at' => '2026-01-01 00:00:00'])->save();
+
+        self::assertTrue($this->codeService()->send('whatsapp_code', ['whatsapp' => ' ' . self::PHONE])->isSent());
+        self::assertTrue($this->sessions('mobile')->signIn('whatsapp_code', ['whatsapp' => self::PHONE, 'code' => self::CODE])->isSignedIn());
+
+        $proof = SessionProof::query()->sole();
+
+        self::assertSame(['whatsapp_code', 'unknown', self::PHONE, ['otp']], [$proof->method, $proof->channel_kind, $proof->channel_reference, $proof->methods]);
     }
 
     /**

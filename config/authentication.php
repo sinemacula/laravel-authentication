@@ -14,20 +14,20 @@ return [
     |---------------------------------------------------------------------------
     |
     | The connection every package table lives on (`null` for the default):
-    | sessions, pending sign-ins, one-time codes, passkeys and their challenges,
-    | API keys, identifier changes, and the rate limit counters unless
-    | `rate_limits.connection` names their own. The models read and write them
-    | there, and the published migrations create them there. They share one
-    | connection because a session, the completion of a pending sign-in, a
-    | password reset and an identifier change each write several of them in one
-    | transaction, which two connections cannot commit as one: a custom session
-    | model must live on it too, or every session flow fails closed, and
-    | password resets and identifier changes need the identity there as well. A
-    | value that is neither a connection name nor `null` or empty fails closed
-    | when a model is built, and `authentication:check` reports it, as it does a
-    | name `database.connections` does not configure. Keep it fixed while the
-    | application runs: moving the tables is a deploy, with a migration the
-    | application performs and a worker restart.
+    | sessions, their proofs and provenance, pending sign-ins, one-time codes,
+    | passkeys and their challenges, API keys, identifier changes, and the rate
+    | limit counters unless `rate_limits.connection` names their own. The models
+    | read and write them there, and the published migrations create them there.
+    | They share one connection because a session, the completion of a pending
+    | sign-in, a password reset and an identifier change each write several of
+    | them in one transaction, which two connections cannot commit as one: a
+    | custom session model must live on it too, or every session flow fails
+    | closed, and password resets and identifier changes need the identity there
+    | as well. A value that is neither a connection name nor `null` or empty
+    | fails closed when a model is built, and `authentication:check` reports it,
+    | as it does a name `database.connections` does not configure. Keep it fixed
+    | while the application runs: moving the tables is a deploy, with a
+    | migration the application performs and a worker restart.
     |
     */
 
@@ -69,6 +69,33 @@ return [
         'table'                      => env('AUTHENTICATION_SESSION_TABLE', 'authentication_sessions'),
         'last_used_throttle_seconds' => (int) env('AUTHENTICATION_SESSION_LAST_USED_THROTTLE_SECONDS', 60),
         'prune_after_days'           => env('AUTHENTICATION_SESSION_PRUNE_AFTER_DAYS', 30),
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | Proofs
+    |---------------------------------------------------------------------------
+    |
+    | Every session records the proofs it was established and kept with: the
+    | first factor at sign-in, a reauthentication with it, a further factor or
+    | a recovery code an adapter verified, and a reauthentication at the
+    | external provider the session began with, each with its method, channel,
+    | factor, what was observed, the adapter's evaluation, its `amr` values,
+    | its time and its binding, in `table`. A session an external provider
+    | established also records how it began (the connection and its tenant,
+    | the provider's authentication time and session deadline, and the policy
+    | version checked) in `provenance_table`. Both live on the storage
+    | connection, are read from the write connection, and are pruned with
+    | their sessions by the session model's `model:prune`. A code proof's
+    | destination is personal data, kept no longer than its session. Each table
+    | name may be up to 47 characters, as the migrations name their indexes
+    | after it.
+    |
+    */
+
+    'proofs' => [
+        'table'            => env('AUTHENTICATION_PROOFS_TABLE', 'authentication_proofs'),
+        'provenance_table' => env('AUTHENTICATION_PROOFS_PROVENANCE_TABLE', 'authentication_provenance'),
     ],
 
     /*

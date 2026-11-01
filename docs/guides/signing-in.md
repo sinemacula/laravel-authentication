@@ -154,27 +154,49 @@ then `AuthenticationFailed` report them, with the reason. A method name that is 
 not `password`), a method that refuses with any reason but `invalid_credentials`, a misconfigured model and database
 errors still throw. A successful sign-in gives its attempt slots back.
 
-`start($identity, $principal, $method, $context)` begins a session for an identity something else verified, such as an
-external identity provider. The identity is reloaded through the guard's provider (`identity_unknown` when that does not
-return the very same identity), the method must be allowed, the identity, principal and tenant are checked and
-admitted, and the additional-factor policy is asked, so a sign-in from outside cannot skip a required factor. No
+`start($identity, $principal, $method, $context, $provenance)` begins a session for an identity something else verified,
+such as an external identity provider. The identity is reloaded through the guard's provider (`identity_unknown` when
+that does not return the very same identity), the method must be allowed, the identity, principal and tenant are checked
+and admitted, and the additional-factor policy is asked, so a sign-in from outside cannot skip a required factor. No
 attempt limit or timebox applies. The principal is given as the argument or on the context, not both.
+
+When an external provider verified the identity, pass what your server-side code checked as a `Proofs\Provenance`: the
+connection (the configured provider) and its tenant, when the provider authenticated the identity, its deadline for its
+own session (SAML `SessionNotOnOrAfter`), and the version of the enforcement or policy you checked. The session's first
+proof is then the provider's: the connection as an `external_provider` channel, the private `amr` value
+`urn:sinemacula:amr:external_provider` (RFC 8176 names none for it; the provider's own values are its package's to
+carry), and the provider's authentication time (now, when it gave none or one after now). The provenance is recorded
+with the session and never rewritten, and the provider's deadline caps the session's absolute deadline. Never build a
+provenance from what the client sent. Without one, the first proof names no channel and no `amr` value, timed now.
+
+```php
+use SineMacula\Laravel\Authentication\Proofs\Provenance;
+
+$result = Auth::sessions('api')->start($identity, null, 'sso', null, new Provenance(
+    connectionId: $connection->id,
+    tenantId: $connection->tenant_id,
+    providerAuthenticatedAt: $assertion->authenticatedAt,
+    sessionNotAfter: $assertion->sessionNotOnOrAfter,
+    policyVersion: $enforcement->version,
+));
+```
 
 Every sign-in starts a new session that records the identity, the principal, the guard, the method, the client's name
 and platform (from the context, cleaned as the user agent is), the client's IP address and user agent at creation and as
-its last use, the digest of the first rotation id, and both deadlines from the guard's lifetimes (the absolute one
-capped at the sign-in's own deadline, if it gives one, and `null` when neither sets one). The session is written
-and the pair issued in one transaction on the session's connection, so a failure while issuing leaves no session behind.
-`SessionCreated` and `SignedIn` are then scheduled for the session's commit on its own connection before the guard is
-bound (`Validated`, `Login`, `Authenticated`, `PrincipalAssigned` and `SessionAuthenticated` fire at once). Outside a
-transaction the session is already committed, so `SessionCreated` and `SignedIn` are dispatched before the bind events:
-a listener on them reads the event's context, not the guard. Inside your transaction they wait for it to commit, after
-the bind events, and are never dispatched when it is rolled back. Do not roll back around a sign-in: the guard stays
-bound, and unless `rate_limits.connection` names a connection of its own the sign-in's attempt counts are rolled back
-too, so it goes uncounted (see [Rate limits](configuration.md#rate-limits)). A listener that throws on a bind event
-fails the call, so the pair is lost, but cannot keep the session from being reported: outside a transaction `SignedIn`
-has already been dispatched, and inside one it follows your commit (a rollback discards the session with it). Keep those
-listeners from throwing or queue them.
+its last use, the digest of the first rotation id, both deadlines from the guard's lifetimes (the absolute one capped at
+the sign-in's own deadline, if it gives one, and `null` when neither sets one), and the proof of the first factor the
+sign-in verified, with the time it was verified (see [Proofs and provenance](sessions.md#proofs-and-provenance)). The
+session, its proofs and provenance are written and the pair issued in one transaction on the session's connection, so a
+failure while issuing leaves none of them behind. `SessionCreated` and `SignedIn` are then scheduled for the session's
+commit on its own connection before the guard is bound (`Validated`, `Login`, `Authenticated`, `PrincipalAssigned` and
+`SessionAuthenticated` fire at once). Outside a transaction the session is already committed, so `SessionCreated` and
+`SignedIn` are dispatched before the bind events: a listener on them reads the event's context, not the guard. Inside
+your transaction they wait for it to commit, after the bind events, and are never dispatched when it is rolled back. Do
+not roll back around a sign-in: the guard stays bound, and unless `rate_limits.connection` names a connection of its own
+the sign-in's attempt counts are rolled back too, so it goes uncounted (see [Rate
+limits](configuration.md#rate-limits)). A listener that throws on a bind event fails the call, so the pair is lost, but
+cannot keep the session from being reported: outside a transaction `SignedIn` has already been dispatched, and inside
+one it follows your commit (a rollback discards the session with it). Keep those listeners from throwing or queue them.
 
 Every sign-in starts a new session, with a new id and a new rotation id. A client that signs in again with its current
 refresh token in the context proves it holds its previous session, even when that has expired, and the sign-in then
@@ -482,21 +504,24 @@ It ends every session of the identity with `factor_removed`; to keep the current
 
 ## Writing a sign-in method
 
-A sign-in method verifies input the client sends to your sign-in route and answers with the identity it proves, or why
-it does not; the session service does everything else (the application policy, the limits, activity, the principal, a
-further factor, the session and the tokens). Use a method for input the package verifies, such as a password, a code
-your application issued, or an identity provider's signed assertion the method checks itself. Use `start()` instead
-when something outside the session service has already proven the identity, such as an SSO callback your identity
-provider's package handles: `start()` runs the same checks after the proof, but no `Attempting`, attempt limit or
-timebox, since nothing is guessed there. A method signed in through `signIn()` gets all three. `start()` refuses the
-machine credential kinds (`api_key`, `client_credentials`) as the method with an `InvalidArgumentException`, even when
-the application lists them: they authenticate requests and exchanges, never sessions.
+A sign-in method verifies input the client sends to your sign-in route and answers with the first factor it proves, or
+why it does not; the session service does everything else (the application policy, the limits, activity, the principal,
+a further factor, the session and the tokens). Use a method for input the package verifies, such as a password, a code
+your application issued, or an identity provider's signed assertion the method checks itself. Use `start()` instead when
+something outside the session service has already proven the identity, such as an SSO callback your identity provider's
+package handles: `start()` runs the same checks after the proof, but no `Attempting`, attempt limit or timebox, since
+nothing is guessed there. A method signed in through `signIn()` gets all three. `start()` refuses the machine credential
+kinds (`api_key`, `client_credentials`) as the method with an `InvalidArgumentException`, even when the application
+lists them: they authenticate requests and exchanges, never sessions.
 
 ```php
 use Illuminate\Contracts\Hashing\Hasher;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Proofs\Channel;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
 final readonly class BadgeSignIn implements SignInMethod
@@ -513,7 +538,7 @@ final readonly class BadgeSignIn implements SignInMethod
         return is_string($input['badge_number'] ?? null) ? $input['badge_number'] : null;
     }
 
-    public function authenticate(SignInRequest $request): Identity|FailureReason
+    public function authenticate(SignInRequest $request): FirstFactor|FailureReason
     {
         $badge    = $this->identifier($request->guard, $request->input);
         $pin      = $request->input['pin'] ?? null;
@@ -523,7 +548,9 @@ final readonly class BadgeSignIn implements SignInMethod
             return FailureReason::INVALID_CREDENTIALS;
         }
 
-        return $this->hasher->check($pin, $identity->pin_hash) ? $identity : FailureReason::INVALID_CREDENTIALS;
+        return $this->hasher->check($pin, $identity->pin_hash)
+            ? new FirstFactor($identity, new Channel(ChannelKind::UNKNOWN, $badge), methods: ['pin'])
+            : FailureReason::INVALID_CREDENTIALS;
     }
 }
 ```
@@ -532,9 +559,15 @@ final readonly class BadgeSignIn implements SignInMethod
 identifier a guard that requires verified identifiers checks. Return `null` for a method that uses no identifier (an
 assertion that names the identity itself): then only the IP address is limited and the verified-identifier requirement
 does not apply. `identifier()` returns the identifier as the input gives it, for the limits and the failure events,
-never to look anyone up. `authenticate()` returns the identity, or `FailureReason::INVALID_CREDENTIALS` for anything the
-input did not prove. A method may also answer `identifier_unverified`, but only once its input proved possession of the
-identifier (as a one-time code does), and `code_expired`, `code_exhausted`, `passkey_challenge_invalid` or
+never to look anyone up. `authenticate()` returns a `Proofs\FirstFactor` (the identity, the channel it proved itself
+over with its destination or credential reference of up to 255 characters, what was observed about the authenticator,
+`null` for anything not observed, and the RFC 8176 `amr` values the proof stands for, here `pin`), or
+`FailureReason::INVALID_CREDENTIALS` for anything the input did not prove. The session records it as its first proof,
+and the access token's `amr` is derived from its values; `mfa` is reserved for an adapter's report of multifactor
+authentication, and a `FirstFactor` that names it throws an `InvalidArgumentException`. The package's own methods report
+`pwd` (password), `otp` (email code, and a code of any type registered with `extend()`), `sms` (phone code) and `pop`
+(passkey). A method may also answer `identifier_unverified`, but only once its input proved possession of the identifier
+(as a one-time code does), and `code_expired`, `code_exhausted`, `passkey_challenge_invalid` or
 `passkey_counter_regressed`; `code_expired`, `code_exhausted` and `passkey_counter_regressed` reach the event only, and
 the sign-in's result says `invalid_credentials`. Every other reason is the session service's to give, and a method that
 returns one throws a `LogicException` (see [Events](events.md#events)). A method must not bind a guard, issue tokens or
@@ -623,7 +656,11 @@ if ($pending === null) {
     abort(401);
 }
 
-if (! $factors->verify($pending->identity, $pending->principal, $code)) {
+// The adapter answers with the proof it verified, bound to this pending
+// sign-in (`$pending->id`), or null.
+$proof = $factors->verify($pending, $code);
+
+if ($proof === null) {
     // One guess per pending sign-in; another needs a new sign-in, which counts
     // against the sign-in limits.
     $sessions->discard($token);
@@ -631,8 +668,20 @@ if (! $factors->verify($pending->identity, $pending->principal, $code)) {
     abort(401);
 }
 
-$result = $sessions->complete($token);
+$result = $sessions->complete($token, $proof);
 ```
+
+`$proof` is the `Proofs\ProofResult` your factor's adapter verified: its kind (`additional_factor`, or `recovery_code`
+for the fallback), method, channel and factor, what was observed, the adapter's `Evaluation` (accepted, and whether it
+amounts to multifactor authentication), its `amr` values, when it was made, and its `ProofBinding` (the identity, the
+guard, `$pending->id` as the session and `Purpose::SIGN_IN`). The session records it beside its first factor, so the
+access token's `amr` carries its values, and `mfa` when its evaluation reports multifactor authentication. It is refused
+as `proof_invalid` when it is any other kind (a reauthentication, external or not, never counts as a further factor),
+made for another purpose, not accepted, made after now or before the pending sign-in's first factor, and as
+`proof_binding_mismatch` when it names another identity, guard or pending sign-in; either way the pending sign-in is
+used up, as any refused completion is. A completion without a proof stays a trusted assertion that the caller verified
+the factor, as before: the session then records only its first factor, so its `amr` and freshness never claim the
+factor. Satisfying a pending session's requirement with a proof replaces both forms when pending sessions arrive.
 
 Holding a sign-in for a factor is its outcome, so it is reported: `AdditionalFactorRequired` carries the guard,
 identity, principal, tenant, the session the client proved (if any), the method, the client and the expiry, never the

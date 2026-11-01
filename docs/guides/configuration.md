@@ -15,6 +15,8 @@ a guard's JWT settings are read once and kept (see [Configuration lifetimes](ope
 | `session.table`                                     | `authentication_sessions`                                                    | `AUTHENTICATION_SESSION_TABLE`                                    |           | [Session](#session)                                                   |
 | `session.last_used_throttle_seconds`                | `60`                                                                         | `AUTHENTICATION_SESSION_LAST_USED_THROTTLE_SECONDS`               |           | [Session](#session)                                                   |
 | `session.prune_after_days`                          | `30`                                                                         | `AUTHENTICATION_SESSION_PRUNE_AFTER_DAYS`                         |           | [Pruning](operations.md#pruning)                                      |
+| `proofs.table`                                      | `authentication_proofs`                                                      | `AUTHENTICATION_PROOFS_TABLE`                                     |           | [Proofs](#proofs)                                                     |
+| `proofs.provenance_table`                           | `authentication_provenance`                                                  | `AUTHENTICATION_PROOFS_PROVENANCE_TABLE`                          |           | [Proofs](#proofs)                                                     |
 | `sign_in.password_identifier`                       | `email`                                                                      | `AUTHENTICATION_SIGN_IN_PASSWORD_IDENTIFIER`                      | yes       | [Sign-in](#sign-in)                                                   |
 | `sign_in.pending_table`                             | `pending_sign_ins`                                                           | `AUTHENTICATION_SIGN_IN_PENDING_TABLE`                            |           | [Sign-in](#sign-in)                                                   |
 | `sign_in.pending_ttl_seconds`                       | `300`                                                                        | `AUTHENTICATION_SIGN_IN_PENDING_TTL_SECONDS`                      |           | [Sign-in](#sign-in)                                                   |
@@ -100,14 +102,14 @@ a guard's JWT settings are read once and kept (see [Configuration lifetimes](ope
 ],
 ```
 
-Every table the package ships lives on `storage.connection`, the default connection when `null`: sessions, pending
-sign-ins, one-time codes, passkeys and their challenges, API keys, identifier changes, and the attempt counters unless
-`rate_limits.connection` names a connection of their own (see [Rate limits](#rate-limits)). The shipped models read and
-write them there, and the published migrations create them there: each names the storage connection as its own, so
-`php artisan migrate` creates every table where the package uses it, whichever connection the migrator runs on. With
-`null`, the migrations follow the migrator, as any migration that names no connection does, while the models use the
-default connection, so run them on the default connection. Laravel keeps its `migrations` table on the migrator's
-connection either way.
+Every table the package ships lives on `storage.connection`, the default connection when `null`: sessions, their proofs
+and provenance, pending sign-ins, one-time codes, passkeys and their challenges, API keys, identifier changes, and the
+attempt counters unless `rate_limits.connection` names a connection of their own (see [Rate limits](#rate-limits)). The
+shipped models read and write them there, and the published migrations create them there: each names the storage
+connection as its own, so `php artisan migrate` creates every table where the package uses it, whichever connection the
+migrator runs on. With `null`, the migrations follow the migrator, as any migration that names no connection does, while
+the models use the default connection, so run them on the default connection. Laravel keeps its `migrations` table on
+the migrator's connection either way.
 
 The tables share one connection because a session, the completion of a pending sign-in, a password reset and an
 identifier change each write several of them in one transaction, which two connections cannot commit as one. The session
@@ -443,6 +445,22 @@ digests, the rotation time, the session's start, the principal switch time, both
 without the sign-in's identifier type (`sign_in_identifier_type`), for example through a `sessions()` relation or a
 global scope that selects other columns, so a partial select is reported instead of being read as a session that is not
 revoked, has no deadline, or whose sign-in used no identifier.
+
+## Proofs
+
+```php
+'proofs' => [
+    'table'            => 'authentication_proofs',
+    'provenance_table' => 'authentication_provenance',
+],
+```
+
+Every session records the proofs it was established and kept with in `proofs.table`, and a session an external provider
+established records how it began in `proofs.provenance_table` (see [Proofs and
+provenance](sessions.md#proofs-and-provenance)). Both live on the storage connection, so a session and its proofs are
+written in one transaction, and both are read from the write connection. Each name may be up to 47 characters: the
+migrations name their indexes after it (`<table>_session_index` and so on), and PostgreSQL cuts a longer index name
+short. They are pruned with their sessions (see [Pruning](operations.md#pruning)).
 
 ## Sign-in
 

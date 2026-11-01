@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
@@ -40,6 +41,10 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * lifetime (`authentication.sign_in.pending_ttl_seconds`, 30 to 3600 seconds,
  * 300 by default) ends, for the guard that issued it. Every read is from the
  * write connection.
+ *
+ * A pending sign-in keeps the first factor its sign-in verified, with its time,
+ * and the provenance of a sign-in an external provider verified, so the session
+ * it becomes records them as they were, not as of its completion.
  *
  * A pending sign-in keeps the attempt-limit slots its sign-in took until it
  * completes, the account's as well as the identifier's and the IP address's:
@@ -85,16 +90,18 @@ final readonly class PendingSignIns
 
     /**
      * Store a pending sign-in for the admitted sign-in, recording the session
-     * the client proved it holds and the digest it was proven against, and the
-     * windows of each attempt-limit reservation the sign-in holds (`null` for
-     * one that reserved none; a reservation whose limiter recorded no windows
-     * is kept, with none), and return its credential.
+     * the client proved it holds and the digest it was proven against, its
+     * first factor and provenance, and the windows of each attempt-limit
+     * reservation the sign-in holds (`null` for one that reserved none; a
+     * reservation whose limiter recorded no windows is kept, with none), and
+     * return its credential.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  string  $method
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
+     * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
      * @param  \Carbon\CarbonImmutable  $now
      * @param  ?list<array<string, string>>  $attemptWindows
      * @return \SineMacula\Laravel\Authentication\Sessions\PendingFactor
@@ -110,12 +117,13 @@ final readonly class PendingSignIns
         string $method,
         ?string $identifierType,
         SignInContext $context,
+        SignInProof $proof,
         CarbonImmutable $now,
         ?array $attemptWindows = null,
     ): PendingFactor {
         $identity = self::eloquentIdentity($admitted->identity, 'wait for a further factor');
 
-        [$token, $expiresAt] = $this->store(
+        [$token, $expiresAt, $id] = $this->store(
             PendingSignIn::ADDITIONAL_FACTOR,
             $guard,
             $identity,
@@ -124,18 +132,20 @@ final readonly class PendingSignIns
             $method,
             $identifierType,
             $context,
+            $proof,
             $now,
             $attemptWindows,
         );
 
-        return new PendingFactor($token, $guard, $identity, $admitted->principal, $admitted->tenant, $method, $expiresAt, $admitted->session);
+        return new PendingFactor($token, $guard, $identity, $admitted->principal, $admitted->tenant, $method, $expiresAt, $admitted->session, $id);
     }
 
     /**
      * Store a pending sign-in waiting for the identity to choose a principal,
      * recording no principal yet, the session the client proved it holds for
-     * the identity, and the windows of the attempt-limit reservations the
-     * sign-in holds, and return its token and expiry.
+     * the identity, its first factor and provenance, and the windows of the
+     * attempt-limit reservations the sign-in holds, and return its token and
+     * expiry.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -143,6 +153,7 @@ final readonly class PendingSignIns
      * @param  string  $method
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
+     * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
      * @param  \Carbon\CarbonImmutable  $now
      * @param  ?list<array<string, string>>  $attemptWindows
      * @return array{0: string, 1: \Carbon\CarbonImmutable}
@@ -159,12 +170,15 @@ final readonly class PendingSignIns
         string $method,
         ?string $identifierType,
         SignInContext $context,
+        SignInProof $proof,
         CarbonImmutable $now,
         ?array $attemptWindows,
     ): array {
         $identity = self::eloquentIdentity($identity, 'wait for a choice of principal');
 
-        return $this->store(PendingSignIn::PRINCIPAL_CHOICE, $guard, $identity, null, $session, $method, $identifierType, $context, $now, $attemptWindows);
+        [$token, $expiresAt] = $this->store(PendingSignIn::PRINCIPAL_CHOICE, $guard, $identity, null, $session, $method, $identifierType, $context, $proof, $now, $attemptWindows);
+
+        return [$token, $expiresAt];
     }
 
     /**
@@ -414,8 +428,8 @@ final readonly class PendingSignIns
     }
 
     /**
-     * Store a pending sign-in of the purpose and return its token and expiry:
-     * the token's secret is kept only as its digest.
+     * Store a pending sign-in of the purpose and return its token, expiry and
+     * id: the token's secret is kept only as its digest.
      *
      * @formatter:off
      *
@@ -429,9 +443,10 @@ final readonly class PendingSignIns
      * @param  string  $method
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
+     * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
      * @param  \Carbon\CarbonImmutable  $now
      * @param  ?list<array<string, string>>  $attemptWindows
-     * @return array{0: string, 1: \Carbon\CarbonImmutable}
+     * @return array{0: string, 1: \Carbon\CarbonImmutable, 2: string}
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -451,6 +466,7 @@ final readonly class PendingSignIns
         string $method,
         ?string $identifierType,
         SignInContext $context,
+        SignInProof $proof,
         CarbonImmutable $now,
         ?array $attemptWindows,
     ): array {
@@ -477,10 +493,12 @@ final readonly class PendingSignIns
             'proven_session_refresh_key' => $session?->getRefreshKey(),
             'attempt_windows'            => $attemptWindows,
             'not_after'                  => $context->notAfter,
+            'first_factor'               => $proof->toArray(),
+            'provenance'                 => $proof->provenanceToArray(),
             'expires_at'                 => $expiresAt,
         ])->save();
 
-        return [$pending->id . '.' . $secret, $expiresAt];
+        return [$pending->id . '.' . $secret, $expiresAt, $pending->id];
     }
 
     /**
@@ -575,6 +593,7 @@ final readonly class PendingSignIns
             $pending->sign_in_method,
             CarbonImmutable::instance($pending->expires_at),
             $session,
+            $pending->id,
         );
 
         return new FoundPendingSignIn($pending, $secret, $factor, $session);

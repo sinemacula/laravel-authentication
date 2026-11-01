@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -102,9 +103,17 @@ final class SessionWriterTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $origin   = new ClientContext('198.51.100.4', 'Origin/2.0');
-        $session  = $this->writer()->create($this->admitted($identity), 'password', 'email', $this->context('Laptop', 'macOS'), $this->lifetimes(), $this->now, $origin);
-        $record   = Session::query()->whereKey($session->record->getKey())->firstOrFail();
-        $claims   = Auth::manager()->jwt('api')->parse($session->tokens->refreshToken, TokenType::REFRESH);
+        $session  = $this->writer()->create(
+            $this->admitted($identity),
+            'email',
+            $this->context('Laptop', 'macOS'),
+            $this->lifetimes(),
+            $this->now,
+            $origin,
+            SignInProof::unattested('password', $this->now),
+        );
+        $record = Session::query()->whereKey($session->record->getKey())->firstOrFail();
+        $claims = Auth::manager()->jwt('api')->parse($session->tokens->refreshToken, TokenType::REFRESH);
 
         self::assertSame('password', $session->method);
         self::assertSame('password', $record->getSignInMethod());
@@ -136,7 +145,15 @@ final class SessionWriterTest extends TestCase
         $principal = \Mockery::mock(Principal::class);
 
         try {
-            $this->writer()->create(new Admitted($identity, $principal, null), 'password', null, $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
+            $this->writer()->create(
+                new Admitted($identity, $principal, null),
+                null,
+                $this->context(),
+                $this->lifetimes(),
+                $this->now,
+                $this->context()->client,
+                SignInProof::unattested('password', $this->now),
+            );
             self::fail('Expected an identity that is not a model to be refused.');
         } catch (\LogicException $exception) {
             self::assertSame(sprintf('The session service can only create a session for an Eloquent identity; %s is not a model.', $identity::class), $exception->getMessage());
@@ -160,7 +177,15 @@ final class SessionWriterTest extends TestCase
         Session::creating(static fn (): bool => false);
 
         try {
-            $this->writer()->create($this->admitted($identity), 'password', 'email', $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
+            $this->writer()->create(
+                $this->admitted($identity),
+                'email',
+                $this->context(),
+                $this->lifetimes(),
+                $this->now,
+                $this->context()->client,
+                SignInProof::unattested('password', $this->now),
+            );
             self::fail('Expected a cancelled session to be refused.');
         } catch (\LogicException $exception) {
             self::assertSame(Session::class . ' was not saved: a model event cancelled the new session, so the sign-in wrote nothing.', $exception->getMessage());
@@ -185,12 +210,28 @@ final class SessionWriterTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $context  = $this->context('Laptop', 'macOS');
-        $first    = $this->writer()->create($this->admitted($identity), 'password', 'email', $context, $this->lifetimes(), $this->now, $context->client);
-        $proven   = Session::query()->whereKey($first->record->getKey())->firstOrFail();
-        $later    = $this->now->addHour();
-        $origin   = new ClientContext('198.51.100.9', 'Origin/3.0');
+        $first    = $this->writer()->create(
+            $this->admitted($identity),
+            'email',
+            $context,
+            $this->lifetimes(),
+            $this->now,
+            $context->client,
+            SignInProof::unattested('password', $this->now),
+        );
+        $proven = Session::query()->whereKey($first->record->getKey())->firstOrFail();
+        $later  = $this->now->addHour();
+        $origin = new ClientContext('198.51.100.9', 'Origin/3.0');
 
-        $session = $this->writer()->replace($this->admitted($identity)->on($proven), 'sso', null, $this->context(), $this->lifetimes(), $later, $origin);
+        $session = $this->writer()->replace(
+            $this->admitted($identity)->on($proven),
+            null,
+            $this->context(),
+            $this->lifetimes(),
+            $later,
+            $origin,
+            SignInProof::unattested('sso', $later),
+        );
 
         self::assertNotNull($session);
         self::assertNotSame($proven->getKey(), $session->record->getKey());
@@ -282,11 +323,27 @@ final class SessionWriterTest extends TestCase
     ): void {
         $identity = $this->seedIdentity();
         $context  = $this->context($recordedName, $recordedPlatform);
-        $first    = $this->writer()->create($this->admitted($identity), 'password', 'email', $context, $this->lifetimes(), $this->now, $context->client);
-        $proven   = Session::query()->whereKey($first->record->getKey())->firstOrFail();
+        $first    = $this->writer()->create(
+            $this->admitted($identity),
+            'email',
+            $context,
+            $this->lifetimes(),
+            $this->now,
+            $context->client,
+            SignInProof::unattested('password', $this->now),
+        );
+        $proven = Session::query()->whereKey($first->record->getKey())->firstOrFail();
 
         $given   = $this->context($givenName, $givenPlatform);
-        $session = $this->writer()->replace($this->admitted($identity)->on($proven), 'password', 'email', $given, $this->lifetimes(), $this->now, $context->client);
+        $session = $this->writer()->replace(
+            $this->admitted($identity)->on($proven),
+            'email',
+            $given,
+            $this->lifetimes(),
+            $this->now,
+            $context->client,
+            SignInProof::unattested('password', $this->now),
+        );
 
         self::assertNotNull($session);
 
@@ -307,15 +364,31 @@ final class SessionWriterTest extends TestCase
     public function testReplaceInheritsANumericDescriptionAsText(): void
     {
         $identity = $this->seedIdentity();
-        $first    = $this->writer()->create($this->admitted($identity), 'password', 'email', $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
-        $proven   = Session::query()->whereKey($first->record->getKey())->firstOrFail();
+        $first    = $this->writer()->create(
+            $this->admitted($identity),
+            'email',
+            $this->context(),
+            $this->lifetimes(),
+            $this->now,
+            $this->context()->client,
+            SignInProof::unattested('password', $this->now),
+        );
+        $proven = Session::query()->whereKey($first->record->getKey())->firstOrFail();
 
         $proven->mergeCasts(['client_name' => 'integer', 'platform' => 'integer'])->forceFill(['client_name' => '42', 'platform' => '7'])->syncOriginal();
 
         self::assertSame(42, $proven->getAttribute('client_name'));
 
         $context = $this->context();
-        $session = $this->writer()->replace($this->admitted($identity)->on($proven), 'password', 'email', $context, $this->lifetimes(), $this->now, $context->client);
+        $session = $this->writer()->replace(
+            $this->admitted($identity)->on($proven),
+            'email',
+            $context,
+            $this->lifetimes(),
+            $this->now,
+            $context->client,
+            SignInProof::unattested('password', $this->now),
+        );
 
         self::assertNotNull($session);
 
@@ -340,12 +413,28 @@ final class SessionWriterTest extends TestCase
 
         $identity = $this->seedIdentity();
         $context  = $this->context('Laptop', 'macOS');
-        $first    = $this->writer()->create($this->admitted($identity), 'password', 'email', $context, $this->lifetimes(), $this->now, $context->client);
-        $proven   = EncryptedDescriptionSession::query()->whereKey($first->record->getKey())->firstOrFail();
+        $first    = $this->writer()->create(
+            $this->admitted($identity),
+            'email',
+            $context,
+            $this->lifetimes(),
+            $this->now,
+            $context->client,
+            SignInProof::unattested('password', $this->now),
+        );
+        $proven = EncryptedDescriptionSession::query()->whereKey($first->record->getKey())->firstOrFail();
 
         self::assertNotSame('Laptop', $proven->getRawOriginal('client_name'));
 
-        $session = $this->writer()->replace($this->admitted($identity)->on($proven), 'password', 'email', $this->context(), $this->lifetimes(), $this->now, $context->client);
+        $session = $this->writer()->replace(
+            $this->admitted($identity)->on($proven),
+            'email',
+            $this->context(),
+            $this->lifetimes(),
+            $this->now,
+            $context->client,
+            SignInProof::unattested('password', $this->now),
+        );
 
         self::assertNotNull($session);
 
@@ -368,8 +457,16 @@ final class SessionWriterTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $context  = $this->context('Laptop', 'macOS');
-        $first    = $this->writer()->create($this->admitted($identity), 'password', 'email', $context, $this->lifetimes(), $this->now, $context->client);
-        $proven   = Session::query()
+        $first    = $this->writer()->create(
+            $this->admitted($identity),
+            'email',
+            $context,
+            $this->lifetimes(),
+            $this->now,
+            $context->client,
+            SignInProof::unattested('password', $this->now),
+        );
+        $proven = Session::query()
             ->whereKey($first->record->getKey())
             ->select(['id', 'authenticatable_type', 'authenticatable_id', 'principal_type', 'principal_id', 'guard', 'refresh_key', 'revoked_at'])
             ->firstOrFail();
@@ -377,7 +474,15 @@ final class SessionWriterTest extends TestCase
         Model::preventAccessingMissingAttributes();
 
         try {
-            $session = $this->writer()->replace($this->admitted($identity)->on($proven), 'password', 'email', $this->context(), $this->lifetimes(), $this->now, $context->client);
+            $session = $this->writer()->replace(
+                $this->admitted($identity)->on($proven),
+                'email',
+                $this->context(),
+                $this->lifetimes(),
+                $this->now,
+                $context->client,
+                SignInProof::unattested('password', $this->now),
+            );
         } finally {
             Model::preventAccessingMissingAttributes(false);
         }
@@ -422,8 +527,16 @@ final class SessionWriterTest extends TestCase
     public function testReplaceMissesARowThatChangedSinceItWasProven(array $change): void
     {
         $identity = $this->seedIdentity();
-        $first    = $this->writer()->create($this->admitted($identity), 'password', 'email', $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
-        $proven   = Session::query()->whereKey($first->record->getKey())->firstOrFail();
+        $first    = $this->writer()->create(
+            $this->admitted($identity),
+            'email',
+            $this->context(),
+            $this->lifetimes(),
+            $this->now,
+            $this->context()->client,
+            SignInProof::unattested('password', $this->now),
+        );
+        $proven = Session::query()->whereKey($first->record->getKey())->firstOrFail();
 
         Session::query()->whereKey($proven->getKey())->update($change);
 
@@ -431,7 +544,15 @@ final class SessionWriterTest extends TestCase
         $digest   = $proven->getRefreshKey();
         $admitted = $this->admitted($identity)->on($proven);
 
-        self::assertNull($this->writer()->replace($admitted, 'sso', null, $this->context('New'), $this->lifetimes(), $this->now->addHour(), $this->context()->client));
+        self::assertNull($this->writer()->replace(
+            $admitted,
+            null,
+            $this->context('New'),
+            $this->lifetimes(),
+            $this->now->addHour(),
+            $this->context()->client,
+            SignInProof::unattested('sso', $this->now->addHour()),
+        ));
         self::assertSame($before, (array) Session::query()->whereKey($proven->getKey())->toBase()->first());
         self::assertSame(1, Session::query()->count());
         self::assertSame($digest, $proven->getRefreshKey());
@@ -452,14 +573,22 @@ final class SessionWriterTest extends TestCase
     public function testAFailureWhileIssuingLeavesTheProvenSessionLive(): void
     {
         $identity = $this->seedIdentity();
-        $first    = $this->writer()->create($this->admitted($identity), 'password', 'email', $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
-        $proven   = Session::query()->whereKey($first->record->getKey())->firstOrFail();
-        $before   = (array) Session::query()->whereKey($proven->getKey())->toBase()->first();
+        $first    = $this->writer()->create(
+            $this->admitted($identity),
+            'email',
+            $this->context(),
+            $this->lifetimes(),
+            $this->now,
+            $this->context()->client,
+            SignInProof::unattested('password', $this->now),
+        );
+        $proven = Session::query()->whereKey($first->record->getKey())->firstOrFail();
+        $before = (array) Session::query()->whereKey($proven->getKey())->toBase()->first();
 
         try {
             $unwritable = (new Admitted($identity, new IntegrationIdentity, null))->on($proven);
 
-            $this->writer()->replace($unwritable, 'sso', null, $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
+            $this->writer()->replace($unwritable, null, $this->context(), $this->lifetimes(), $this->now, $this->context()->client, SignInProof::unattested('sso', $this->now));
             self::fail('Expected issuing the pair to fail.');
         } catch (\InvalidArgumentException) {
             self::assertSame($before, (array) Session::query()->whereKey($proven->getKey())->toBase()->first());
@@ -478,14 +607,30 @@ final class SessionWriterTest extends TestCase
     public function testACanceledReplacementLeavesTheProvenSessionLive(): void
     {
         $identity = $this->seedIdentity();
-        $first    = $this->writer()->create($this->admitted($identity), 'password', 'email', $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
-        $proven   = Session::query()->whereKey($first->record->getKey())->firstOrFail();
-        $before   = (array) Session::query()->whereKey($proven->getKey())->toBase()->first();
+        $first    = $this->writer()->create(
+            $this->admitted($identity),
+            'email',
+            $this->context(),
+            $this->lifetimes(),
+            $this->now,
+            $this->context()->client,
+            SignInProof::unattested('password', $this->now),
+        );
+        $proven = Session::query()->whereKey($first->record->getKey())->firstOrFail();
+        $before = (array) Session::query()->whereKey($proven->getKey())->toBase()->first();
 
         Session::creating(static fn (): bool => false);
 
         try {
-            $this->writer()->replace($this->admitted($identity)->on($proven), 'sso', null, $this->context(), $this->lifetimes(), $this->now->addHour(), $this->context()->client);
+            $this->writer()->replace(
+                $this->admitted($identity)->on($proven),
+                null,
+                $this->context(),
+                $this->lifetimes(),
+                $this->now->addHour(),
+                $this->context()->client,
+                SignInProof::unattested('sso', $this->now->addHour()),
+            );
             self::fail('Expected a cancelled replacement to be refused.');
         } catch (\LogicException $exception) {
             self::assertSame(Session::class . ' was not saved: a model event cancelled the new session, so the sign-in wrote nothing.', $exception->getMessage());
@@ -514,7 +659,7 @@ final class SessionWriterTest extends TestCase
             try {
                 $admitted = new Admitted($identity, $identity, null, $record);
 
-                $this->writer()->replace($admitted, 'sso', null, $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
+                $this->writer()->replace($admitted, null, $this->context(), $this->lifetimes(), $this->now, $this->context()->client, SignInProof::unattested('sso', $this->now));
                 self::fail('Expected a sign-in on no Eloquent session to be refused.');
             } catch (\LogicException $exception) {
                 self::assertSame('The session service can only replace an Eloquent session the client proved it holds.', $exception->getMessage());

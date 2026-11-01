@@ -24,12 +24,14 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyAssertions;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyCredentials;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyOwner;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeySignIn;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Passkeys\VirtualAuthenticator;
@@ -149,6 +151,66 @@ final class PasskeySignInTest extends TestCase
         self::assertSame(1, $stored->sign_count);
         self::assertTrue($stored->last_used_at?->equalTo($this->now));
         self::assertSame(0, PasskeyChallenge::query()->count());
+    }
+
+    /**
+     * A passkey sign-in records its first factor on the session: a `passkey`
+     * channel whose reference is the passkey's own row id, the user observed
+     * present and verified, the credential's backup eligibility and state as
+     * the assertion reported them, resistance to phishing observed, its key
+     * protection not observed, and the `pop` value.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPasskeySignInRecordsWhatTheAssertionShowed(): void
+    {
+        $identity = $this->seedIdentity();
+        $passkey  = $this->registerPasskey($identity);
+
+        $this->authenticator()->backedUp = false;
+
+        $result = $this->signInWithPasskey();
+
+        self::assertTrue($result->isSignedIn());
+
+        $proof = SessionProof::query()->sole();
+
+        self::assertSame(['first_factor', 'passkey', 'passkey', $passkey->id], [$proof->kind, $proof->method, $proof->channel_kind, $proof->channel_reference]);
+        self::assertSame([true, true, true, false, true, null], [
+            $proof->user_presence,
+            $proof->user_verification,
+            $proof->backup_eligible,
+            $proof->backup_state,
+            $proof->phishing_resistant,
+            $proof->key_protection,
+        ]);
+        self::assertSame(['pop'], $proof->methods);
+        self::assertSame(IdentifierCoercion::stringify($result->session?->record->getKey()), $proof->session_id);
+    }
+
+    /**
+     * A credential id far longer than a channel reference holds signs in, and
+     * the proof names the passkey by its row id, never by the credential id.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALongCredentialIdIsNeverTheProofsReference(): void
+    {
+        $identity = $this->seedIdentity();
+        $options  = Auth::passkeys()->registrationOptions($identity, self::USER_NAME);
+        $passkey  = Auth::passkeys()->register($identity, $options->challengeId, $this->authenticator()->create($options->options, 1023), 'Laptop')->passkey;
+
+        self::assertNotNull($passkey);
+        self::assertTrue($this->signInWithPasskey()->isSignedIn());
+
+        $proof = SessionProof::query()->sole();
+
+        self::assertSame($passkey->id, $proof->channel_reference);
+        self::assertSame(36, strlen($passkey->id));
     }
 
     /**

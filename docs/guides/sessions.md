@@ -1,4 +1,40 @@
-# Switching principal and signing out
+# Sessions: proofs, switching principal and signing out
+
+## Proofs and provenance
+
+Every session records the proofs it was established and kept with, each a timestamped row in `proofs.table` (see
+[Proofs](configuration.md#proofs)), kept apart by kind:
+
+| Kind                            | Recorded by                                                                                                                                                                     |
+|---------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `first_factor`                  | every sign-in: what the sign-in method verified (see [Writing a sign-in method](signing-in.md#writing-a-sign-in-method)), or the external provider's result `start()` was given |
+| `first_factor_reauthentication` | a reauthentication with the first factor on an active session                                                                                                                   |
+| `additional_factor`             | a further factor an adapter verified: at sign-in, with `complete()`, or as a step-up                                                                                            |
+| `recovery_code`                 | a recovery code an adapter accepted in place of a further factor                                                                                                                |
+| `external_reauthentication`     | a reauthentication at the external provider the session began with                                                                                                              |
+
+Each holds its method, its channel (`password`, `sms`, `email`, `authenticator_app`, `passkey`, `external_provider` or
+`unknown`, with the destination or credential reference: a code's address or number in its normal form, a passkey's own
+row id, a provider's connection id), the factor an adapter used, what was observed about the authenticator (user
+presence and verification, backup eligibility and state, phishing resistance, key protection: each `null` when it was
+not observed, which never counts as true), the adapter's evaluation (accepted, multifactor; none for a proof the package
+verified itself), its `amr` values, its time and its binding (the identity, the application, the session and the
+purpose: `sign_in`, `reauthenticate` or `step_up`). A proof is never changed once recorded; a voided one (its factor was
+removed) never counts.
+
+A session an external provider established also records its provenance, once, in `proofs.provenance_table`: the
+connection and its tenant, the provider's authentication time, the evidence accepted for it (only an evidence contract
+that accepts it records any), the provider's deadline for its session and the policy version the caller checked. A later
+reauthentication at the provider is a proof of its own and never rewrites how the session began. The provenance is
+indexed by connection and by tenant, so the sessions of a connection, or of a tenant's connections, are found by an
+indexed query.
+
+Proofs and provenance belong to the session's key, so they carry unchanged from a pending sign-in to its session, and
+across every refresh and switch of principal. A sign-in that replaces a session the client proved it holds is a new
+session with its own proofs; the replaced session keeps its own. `auth_time` and `amr` are derived from the proofs when
+an access token is issued, never stored in their place. Every read of them is from the write connection, so a lagging
+replica cannot hide a proof just written. They hold personal data (a code's destination), are hidden from a model's
+serialised form, and are pruned with their session (see [Pruning](operations.md#pruning)).
 
 ## Switching principal
 

@@ -14,8 +14,10 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
 /**
  * A sign-in waiting for a further factor, or for its identity to choose the
  * principal it acts as: who signed in, as which principal (none yet for a
- * choice), through which guard and method, from which client, on which proven
- * session, and until when the pending credential that continues it is valid.
+ * choice), through which guard and method, with which first factor (and, for
+ * one an external provider verified, its provenance), from which client, on
+ * which proven session, and until when the pending credential that continues it
+ * is valid.
  *
  * Kept on the storage connection (see `Database\StorageConnection`) with the
  * sessions, so completing it and writing the session are one transaction, in
@@ -49,6 +51,8 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * @property ?string $proven_session_refresh_key
  * @property ?list<array<string, string>> $attempt_windows
  * @property ?\Carbon\CarbonInterface $not_after
+ * @property array<string, mixed> $first_factor
+ * @property ?array<string, mixed> $provenance
  * @property \Carbon\CarbonInterface $expires_at
  */
 final class PendingSignIn extends Model
@@ -71,7 +75,7 @@ final class PendingSignIn extends Model
     protected $fillable = [];
 
     /** @var list<string> The attributes hidden from serialisation. */
-    protected $hidden = ['token_digest', 'proven_session_refresh_key', 'attempt_windows'];
+    protected $hidden = ['token_digest', 'proven_session_refresh_key', 'attempt_windows', 'first_factor', 'provenance'];
 
     /**
      * Create a pending sign-in on the storage connection, in the configured
@@ -113,6 +117,8 @@ final class PendingSignIn extends Model
         return [
             'attempt_windows' => 'array',
             'not_after'       => 'datetime',
+            'first_factor'    => 'array',
+            'provenance'      => 'array',
             'expires_at'      => 'datetime',
         ];
     }

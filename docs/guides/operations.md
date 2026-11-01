@@ -6,11 +6,12 @@ checking the configuration before a deploy.
 
 ## Read replicas
 
-Every read that decides authentication - the identity, the principal and the tenant it acts within, and the session with
-its guard, sign-in method, refresh digests, rotation time, session deadlines and revocation state - goes to the write
-connection, even when the database connection has `read` and `write` hosts. A replica can lag behind a revocation, a
-deactivation, a refresh rotation, or an ended session, and a lookup it served could admit a credential the primary has
-already rejected.
+Every read that decides authentication - the identity, the principal and the tenant it acts within, the session with its
+guard, sign-in method, refresh digests, rotation time, session deadlines and revocation state, and the session's proofs
+
+- goes to the write connection, even when the database connection has `read` and `write` hosts. A replica can lag behind
+a revocation, a deactivation, a refresh rotation, or an ended session, and a lookup it served could admit a credential
+the primary has already rejected.
 
 The package pins the lookups it makes, including the relations the identity, principal and session models eager-load
 (`$with`), on whichever connection those relations live (a tenant in a separate landlord database, say). Code you plug
@@ -150,28 +151,34 @@ Removing a kid immediately rejects every token signed under it, which is also ho
 
 ## Pruning
 
-Rows whose use has ended stay in their tables until Laravel's `model:prune` deletes them, each model in chunks of one
-conditional `DELETE` that reads nothing:
+Rows whose use has ended stay in their tables until Laravel's `model:prune` deletes them, in chunks: a session model in
+chunks that each read the keys of its prunable sessions and delete their proofs, their provenance and the sessions, in
+one transaction; every other model in chunks of one conditional `DELETE` that reads nothing:
 
-| Model                     | Pruned once                                                                   |
-|---------------------------|-------------------------------------------------------------------------------|
-| `Models\Session`          | it has been over (revoked, or past a deadline) for `session.prune_after_days` |
-| `Models\PendingSignIn`    | it has expired                                                                |
-| `Models\RateLimit`        | its window has ended                                                          |
-| `Models\OneTimeCode`      | it has expired                                                                |
-| `Models\PasskeyChallenge` | it has expired                                                                |
-| `Models\ApiKey`           | it was revoked or expired more than `api_keys.prune_after_days` ago           |
-| `Models\IdentifierChange` | it has expired                                                                |
+| Model                     | Pruned once                                                                                                   |
+|---------------------------|---------------------------------------------------------------------------------------------------------------|
+| `Models\Session`          | it has been over (revoked, or past a deadline) for `session.prune_after_days`, with its proofs and provenance |
+| `Models\PendingSignIn`    | it has expired                                                                                                |
+| `Models\RateLimit`        | its window has ended                                                                                          |
+| `Models\OneTimeCode`      | it has expired                                                                                                |
+| `Models\PasskeyChallenge` | it has expired                                                                                                |
+| `Models\ApiKey`           | it was revoked or expired more than `api_keys.prune_after_days` ago                                           |
+| `Models\IdentifierChange` | it has expired                                                                                                |
 
 Passkeys are never pruned: one lasts until its owner removes it.
 
-Revoked and ended sessions are kept for audit: a session is pruned once it has been over for
-`session.prune_after_days` (default 30, from 0 to 3650), counted from when it was revoked or passed its idle or absolute
-deadline, whichever came first, never from when it was created, so a long session is kept as long after it ends as a
-short one; a session with no absolute deadline is pruned once it went idle or was revoked. With 0, a session is pruned
-from the second it ends. The value must be an integer, or a digit string
-as `env()` returns one; anything else fails with an `InvalidArgumentException` when pruning runs. Each chunk is one
-conditional `DELETE`, and nothing is read.
+Revoked and ended sessions are kept for audit: a session is pruned once it has been over for `session.prune_after_days`
+(default 30, from 0 to 3650), counted from when it was revoked or passed its idle or absolute deadline, whichever came
+first, never from when it was created, so a long session is kept as long after it ends as a short one; a session with no
+absolute deadline is pruned once it went idle or was revoked. With 0, a session is pruned from the second it ends. The
+value must be an integer, or a digit string as `env()` returns one; anything else fails with an
+`InvalidArgumentException` when pruning runs. Each chunk, in one transaction on the session's connection, reads the keys
+of up to a chunk of prunable sessions, deletes the proofs and the provenance recorded for those keys (by the keys as
+strings, the form the proofs record them in, whatever the session model's key type), then deletes the sessions;
+`ModelsPruned` reports the sessions pruned so far after each chunk. The proofs and provenance have no pruning of their
+own: they go with their session, so a session deleted any other way leaves them behind, and an application that deletes
+sessions itself deletes their proofs (`Models\SessionProof`, by `session_id`) and provenance
+(`Models\SessionProvenance`) with them.
 
 The package's models live outside your application's `app/Models`, so name them when you schedule the command:
 

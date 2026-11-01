@@ -176,6 +176,15 @@ enum FailureReason: string
     // expired
     case LINK_EXPIRED = 'link_expired';
 
+    // A proof handed to a completion or a step-up is of a kind or purpose the
+    // operation does not take, was not accepted by its adapter, or is timed
+    // after now or before what it proves
+    case PROOF_INVALID = 'proof_invalid';
+
+    // A proof handed to a completion or a step-up was made by another identity,
+    // on another application, or for another session or pending sign-in
+    case PROOF_BINDING_MISMATCH = 'proof_binding_mismatch';
+
     /**
      * Whether a sign-in method may answer with this reason. Every other reason
      * is the session service's to decide, so a method that returns one is

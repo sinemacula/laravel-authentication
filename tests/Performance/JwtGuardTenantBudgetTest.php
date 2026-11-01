@@ -186,8 +186,8 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
 
     /**
      * A refresh for a member of a tenant that opts in reads its refresh limits,
-     * the session, the owner, the principal and the tenant once each, and
-     * writes only the rotation.
+     * the session, the owner, the principal, the tenant and the session's
+     * proofs once each, and writes only the rotation.
      *
      * @param  string  $guard
      * @return void
@@ -195,7 +195,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     #[DataProvider('provideOptedInTenantGuards')]
-    public function testRefreshForAMemberOfAnOptedInTenantUsesFiveReadsAndOneWrite(string $guard): void
+    public function testRefreshForAMemberOfAnOptedInTenantUsesSixReadsAndOneWrite(string $guard): void
     {
         [$member, $membership] = $this->seedMembership($guard);
 
@@ -206,7 +206,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
 
         $resolved = $this->freshJwtGuard($guard);
 
-        self::assertTrue($this->assertQueryBudget(5, 1, static fn (): RefreshResult => GuardSessions::of($resolved)->refresh($token))->isRefreshed());
+        self::assertTrue($this->assertQueryBudget(6, 1, static fn (): RefreshResult => GuardSessions::of($resolved)->refresh($token))->isRefreshed());
     }
 
     /**
