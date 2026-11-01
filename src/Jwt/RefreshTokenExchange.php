@@ -33,6 +33,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
+use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Sessions\PendingTransitions;
@@ -580,7 +581,11 @@ final readonly class RefreshTokenExchange
      * is still the current one means other security state changed in between (a
      * deadline, say): that proves nothing, so it fails as `rotation_conflict`
      * without revoking, and the client can retry. Before any success the fresh
-     * row must still belong to the identity the exchange hydrated.
+     * row must still belong to the identity the exchange hydrated and still
+     * record the principal and the active tenant it admitted: a switch that won
+     * the swap moved the session to a context this exchange never judged, so
+     * its retry fails as `session_principal_mismatch` or
+     * `session_tenant_mismatch` instead.
      *
      * @formatter:off
      *
@@ -621,10 +626,11 @@ final readonly class RefreshTokenExchange
 
         if (is_array($verdict)) {
             $verdict = match (true) {
-                $verdict[0] === RotationMatch::CURRENT                         => FailureReason::ROTATION_CONFLICT,
-                !SessionOwnership::isOwner($fresh, $session->identity)         => FailureReason::IDENTITY_UNKNOWN,
-                !PrincipalReference::isRecordedOn($fresh, $session->principal) => FailureReason::SESSION_PRINCIPAL_MISMATCH,
-                default                                                        => null,
+                $verdict[0] === RotationMatch::CURRENT                                  => FailureReason::ROTATION_CONFLICT,
+                !SessionOwnership::isOwner($fresh, $session->identity)                  => FailureReason::IDENTITY_UNKNOWN,
+                !PrincipalReference::isRecordedOn($fresh, $session->principal)          => FailureReason::SESSION_PRINCIPAL_MISMATCH,
+                !OwnedSession::actsIn($fresh, $session->tenant?->getTenantIdentifier()) => FailureReason::SESSION_TENANT_MISMATCH,
+                default                                                                 => null,
             };
         }
 

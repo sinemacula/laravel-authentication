@@ -79,12 +79,14 @@ the absolute deadline: a session capped at its sign-in's own deadline stays capp
 (an application that sets no absolute limit) gets none from a refresh. The new refresh token, and the cookie that
 carries it, expire at the session's end, its idle deadline alone when it has no absolute one.
 
-A refresh token is accepted only for the principal its session records. After a switch of principal (see
-[Switching principal or tenant](sessions.md#switching-principal-or-tenant)), the refresh token of the principal switched
-from fails with `session_principal_mismatch`, even inside the grace window, and the session is left alone; a token
-presented after the grace window is a replay, as any rotated token is. A refresh that loses its write to a switch is
-judged the same way. A refresh keeps the session in its active tenant, and is refused once the tenant is no longer one
-`TenantAccess` lets the principal act in (`tenant_ineligible`) or is inactive (`tenant_inactive`).
+A refresh token is accepted only for the principal its session records. After a switch of principal (see [Switching
+principal or tenant](sessions.md#switching-principal-or-tenant)), the refresh token of the principal switched from fails
+with `session_principal_mismatch`, even inside the grace window, and the session is left alone; a token presented after
+the grace window is a replay, as any rotated token is. A refresh that loses its write to a switch is judged the same
+way: when the switch moved the session to another principal it fails as `session_principal_mismatch`, and when it moved
+it to another tenant as `session_tenant_mismatch`, so no pair is ever issued for a context the refresh did not judge. A
+refresh keeps the session in its active tenant, and is refused once the tenant is no longer one `TenantAccess` lets the
+principal act in (`tenant_ineligible`) or is inactive (`tenant_inactive`).
 
 Failed refreshes are counted against the token's session and the request's IP address by the bound `AttemptLimiter`;
 successful ones are not. Once either count is full, a refresh dispatches `Failed` and `AuthenticationFailed`
