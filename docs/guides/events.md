@@ -214,13 +214,13 @@ reasons its event can carry (each reason's meaning is in [Events](#events)):
 | `identifier_change`       | `Auth::identifierChanges()->requestByCode()`, `requestByLink()`, `confirmByCode()`, `confirmByLink()` | A request: an `IdentifierChangeRequest` whose `status` is `sent`, `rate_limited` (with `retryAfter`), `reauthentication_required`, `identifier_invalid` or `identifier_unchanged`. A confirmation: an `IdentifierChangeOutcome`, `changed`, `invalid`, `expired`, `exhausted` or `taken` (see [Changing identifiers](identifier-changes.md))                                                         | `reauthentication_required`, `rate_limited`, `invalid_credentials` (an invalid or unchanged identifier, a wrong code or link, a change replaced or lost), `code_expired`, `link_expired`, `code_exhausted`, `identifier_taken`, `identity_inactive` (a confirmation for an identity that is not active), none of them concealed                                                                                                                                                                                                                                                                                                                                                                                                                |
 
 The concealed reasons (`FailureReason::isConcealed()`: `account_rate_limited`, `code_expired`, `code_exhausted`,
-`link_expired` and `passkey_counter_regressed`) reach only the event in a sign-in and a password reset: their results
-say `invalid_credentials` and `invalid`, with no wait, so the answer reveals neither that an account exists nor that a
-code or link was requested for it. The flows whose caller already holds the identity, verification by code and an
-identifier change, tell the caller (an `expired` or `exhausted` outcome), as `Auth::passkeys()->verifyFactor()` does
-with its `PasskeyFactorResult`'s `reason` (`passkey_counter_regressed` included), which no event reports: the factor's
-outcome is the further-factor package's to report. A verification link tells it too (`expired`): its expiry is read from
-the signed link before any identity is, so the answer says only that the link was authentic, and every other refusal is
-`invalid`. A sign-in method may answer only `invalid_credentials`, `identifier_unverified`, `code_expired`,
-`code_exhausted`, `passkey_challenge_invalid` and `passkey_counter_regressed` (`FailureReason::isSignInMethodReason()`);
-every other reason is the session service's to give.
+`link_expired` and `passkey_counter_regressed`) reach only the event in a sign-in, a reauthentication and a password
+reset: their results say `invalid_credentials` and `invalid`, with no wait, so the answer reveals neither that an
+account exists nor that a code or link was requested for it. The flows whose caller already holds the identity,
+verification by code and an identifier change, tell the caller (an `expired` or `exhausted` outcome), as
+`Auth::passkeys()->verifyFactor()` does with its `PasskeyFactorResult`'s `reason` (`passkey_counter_regressed`
+included), which no event reports: the factor's outcome is the further-factor package's to report. A verification link
+tells it too (`expired`): its expiry is read from the signed link before any identity is, so the answer says only that
+the link was authentic, and every other refusal is `invalid`. A sign-in method may answer only `invalid_credentials`,
+`identifier_unverified`, `code_expired`, `code_exhausted`, `passkey_challenge_invalid` and `passkey_counter_regressed`
+(`FailureReason::isSignInMethodReason()`); every other reason is the session service's to give.

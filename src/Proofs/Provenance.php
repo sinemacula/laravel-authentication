@@ -16,8 +16,9 @@ use Carbon\CarbonInterface;
  * Given by a trusted server-side caller, never built from what a client sent.
  * The session records it once, beside its proofs, and nothing rewrites it: a
  * later reauthentication at the provider is a proof of its own. The evidence
- * the provider asserted is not part of it: only the evidence contract, when it
- * accepts that evidence, records it. Times are kept to the whole second.
+ * the provider asserted is not part of it, and no evidence is recorded with it:
+ * nothing decides yet whether a provider's evidence is accepted. Times are kept
+ * to the whole second.
  *
  * @api
  *

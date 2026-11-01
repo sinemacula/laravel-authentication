@@ -177,10 +177,11 @@ of up to a chunk of prunable sessions, deletes the proofs and the provenance rec
 strings, the form the proofs record them in, whatever the session model's key type), then deletes the sessions;
 `ModelsPruned` reports the sessions pruned so far after each chunk. The proofs and provenance have no pruning of their
 own: they go with their session, so a session deleted any other way (a truncation included) leaves them behind, and an
-application that deletes sessions itself deletes their proofs (`Models\SessionProof`, by `session_id`) and provenance
-(`Models\SessionProvenance`) with them. Every sign-in deletes whatever is recorded under its new session's key before it
-records its own, so a key the database issues again (an integer key whose counter a truncation reset) never inherits an
-earlier session's proofs.
+application that deletes sessions itself deletes, in the same transaction, the rows of the `proofs.table` and
+`proofs.provenance_table` tables whose `session_id` is the session's key as a string (the form they record it in,
+whatever the session model's key type, so an integer key is compared as its digits). Every sign-in deletes whatever is
+recorded under its new session's key before it records its own, so a key the database issues again (an integer key whose
+counter a truncation reset) never inherits an earlier session's proofs.
 
 The package's models live outside your application's `app/Models`, so name them when you schedule the command:
 

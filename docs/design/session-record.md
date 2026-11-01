@@ -3,11 +3,11 @@
 ## Purpose
 
 This note records what the package calls the record it keeps per sign-in, and the decisions that came with naming it:
-the names and the Laravel names they meet, the claim that still says `sid`, what a client proves to have its previous
-session replaced, the `superseded` reason, the flags that went, and the index names of the sessions table. A session
-is one sign-in, on one application, on one device; its refresh state and its revocation live on it. The record was
-called a device before, which mixed it up with the physical client: a client that signs in again on the same device now
-gets a new session, so "the device" and "the record" are no longer one thing.
+the names and the Laravel names they meet, the `sid` claim that names it, what a client proves to have its previous
+session replaced, the `superseded` reason, the flags that went, and the index names of the sessions table. A session is
+one sign-in, on one application, on one device; its refresh state and its revocation live on it. The record was called a
+device before, which mixed it up with the physical client: a client that signs in again on the same device now gets a
+new session, so "the device" and "the record" are no longer one thing.
 
 ## Invariants
 

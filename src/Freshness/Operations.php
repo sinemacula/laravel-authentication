@@ -28,7 +28,7 @@ final class Operations
     /** @var string Establishing a password for an identity that has none. */
     public const string PASSWORD_ESTABLISHMENT = 'password_establishment';
 
-    /** @var string Adding, replacing or removing a further factor. */
+    /** @var string Adding, replacing or removing a further factor, or generating recovery codes. */
     public const string FACTOR_CHANGE = 'factor_change';
 
     /**

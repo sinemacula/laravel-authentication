@@ -215,10 +215,11 @@ with no header type, php-jwt's default `JWT`, or the other type's is rejected as
 `sub_type` is `machine` exactly when the token names an API key in `cid`, and is checked against the identity's kind on
 every request, so a human's token can never be read as a machine's or the other way round. A session's access token
 carries `auth_time` and `amr` derived from the session when the token is issued; a token without a session carries
-neither. The bearer path does not read `tenant_id`, `auth_time` or `amr`: they are for the application, and live no
-longer than the access token does. `tenant_id` names the tenant the principal acts within when the token is issued, and
-is carried only: the package does not check it on a request, and `Auth::tenant()` stays the principal's tenant, read
-live.
+neither. The bearer path does not read `tenant_id`, `auth_time` or `amr`: they are for the token's readers, and live no
+longer than the access token does. On a request the package exposes none of them, and a decision about how fresh or how
+strong the authentication is asks `FreshnessPolicy` (see [Freshness](#freshness)). `tenant_id` names the tenant the
+principal acts within when the token is issued, and is carried only: the package does not check it on a request, and
+`Auth::tenant()` stays the principal's tenant, read live.
 
 ## Token and session lifetimes
 

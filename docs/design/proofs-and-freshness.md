@@ -93,6 +93,29 @@ the token's claims and every freshness answer are worked out from them, never st
 - An `external_reauthentication` has no entry point yet: the kind is reserved for the provider's reauthentication
   handoff, and a step-up refuses it.
 
+## Seams Left
+
+These parts are columns, kinds or values with nothing yet behind them; the guides say so where they describe them.
+
+- Voiding: `voided_at` is respected by every read and written by nothing. Removing a factor does not stop its proofs
+  counting, so `factorRemoved()` ends the identity's other sessions and leaves the session it excepts with its proofs
+  of that factor: its tokens keep `mfa` in `amr`, and it still meets a multifactor requirement.
+- Evidence: `accepted_evidence` has no writer and is always `null`. Nothing decides whether a provider's evidence is
+  accepted, so an external reauthentication would never count for MFA or `amr`.
+- `external_reauthentication`: a reserved kind that nothing records; there is no reauthentication handoff from the
+  provider, and step-up and `complete()` refuse it.
+- Provenance by connection or tenant: only the indexes exist. There is no lookup, listing or revocation of the
+  sessions of a connection or of a tenant's connections.
+- `complete($token)` with no proof stays a transitional trusted assertion: the session records only its first factor,
+  so its `amr` and freshness under-claim, never over-claim, the further factor the caller verified.
+- The freshness requirement (proof kinds, maximum age, multifactor, phishing resistance) is what the stored proofs can
+  show. It is not a requirement value for additional verification or a minimum assurance level, and there is no
+  contract saying whether a session's proofs meet such a requirement. The package gates no factor change itself:
+  `factor_change` and `password_establishment` name requirements for whatever gates those operations. A sibling that
+  needs more rebinds `FreshnessPolicy` until the value is extended.
+- A pending sign-in carries its first factor and provenance in `pending_sign_ins` until it completes; it is not yet a
+  session row of its own.
+
 ## Implementation Anchors
 
 - `src/Proofs/*` (`ProofResult`, `ProofBinding`, `Evaluation`, `ObservedProperties`, `Channel`, `FirstFactor`,

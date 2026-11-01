@@ -130,14 +130,14 @@ final class JwtTokenService
      *
      * The token's subject type is `person`. `$tenant` is the tenant the
      * caller's admission loaded for the principal, written to `tenant_id`; the
-     * claim is carried for the application and not checked by the package on a
-     * request. A principal acts only within its own tenant, so a tenant given
-     * must be the one the principal's `getTenant()` returns, by identifier. A
-     * token for a session carries the session's latest authentication time in
-     * `auth_time` (never after the issue time: an authentication another server
-     * recorded with its clock ahead is carried as the issue time) and its
-     * authentication method references in `amr`, both derived from the session
-     * when the token is issued.
+     * claim is carried for the token's readers and not checked by the package
+     * on a request. A principal acts only within its own tenant, so a tenant
+     * given must be the one the principal's `getTenant()` returns, by
+     * identifier. A token for a session carries the session's latest
+     * authentication time in `auth_time` (never after the issue time: an
+     * authentication another server recorded with its clock ahead is carried as
+     * the issue time) and its authentication method references in `amr`, both
+     * derived from the session when the token is issued.
      *
      * Refuses to issue a token that `parse()` would reject or that would lose
      * part of its context: the identity and principal, the tenant when one is

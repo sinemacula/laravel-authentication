@@ -19,13 +19,13 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  *
  * Either takes only a further factor or a recovery code (an
  * `external_reauthentication` or a first-factor kind is refused, which is how
- * an external reauthentication never counts for MFA until the evidence contract
- * accepts its evidence), made for the operation's purpose (`sign_in` for a
- * completion, `step_up` for a step-up), accepted by its adapter, and made no
- * later than now and no earlier than what it adds to (the pending sign-in's
- * first factor, or the session's start): anything else is `proof_invalid`. Its
- * binding must then name the identity, the application and the pending
- * sign-in's id or the session's key exactly: anything else is
+ * an external reauthentication never counts for MFA until something accepts its
+ * evidence, which nothing does yet), made for the operation's purpose
+ * (`sign_in` for a completion, `step_up` for a step-up), accepted by its
+ * adapter, and made no later than now and no earlier than what it adds to (the
+ * pending sign-in's first factor, or the session's start): anything else is
+ * `proof_invalid`. Its binding must then name the identity, the application and
+ * the pending sign-in's id or the session's key exactly: anything else is
  * `proof_binding_mismatch`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

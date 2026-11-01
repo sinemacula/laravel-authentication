@@ -55,9 +55,11 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * method still allowed; and the additional-factor policy, which may not ask for
  * a further factor (sign in again as the target then).
  *
- * A switch keeps the session's absolute clock (it only ever lowers the absolute
- * deadline, to the guard's absolute lifetime from the sign-in, and never adds
- * or extends one), restarts the idle one, and writes in one compare-and-swap.
+ * A switch keeps the session's absolute clock (it never extends the absolute
+ * deadline: it keeps it, or lowers it to the guard's absolute lifetime counted
+ * from the sign-in, which also gives a session that had none a deadline once
+ * the guard sets a limit), restarts the idle one, and writes in one
+ * compare-and-swap.
  *
  * One switch is one instance, built with the guard's context, the client and
  * the target when the switch runs.

@@ -81,7 +81,7 @@ final class ProofWriter
 
     /**
      * Record how the session, established through an external provider, began.
-     * No evidence is recorded: only the evidence contract may accept any.
+     * No evidence is recorded: nothing decides yet whether any is accepted.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Proofs\Provenance  $provenance

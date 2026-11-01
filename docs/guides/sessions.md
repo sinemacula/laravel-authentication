@@ -11,7 +11,7 @@ Every session records the proofs it was established and kept with, each a timest
 | `first_factor_reauthentication` | a reauthentication with the first factor on an active session                                                                                                                   |
 | `additional_factor`             | a further factor an adapter verified: at sign-in, with `complete()`, or as a step-up                                                                                            |
 | `recovery_code`                 | a recovery code an adapter accepted in place of a further factor                                                                                                                |
-| `external_reauthentication`     | a reauthentication at the external provider the session began with                                                                                                              |
+| `external_reauthentication`     | reserved for a reauthentication at the external provider the session began with: nothing records it yet                                                                         |
 
 Each holds its method, its channel (`password`, `sms`, `email`, `authenticator_app`, `passkey`, `external_provider` or
 `unknown`, with the destination or credential reference: a code's address or number in its normal form, a passkey's own
@@ -19,15 +19,19 @@ row id, a provider's connection id), the factor an adapter used, what was observ
 presence and verification, backup eligibility and state, phishing resistance, key protection: each `null` when it was
 not observed, which never counts as true), the adapter's evaluation (accepted, multifactor; none for a proof the package
 verified itself), its `amr` values, its time and its binding (the identity, the application, the session and the
-purpose: `sign_in`, `reauthenticate` or `step_up`). A proof is never changed once recorded; a voided one (its factor was
-removed) never counts.
+purpose: `sign_in`, `reauthenticate` or `step_up`). A proof is never changed once recorded. A proof marked void never
+counts, but nothing marks one yet: removing a factor leaves its proofs counting, so after
+`factorRemoved($identity, Auth::session())` the current session keeps its step-up with that factor (its tokens' `amr`
+keep `mfa`, and it still meets a multifactor requirement). Pass no session to except when the current one must not keep
+it.
 
 A session an external provider established also records its provenance, once, in `proofs.provenance_table`: the
-connection and its tenant, the provider's authentication time, the evidence accepted for it (only an evidence contract
-that accepts it records any), the provider's deadline for its session (which also caps the session's absolute deadline,
-the earlier of it and the sign-in's own winning) and the policy version the caller checked. A later reauthentication at
-the provider is a proof of its own and never rewrites how the session began. The provenance is indexed by connection and
-by tenant, so the sessions of a connection, or of a tenant's connections, are found by an indexed query.
+connection and its tenant, the provider's authentication time, no evidence (nothing yet decides whether a provider's
+evidence is accepted, so none is recorded), the provider's deadline for its session (which also caps the session's
+absolute deadline, the earlier of it and the sign-in's own winning) and the policy version the caller checked. A later
+reauthentication at the provider is a proof of its own and never rewrites how the session began. The provenance is
+indexed by connection and by tenant, for finding the sessions of a connection or of a tenant's connections, but the
+package has no lookup or revocation by connection or tenant yet: only the indexes.
 
 Proofs and provenance belong to the session's key, so they carry unchanged from a pending sign-in to its session, and
 across every refresh and switch of principal. A sign-in that replaces a session the client proved it holds is a new
@@ -95,6 +99,14 @@ Route::middleware('auth:api')->post('/reauthenticate', function (Request $reques
 });
 ```
 
+Any sign-in method the guard allows can reauthenticate, with the input its sign-in takes. A code method (`phone_code`,
+`email_code`) takes the identifier and a code sent for it: request one first with `Auth::codes('api')->send()`, as for a
+sign-in and counted under the same code request limits (see [Signing in with a one-time
+code](signing-in.md#signing-in-with-a-one-time-code)), then pass the identifier and the code
+(`['phone' => $phone, 'code' => $code]`); the code is used up as a sign-in's is. A passkey takes the `challenge` and
+`credential` of a ceremony begun with `Auth::passkeys('api')->signInOptions()` (see [Using
+passkeys](signing-in.md#using-passkeys)). Whichever the method, the identity it verifies must be the session's owner.
+
 The method must be one the guard's application allows (`method_not_allowed`, nothing counted) and not a machine
 credential's (an `InvalidArgumentException`). The session must be one of the guard's live sessions of a person, as for a
 step-up. The attempt counts against the guard's `sign_in` limits, on the identifier and the IP address, before any
@@ -144,13 +156,13 @@ if ($proof === null) {
 evaluation and time), or `null`. The requirement is configured per operation in `freshness` and per guard (see
 [Freshness](configuration.md#freshness)): the proof kinds that count, how recently one must have been made, and whether
 it must have reported multifactor authentication or been observed to resist phishing. An operation with no configured
-requirement and none of the caller's is never fresh, nor is one whose two requirements take no kind in common. A voided
-proof never counts. The session is never trusted as the caller holds it: it is read again on the write connection and
-must still be live for its guard before its proofs are read, two queries in all, and none when the operation has no
-requirement. That read takes no lock, and inside a transaction it may be served from a snapshot taken before the
-caller's lock (MySQL's REPEATABLE READ), so a caller that acts on the answer atomically locks the session in its
-transaction, checks the locked row is still live itself, and asks inside it, as an identifier change does (see
-[Changing identifiers](identifier-changes.md)).
+requirement and none of the caller's is never fresh, nor is one whose two requirements take no kind in common. A proof
+marked void never counts (nothing marks one yet). The session is never trusted as the caller holds it: it is read again
+on the write connection and must still be live for its guard before its proofs are read, two queries in all, and none
+when the operation has no requirement. That read takes no lock, and inside a transaction it may be served from a
+snapshot taken before the caller's lock (MySQL's REPEATABLE READ), so a caller that acts on the answer atomically locks
+the session in its transaction, checks the locked row is still live itself, and asks inside it, as an identifier change
+does (see [Changing identifiers](identifier-changes.md)).
 
 The package binds `Freshness\ConfiguredFreshness`. Rebind the contract for a requirement the stored proofs cannot show,
 such as a minimum assurance level or an additional verification of your own; an implementation keeps no state between
@@ -213,12 +225,12 @@ identifier cannot be reached by switching to it, the session's sign-in method mu
 additional-factor policy must not ask for a further factor (`additional_factor_required`: sign in again as the target).
 
 With the current rotation id, the token's principal must be the one the session records (`session_principal_mismatch`).
-The switch keeps the session's absolute deadline (or its having none), held to the guard's absolute lifetime counted
-from the sign-in (`session_expired` when that has passed), restarts the idle one under the guard's lifetimes, issues
-both tokens for the target, then records the target, the switch time (`principal_switched_at`), the rotation and both
-deadlines in one compare-and-swap. The access tokens of the principal switched from stop at once, and switching back
-does not revive them (see [Session](configuration.md#session)). A switch to the principal the session already records
-rotates the credential like a refresh and reports no switch.
+The switch keeps the session's absolute deadline, or its having none while the guard sets no limit, held to the guard's
+absolute lifetime counted from the sign-in (`session_expired` when that has passed), restarts the idle one under the
+guard's lifetimes, issues both tokens for the target, then records the target, the switch time
+(`principal_switched_at`), the rotation and both deadlines in one compare-and-swap. The access tokens of the principal
+switched from stop at once, and switching back does not revive them (see [Session](configuration.md#session)). A switch
+to the principal the session already records rotates the credential like a refresh and reports no switch.
 
 With the previous rotation id inside the grace window, the current credential for the target is handed back, writing
 nothing, only when the session records the target and either its last rotation was the switch to it (a lost switch

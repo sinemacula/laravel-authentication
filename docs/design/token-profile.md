@@ -36,8 +36,9 @@ are told apart, which claims are checked on every parse, and which the bearer pa
   identifier), since a principal acts only within its own tenant. It is transitional: the package carries it and never
   checks it on a request, and `Auth::tenant()` stays the principal's tenant, read live.
 - Past the parse, the bearer path reads `sub`, `principal`, `sid`, `iat`, `cid` and `scope`. It does not read
-  `tenant_id`, `auth_time` or `amr`, and makes no query for them: they are for the application, derived at issue, and
-  live no longer than the access token does.
+  `tenant_id`, `auth_time` or `amr`, and makes no query for them: they are for the token's readers, derived at issue,
+  and live no longer than the access token does. On a request the package exposes none of them, and a decision about
+  how fresh or how strong the authentication is asks `FreshnessPolicy`.
 
 ## Success Path
 
@@ -53,8 +54,8 @@ are told apart, which claims are checked on every parse, and which the bearer pa
 - A token in the profile the package used before (a `typ` claim, `pid`, `did`, `grd`, no header type) fails the parse:
   nothing reads the old names.
 - A token whose header type is the other type's, or that breaks the access shape (`sub_type` not matching `cid`,
-  `auth_time` or `amr` without `sid`, a malformed `amr`, an `auth_time` after `iat`, an empty `tenant_id`), fails as
-  `token_invalid`.
+  `auth_time` or `amr` without `sid`, a malformed `amr`, an `auth_time` after `iat` plus the leeway, an empty
+  `tenant_id`), fails as `token_invalid`.
 - A `person` token whose subject loads as a `MachineIdentity` is refused as `machine_identity`; a `machine` token whose
   subject is not one is refused as `credential_invalid`.
 - An expired refresh token offered as proof of a previous session keeps every header and claim check; only its expiry

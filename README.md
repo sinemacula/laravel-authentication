@@ -39,8 +39,8 @@ are caught on the server.
 ## Features
 
 - **JWT guard** with guard-bound, kid-rotated HMAC tokens in a private profile that borrows RFC 9068's claims
-  (`client_id`, `sid`, `auth_time`, `amr`, an `at+jwt` header type), refresh rotation with replay detection, and a
-  browser refresh cookie with CSRF checks.
+  (`client_id`, `auth_time`, `amr`, an `at+jwt` header type) and OpenID Connect's `sid`, refresh rotation with replay
+  detection, and a browser refresh cookie with CSRF checks.
 - **Sign-in methods**: password, one-time code to a phone or email, and passkeys, behind one contract that SSO and
   custom methods plug into.
 - **Sessions**: timestamped proofs of every sign-in and an external provider's provenance on each session, step-up and

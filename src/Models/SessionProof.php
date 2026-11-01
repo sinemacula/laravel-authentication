@@ -17,8 +17,8 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * Kept on the storage connection with the sessions, so a session and its proofs
  * are written in one transaction, in the table named by
  * `authentication.proofs.table`. A proof is never changed once written, except
- * to mark it as no longer counting (`voided_at`). The session model's pruning
- * deletes a session's proofs with it.
+ * to mark it as no longer counting (`voided_at`), which nothing does yet. The
+ * session model's pruning deletes a session's proofs with it.
  *
  * Its columns and behaviour belong to the session service: callers read proofs
  * as `Proofs\RecordedProof`.
