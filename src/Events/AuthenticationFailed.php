@@ -10,9 +10,9 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 
 /**
- * Dispatched once for every failed sign-in, refresh, principal switch and
- * request access token, with the flow and a machine-readable reason. Where
- * Laravel's `Failed` fires as well, this one follows it.
+ * Dispatched once for every failed sign-in, refresh, switch and request access
+ * token, with the flow and a machine-readable reason. Where Laravel's `Failed`
+ * fires as well, this one follows it.
  *
  * Carries as much context as the flow established before it failed: the
  * identity only once a sign-in method verified it or a token's subject loaded

@@ -231,11 +231,11 @@ other rotated token as a replay that revokes the session.
 - `src/Jwt/RefreshTokenExchange.php`: `exchange()` (the limiter check and the failure count), `exchangeClaims()`,
   `exchangeOn()` (the guard check), `extractRefreshClaims()`, `hydrateRefreshContext()` (the recorded principal),
   `rotate()`, `afterLostRotation()`, `reissue()`, `fail()`, `revokeSession()`.
-- `src/Jwt/RefreshJudgment.php`: `classify()` and `isGraceRetry()`, the verdict a refresh and a switch of principal
+- `src/Jwt/RefreshJudgment.php`: `classify()` and `isGraceRetry()`, the verdict a refresh and a switch
   share.
 - `src/Jwt/RefreshAdmission.php`: `admit()` (the owner reload, the principal, activity), `admitByPolicy()` (the
   application policy).
-- `src/Jwt/RefreshRotationStore.php`: `rotate()` (the compare-and-swap), `switchPrincipal()` (the switch's
+- `src/Jwt/RefreshRotationStore.php`: `rotate()` (the compare-and-swap), `switchSession()` (the switch's
   compare-and-swap), `revoke()` (the guarded revocation), and `reload()` (the locking re-read on the writer).
 - `src/Database/AfterCommit.php`: defers `SessionRevoked` to the commit of the session's own connection.
 - `src/SessionRecords/SessionLookup.php`: `find()`, the session lookup on the writer.
@@ -269,7 +269,7 @@ other rotated token as a replay that revokes the session.
 - `tests/Feature/Jwt/RefreshJudgmentTest.php` (every verdict, and the order the session's state is judged in)
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
   `testARefreshAsAPrincipalTheSessionNoLongerRecordsIsRefused`, `testLostRotationFailsWithWhatTheRowNowSays`
-- `tests/Feature/Sessions/PrincipalSwitchTest.php`
+- `tests/Feature/Sessions/SessionSwitchTest.php`
   `testTheOldRefreshTokenInsideTheGraceWindowFailsWithoutRevoking`,
   `testTheOldRefreshTokenAfterTheGraceWindowRevokesTheSession`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`

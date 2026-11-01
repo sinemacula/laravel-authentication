@@ -19,11 +19,12 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Events\SteppedUp;
 use SineMacula\Laravel\Authentication\Sessions\AccessTokenResult;
-use SineMacula\Laravel\Authentication\Sessions\PrincipalSwitch;
 use SineMacula\Laravel\Authentication\Sessions\ProofIssuance;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
+use SineMacula\Laravel\Authentication\Sessions\SessionSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
+use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
@@ -50,7 +51,7 @@ use Tests\TestCase;
  *
  * @internal
  */
-#[CoversClass(PrincipalSwitch::class)]
+#[CoversClass(SessionSwitch::class)]
 #[CoversClass(RevocationWriter::class)]
 #[CoversClass(ProofIssuance::class)]
 final class ConcurrentSwitchAndRevocationTest extends TestCase
@@ -189,7 +190,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
 
             [, $second] = $this->race(
                 fn (): int => $this->sessions(self::GUARD)->revokeSessions($member, RevocationReason::REVOKED),
-                fn (): array => self::describe($this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $target)),
+                fn (): array => self::describe($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($target))),
                 $commit,
             );
 
@@ -230,7 +231,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
 
             [$refreshed, $second] = $this->race(
                 fn (): bool => self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken)->isRefreshed(),
-                fn (): array => self::describe($this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $target)),
+                fn (): array => self::describe($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($target))),
                 $commit,
             );
 
@@ -274,8 +275,8 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
             $session = $this->signIn();
 
             [$first, $second] = $this->race(
-                fn (): array => self::describe($this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $target)),
-                fn (): array => self::describe($this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $target)),
+                fn (): array => self::describe($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($target))),
+                fn (): array => self::describe($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($target))),
                 $commit,
             );
 

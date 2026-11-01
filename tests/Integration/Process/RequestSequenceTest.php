@@ -26,6 +26,7 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
@@ -105,7 +106,7 @@ final class RequestSequenceTest extends TestCase
 
         Route::post('/members/switch', static function (): array {
             $target = ActivatableTenantMembership::query()->findOrFail(request()->integer('membership'));
-            $result = Auth::sessions('members')->switchPrincipal(request()->string('refresh')->value(), $target);
+            $result = Auth::sessions('members')->switchTo(request()->string('refresh')->value(), SwitchTarget::principal($target));
             $guard  = Auth::manager()->guard('members');
 
             assert($guard instanceof JwtGuard);
@@ -364,7 +365,7 @@ final class RequestSequenceTest extends TestCase
 
         Event::fake([PrincipalSwitched::class, SessionRevoked::class, SignedOutEverywhere::class]);
 
-        self::assertTrue(self::sessionsOf($guard)->switchPrincipal($session->tokens->refreshToken, $second)->isSwitched());
+        self::assertTrue(self::sessionsOf($guard)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($second))->isSwitched());
         self::assertSame(1, self::sessionsOf($guard)->signOutEverywhere());
 
         Event::assertDispatched(PrincipalSwitched::class, static fn (PrincipalSwitched $event): bool => $event->previousPrincipalId === (string) $first->id);
@@ -394,7 +395,7 @@ final class RequestSequenceTest extends TestCase
 
         $this->app?->instance(PrincipalResolver::class, $resolver);
 
-        $result = self::sessionsOf($guard)->switchPrincipal($session->tokens->refreshToken, $second);
+        $result = self::sessionsOf($guard)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($second));
 
         self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $result->reason);
     }

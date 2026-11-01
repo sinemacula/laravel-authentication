@@ -28,8 +28,9 @@ use Tests\Unit\Stubs\PlainSessionFixture;
 final class PrincipalSwitchedTest extends TestCase
 {
     /**
-     * The event keeps its context and the previous principal, as resolved and
-     * as the session recorded it.
+     * The event keeps its context, the previous principal, as resolved and as
+     * the session recorded it, the previous tenant the session recorded, and
+     * which of the two changed.
      *
      * @return void
      */
@@ -37,7 +38,7 @@ final class PrincipalSwitchedTest extends TestCase
     {
         $context  = self::context();
         $previous = new PlainPrincipalFixture('p-1');
-        $event    = new PrincipalSwitched($context, $previous, PlainPrincipalFixture::class, 'p-1');
+        $event    = new PrincipalSwitched($context, $previous, PlainPrincipalFixture::class, 'p-1', 't-1', true, false);
 
         self::assertInstanceOf(AuthenticationEvent::class, $event);
         self::assertSame($context, $event->context);
@@ -45,20 +46,23 @@ final class PrincipalSwitchedTest extends TestCase
         self::assertSame($previous, $event->previousPrincipal);
         self::assertSame(PlainPrincipalFixture::class, $event->previousPrincipalMorphClass);
         self::assertSame('p-1', $event->previousPrincipalId);
+        self::assertSame('t-1', $event->previousTenantId);
+        self::assertTrue($event->principalChanged);
+        self::assertFalse($event->tenantChanged);
     }
 
     /**
      * The event survives a round trip for queued listeners, its previous
      * principal leniently: one that is not an Eloquent model does not cross and
-     * comes back `null`, while the recorded morph class and identifier are
-     * kept. It does not ask the dispatcher to wait for a transaction: the
-     * package dispatches it once the switch commits.
+     * comes back `null`, while the recorded morph class and identifiers and the
+     * changes are kept. It does not ask the dispatcher to wait for a
+     * transaction: the package dispatches it once the switch commits.
      *
      * @return void
      */
     public function testSerializesItsModelsAndDispatchesWhenTheSenderSays(): void
     {
-        $event = new PrincipalSwitched(self::context(), new PlainPrincipalFixture('9'), 'membership', '9');
+        $event = new PrincipalSwitched(self::context(), new PlainPrincipalFixture('9'), 'membership', '9', null, false, true);
 
         self::assertNotInstanceOf(ShouldDispatchAfterCommit::class, $event);
         self::assertContains(SerializesLiveModels::class, class_uses_recursive($event));
@@ -72,6 +76,9 @@ final class PrincipalSwitchedTest extends TestCase
         self::assertNull($copy->previousPrincipal);
         self::assertSame('membership', $copy->previousPrincipalMorphClass);
         self::assertSame('9', $copy->previousPrincipalId);
+        self::assertNull($copy->previousTenantId);
+        self::assertFalse($copy->principalChanged);
+        self::assertTrue($copy->tenantChanged);
     }
 
     /**

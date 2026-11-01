@@ -41,10 +41,10 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * The deadline (`notAfter`, cut to the whole second) caps the session the
  * sign-in starts: its absolute deadline is the earlier of it and the
  * application's absolute limit, or it alone when the application sets none, and
- * refresh, a switch of principal and a reauthentication never move it. An
- * external provider's session deadline is one source. It is the application's
- * or a trusted adapter's to supply, never read from the request, and a sign-in
- * whose deadline has already passed is refused as `session_expired`.
+ * refresh, a switch and a reauthentication never move it. An external
+ * provider's session deadline is one source. It is the application's or a
+ * trusted adapter's to supply, never read from the request, and a sign-in whose
+ * deadline has already passed is refused as `session_expired`.
  *
  * @api
  *

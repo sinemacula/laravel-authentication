@@ -346,10 +346,10 @@ seam has a default that works alone.
 ### Further factors (`laravel-mfa`)
 
 - Bind `Contracts\AdditionalFactorPolicy` (the default, `NeverRequireAdditionalFactor`, never asks). It is asked about
-  every admitted identity's sign-in, from `signIn()` and `start()`, before any principal is chosen, again whenever its
-  pending session is acted on, and on a switch of principal, with the guard, identity, method, client and the session
-  the client proved; it names no principal or tenant (see [Additional factors](signing-in.md#additional-factors)). A
-  stored accepted further factor or recovery code meets it.
+  every admitted identity's sign-in, from `signIn()` and `start()`, before any principal is chosen, and again whenever
+  its pending session is acted on (never on a switch), with the guard, identity, method, client and the session the
+  client proved; it names no principal or tenant (see [Additional factors](signing-in.md#additional-factors)). A stored
+  accepted further factor or recovery code meets it.
 - When it asks for a factor, the sign-in's session waits pending with `mfa` outstanding: `SignInResult::isPending()`,
   its `PendingSession` and pending credential, then `Auth::sessions()->pending($credential, $action)` to check an
   `mfa.*` action (`Sessions\Enums\PendingAction`) before the factor package acts, `satisfy()` once the factor is

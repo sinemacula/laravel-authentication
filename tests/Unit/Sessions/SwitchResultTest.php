@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Sessions;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -12,17 +13,18 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
-use SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\HoldsARotatedSession;
+use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
+use SineMacula\Laravel\Authentication\Sessions\PendingSession;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
-use SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
 
 /**
- * Unit tests for how a switch of principal ends.
+ * Unit tests for how a switch ends: switched, returned to pending, or refused.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -30,7 +32,6 @@ use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
  * @internal
  */
 #[CoversClass(SwitchResult::class)]
-#[CoversClass(SwitchedPrincipal::class)]
 #[CoversTrait(HoldsARotatedSession::class)]
 final class SwitchResultTest extends TestCase
 {
@@ -49,6 +50,7 @@ final class SwitchResultTest extends TestCase
 
         self::assertTrue($result->isSwitched());
         self::assertFalse($result->isFailed());
+        self::assertFalse($result->isPending());
         self::assertSame($session, $result->session);
         self::assertNull($result->reason);
         self::assertNull($result->retryAfter);
@@ -107,20 +109,41 @@ final class SwitchResultTest extends TestCase
     }
 
     /**
-     * A switched principal keeps the exchanged session and the principal the
-     * session recorded before the switch.
+     * A switch returned to pending carries the pending session and its
+     * credential, and no session, reason or wait; it is neither switched nor
+     * refused, and read from a source it keeps both.
      *
      * @return void
      */
-    public function testASwitchedPrincipalKeepsWhatItWasGiven(): void
+    public function testAPendingResultCarriesThePendingSessionAndItsCredential(): void
     {
-        $record    = \Mockery::mock(Model::class, EloquentSession::class);
-        $exchanged = new ExchangedRefresh(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), $record, new TokenPair('access', 'refresh'), null, 'password');
-        $switched  = new SwitchedPrincipal($exchanged, 'membership', '7', true);
+        $pending = new PendingSession(
+            'session-key',
+            'api',
+            \Mockery::mock(Identity::class),
+            \Mockery::mock(Principal::class),
+            null,
+            [PendingRequirement::MFA],
+            'password',
+            CarbonImmutable::parse('2026-04-06 12:05:00'),
+            \Mockery::mock(Session::class),
+        );
 
-        self::assertSame($exchanged, $switched->session);
-        self::assertSame('membership', $switched->previousType);
-        self::assertSame('7', $switched->previousId);
-        self::assertTrue($switched->switched);
+        $result = SwitchResult::pending($pending, 'session-key.secret');
+
+        self::assertTrue($result->isPending());
+        self::assertFalse($result->isSwitched());
+        self::assertFalse($result->isFailed());
+        self::assertSame($pending, $result->pending);
+        self::assertSame('session-key.secret', $result->credential);
+        self::assertNull($result->session);
+        self::assertNull($result->reason);
+        self::assertNull($result->retryAfter);
+
+        $read = $result->withSource(RefreshTokenSource::COOKIE);
+
+        self::assertSame($pending, $read->pending);
+        self::assertSame('session-key.secret', $read->credential);
+        self::assertSame(RefreshTokenSource::COOKIE, $read->source);
     }
 }

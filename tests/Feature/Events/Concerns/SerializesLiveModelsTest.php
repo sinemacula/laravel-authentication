@@ -225,7 +225,7 @@ final class SerializesLiveModelsTest extends TestCase
     public function testAPreviousPrincipalWhoseRowIsGoneComesBackNull(): void
     {
         $previous = ActivatableTenantMembership::query()->create(['identity_id' => $this->member->getKey(), 'tenant_id' => $this->tenant->getKey()]);
-        $event    = new PrincipalSwitched($this->context(), $previous, $previous->getMorphClass(), (string) $previous->getKey()); // @phpstan-ignore cast.string
+        $event    = new PrincipalSwitched($this->context(), $previous, $previous->getMorphClass(), (string) $previous->getKey(), null, true, false); // @phpstan-ignore cast.string
 
         $kept = unserialize(serialize($event));
 

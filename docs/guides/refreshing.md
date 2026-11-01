@@ -72,10 +72,12 @@ the absolute deadline: a session capped at its sign-in's own deadline stays capp
 (an application that sets no absolute limit) gets none from a refresh. The new refresh token, and the cookie that
 carries it, expire at the session's end, its idle deadline alone when it has no absolute one.
 
-A refresh token is accepted only for the principal its session records. After a switch (see [Switching
-principal](sessions.md#switching-principal)), the refresh token of the principal switched from fails with
-`session_principal_mismatch`, even inside the grace window, and the session is left alone; a token presented after the
-grace window is a replay, as any rotated token is. A refresh that loses its write to a switch is judged the same way.
+A refresh token is accepted only for the principal its session records. After a switch of principal (see
+[Switching principal or tenant](sessions.md#switching-principal-or-tenant)), the refresh token of the principal switched
+from fails with `session_principal_mismatch`, even inside the grace window, and the session is left alone; a token
+presented after the grace window is a replay, as any rotated token is. A refresh that loses its write to a switch is
+judged the same way. A refresh keeps the session in its active tenant, and is refused once the tenant is no longer one
+`TenantAccess` lets the principal act in (`tenant_ineligible`) or is inactive (`tenant_inactive`).
 
 Failed refreshes are counted against the token's session and the request's IP address by the bound `AttemptLimiter`;
 successful ones are not. Once either count is full, a refresh dispatches `Failed` and `AuthenticationFailed`
@@ -133,9 +135,9 @@ stateless. List the cookie as the guard's source and give it the path its routes
 ],
 ```
 
-Put the routes that read the cookie under that path (refresh, a switch of principal, see
-[Switching principal](sessions.md#switching-principal), and sign-in for a browser that proves its session), and set the
-cookie with the guard's transport whenever the API hands out a pair:
+Put the routes that read the cookie under that path (refresh, a switch, see
+[Switching principal or tenant](sessions.md#switching-principal-or-tenant), and sign-in for a browser that proves its
+session), and set the cookie with the guard's transport whenever the API hands out a pair:
 
 ```php
 use Illuminate\Http\Exceptions\ThrottleRequestsException;

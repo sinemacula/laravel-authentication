@@ -60,7 +60,7 @@ and any proof kind, by default; see [Freshness](configuration.md#freshness), whe
   must still be that session (of its generation, so a later session a model put under its key proves nothing for it) and
   one of the identity's own live sessions of the guard (not revoked, deadlines not passed) holding a proof that meets
   the requirement: its sign-in, a reauthentication, a step-up or a recovery code, of a kind the requirement takes, made
-  within its age (see [Freshness](sessions.md#freshness)). A refresh or a principal switch records no proof, so neither
+  within its age (see [Freshness](sessions.md#freshness)). A refresh or a switch records no proof, so neither
   renews it; a reauthentication or a step-up does. A fresh sign-in starts a new session, and a session it replaced is
   revoked, so it no longer proves anything.
 - `Reauthentication::password($password)`: the identity's current password, a first-factor reauthentication made now,

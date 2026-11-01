@@ -130,7 +130,7 @@ final class EveryEventRestoresTest extends TestCase
             'PasskeyUsed'               => [PasskeyUsed::class, []],
             'PasswordSet'               => [PasswordSet::class, [PasswordFlow::CHANGE]],
             'PrincipalAssigned'         => [PrincipalAssigned::class, []],
-            'PrincipalSwitched'         => [PrincipalSwitched::class, [null, 'membership', '9']],
+            'PrincipalSwitched'         => [PrincipalSwitched::class, [null, 'membership', '9', 't-9', true, true]],
             'Reauthenticated'           => [Reauthenticated::class, []],
             'Refreshed'                 => [Refreshed::class, []],
             'SessionActivated'          => [SessionActivated::class, []],

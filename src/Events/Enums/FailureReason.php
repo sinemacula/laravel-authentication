@@ -6,8 +6,8 @@ namespace SineMacula\Laravel\Authentication\Events\Enums;
 
 /**
  * Machine-readable reason a sign-in, a request's access token or API key, a
- * refresh, a principal switch, a step-up, a reauthentication, a code request, a
- * client credentials exchange, a password reset or an identifier change failed,
+ * refresh, a switch, a step-up, a reauthentication, a code request, a client
+ * credentials exchange, a password reset or an identifier change failed,
  * carried on the `AuthenticationFailed` event and on a failed `SignInResult`.
  *
  * Backed, so SIEM consumers count failure modes without scraping log messages.

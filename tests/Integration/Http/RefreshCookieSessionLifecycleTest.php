@@ -28,6 +28,7 @@ use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
+use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use Symfony\Component\HttpFoundation\Cookie;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
@@ -400,7 +401,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     private static function switchRoute(Request $request): JsonResponse
     {
         $target = ActivatableTenantMembership::query()->findOrFail($request->integer('membership'));
-        $result = Auth::sessions(self::GUARD)->switchPrincipalFromRequest($target);
+        $result = Auth::sessions(self::GUARD)->switchFromRequest(SwitchTarget::principal($target));
 
         if ($result?->reason === FailureReason::RATE_LIMITED) {
             throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $result->retryAfter]);

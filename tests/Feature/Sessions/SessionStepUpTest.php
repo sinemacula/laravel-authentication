@@ -35,6 +35,7 @@ use SineMacula\Laravel\Authentication\Sessions\Concerns\ProvesSessions;
 use SineMacula\Laravel\Authentication\Sessions\ProofIssuance;
 use SineMacula\Laravel\Authentication\Sessions\SessionStepUp;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
@@ -284,7 +285,7 @@ final class SessionStepUpTest extends TestCase
 
         self::assertNotNull($refreshed);
 
-        $switched = $this->sessions('members')->switchPrincipal($refreshed->tokens->refreshToken, $second)->session;
+        $switched = $this->sessions('members')->switchTo($refreshed->tokens->refreshToken, SwitchTarget::principal($second))->session;
 
         self::assertNotNull($switched);
 

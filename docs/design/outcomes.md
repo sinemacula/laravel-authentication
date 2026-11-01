@@ -18,7 +18,7 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
   that found nothing (`sessions()->pending()`, `apiKeys()->find()`, `identifierChanges()->pending()`),
   `apiKeys()->rotate()` when the principal has no rotatable key by that id (unknown, revoked, expired or already
   rotated, so nothing changed), or a call that reads a credential from the request when the request carries none
-  (`refreshFromRequest()`, `switchPrincipalFromRequest()`), in which case nothing was dispatched.
+  (`refreshFromRequest()`, `switchFromRequest()`), in which case nothing was dispatched.
 - **A result object when success carries a payload or the flow can be throttled.** It is `final readonly`, made only
   through named constructors (one per outcome), and says which outcome it is through `is<Outcome>()` predicates. The
   payload is in nullable public properties, set only for the outcome that has it. A refusal is named by `status` or by

@@ -12,13 +12,16 @@ use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\TestCase;
+use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
+use Tests\Unit\Stubs\PlainTenantFixture;
 use Tests\Unit\Stubs\StubSession;
 
 /**
@@ -170,23 +173,26 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * A switch records the target, the switch time, the rotation and both
-     * deadlines, on the row and on the in-memory session.
+     * A switch records the destination principal and tenant, the switch time,
+     * the policy version, the rotation and both deadlines, on the row and on
+     * the in-memory session.
      *
      * @return void
      */
-    public function testSwitchPrincipalRecordsTheTargetAndMirrorsIt(): void
+    public function testSwitchSessionRecordsTheDestinationAndMirrorsIt(): void
     {
-        $session  = $this->record([...self::recordedPrincipal(new PlainPrincipalFixture('p-1')), 'principal_type' => 'previous-type']);
+        $session  = $this->record([...self::recordedPrincipal(new PlainPrincipalFixture('p-1')), 'principal_type' => 'previous-type', 'tenant_id' => 't-1']);
         $idle     = $this->now->addDays(30);
         $absolute = $this->now->addDays(60);
 
-        self::assertTrue($this->store()->switchPrincipal($session, self::CURRENT, self::NEXT, new PlainPrincipalFixture('p-2'), null, true, [$idle, $absolute], $this->now));
+        self::assertTrue($this->store()->switchSession($session, [self::CURRENT, self::NEXT], self::destination('p-2', 't-2'), 'v1', [$idle, $absolute], $this->now));
 
         $row = $this->row($session);
 
         self::assertSame(PlainPrincipalFixture::class, $row['principal_type']);
         self::assertSame('p-2', $row['principal_id']);
+        self::assertSame('t-2', $row['tenant_id']);
+        self::assertSame('v1', $row['tenant_policy_version']);
         self::assertSame($this->now->getTimestamp(), Carbon::parse($row['switched_at'])->getTimestamp()); // @phpstan-ignore argument.type
         self::assertSame(RefreshTokenHasher::hash(self::NEXT), $row['refresh_key']);
         self::assertSame(RefreshTokenHasher::hash(self::CURRENT), $row['previous_refresh_key']);
@@ -195,6 +201,8 @@ final class RefreshRotationStoreTest extends TestCase
         self::assertSame($absolute->getTimestamp(), Carbon::parse($row['absolute_expires_at'])->getTimestamp()); // @phpstan-ignore argument.type
 
         self::assertSame('p-2', $session->getAttribute('principal_id'));
+        self::assertSame('t-2', $session->getTenantId());
+        self::assertSame('v1', $session->getTenantPolicyVersion());
         self::assertSame($this->now->getTimestamp(), $session->getSwitchedAt()?->getTimestamp());
         self::assertSame(RefreshTokenHasher::hash(self::NEXT), $session->getRefreshKey());
         self::assertSame($absolute->getTimestamp(), $session->getAbsoluteExpiresAt()?->getTimestamp());
@@ -202,24 +210,71 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * A rotation for the principal the session already records moves the
-     * rotation and the deadlines but records no switch.
+     * A switch that changes only the active tenant records the tenant and the
+     * switch time, keeping the principal; one that changes only the principal
+     * records it, keeping the tenant.
      *
      * @return void
      */
-    public function testSwitchPrincipalWithoutSwitchingOnlyRotates(): void
+    public function testSwitchSessionRecordsAChangeOfEitherAlone(): void
     {
-        $session = $this->record(self::recordedPrincipal(new PlainPrincipalFixture('p-1')));
+        $deadlines = [$this->now->addDays(30), $this->now->addDays(60)];
+        $tenant    = $this->record([...self::recordedPrincipal(new PlainPrincipalFixture('p-1')), 'tenant_id' => 't-1']);
+
+        self::assertTrue($this->store()->switchSession($tenant, [self::CURRENT, self::NEXT], self::destination('p-1', 't-2'), null, $deadlines, $this->now));
+        self::assertSame(['p-1', 't-2'], [$this->row($tenant)['principal_id'], $this->row($tenant)['tenant_id']]);
+        self::assertNotNull($this->row($tenant)['switched_at']);
+
+        $principal = $this->record([...self::recordedPrincipal(new PlainPrincipalFixture('p-1')), 'tenant_id' => 't-1']);
+
+        self::assertTrue($this->store()->switchSession($principal, [self::CURRENT, self::NEXT], self::destination('p-2', 't-1'), null, $deadlines, $this->now));
+        self::assertSame(['p-2', 't-1'], [$this->row($principal)['principal_id'], $this->row($principal)['tenant_id']]);
+        self::assertNotNull($this->row($principal)['switched_at']);
+    }
+
+    /**
+     * A switch to the principal and tenant the session already records moves
+     * the rotation, the deadlines and the policy version but records no switch.
+     *
+     * @return void
+     */
+    public function testSwitchSessionToTheRecordedDestinationOnlyRotates(): void
+    {
+        $session = $this->record([...self::recordedPrincipal(new PlainPrincipalFixture('p-1')), 'tenant_id' => 't-1', 'tenant_policy_version' => 'v1']);
 
         $deadlines = [$this->now->addDays(30), $this->now->addDays(60)];
 
-        self::assertTrue($this->store()->switchPrincipal($session, self::CURRENT, self::NEXT, new PlainPrincipalFixture('p-2'), null, false, $deadlines, $this->now));
+        self::assertTrue($this->store()->switchSession($session, [self::CURRENT, self::NEXT], self::destination('p-1', 't-1'), 'v2', $deadlines, $this->now));
 
         $row = $this->row($session);
 
         self::assertSame('p-1', $row['principal_id']);
+        self::assertSame('t-1', $row['tenant_id']);
+        self::assertSame('v2', $row['tenant_policy_version']);
         self::assertNull($row['switched_at']);
         self::assertSame(RefreshTokenHasher::hash(self::NEXT), $row['refresh_key']);
+    }
+
+    /**
+     * A switch in the second the session last switched in records its switch
+     * one second later, so a token issued in that second is below the new
+     * floor; a later switch records its own second.
+     *
+     * @return void
+     */
+    public function testSwitchSessionMovesTheFloorPastASwitchInTheSameSecond(): void
+    {
+        $deadlines = [$this->now->addDays(30), $this->now->addDays(60)];
+        $same      = $this->record([...self::recordedPrincipal(new PlainPrincipalFixture('p-1')), 'switched_at' => $this->now]);
+
+        self::assertTrue($this->store()->switchSession($same, [self::CURRENT, self::NEXT], self::destination('p-2', null), null, $deadlines, $this->now));
+        self::assertSame($this->now->addSecond()->getTimestamp(), Carbon::parse($this->row($same)['switched_at'])->getTimestamp()); // @phpstan-ignore argument.type
+        self::assertSame($this->now->addSecond()->getTimestamp(), $same->getSwitchedAt()?->getTimestamp());
+
+        $earlier = $this->record([...self::recordedPrincipal(new PlainPrincipalFixture('p-1')), 'switched_at' => $this->now->subMinute()]);
+
+        self::assertTrue($this->store()->switchSession($earlier, [self::CURRENT, self::NEXT], self::destination('p-2', null), null, $deadlines, $this->now));
+        self::assertSame($this->now->getTimestamp(), Carbon::parse($this->row($earlier)['switched_at'])->getTimestamp()); // @phpstan-ignore argument.type
     }
 
     /**
@@ -236,21 +291,25 @@ final class RefreshRotationStoreTest extends TestCase
             'absolute deadline moved' => [['absolute_expires_at' => '2026-05-06 12:00:00']],
             'switched elsewhere'      => [['principal_id' => 'p-3']],
             'principal type changed'  => [['principal_type' => 'other']],
+            'tenant switched'         => [['tenant_id' => 't-9']],
+            'policy version written'  => [['tenant_policy_version' => 'v9']],
+            'returned to pending'     => [['status' => 'pending']],
         ];
     }
 
     /**
      * The switch applies only to the state the session was loaded with: after a
-     * concurrent rotation, revocation, deadline change or switch it affects no
-     * row, reports so, and leaves the in-memory session as it was.
+     * concurrent rotation, revocation, deadline change, switch of principal or
+     * tenant, policy version write or return to pending it affects no row,
+     * reports so, and leaves the in-memory session as it was.
      *
      * @param  array<string, mixed>  $change
      * @return void
      */
     #[DataProvider('provideChangesBeforeASwitch')]
-    public function testSwitchPrincipalMissesAfterAChangeSinceTheSessionWasLoaded(array $change): void
+    public function testSwitchSessionMissesAfterAChangeSinceTheSessionWasLoaded(array $change): void
     {
-        $session = $this->record(self::recordedPrincipal(new PlainPrincipalFixture('p-1')));
+        $session = $this->record([...self::recordedPrincipal(new PlainPrincipalFixture('p-1')), 'tenant_id' => 't-1']);
 
         DB::table('stub_sessions')->where('id', $session->id)->update($change);
 
@@ -258,10 +317,40 @@ final class RefreshRotationStoreTest extends TestCase
 
         $deadlines = [$this->now->addDays(30), $this->now->addDays(60)];
 
-        self::assertFalse($this->store()->switchPrincipal($session, self::CURRENT, self::NEXT, new PlainPrincipalFixture('p-2'), null, true, $deadlines, $this->now));
+        self::assertFalse($this->store()->switchSession($session, [self::CURRENT, self::NEXT], self::destination('p-2', 't-2'), 'v1', $deadlines, $this->now));
         self::assertSame($before, $this->row($session));
         self::assertSame('p-1', $session->getAttribute('principal_id'));
+        self::assertSame('t-1', $session->getTenantId());
         self::assertSame(RefreshTokenHasher::hash(self::CURRENT), $session->getRefreshKey());
+    }
+
+    /**
+     * Which of the principal and the tenant a destination changes is read from
+     * the session as it was loaded, by type and identifier, so a tenant set on
+     * the in-memory session before the switch does not hide a change.
+     *
+     * @return void
+     */
+    public function testContextChangesCompareTheDestinationWithTheLoadedSession(): void
+    {
+        $session = $this->record([...self::recordedPrincipal(new PlainPrincipalFixture('p-1')), 'tenant_id' => 't-1']);
+
+        self::assertSame([false, false], RefreshRotationStore::contextChanges($session, self::destination('p-1', 't-1')));
+        self::assertSame([true, false], RefreshRotationStore::contextChanges($session, self::destination('p-2', 't-1')));
+        self::assertSame([false, true], RefreshRotationStore::contextChanges($session, self::destination('p-1', null)));
+        self::assertSame([true, true], RefreshRotationStore::contextChanges($session, self::destination('p-2', 't-2')));
+
+        $session->setAttribute('tenant_id', 't-2');
+
+        self::assertSame([false, true], RefreshRotationStore::contextChanges($session, self::destination('p-1', 't-2')));
+
+        $session->setAttribute('principal_type', 'other');
+
+        self::assertSame([false, true], RefreshRotationStore::contextChanges($session, self::destination('p-1', 't-2')));
+
+        $retyped = $this->record([...self::recordedPrincipal(new PlainPrincipalFixture('p-1')), 'principal_type' => 'other', 'tenant_id' => null]);
+
+        self::assertSame([true, false], RefreshRotationStore::contextChanges($retyped, self::destination('p-1', null)));
     }
 
     /**
@@ -492,6 +581,19 @@ final class RefreshRotationStoreTest extends TestCase
         ])->save();
 
         return StubSession::query()->findOrFail($session->id);
+    }
+
+    /**
+     * A destination admitted for the principal and, if any, the tenant, both by
+     * identifier.
+     *
+     * @param  string  $principalId
+     * @param  ?string  $tenantId
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted
+     */
+    private static function destination(string $principalId, ?string $tenantId): Admitted
+    {
+        return new Admitted(new PlainIdentityFixture('i-1'), new PlainPrincipalFixture($principalId), $tenantId === null ? null : new PlainTenantFixture($tenantId));
     }
 
     /**

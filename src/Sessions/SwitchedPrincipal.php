@@ -7,9 +7,9 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 use SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh;
 
 /**
- * A session that switched the principal it acts as: the session as it now is,
- * with its new pair, and the principal it recorded before, as the type and
- * identifier it stored.
+ * A session a switch re-issued the pair of: the session as it now is, with its
+ * new pair, the principal and active tenant it recorded before, as the type and
+ * identifiers it stored, and which of them the switch changed.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -24,11 +24,13 @@ final readonly class SwitchedPrincipal
      * @param  \SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh  $session
      * @param  ?string  $previousType
      * @param  ?string  $previousId
-     * @param  bool  $switched
+     * @param  ?string  $previousTenantId
+     * @param  bool  $principalChanged
+     * @param  bool  $tenantChanged
      */
     public function __construct(
 
-        /** The session, acting as the target, with its new pair. */
+        /** The session, acting as the destination, with its new pair. */
         public ExchangedRefresh $session,
 
         /** The principal's morph type the session recorded before. */
@@ -37,7 +39,23 @@ final readonly class SwitchedPrincipal
         /** The principal identifier the session recorded before. */
         public ?string $previousId,
 
-        /** Whether this call changed the principal, rather than rotating for the one already recorded or answering a retry. */
-        public bool $switched,
+        /** The active tenant's identifier the session recorded before. */
+        public ?string $previousTenantId,
+
+        /** Whether this call changed the principal, rather than keeping the one recorded or answering a retry. */
+        public bool $principalChanged,
+
+        /** Whether this call changed the active tenant, rather than keeping the one recorded or answering a retry. */
+        public bool $tenantChanged,
     ) {}
+
+    /**
+     * Whether this call changed the principal or the active tenant.
+     *
+     * @return bool
+     */
+    public function changed(): bool
+    {
+        return $this->principalChanged || $this->tenantChanged;
+    }
 }

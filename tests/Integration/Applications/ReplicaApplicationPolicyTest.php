@@ -14,8 +14,9 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
 use SineMacula\Laravel\Authentication\Sessions\PendingEvaluation;
-use SineMacula\Laravel\Authentication\Sessions\PrincipalSwitch;
+use SineMacula\Laravel\Authentication\Sessions\SessionSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use Tests\Concerns\InteractsWithApplicationGrants;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Concerns\InteractsWithSessions;
@@ -40,7 +41,7 @@ use Tests\TestCase;
 #[CoversClass(ApplicationAdmission::class)]
 #[CoversClass(SignInAdmission::class)]
 #[CoversClass(RefreshAdmission::class)]
-#[CoversClass(PrincipalSwitch::class)]
+#[CoversClass(SessionSwitch::class)]
 #[CoversClass(PendingEvaluation::class)]
 final class ReplicaApplicationPolicyTest extends TestCase
 {
@@ -200,14 +201,16 @@ final class ReplicaApplicationPolicyTest extends TestCase
         $this->grant($first);
         $this->grant($second);
 
-        $switched = $this->sessions('members')->switchPrincipal($this->signIn('members', 'member@example.test')->tokens->refreshToken, $second);
+        $switched = $this->sessions('members')->switchTo($this->signIn('members', 'member@example.test')->tokens->refreshToken, SwitchTarget::principal($second));
 
         self::assertTrue($switched->isSwitched());
         self::assertNotNull($switched->session);
 
         $this->withdrawOnThePrimary(GrantedApplicationPolicy::VERIFICATIONS, $verification);
 
-        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->sessions('members')->switchPrincipal($switched->session->tokens->refreshToken, $first)->reason);
+        $back = $this->sessions('members')->switchTo($switched->session->tokens->refreshToken, SwitchTarget::principal($first));
+
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $back->reason);
     }
 
     /**

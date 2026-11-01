@@ -24,6 +24,8 @@ use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
+use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -33,21 +35,23 @@ use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
-use SineMacula\Laravel\Authentication\Sessions\PrincipalSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Sessions\SessionSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
+use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
+use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Sessions\RefusingApplicationAccess;
+use Tests\Fixtures\Tenancy\DescendantTenants;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\ChoosingMembership;
@@ -57,22 +61,24 @@ use Tests\TestCase;
 
 /**
  * Feature tests of switching a session to another principal of its identity,
- * proven by the session's refresh token, over HTTP and through the session
- * service: the old principal's tokens stop at once, a lost switch response is
- * answered again inside the grace window, a replay revokes the session, and
- * every check a refresh and a sign-in make runs on every path.
+ * another active tenant, or both, proven by the session's refresh token, over
+ * HTTP and through the session service: every access token issued before a
+ * change stops at once, a lost switch response is answered again inside the
+ * grace window, a replay revokes the session, and every check a refresh and a
+ * sign-in make runs on every path, with the access contracts asked about the
+ * destination.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversClass(PrincipalSwitch::class)]
+#[CoversClass(SessionSwitch::class)]
 #[CoversClass(SessionService::class)]
 #[CoversClass(SwitchedPrincipal::class)]
 #[CoversClass(SwitchResult::class)]
 #[CoversClass(PrincipalSwitched::class)]
-final class PrincipalSwitchTest extends TestCase
+final class SessionSwitchTest extends TestCase
 {
     use InteractsWithSessions;
 
@@ -81,6 +87,9 @@ final class PrincipalSwitchTest extends TestCase
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
+
+    /** @var ?\Tests\Fixtures\Tenancy\DescendantTenants The application's tree, once a test binds it as the tenant access and resolver. */
+    private ?DescendantTenants $tree = null;
 
     /**
      * Freeze the clocks, create the tables and register the routes.
@@ -99,7 +108,7 @@ final class PrincipalSwitchTest extends TestCase
         Route::post('/switch', static function (Request $request): array {
 
             $target = ActivatableTenantMembership::query()->findOrFail($request->integer('membership'));
-            $result = Auth::sessions(self::GUARD)->switchPrincipal($request->string('refresh')->toString(), $target);
+            $result = Auth::sessions(self::GUARD)->switchTo($request->string('refresh')->toString(), SwitchTarget::principal($target));
             $guard  = app('auth')->guard(self::GUARD);
 
             assert($guard instanceof JwtGuard);
@@ -116,6 +125,7 @@ final class PrincipalSwitchTest extends TestCase
         Route::post('/switch-from-request', static fn (Request $request): array => self::switchFromRequest($request));
 
         Route::middleware('auth:' . self::GUARD)->get('/me', static fn (): array => ['principal' => Auth::principal()?->getPrincipalIdentifier()]);
+        Route::middleware('auth:' . self::GUARD)->get('/tenant', static fn (): array => ['tenant' => IdentifierCoercion::stringify(Auth::tenant()?->getTenantIdentifier())]);
     }
 
     /**
@@ -196,8 +206,8 @@ final class PrincipalSwitchTest extends TestCase
     /**
      * A request that carries no refresh token switches nothing and reports
      * nothing; one the transport refuses (a token in two sources) is reported
-     * as a `principal_switch` failure with the transport's reason, without the
-     * session being touched.
+     * as a `switch` failure with the transport's reason, without the session
+     * being touched.
      *
      * @return void
      *
@@ -228,7 +238,7 @@ final class PrincipalSwitchTest extends TestCase
 
         $failure = $this->recordedEvent(AuthenticationFailed::class);
 
-        self::assertSame(AuthenticationFlow::PRINCIPAL_SWITCH, $failure->flow);
+        self::assertSame(AuthenticationFlow::SWITCH, $failure->flow);
         self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, $failure->reason);
         self::assertSame(self::GUARD, $failure->context->guard);
         self::assertNull($failure->context->session);
@@ -237,9 +247,11 @@ final class PrincipalSwitchTest extends TestCase
 
     /**
      * A switch dispatches the bind events for the target, then
-     * `PrincipalSwitched` with the previous principal, but no `Login`; it
-     * records the target, the switch time and the rotation on the session,
-     * keeps the session's absolute deadline and restarts its idle one.
+     * `PrincipalSwitched` with the previous principal and tenant and both
+     * changes, but no `Login`; it records the target, the target's own tenant
+     * as the active one, the switch time and the rotation on the session, keeps
+     * the session's absolute deadline and restarts its idle one, and the guard
+     * acts in the target's tenant.
      *
      * @return void
      *
@@ -247,7 +259,7 @@ final class PrincipalSwitchTest extends TestCase
      */
     public function testASwitchRecordsTheTargetAndReportsTheSwitch(): void
     {
-        [$first, $second, $member] = $this->seedMemberships();
+        [$first, $second, $member, $tenant] = $this->seedMemberships();
 
         $session  = $this->signIn();
         $absolute = DB::table('authentication_sessions')->value('absolute_expires_at');
@@ -256,7 +268,7 @@ final class PrincipalSwitchTest extends TestCase
 
         $this->recordEvents([Authenticated::class, PrincipalAssigned::class, SessionAuthenticated::class, PrincipalSwitched::class, Login::class]);
 
-        $result = $this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $second);
+        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($second));
 
         self::assertTrue($result->isSwitched());
         self::assertFalse($result->isFailed());
@@ -276,17 +288,22 @@ final class PrincipalSwitchTest extends TestCase
         self::assertTrue($event->previousPrincipal?->is($first)); // @phpstan-ignore method.notFound
         self::assertSame(ActivatableTenantMembership::class, $event->previousPrincipalMorphClass);
         self::assertSame(IdentifierCoercion::stringify($first->getKey()), $event->previousPrincipalId);
+        self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $event->previousTenantId);
+        self::assertTrue($event->principalChanged);
+        self::assertTrue($event->tenantChanged);
         self::assertSame('password', $event->context->method);
 
         $record = DB::table('authentication_sessions')->sole();
 
         self::assertSame((string) $second->getKey(), (string) $record->principal_id); // @phpstan-ignore cast.string
+        self::assertSame((string) $second->tenant_id, $record->tenant_id);
         self::assertSame($this->now->toDateTimeString(), CarbonImmutable::parse($record->switched_at)->toDateTimeString());
         self::assertSame($this->now->toDateTimeString(), CarbonImmutable::parse($record->refresh_rotated_at)->toDateTimeString());
         self::assertSame($absolute, $record->absolute_expires_at);
         self::assertSame($this->now->addMinutes(60 * 24 * 30)->toDateTimeString(), CarbonImmutable::parse($record->idle_expires_at)->toDateTimeString());
 
         self::assertTrue(Auth::guard(self::GUARD)->principal()?->is($second)); // @phpstan-ignore method.notFound
+        self::assertSame(IdentifierCoercion::stringify($second->tenant_id), self::boundTenantId());
 
         $idle = $this->now->addMinutes(60 * 24 * 30)->getTimestamp();
 
@@ -372,7 +389,7 @@ final class PrincipalSwitchTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class, SessionRevoked::class]);
 
-        $result = $this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $first);
+        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($first));
 
         self::assertTrue($result->isFailed());
         self::assertSame(FailureReason::ROTATION_REUSE, $result->reason);
@@ -383,7 +400,7 @@ final class PrincipalSwitchTest extends TestCase
 
         $failed = $this->recordedEvent(AuthenticationFailed::class);
 
-        self::assertSame(AuthenticationFlow::PRINCIPAL_SWITCH, $failed->flow);
+        self::assertSame(AuthenticationFlow::SWITCH, $failed->flow);
         self::assertSame(self::GUARD, $failed->context->guard);
         self::assertSame('password', $failed->context->method);
         self::assertSame('rotation_reuse', DB::table('authentication_sessions')->value('revoked_reason'));
@@ -414,7 +431,7 @@ final class PrincipalSwitchTest extends TestCase
 
         $this->recordEvents([PrincipalSwitched::class, AuthenticationFailed::class, SessionRevoked::class]);
 
-        $retried = $this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $second);
+        $retried = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($second));
 
         self::assertTrue($retried->isSwitched());
         self::assertTrue($retried->session?->principal->is($second)); // @phpstan-ignore method.notFound
@@ -423,13 +440,13 @@ final class PrincipalSwitchTest extends TestCase
 
         $this->advance(1);
 
-        $conflict = $this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $first);
+        $conflict = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($first));
 
         self::assertSame(FailureReason::ROTATION_CONFLICT, $conflict->reason);
 
         DB::table('authentication_sessions')->update(['switched_at' => $this->now->subMinute()]);
 
-        self::assertSame(FailureReason::ROTATION_CONFLICT, $this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $second)->reason);
+        self::assertSame(FailureReason::ROTATION_CONFLICT, $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($second))->reason);
 
         DB::table('authentication_sessions')->update(['switched_at' => $row['switched_at']]);
 
@@ -456,7 +473,7 @@ final class PrincipalSwitchTest extends TestCase
 
         $this->recordEvents([PrincipalSwitched::class]);
 
-        self::assertTrue($this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $second)->isSwitched());
+        self::assertTrue($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($second))->isSwitched());
 
         $event = $this->recordedEvent(PrincipalSwitched::class);
 
@@ -484,7 +501,7 @@ final class PrincipalSwitchTest extends TestCase
 
         $this->recordEvents([PrincipalSwitched::class]);
 
-        self::assertTrue($this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $second)->isSwitched());
+        self::assertTrue($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($second))->isSwitched());
 
         $event = $this->recordedEvent(PrincipalSwitched::class);
 
@@ -531,12 +548,12 @@ final class PrincipalSwitchTest extends TestCase
 
         self::assertNotNull(self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken)->session);
 
-        $own = $this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $first);
+        $own = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($first));
 
         self::assertTrue($own->isSwitched());
         self::assertTrue($own->session?->principal->is($first)); // @phpstan-ignore method.notFound
 
-        self::assertSame(FailureReason::ROTATION_CONFLICT, $this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $second)->reason);
+        self::assertSame(FailureReason::ROTATION_CONFLICT, $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($second))->reason);
     }
 
     /**
@@ -557,7 +574,7 @@ final class PrincipalSwitchTest extends TestCase
 
         $this->recordEvents([PrincipalSwitched::class]);
 
-        $result = $this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $first);
+        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($first));
 
         self::assertTrue($result->isSwitched());
         self::assertSame([], $this->recordedClasses());
@@ -570,10 +587,10 @@ final class PrincipalSwitchTest extends TestCase
 
     /**
      * A target that is not the identity's, one of another type that shares a
-     * key with one of the identity's own, one whose tenant was deactivated, and
-     * one the factor policy would ask a further factor of are refused, and the
-     * session is left as it was. Each refusal names the session's owner and the
-     * target resolved for it, if any, never the principal the session acts as.
+     * key with one of the identity's own, and one whose tenant was deactivated
+     * are refused, and the session is left as it was. Each refusal names the
+     * session's owner and the target resolved for it, if any, never the
+     * principal the session acts as.
      *
      * @return void
      *
@@ -597,19 +614,6 @@ final class PrincipalSwitchTest extends TestCase
         self::assertSame(IdentifierCoercion::stringify($session->record->getSessionIdentifier()), $mismatch->context->sessionId);
 
         $this->assertSwitchFails(FailureReason::PRINCIPAL_MISMATCH, $session, ChoosingMembership::query()->findOrFail($second->getKey()));
-
-        $factors = \Mockery::mock(AdditionalFactorPolicy::class);
-        $factors->shouldReceive('requiresAdditionalFactor')
-            ->once()
-            ->andReturnUsing(static fn (AdditionalFactorContext $context): bool => $context->provenSession?->getSessionIdentifier() === $session->record->getSessionIdentifier()
-                && $context->method                                                                                                 === 'password'
-                && $context->guard                                                                                                  === self::GUARD);
-
-        app()->instance(AdditionalFactorPolicy::class, $factors);
-
-        $this->assertSwitchFails(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $session, $second);
-
-        app()->forgetInstance(AdditionalFactorPolicy::class);
 
         ActivatableTenant::query()->whereKey($second->tenant_id)->update(['is_active' => false]);
 
@@ -692,7 +696,7 @@ final class PrincipalSwitchTest extends TestCase
         config()->set('authentication.session.model', IdentifierTypeOmittingSession::class);
 
         try {
-            $this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $second);
+            $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($second));
 
             self::fail('The switch read a session without its identifier type.');
         } catch (\LogicException $exception) {
@@ -901,7 +905,7 @@ final class PrincipalSwitchTest extends TestCase
 
         $this->advance(599);
 
-        self::assertNotNull($this->sessions(self::GUARD)->switchPrincipal($later->tokens->refreshToken, $second)->session);
+        self::assertNotNull($this->sessions(self::GUARD)->switchTo($later->tokens->refreshToken, SwitchTarget::principal($second))->session);
 
         $latest = $this->signIn();
 
@@ -1056,7 +1060,7 @@ final class PrincipalSwitchTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $blocked = $this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $second);
+        $blocked = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($second));
 
         self::assertSame(FailureReason::RATE_LIMITED, $blocked->reason);
         self::assertSame(42, $blocked->retryAfter);
@@ -1074,7 +1078,320 @@ final class PrincipalSwitchTest extends TestCase
 
         DB::table('authentication_sessions')->update(['revoked_at' => $this->now, 'revoked_reason' => 'revoked']);
 
-        self::assertSame(FailureReason::SESSION_REVOKED, $this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $second)->reason);
+        self::assertSame(FailureReason::SESSION_REVOKED, $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($second))->reason);
+    }
+
+    /**
+     * A switch takes no further factor from the identity-level factor policy:
+     * the destination tenant's policy is the one asked, so a policy that would
+     * ask every sign-in for one does not refuse the switch.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchDoesNotAskTheIdentityLevelFactorPolicy(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+
+        $factors = \Mockery::mock(AdditionalFactorPolicy::class);
+        $factors->shouldNotReceive('requiresAdditionalFactor');
+
+        app()->instance(AdditionalFactorPolicy::class, $factors);
+
+        $this->advance(5);
+
+        self::assertSame($second->getKey(), $this->switched($session, $second)->principal->getPrincipalIdentifier());
+    }
+
+    /**
+     * A switch that names only a tenant keeps the principal the session acts as
+     * and moves the session to that tenant: the row records it and the time of
+     * the switch, `PrincipalSwitched` reports the tenant change alone with the
+     * tenant left, the guard acts in the new tenant, the access token issued
+     * before is refused at once as `session_tenant_mismatch`, and the new one
+     * acts in the new tenant.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATenantOnlySwitchMovesTheSessionToAnotherTenant(): void
+    {
+        [$first, , , $own] = $this->seedMemberships();
+
+        $descendant = $this->below($own);
+        $session    = $this->signIn();
+
+        $this->advance(5);
+
+        $this->recordEvents([PrincipalSwitched::class, Login::class]);
+
+        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::tenant(TenantSelection::of($descendant->getKey())));
+
+        self::assertTrue($result->isSwitched());
+        self::assertTrue($result->session?->principal->is($first)); // @phpstan-ignore method.notFound
+        self::assertSame([PrincipalSwitched::class], $this->recordedClasses());
+
+        $event = $this->recordedEvent(PrincipalSwitched::class);
+
+        self::assertFalse($event->principalChanged);
+        self::assertTrue($event->tenantChanged);
+        self::assertSame(IdentifierCoercion::stringify($own->getKey()), $event->previousTenantId);
+        self::assertSame(IdentifierCoercion::stringify($first->getKey()), $event->previousPrincipalId);
+        self::assertTrue($event->previousPrincipal?->is($first)); // @phpstan-ignore method.notFound
+        self::assertTrue($event->context->principal?->is($first)); // @phpstan-ignore method.notFound
+        self::assertSame(IdentifierCoercion::stringify($descendant->getKey()), $event->context->tenantId);
+
+        $record = DB::table('authentication_sessions')->sole();
+
+        self::assertSame(IdentifierCoercion::stringify($descendant->getKey()), $record->tenant_id);
+        self::assertSame(IdentifierCoercion::stringify($first->getKey()), IdentifierCoercion::stringify($record->principal_id));
+        self::assertSame($this->now->toDateTimeString(), $this->storedTime('switched_at'));
+        self::assertSame(IdentifierCoercion::stringify($descendant->getKey()), self::boundTenantId());
+        $claims = self::claimsOf($result->session->tokens->accessToken);
+
+        self::assertSame(IdentifierCoercion::stringify($descendant->getKey()), IdentifierCoercion::stringify($claims['tenant_id'] ?? null));
+
+        $this->assertRefusedAs(FailureReason::SESSION_TENANT_MISMATCH, $session->tokens->accessToken);
+
+        $this->tenantOf($result->session->tokens->accessToken)->assertOk()->assertExactJson(['tenant' => IdentifierCoercion::stringify($descendant->getKey())]);
+    }
+
+    /**
+     * A switch that names a principal and a tenant moves the session to both at
+     * once, and `PrincipalSwitched` reports both changes; without a tenant, the
+     * principal's own is its default.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchMovesThePrincipalAndTheTenantTogether(): void
+    {
+        [$first, $second, , $own] = $this->seedMemberships();
+
+        $descendant = $this->below(ActivatableTenant::query()->findOrFail($second->tenant_id));
+        $session    = $this->signIn();
+
+        $this->advance(5);
+
+        $this->recordEvents([PrincipalSwitched::class]);
+
+        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($second, TenantSelection::of($descendant->getKey())));
+
+        self::assertTrue($result->session?->principal->is($second)); // @phpstan-ignore method.notFound
+
+        $event = $this->recordedEvent(PrincipalSwitched::class);
+
+        self::assertTrue($event->principalChanged);
+        self::assertTrue($event->tenantChanged);
+        self::assertSame(IdentifierCoercion::stringify($own->getKey()), $event->previousTenantId);
+        self::assertTrue($event->previousPrincipal?->is($first)); // @phpstan-ignore method.notFound
+
+        $record = DB::table('authentication_sessions')->sole();
+
+        self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify($record->principal_id));
+        self::assertSame(IdentifierCoercion::stringify($descendant->getKey()), $record->tenant_id);
+
+        $this->assertRefusedAs(FailureReason::SESSION_TENANT_MISMATCH, $session->tokens->accessToken);
+        $this->tenantOf($result->session->tokens->accessToken)->assertOk()->assertExactJson(['tenant' => IdentifierCoercion::stringify($descendant->getKey())]);
+    }
+
+    /**
+     * Switching back to the tenant a session acted in before does not revive
+     * the tokens issued there: the first token, though it names that tenant and
+     * principal again, was issued before the last switch and is refused as
+     * `session_switched`; the one issued in the other tenant is refused as
+     * `session_tenant_mismatch`; only the latest is accepted.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSwitchingBackToATenantDoesNotRestoreItsOldTokens(): void
+    {
+        [, , , $own] = $this->seedMemberships();
+
+        $descendant = $this->below($own);
+        $session    = $this->signIn();
+
+        $this->advance(5);
+
+        $away = $this->switchedTo($session->tokens->refreshToken, SwitchTarget::tenant(TenantSelection::of($descendant->getKey())));
+
+        $this->advance(5);
+
+        $back = $this->switchedTo($away->tokens->refreshToken, SwitchTarget::tenant(TenantSelection::principalDefault()));
+
+        self::assertSame(IdentifierCoercion::stringify($own->getKey()), DB::table('authentication_sessions')->value('tenant_id'));
+        self::assertSame($this->now->toDateTimeString(), $this->storedTime('switched_at'));
+
+        $this->assertRefusedAs(FailureReason::SESSION_SWITCHED, $session->tokens->accessToken);
+        $this->assertRefusedAs(FailureReason::SESSION_TENANT_MISMATCH, $away->tokens->accessToken);
+
+        $this->tenantOf($back->tokens->accessToken)->assertOk()->assertExactJson(['tenant' => IdentifierCoercion::stringify($own->getKey())]);
+    }
+
+    /**
+     * Two switches in one second, there and back, still refuse every token
+     * issued before the second: it records the switch one second after the
+     * first, so the tokens it issues itself are refused as `session_switched`
+     * until the client refreshes in the next second, and the refreshed token is
+     * accepted.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTwoSwitchesInOneSecondRefuseEveryEarlierToken(): void
+    {
+        [, , , $own] = $this->seedMemberships();
+
+        $descendant = $this->below($own);
+        $session    = $this->signIn();
+
+        $this->advance(5);
+
+        $away = $this->switchedTo($session->tokens->refreshToken, SwitchTarget::tenant(TenantSelection::of($descendant->getKey())));
+        $back = $this->switchedTo($away->tokens->refreshToken, SwitchTarget::tenant(TenantSelection::principalDefault()));
+
+        self::assertSame($this->now->addSecond()->toDateTimeString(), $this->storedTime('switched_at'));
+
+        $this->assertRefusedAs(FailureReason::SESSION_SWITCHED, $session->tokens->accessToken);
+        $this->assertRefusedAs(FailureReason::SESSION_TENANT_MISMATCH, $away->tokens->accessToken);
+        $this->assertRefusedAs(FailureReason::SESSION_SWITCHED, $back->tokens->accessToken);
+
+        $this->advance(1);
+
+        $refreshed = self::sessionsOf($this->freshGuard(self::GUARD))->refresh($back->tokens->refreshToken)->session;
+
+        self::assertNotNull($refreshed);
+
+        $this->tenantOf($refreshed->tokens->accessToken)->assertOk()->assertExactJson(['tenant' => IdentifierCoercion::stringify($own->getKey())]);
+    }
+
+    /**
+     * A switch to the tenant the session already acts in, for the principal it
+     * already acts as, rotates the credential like a refresh: nothing records a
+     * switch, nothing reports one, and the access token issued before still
+     * works.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchToTheCurrentTenantRotatesLikeARefresh(): void
+    {
+        [, , , $own] = $this->seedMemberships();
+
+        $session = $this->signIn();
+
+        $this->advance(5);
+
+        $this->recordEvents([PrincipalSwitched::class]);
+
+        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::tenant(TenantSelection::of($own->getKey())));
+
+        self::assertTrue($result->isSwitched());
+        self::assertSame([], $this->recordedClasses());
+        self::assertNull(DB::table('authentication_sessions')->value('switched_at'));
+        self::assertSame($this->now->toDateTimeString(), $this->storedTime('refresh_rotated_at'));
+
+        $this->bearer($session->tokens->accessToken)->assertOk();
+    }
+
+    /**
+     * A destination tenant the access contracts do not let the principal act in
+     * is refused, the session left as it was: one the default resolver cannot
+     * find, no tenant at all for a principal that belongs to one
+     * (`tenant_ineligible`), and one the application's tree lets it act in but
+     * that is deactivated (`tenant_inactive`). The refusal names the principal
+     * the switch admitted.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testADestinationTenantTheAccessRefusesIsRefused(): void
+    {
+        [$first, , , $own] = $this->seedMemberships();
+
+        $other   = ActivatableTenant::query()->create(['name' => 'Unrelated', 'is_active' => true]);
+        $session = $this->signIn();
+        $row     = (array) DB::table('authentication_sessions')->sole();
+
+        $foreign = $this->assertTargetFails(FailureReason::TENANT_INELIGIBLE, $session, SwitchTarget::tenant(TenantSelection::of($other->getKey())));
+
+        self::assertSame(IdentifierCoercion::stringify($first->getKey()), $foreign->context->principalId);
+
+        $this->assertTargetFails(FailureReason::TENANT_INELIGIBLE, $session, SwitchTarget::tenant(TenantSelection::none()));
+
+        $descendant = $this->below($own);
+
+        $descendant->forceFill(['is_active' => false])->save();
+
+        $this->assertTargetFails(FailureReason::TENANT_INACTIVE, $session, SwitchTarget::tenant(TenantSelection::of($descendant->getKey())));
+
+        self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
+    }
+
+    /**
+     * A tenant-only switch is held to the principal the session records, as a
+     * refresh holds it: once the principal's own tenant is deactivated the
+     * switch is refused as `tenant_inactive` before the destination tenant is
+     * asked about, though the application's tree would let it act there.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATenantOnlySwitchIsHeldToTheRecordedPrincipal(): void
+    {
+        [$first, , , $own] = $this->seedMemberships();
+
+        $descendant = $this->below($own);
+        $session    = $this->signIn();
+
+        $own->forceFill(['is_active' => false])->save();
+
+        $refused = $this->assertTargetFails(FailureReason::TENANT_INACTIVE, $session, SwitchTarget::tenant(TenantSelection::of($descendant->getKey())));
+
+        self::assertSame(IdentifierCoercion::stringify($first->getKey()), $refused->context->principalId);
+        self::assertSame(0, $this->tree()->asked);
+        self::assertSame(0, $this->tree()->resolved);
+    }
+
+    /**
+     * A switch keeps the session's key, so the proofs of its sign-in carry over
+     * unchanged: the same rows, and the new access token carries the same
+     * `auth_time` and `amr` as the one before.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchKeepsTheSessionsProofs(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+        $proofs  = DB::table('authentication_proofs')->orderBy('id')->get()->all();
+
+        self::assertNotSame([], $proofs);
+
+        $this->advance(60);
+
+        $switched = $this->switched($session, $second);
+        $before   = self::claimsOf($session->tokens->accessToken);
+        $after    = self::claimsOf($switched->tokens->accessToken);
+
+        self::assertEquals($proofs, DB::table('authentication_proofs')->orderBy('id')->get()->all());
+        self::assertSame($session->record->getKey(), $switched->record->getKey());
+        self::assertSame($before['auth_time'] ?? null, $after['auth_time'] ?? null);
+        self::assertSame($before['amr'] ?? null, $after['amr'] ?? null);
     }
 
     /**
@@ -1105,7 +1422,7 @@ final class PrincipalSwitchTest extends TestCase
      */
     private static function switchFromRequest(Request $request): array
     {
-        $result = Auth::sessions(self::GUARD)->switchPrincipalFromRequest(ActivatableTenantMembership::query()->findOrFail($request->integer('membership')));
+        $result = Auth::sessions(self::GUARD)->switchFromRequest(SwitchTarget::principal(ActivatableTenantMembership::query()->findOrFail($request->integer('membership'))));
 
         return [
             'outcome' => $result === null ? 'none' : ($result->isSwitched() ? 'switched' : 'failed'),
@@ -1166,7 +1483,7 @@ final class PrincipalSwitchTest extends TestCase
      */
     private function switched(SignedInSession $session, ActivatableTenantMembership $target): SignedInSession
     {
-        $switched = $this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $target)->session;
+        $switched = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($target))->session;
 
         self::assertNotNull($switched);
 
@@ -1175,7 +1492,7 @@ final class PrincipalSwitchTest extends TestCase
 
     /**
      * Assert a switch of the session to the target fails for the reason,
-     * reported as a `principal_switch` failure, and return that report.
+     * reported as a `switch` failure, and return that report.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
@@ -1189,13 +1506,13 @@ final class PrincipalSwitchTest extends TestCase
     {
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $result = $this->sessions(self::GUARD)->switchPrincipal($token ?? $session->tokens->refreshToken, $target);
+        $result = $this->sessions(self::GUARD)->switchTo($token ?? $session->tokens->refreshToken, SwitchTarget::principal($target));
 
         self::assertTrue($result->isFailed());
         self::assertFalse($result->isSwitched());
         self::assertNull($result->session);
         self::assertSame($reason, $result->reason);
-        self::assertSame(AuthenticationFlow::PRINCIPAL_SWITCH, $this->recordedEvent(AuthenticationFailed::class)->flow);
+        self::assertSame(AuthenticationFlow::SWITCH, $this->recordedEvent(AuthenticationFailed::class)->flow);
         self::assertSame($reason, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertTrue(Auth::guard(self::GUARD)->guest());
 
@@ -1318,6 +1635,127 @@ final class PrincipalSwitchTest extends TestCase
         CarbonImmutable::setTestNow($time);
 
         JWT::$timestamp = $time->getTimestamp();
+    }
+
+    /**
+     * Bind the application's tree as the tenant access and resolver, once, and
+     * return it.
+     *
+     * @return \Tests\Fixtures\Tenancy\DescendantTenants
+     */
+    private function tree(): DescendantTenants
+    {
+        if ($this->tree === null) {
+
+            $this->tree = new DescendantTenants;
+
+            app()->instance(TenantAccess::class, $this->tree);
+            app()->instance(TenantResolver::class, $this->tree);
+        }
+
+        return $this->tree;
+    }
+
+    /**
+     * Create an active tenant the application's tree lists below the tenant.
+     *
+     * @param  \Tests\Integration\Fixtures\ActivatableTenant  $tenant
+     * @return \Tests\Integration\Fixtures\ActivatableTenant
+     */
+    private function below(ActivatableTenant $tenant): ActivatableTenant
+    {
+        $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
+
+        $this->tree()->place($descendant->getKey(), $tenant->getKey());
+
+        return $descendant;
+    }
+
+    /**
+     * Switch the refresh token's session to the target through the session
+     * service, which must succeed.
+     *
+     * @param  string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchTarget  $target
+     * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
+     *
+     * @throws \Throwable
+     */
+    private function switchedTo(string $refreshToken, SwitchTarget $target): SignedInSession
+    {
+        $switched = $this->sessions(self::GUARD)->switchTo($refreshToken, $target)->session;
+
+        self::assertNotNull($switched);
+
+        return $switched;
+    }
+
+    /**
+     * Assert a switch of the session to the target fails for the reason,
+     * reported as a `switch` failure, and return that report.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchTarget  $target
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed
+     *
+     * @throws \Throwable
+     */
+    private function assertTargetFails(FailureReason $reason, SignedInSession $session, SwitchTarget $target): AuthenticationFailed
+    {
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, $target);
+
+        self::assertTrue($result->isFailed());
+        self::assertSame($reason, $result->reason);
+        self::assertSame(AuthenticationFlow::SWITCH, $this->recordedEvent(AuthenticationFailed::class)->flow);
+        self::assertSame($reason, $this->recordedEvent(AuthenticationFailed::class)->reason);
+
+        return $this->recordedEvent(AuthenticationFailed::class);
+    }
+
+    /**
+     * Assert the access token is refused for the reason.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @param  string  $accessToken
+     * @return void
+     */
+    private function assertRefusedAs(FailureReason $reason, string $accessToken): void
+    {
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $this->bearer($accessToken)->assertUnauthorized();
+
+        self::assertSame($reason, $this->recordedEvent(AuthenticationFailed::class)->reason);
+    }
+
+    /**
+     * Ask which tenant the access token acts in.
+     *
+     * @param  string  $accessToken
+     * @return \Illuminate\Testing\TestResponse<\Symfony\Component\HttpFoundation\Response>
+     */
+    private function tenantOf(string $accessToken): TestResponse
+    {
+        Auth::forgetGuards();
+
+        return $this->withHeaders(['Authorization' => 'Bearer ' . $accessToken])->getJson('/tenant');
+    }
+
+    /**
+     * The identifier of the tenant the guard is bound to act in.
+     *
+     * @return ?string
+     */
+    private static function boundTenantId(): ?string
+    {
+        $guard = app('auth')->guard(self::GUARD);
+
+        assert($guard instanceof JwtGuard);
+
+        return IdentifierCoercion::stringify($guard->tenant()?->getTenantIdentifier());
     }
 
     /**

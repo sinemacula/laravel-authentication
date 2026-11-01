@@ -65,8 +65,8 @@ attempt limits and the identifier normalisers meet that policy, since a sign-in 
   in `attempt()` cannot skip it. The identity must then implement `HasVerifiableIdentifiers` (otherwise a
   `LogicException`: a misconfiguration) and report that identifier verified, read on the write connection; otherwise
   `identifier_unverified`. `start()`, a pending session's re-checks without a stored type, and refresh carry no
-  identifier type and are never gated: an external verifier or an existing session vouches for them. A switch of
-  principal is admitted with the type the session's sign-in used (recorded on the session), as that sign-in was.
+  identifier type and are never gated: an external verifier or an existing session vouches for them. A switch is
+  admitted with the type the session's sign-in used (recorded on the session), as that sign-in was.
 - The gate depends on the identity alone, so it is the contract's `admitIdentifier($guard, $identity,
   $identifierType)`, which every sign-in (`attempt()` included) asks of whatever policy is bound after the identity's
   activity check and before resolving any principal: an unverified identifier is refused alike whether the identity

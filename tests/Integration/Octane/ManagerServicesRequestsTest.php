@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
+use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 use Tests\Concerns\InteractsWithCodeIdentities;
 use Tests\Concerns\ServesRequestsThroughOctane;
@@ -306,7 +307,7 @@ final class ManagerServicesRequestsTest extends TestCase
             $sessions = Auth::sessions('members');
             $this->recordInThisRequest(self::LIFECYCLE);
             $target = ActivatableTenantMembership::query()->findOrFail(request()->integer('membership'));
-            $result = $sessions->switchPrincipal(request()->string('refresh')->value(), $target);
+            $result = $sessions->switchTo(request()->string('refresh')->value(), SwitchTarget::principal($target));
 
             return [
                 'principal' => $result->session?->principal->getPrincipalIdentifier(),

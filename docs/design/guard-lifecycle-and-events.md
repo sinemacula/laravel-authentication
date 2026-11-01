@@ -20,7 +20,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   afterwards.
 - `Login` is fired before `Authenticated` to mirror Laravel's first-party guard ordering.
 - A flow that writes a session and then binds it (the session service's sign-in, `satisfy()`, `choose()` and
-  `switchPrincipal()`, and `refresh()`) schedules the lifecycle events that report the write (`SessionCreated`,
+  `switchTo()`, and `refresh()`) schedules the lifecycle events that report the write (`SessionCreated`,
   `SignedIn`, `Refreshed`, `PrincipalSwitched`) on the session connection's commit before it binds, so a bind listener
   that throws (on `Validated`, `Login`, `Authenticated`, `PrincipalAssigned` or `SessionAuthenticated`) cannot withhold
   them; its exception still reaches the caller. With no transaction open on that connection they are therefore
@@ -69,10 +69,11 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   once the pending session commits. A `satisfy()` or `choose()` that activates it emits the `signIn()` sequence without
   `Attempting`; one that leaves it pending emits nothing; a refused one emits `Failed` and then `AuthenticationFailed`;
   `discard()` emits `SessionRevoked` (`signed_out`).
-- `switchPrincipal()` is no sign-in: it dispatches `PrincipalSwitched` once the switch commits on the session's
-  connection, and binds through `authenticateAs()` (`Authenticated -> PrincipalAssigned -> SessionAuthenticated`, no
-  `Validated` or `Login`); a refusal emits only `AuthenticationFailed` (flow `principal_switch`), with `SessionRevoked`
-  first for a replayed token.
+- `switchTo()` is no sign-in: it dispatches `PrincipalSwitched` once the switch commits on the session's connection,
+  when it changed the principal or the tenant, and binds through `authenticateAs()` with the destination tenant
+  (`Authenticated -> PrincipalAssigned -> SessionAuthenticated`, no `Validated` or `Login`); one whose destination asks
+  for a further factor binds nothing and emits `SessionReturnedToPending` (flow `switch`); a refusal emits only
+  `AuthenticationFailed` (flow `switch`), with `SessionRevoked` first for a replayed token.
 - Direct `login()` emits the same sequence without `Attempting`. This is the package's public entry point for
   out-of-band authentication such as refresh, OAuth, or SSO callbacks.
 - `setUser()` (behind Laravel's `actingAs()`) clears the previous context and emits `Authenticated -> PrincipalAssigned`

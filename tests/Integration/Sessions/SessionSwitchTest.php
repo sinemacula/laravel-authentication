@@ -21,9 +21,10 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
-use SineMacula\Laravel\Authentication\Sessions\PrincipalSwitch;
+use SineMacula\Laravel\Authentication\Sessions\SessionSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
+use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
@@ -31,19 +32,20 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
 /**
- * Integration tests of a switch of principal racing other writes to its
- * session, against a real database: the switch's compare-and-swap misses
- * whenever the row changed after it was read, and the row is then judged once
- * more, under a lock, without a second swap.
+ * Integration tests of a switch racing other writes to its session, against a
+ * real database: the switch's compare-and-swap misses whenever the row changed
+ * after it was read, its principal, active tenant and policy version among what
+ * it compares, and the row is then judged once more, under a lock, without a
+ * second swap.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversClass(PrincipalSwitch::class)]
+#[CoversClass(SessionSwitch::class)]
 #[CoversClass(RefreshRotationStore::class)]
-final class PrincipalSwitchTest extends TestCase
+final class SessionSwitchTest extends TestCase
 {
     use InteractsWithSessions;
 
@@ -238,6 +240,42 @@ final class PrincipalSwitchTest extends TestCase
         });
 
         self::assertSame(FailureReason::SESSION_UNKNOWN, $this->switch($session, $second)->reason);
+    }
+
+    /**
+     * A switch whose swap misses because the session's active tenant or the
+     * tenant policy version it recorded changed after it was read, while its
+     * token is still the current one, is a conflict: nothing is switched, and
+     * the change made under it stands.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwapThatMissesAChangedTenantOrPolicyVersionIsAConflict(): void
+    {
+        [$first, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+
+        foreach (['tenant_id' => IdentifierCoercion::stringify($second->tenant_id), 'tenant_policy_version' => 'v2'] as $column => $value) {
+
+            $this->advance(5);
+
+            $this->beforeTheSwap(static function () use ($column, $value): void {
+                DB::table('authentication_sessions')->update([$column => $value]);
+            });
+
+            self::assertSame(FailureReason::ROTATION_CONFLICT, $this->switch($session, $second)->reason);
+
+            $row = DB::table('authentication_sessions')->sole();
+
+            self::assertSame($value, $row->{$column});
+            self::assertSame(IdentifierCoercion::stringify($first->getKey()), IdentifierCoercion::stringify($row->principal_id));
+            self::assertNull($row->switched_at);
+
+            DB::table('authentication_sessions')->update(['tenant_id' => IdentifierCoercion::stringify($first->tenant_id), 'tenant_policy_version' => null]);
+        }
     }
 
     /**
@@ -440,7 +478,7 @@ final class PrincipalSwitchTest extends TestCase
      */
     private function switch(SignedInSession $session, ActivatableTenantMembership $target): SwitchResult
     {
-        return $this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $target);
+        return $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($target));
     }
 
     /**

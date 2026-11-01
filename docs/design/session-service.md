@@ -129,8 +129,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   `revokePrincipalSessions()` and the security-change methods delegate to `SessionRevocations` (see
   `session-lifecycle.md`), on the guard's context, with the guard as the `Contracts\GuardBinding` the two sign-out calls
   read and forget. The guard's `logout()` and the password writer use the same revocations without a session service.
-- Refreshing is the service's too, beside switching principal: `refresh()` and `refreshFromRequest()` delegate to
-  `SessionRefresh`, which runs the refresh exchange the service builds on the guard's context and token service,
+- Refreshing is the service's too, beside switching principal or tenant: `refresh()` and `refreshFromRequest()` delegate
+  to `SessionRefresh`, which runs the refresh exchange the service builds on the guard's context and token service,
   schedules `Refreshed` and `SignedIn` (a refresh) for the rotation's commit, and only then binds the guard as a sign-in
   through the binding's `loginVerified()`, with the tenant and the sign-in method the exchange established. Every
   refusal is a failed `RefreshResult` with the exchange's or the transport's reason, `rate_limited` with its wait, never

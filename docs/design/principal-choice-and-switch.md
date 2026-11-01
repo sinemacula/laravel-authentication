@@ -4,9 +4,10 @@
 
 This note records how a session comes to act as one principal of an identity that may act as several: a sign-in that
 names none, for an identity with several, waits pending for the identity to choose (`pending()`, `choose()`), and a
-live session moves to another principal
-(`switchPrincipal()`). Starting a session is in `session-service.md`; the refresh judgement both paths share is in
-`refresh-rotation-and-replay.md`; the bearer checks that end the old principal's tokens are in `fail-closed-pid-did.md`.
+live session moves to another principal, another active tenant, or both (`switchTo()`). Starting a session is in
+`session-service.md`; the refresh judgement both paths share is in `refresh-rotation-and-replay.md`; the bearer checks
+that end the tokens issued before a switch are in `fail-closed-pid-did.md`; the access contracts that decide the
+destination tenant are in `application-policy.md`.
 
 ## Invariants
 
@@ -44,35 +45,53 @@ live session moves to another principal
 - A switch is proven by the session's refresh token, never an access token, and judged by `RefreshJudgment::classify()`
   as a refresh is: the refresh limits (counted against the token's session and the client's IP address), the guard, a
   live session, and the rotation id. A replayed id revokes the session as `rotation_reuse`.
-- Every path of a switch, the retry included, runs every live check: the owner reloaded through the guard's provider
-  and active (`RefreshAdmission`), the target resolved through the hinted path, of the target's class and owned by the
-  owner as read from the principal's own key (`principal_mismatch`), active, its tenant active, admitted by the
-  application policy, the session's method allowed, the identity and then the target admitted again with the type of
-  identifier the session's sign-in used (the session's `sign_in_identifier_type`, written with `sign_in_method` at every
-  sign-in; a session whose sign-in used none is not held to one, and a session loaded without the column throws a
-  `LogicException` rather than reading as one that used none) so a principal a policy refuses to that identifier cannot
-  be reached by switching, and no further factor asked (`additional_factor_required`).
+- A switch names its destination with a `SwitchTarget`: another principal of the identity, in the tenant selected for it
+  or its default (its own), or another tenant for the principal the session records (`SwitchTarget::tenant()`).
+- Every path of a switch, the retry included, runs every live check: the owner reloaded through the guard's provider and
+  active (`RefreshAdmission::admitPrincipal()`), the destination principal (the target, or the recorded one for a
+  tenant-only switch) resolved through the hinted path, of the target's class (or the recorded principal) and owned by
+  the owner as read from the principal's own key (`principal_mismatch`), active, its own tenant active, allowed the
+  application by `ApplicationAccess` (`principal_ineligible`), the session's method allowed, the identity and then the
+  destination admitted again with the type of identifier the session's sign-in used (the session's
+  `sign_in_identifier_type`, written with `sign_in_method` at every sign-in; a session whose sign-in used none is not
+  held to one, and a session loaded without the column throws a `LogicException` rather than reading as one that used
+  none) so a principal a policy refuses to that identifier cannot be reached by switching, and the destination tenant
+  admitted by `TenantAdmission::select()` (`TenantAccess` and, for a tenant other than the principal's own,
+  `TenantResolver`: `tenant_ineligible`; inactive: `tenant_inactive`). The identity-level additional-factor policy is
+  not asked.
 - With the current rotation id, the token's `principal` must be the principal the session records
-  (`session_principal_mismatch`). The absolute deadline stays the session's, held to `signed_in_at` plus the guard's
-  absolute lifetime (`session_expired` when that has passed), so a lifetime shortened or set since the sign-in applies
-  and a switch never extends the session or lifts its deadline; a session with no absolute deadline under a guard with
-  no absolute limit keeps none. The idle deadline restarts under the guard's lifetimes. Both tokens are issued for
-  the target before the write, and end at the restarted idle deadline.
-- The switch is one compare-and-swap (`RefreshRotationStore::switchPrincipal()`) on the presented digest, an unrevoked
-  row, both loaded deadlines and the loaded principal columns. It writes the rotation, both deadlines and, when the
-  principal changes, the target and `switched_at` (`SessionRecords\SwitchFloor`). A switch to the recorded principal
-  writes no switch.
-- With the previous rotation id inside the grace window, the current credential is reissued for the target, writing
-  nothing, only when the session records the target and either its last rotation was a switch
-  (`switched_at = refresh_rotated_at`) or the token's own `principal` is the target; anything else is
-  `rotation_conflict`, without revoking.
+  (`session_principal_mismatch`). Then the destination tenant's authentication policy judges the session against its own
+  proofs and provenance (`TenantPolicyCheck::check()`, outside any transaction): connections the session was not
+  established through refuse the switch (`sso_required`, nothing written); a further factor the session lacks returns it
+  to pending with the destination recorded (`PendingTransitions::returnToPending()`, flow `switch`), a missed
+  compare-and-swap there judged as a missed switch swap is.
+- The absolute deadline stays the session's, held to `signed_in_at` plus the guard's absolute lifetime
+  (`session_expired` when that has passed), so a lifetime shortened or set since the sign-in applies and a switch never
+  extends the session or lifts its deadline; a session with no absolute deadline under a guard with no absolute limit
+  keeps none. The idle deadline restarts under the guard's lifetimes. Both tokens are issued for the destination before
+  the write, name the destination tenant, and end at the restarted idle deadline.
+- The switch is one compare-and-swap (`RefreshRotationStore::switchSession()`) on the presented digest, an active
+  (`status = active`) unrevoked row, both loaded deadlines, the loaded principal columns, `tenant_id` and
+  `tenant_policy_version`. It writes the rotation, both deadlines and the policy version answered and, when the
+  principal or the tenant changes (`RefreshRotationStore::contextChanges()`, read from the row as loaded), the
+  destination principal, `tenant_id` and `switched_at` by `SwitchFloor::after()` (the switch's second, or one second
+  after a `switched_at` already at it), so every access token issued before it is refused (`session_tenant_mismatch`,
+  `session_principal_mismatch`, `session_switched`). A switch to the recorded principal and tenant writes no switch. The
+  session's key does not change, so its proofs and provenance carry over unchanged.
+- With the previous rotation id inside the grace window, the current credential is reissued for the destination, writing
+  nothing, only when the session records the destination principal and tenant and either its last rotation was a switch
+  that changed them (`switched_at = refresh_rotated_at`) or the token's own `principal` is the destination; anything
+  else is `rotation_conflict`, without revoking. The tenant policy is not asked again on a retry: the call that recorded
+  the destination asked it.
 - A missed swap re-reads the row with a lock and judges it once: a still-current id is `rotation_conflict`, a previous
   id is answered by the retry rule against the row as it now is (after the owner is checked again), and anything else
   fails for its reason, a replay (`rotation_reuse`) revoking the session as a first judgement does. There is never a
   second swap.
-- `SessionPending` and `PrincipalSwitched` are dispatched through `AfterCommit` on the session model's connection.
-  `PrincipalSwitched` carries the session's recorded previous morph class and identifier and the previous principal only
-  when the hinted path still returns that very principal (same type and identifier).
+- `SessionPending` and `PrincipalSwitched` are dispatched through `AfterCommit` on the session model's
+  connection. `PrincipalSwitched` is dispatched only when the principal or the tenant changed; it carries the session's
+  recorded previous morph class and identifier, the previous tenant's identifier, which of the two changed, and the
+  previous principal only when the hinted path still returns that very principal (same type and identifier), or the
+  principal itself on a tenant-only switch.
 
 ## Success Path
 
@@ -83,22 +102,26 @@ live session moves to another principal
    (`Validated`, `Login` and the bind events), and the slots are given back after the commit. With no transaction open
    on the session's connection that is `SessionCreated`, `SignedIn`, then `Login`; inside a caller's transaction the
    bind events come first, and the pair follows its commit or is dropped on a rollback.
-3. Later, `switchPrincipalFromRequest($other)` (or `switchPrincipal($refreshToken, $other)` with a token read by the
-   caller) rotates the session to the other principal and schedules `PrincipalSwitched` for the commit on the session's
-   connection before it binds the guard to it (`Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`), so a bind
-   listener that throws cannot withhold the report. With no transaction open there `PrincipalSwitched` is dispatched at
-   once, before the bind events; inside a caller's transaction the bind events come first, and it follows the commit or
-   is dropped on a rollback. The previous principal's access tokens fail on the bearer path as
-   `session_principal_mismatch` from then on.
+3. Later, `switchFromRequest(SwitchTarget::principal($other))` (or `switchTo($refreshToken, $target)` with a token read
+   by the caller) rotates the session to the other principal, in its own tenant unless one is named, or with
+   `SwitchTarget::tenant()` to another tenant, and schedules `PrincipalSwitched` for the commit on the session's
+   connection before it binds the guard to the destination in the destination tenant (`Authenticated`,
+   `PrincipalAssigned`, `SessionAuthenticated`), so a bind listener that throws cannot withhold the report. With no
+   transaction open there `PrincipalSwitched` is dispatched at once, before the bind events; inside a caller's
+   transaction the bind events come first, and it follows the commit or is dropped on a rollback. Every access token
+   issued before the switch fails on the bearer path from then on.
 
 ## Failure / Edge Cases
 
 - A lost switch response: the client retries with the old token inside the grace window and receives the current
-  credential for the target, with no second `PrincipalSwitched`. Presented to the session service's `refresh()`, the
-  same token fails as `session_principal_mismatch` without revoking.
+  credential for the destination, with no second `PrincipalSwitched`. Presented to the session service's `refresh()`,
+  the same token fails as `session_principal_mismatch` without revoking.
 - A switch racing a refresh of the same token loses the swap and fails as `rotation_conflict`; two identical switches
-  both answer with the target's credential; two switches to different principals leave the first; a switch racing a
-  revocation fails as `session_revoked`.
+  both answer with the destination's credential; two switches to different principals leave the first; a switch racing a
+  revocation fails as `session_revoked`; a switch whose session changed tenant or policy version under it fails as
+  `rotation_conflict`.
+- Two context changes in one second: the second records `switched_at` one second after the first, so the tokens it
+  issues are refused until the client refreshes after that second; no token issued before it is ever revived.
 - A previous principal that no longer resolves (deleted, or recorded under a type the morph map no longer uses) is
   reported by its snapshot only.
 - A choice whose identity no longer resolves through the guard's provider is no choice (`pending()` returns `null`,
@@ -108,14 +131,15 @@ live session moves to another principal
 
 ## Implementation Anchors
 
-- `src/Sessions/SessionService.php`: `principals()`, `pending()`, `choose()`, `switchPrincipal()`,
-  `switchPrincipalFromRequest()`, `switched()`, `previousPrincipal()`; a chosen session is activated by
-  `src/Sessions/PendingSessions.php` (`choose()`) over `src/Sessions/SessionActivation.php` and then bound by the
-  service.
+- `src/Sessions/SessionService.php`: `principals()`, `pending()`, `choose()`, `switchTo()`, `switchFromRequest()`,
+  `switched()`, `previousPrincipal()`; a chosen session is activated by `src/Sessions/PendingSessions.php`
+  (`choose()`) over `src/Sessions/SessionActivation.php` and then bound by the service.
 - `src/Sessions/PendingEvaluation.php`: `principals()`, `selection()`, `named()`, `destination()`, `owesFactor()`.
-- `src/Sessions/PrincipalSwitch.php`: one switch, built per call; `switch()` (the limiter), `switchOn()`, `admit()`,
-  `isTarget()`, `switchCurrent()`, `rotateTo()`, `retry()`, `afterLostSwitch()`, `deadlines()`.
-- `src/Jwt/RefreshRotationStore.php`: `switchPrincipal()` and `reload()`.
+- `src/Sessions/SessionSwitch.php`: one switch, built per call; `switch()` (the limiter), `switchOn()`, `admit()`,
+  `admitAsDestination()`, `isDestination()`, `switchCurrent()`, `underPolicy()`, `toPending()`, `rotateTo()`, `retry()`,
+  `afterLostSwitch()`, `deadlines()`; `src/Sessions/SwitchTarget.php` and `src/Sessions/SwitchedPrincipal.php`.
+- `src/Jwt/RefreshRotationStore.php`: `switchSession()`, `contextChanges()` and `reload()`;
+  `src/SessionRecords/SwitchFloor.php`: `after()`.
 - `src/Jwt/RefreshJudgment.php`: `classify()`, shared with the refresh exchange.
 - `src/Sessions/ProvenSessions.php`: `provenSessionOf()`, which proves a session without a principal for a choice.
 - `src/Events/SessionPending.php`, `src/Events/PrincipalSwitched.php`, `src/Sessions/PendingSession.php`,
@@ -125,21 +149,26 @@ live session moves to another principal
 
 - `tests/Feature/Sessions/PendingSessionsTest.php` (a choice offered and listed, the factor before it, a choice
   refused and made again, a factor asked after it, the proven session, the slots, discard)
-- `tests/Feature/Sessions/PrincipalSwitchTest.php` (the switch over HTTP, the old access token refused at once,
-  A -> B -> A, the old refresh token inside and after the grace window, the lost response retried, every refusal, a
-  switch read from the request and the transport's refusals, and a switch screen's listing)
-- `tests/Integration/Sessions/PrincipalSwitchTest.php` (the switch racing a refresh, a revocation, an identical switch,
-  a different switch, a deadline change, a deletion and an owner change, and a swap lost to a refresh with no grace
-  window or to two refreshes, which revokes the session)
+- `tests/Feature/Sessions/SessionSwitchTest.php` (the switch over HTTP, the old access token refused at once, A -> B ->
+  A, the old refresh token inside and after the grace window, the lost response retried, every refusal, a switch read
+  from the request and the transport's refusals, a switch screen's listing, a tenant-only switch and one of both,
+  switching back to a tenant, two switches in one second, the destination tenant's refusals, the proofs kept, and the
+  identity-level factor policy not asked)
+- `tests/Integration/Sessions/SessionSwitchTest.php` (the switch racing a refresh, a revocation, an identical switch, a
+  different switch, a deadline change, a tenant or policy version change, a deletion and an owner change, and a swap
+  lost to a refresh with no grace window or to two refreshes, which revokes the session)
 - `tests/Integration/Sessions/ConcurrentSwitchAndRevocationTest.php` (on PostgreSQL and MySQL, two processes: a switch
   waiting on a revocation, on a refresh of its token and on an identical switch, after a commit and after a rollback)
 - `tests/Integration/Applications/ReplicaChoicesAcrossConnectionsTest.php` (the principals read on the write
   connection)
-- `tests/Feature/Jwt/RefreshRotationStoreTest.php` `testSwitchPrincipalRecordsTheTargetAndMirrorsIt`,
-  `testSwitchPrincipalMissesAfterAChangeSinceTheSessionWasLoaded`
+- `tests/Feature/Jwt/RefreshRotationStoreTest.php` `testSwitchSessionRecordsTheDestinationAndMirrorsIt`,
+  `testSwitchSessionRecordsAChangeOfEitherAlone`, `testSwitchSessionToTheRecordedDestinationOnlyRotates`,
+  `testSwitchSessionMovesTheFloorPastASwitchInTheSameSecond`,
+  `testSwitchSessionMissesAfterAChangeSinceTheSessionWasLoaded`,
+  `testContextChangesCompareTheDestinationWithTheLoadedSession`
 - `tests/Integration/Http/RefreshCookieSessionLifecycleTest.php` (a switch proven by the refresh cookie, its
   cross-site checks, and the rotated cookie)
-- `tests/Performance/PrincipalSwitchQueryBudgetTest.php` (seven reads and one write per switch, from the request
+- `tests/Performance/SessionSwitchQueryBudgetTest.php` (seven reads and one write per switch, from the request
   too; six reads and no write per grace retry; the counters' writes alone for a refusal, and their read alone when
   rate-limited; the reads, the counters' writes and the insert of a sign-in left pending on a choice, the reads of a
   choice listed, and the reads and writes of a choice made; and a time ceiling for switches, retries and refusals)
@@ -150,6 +179,7 @@ Update this note when any of the following change:
 
 - when a choice is offered, which principals are admitted, or what a pending choice records
 - the checks a switch runs, the order it runs them in, or the retry rule for the previous rotation id
+- what a destination's tenant policy does to a switch
 - the switch's compare-and-swap predicate or the columns it writes
 - how the deadlines of a switched session are derived
 - what `SessionPending` or `PrincipalSwitched` carry, or when they are dispatched

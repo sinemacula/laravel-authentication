@@ -58,7 +58,7 @@ to these events, so the shape and the timing are a contract.
   principal's tenant on the write connection and reports none when the tenant cannot be loaded
   (`TenantUnavailableException`), while a principal loaded without its tenant's key is a misconfiguration whose
   `LogicException` propagates.
-- One failure event, `AuthenticationFailed`, reports every failed sign-in, refresh, principal switch, bearer token, API
+- One failure event, `AuthenticationFailed`, reports every failed sign-in, refresh, switch, bearer token, API
   key, client credentials exchange, request for a one-time code and verification by code or link, with the flow
   (`AuthenticationFlow`) and a reason (`FailureReason`), the identifier a sign-in named, and the wait of a rate-limited
   failure. Where Laravel's `Failed` fires as well, it fires first and `AuthenticationFailed` second; a bearer token or
@@ -85,9 +85,11 @@ to these events, so the shape and the timing are a contract.
   activation dispatches `SessionCreated` and `SignedIn` as a sign-in does. A session that returns to pending from
   active dispatches `SessionReturnedToPending` (the flow, what it requires, its expiry, and the principal and tenant it
   left when they changed), and its later activation `SessionActivated`.
-- Switch of principal: `PrincipalSwitched` carries the new principal and tenant in its context and the previous
-  principal's recorded morph class and identifier as snapshots of its own, after the switch commits on the session's
-  connection; it is scheduled before the guard binds the switched session.
+- Switch of principal or tenant: `PrincipalSwitched` carries the new principal and tenant in its context, the previous
+  principal's recorded morph class and identifier and the previous tenant's identifier as snapshots of its own, and
+  which of the two changed (`principalChanged`, `tenantChanged`), after the switch commits on the session's
+  connection; it is scheduled before the guard binds the switched session, and only when something changed. A switch
+  whose destination asks for a further factor dispatches `SessionReturnedToPending` (flow `switch`) instead.
 - Refresh: the guard dispatches `Refreshed` and `SignedIn` with the session's context, including the tenant the
   exchange's activity check loaded and the method the session records, after the rotation commits on the session's
   connection, scheduling them before it binds the exchanged session.
@@ -143,7 +145,7 @@ to these events, so the shape and the timing are a contract.
 - `src/Sessions/SessionRefresh.php`: `refresh()`, `refuse()` and `report()`; `src/Guards/BearerAuthentication.php`:
   `failed()`, the bearer failure's context.
 - `src/Jwt/RefreshTokenExchange.php`: `refused()`, `sessionContext()`, and the `SessionRevoked` dispatch;
-  `src/Sessions/PrincipalSwitch.php`: `eventContext()`.
+  `src/Sessions/SessionSwitch.php`: `eventContext()`.
 - `src/Sessions/SessionEstablishment.php`: `signedIn()`; `src/Sessions/SessionService.php`: `fail()`;
   `src/Sessions/SessionPreconditions.php`: `methodReason()`; `src/Sessions/SignInResult.php`: `failed()`, the
   concealment.

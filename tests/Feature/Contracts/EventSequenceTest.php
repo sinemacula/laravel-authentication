@@ -38,6 +38,7 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
+use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use Tests\Concerns\ChangesIdentifiers;
 use Tests\Concerns\InteractsWithMachineClients;
 use Tests\Concerns\InteractsWithPasswords;
@@ -833,7 +834,7 @@ final class EventSequenceTest extends TestCase
         $this->namePrincipals($second);
         $this->recordSequence();
 
-        self::assertTrue($sessions->switchPrincipal($session->tokens->refreshToken, $second)->isSwitched());
+        self::assertTrue($sessions->switchTo($session->tokens->refreshToken, SwitchTarget::principal($second))->isSwitched());
         self::assertSame([
             'PrincipalSwitched members from:p1 i1/p2/s1',
             'Authenticated members i1',

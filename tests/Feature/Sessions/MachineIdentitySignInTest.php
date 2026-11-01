@@ -28,6 +28,7 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 use SineMacula\Laravel\Authentication\Sessions\SessionPreconditions;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
+use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use Tests\Concerns\InteractsWithMachineClients;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithSessions;
@@ -265,7 +266,7 @@ final class MachineIdentitySignInTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $switched = $this->sessions()->switchPrincipal($session->tokens->refreshToken, $session->principal);
+        $switched = $this->sessions()->switchTo($session->tokens->refreshToken, SwitchTarget::principal($session->principal));
 
         self::assertSame(FailureReason::MACHINE_IDENTITY, $switched->reason);
 

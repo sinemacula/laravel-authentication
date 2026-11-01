@@ -45,7 +45,7 @@ are caught on the server.
   custom methods plug into.
 - **Sessions**: timestamped proofs of every sign-in and an external provider's provenance on each session, step-up and
   reauthentication with `auth_time` and `amr` derived from the proofs, per-operation freshness judged on the proof that
-  meets it, list, sign out, sign out everywhere, revoke on security changes, and switch principal.
+  meets it, list, sign out, sign out everywhere, revoke on security changes, and switch principal or active tenant.
 - **Machine credentials**: API keys and OAuth 2.0 client credentials for non-human identities, with scopes.
 - **Account lifecycle**: password policy, password reset, identifier verification and changing an email or phone.
 - **Per-application settings**: which sign-in methods and machine credentials each application allows (none until it
@@ -158,21 +158,21 @@ Route::middleware('auth:api')->get('/me', fn () => Auth::identity());
 
 ### Guides
 
-| Guide                                                     | Covers                                                                                                       |
-|-----------------------------------------------------------|--------------------------------------------------------------------------------------------------------------|
-| [Installation](docs/guides/installation.md)               | Keys, guards and providers, the `401`, localisation, access-only mode                                        |
-| [Identity models](docs/guides/identity-models.md)         | 2D and 3D models, identifiers, verification, activity                                                        |
-| [Signing in](docs/guides/signing-in.md)                   | The session service, one-time codes, passkeys, custom methods, factors                                       |
-| [Refreshing](docs/guides/refreshing.md)                   | Refresh, the refresh cookie and replay detection                                                             |
-| [Sessions](docs/guides/sessions.md)                       | Proofs, step-up, reauthentication, freshness, switching principal, signing out, listing sessions, revocation |
-| [Passwords](docs/guides/passwords.md)                     | Password policy, setting a password and password reset                                                       |
-| [Changing identifiers](docs/guides/identifier-changes.md) | Changing an email address or phone number                                                                    |
-| [Machine credentials](docs/guides/machine-credentials.md) | Non-human identities, scopes, API keys and client credentials                                                |
-| [Events](docs/guides/events.md)                           | Every event, its context and the failure outcomes                                                            |
-| [Configuration](docs/guides/configuration.md)             | Every configuration key                                                                                      |
-| [Operations](docs/guides/operations.md)                   | Read replicas, Octane, key rotation, pruning and the configuration check                                     |
-| [Testing](docs/guides/testing.md)                         | Acting as an identity in your tests, context assertions and fakes                                            |
-| [Extending](docs/guides/extending.md)                     | Extension points and the MFA, authorisation, SSO and audit seams                                             |
+| Guide                                                     | Covers                                                                                                                 |
+|-----------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
+| [Installation](docs/guides/installation.md)               | Keys, guards and providers, the `401`, localisation, access-only mode                                                  |
+| [Identity models](docs/guides/identity-models.md)         | 2D and 3D models, identifiers, verification, activity                                                                  |
+| [Signing in](docs/guides/signing-in.md)                   | The session service, one-time codes, passkeys, custom methods, factors                                                 |
+| [Refreshing](docs/guides/refreshing.md)                   | Refresh, the refresh cookie and replay detection                                                                       |
+| [Sessions](docs/guides/sessions.md)                       | Proofs, step-up, reauthentication, freshness, switching principal or tenant, signing out, listing sessions, revocation |
+| [Passwords](docs/guides/passwords.md)                     | Password policy, setting a password and password reset                                                                 |
+| [Changing identifiers](docs/guides/identifier-changes.md) | Changing an email address or phone number                                                                              |
+| [Machine credentials](docs/guides/machine-credentials.md) | Non-human identities, scopes, API keys and client credentials                                                          |
+| [Events](docs/guides/events.md)                           | Every event, its context and the failure outcomes                                                                      |
+| [Configuration](docs/guides/configuration.md)             | Every configuration key                                                                                                |
+| [Operations](docs/guides/operations.md)                   | Read replicas, Octane, key rotation, pruning and the configuration check                                               |
+| [Testing](docs/guides/testing.md)                         | Acting as an identity in your tests, context assertions and fakes                                                      |
+| [Extending](docs/guides/extending.md)                     | Extension points and the MFA, authorisation, SSO and audit seams                                                       |
 
 The security and lifecycle contracts behind them, for maintainers and reviewers, are in
 [docs/design](docs/design/README.md).

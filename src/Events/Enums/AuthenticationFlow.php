@@ -23,8 +23,9 @@ enum AuthenticationFlow: string
     // refreshFromRequest()
     case REFRESH = 'refresh';
 
-    // A switch of the principal a session acts as
-    case PRINCIPAL_SWITCH = 'principal_switch';
+    // A switch of the principal a session acts as, its active tenant, or both:
+    // the session service's switchTo() and switchFromRequest()
+    case SWITCH = 'switch';
 
     // A request for a one-time code: a sign-in code or an identifier
     // verification code

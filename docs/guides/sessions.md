@@ -34,12 +34,12 @@ indexed by connection and by tenant, for finding the sessions of a connection or
 package has no lookup or revocation by connection or tenant yet: only the indexes.
 
 Proofs and provenance belong to the session's key, so they carry unchanged from a pending session to the active one it
-becomes, and across every refresh and switch of principal. A sign-in that replaces a session the client proved it holds
-is a new session with its own proofs; the replaced session keeps its own. A new session counts only its own sign-in's:
-anything recorded under its key before (by an earlier session whose key the database issued again) is deleted as it
-records them. `auth_time` and `amr` are derived from the proofs when an access token is issued, never stored in their
-place. Every read of them is from the write connection, so a lagging replica cannot hide a proof just written. They hold
-personal data (a code's destination), are hidden from a model's serialised form, and are pruned with their session (see
+becomes, and across every refresh and switch. A sign-in that replaces a session the client proved it holds is a new
+session with its own proofs; the replaced session keeps its own. A new session counts only its own sign-in's: anything
+recorded under its key before (by an earlier session whose key the database issued again) is deleted as it records them.
+`auth_time` and `amr` are derived from the proofs when an access token is issued, never stored in their place. Every
+read of them is from the write connection, so a lagging replica cannot hide a proof just written. They hold personal
+data (a code's destination), are hidden from a model's serialised form, and are pruned with their session (see
 [Pruning](operations.md#pruning)).
 
 ## Stepping up
@@ -171,30 +171,43 @@ The package binds `Freshness\ConfiguredFreshness`. Rebind the contract for a req
 such as a minimum assurance level or an additional verification of your own; an implementation keeps no state between
 calls.
 
-## Switching principal
+## Switching principal or tenant
 
 An identity that may act as several principals (memberships of several tenants, say) switches the principal it acts as
-to another one, in the same session, proven by the session's refresh token:
+to another one, in the same session, proven by the session's refresh token; a principal the application lets act in
+tenants other than its own (see
+[Letting principals act in other tenants](extending.md#letting-principals-act-in-other-tenants)) switches the session's
+active tenant the same way. A `SwitchTarget` says where the session goes:
 
 ```php
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
+use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 
-$target = Membership::findOrFail($request->input('membership'));
-$result = Auth::sessions('api')->switchPrincipalFromRequest($target);
+$target = $request->has('membership')
+    ? SwitchTarget::principal(Membership::findOrFail($request->input('membership')))  // in its own tenant
+    : SwitchTarget::tenant(TenantSelection::of($request->input('tenant')));           // the same principal
+
+$result = Auth::sessions('api')->switchFromRequest($target);
 
 abort_if($result === null, 401); // no refresh token in the request
 
 if ($result->isFailed()) {
-    // AuthenticationFailed was dispatched (flow principal_switch); $result->reason says why.
+    // AuthenticationFailed was dispatched (flow switch); $result->reason says why.
     if ($result->reason === FailureReason::RATE_LIMITED) {
         // A 429 with Retry-After, as a refused refresh answers, so clients wait.
         throw new ThrottleRequestsException(__('Too Many Attempts.'), null, ['Retry-After' => $result->retryAfter]);
     }
 
     abort(401);
+}
+
+if ($result->isPending()) {
+    // The destination's tenant asks for a further factor the session lacks.
+    return response()->json(['pending' => $result->credential, 'actions' => $result->pending->actions()]);
 }
 
 $tokens = $result->session->tokens;
@@ -205,49 +218,72 @@ return $result->source === RefreshTokenSource::COOKIE
     : response()->json(['access_token' => $tokens->accessToken, 'refresh_token' => $tokens->refreshToken]);
 ```
 
+`SwitchTarget::principal($principal)` switches to another principal of the identity in its default tenant (its own),
+`SwitchTarget::principal($principal, TenantSelection::of($id))` in the tenant named, and
+`SwitchTarget::tenant(TenantSelection::of($id))` keeps the principal the session acts as and moves it to the tenant
+named (`TenantSelection::principalDefault()` back to its own, `TenantSelection::none()` to none, which only a principal
+that belongs to no tenant may by default).
+
 The refresh token proves the session, never an access token: a stolen access token lives minutes and must not mint a
-refresh credential. `switchPrincipalFromRequest()` reads it as the session service's `refreshFromRequest()` does (see
+refresh credential. `switchFromRequest()` reads it as the session service's `refreshFromRequest()` does (see
 [Refreshing](refreshing.md)), through the guard's refresh token transport, so it comes from the one source the guard
 allows and a token from the refresh cookie gets the cookie's cross-site checks; put the switch route under the cookie's
 path. It returns `null` when the request carries no token, and a token the transport refuses fails with its reason
 (`refresh_token_conflict`, `cross_site_request`, `token_invalid`, reported as an `AuthenticationFailed` of flow
-`principal_switch`) without the session being touched. The result's `source` says where the token came from, so a switch
-read from the cookie answers with the new refresh token in the cookie, as a refresh does.
-`switchPrincipal($refreshToken, $target)` remains for a token your code reads itself; never pass it one read from the
-refresh cookie.
+`switch`) without the session being touched. The result's `source` says where the token came from, so a switch read from
+the cookie answers with the new refresh token in the cookie, as a refresh does. `switchTo($refreshToken, $target)`
+remains for a token your code reads itself; never pass it one read from the refresh cookie.
 
 A switch is judged as a refresh is: counted against the same refresh limits (`rate_limited`, with the wait in the
 result's `retryAfter`: a switch returns its refusal, as a refresh does, so answer it with `Retry-After` as above), the
 token parsed for this guard, the session found, of this guard, live, and the rotation id current, or the previous one
 inside the grace window; any other id is a replay and revokes the session (`rotation_reuse`). On every path the
-session's owner must still be returned by the guard's provider and be active, the target must resolve through the
-resolver's hinted path as the very principal named, of its class, owned by that identity (read from the principal's own
-key, not trusted to the resolver), active, in an active tenant and admitted by the application policy, also with the
-type of identifier the session's sign-in used (which the session records), so a principal your policy refuses to that
-identifier cannot be reached by switching to it, the session's sign-in method must still be allowed, and the
-additional-factor policy must not ask for a further factor (`additional_factor_required`: sign in again as the target).
+session's owner must still be returned by the guard's provider and be active; the destination principal (the target, or
+the one the session records for a tenant-only switch) must resolve through the resolver's hinted path as the very
+principal named, of its class, owned by that identity (read from the principal's own key, not trusted to the resolver),
+active, in an active tenant of its own, allowed the application by `ApplicationAccess` (`principal_ineligible`) and
+admitted by the application policy, also with the type of identifier the session's sign-in used (which the session
+records), so a principal your policy refuses to that identifier cannot be reached by switching to it; the session's
+sign-in method must still be allowed; and the destination tenant must be one `TenantAccess` lets the principal act in
+(`tenant_ineligible`, also for a tenant `TenantResolver` cannot find) and active (`tenant_inactive`).
+
+Then the destination tenant's authentication policy judges the session, with the proofs and provenance it already holds:
+a policy that requires connections the session was not established through refuses the switch (`sso_required`) and
+leaves the session as it was, and one that asks for a further factor the session lacks returns the session to pending
+with the destination recorded, instead of re-issuing its pair. The result is then `isPending()`, carrying the pending
+session (`pending`) and its credential (`credential`, only ever in the response's body); the session's tokens are
+refused until the factor is given (see [Signing in](signing-in.md)), and it then activates as the destination. The
+identity-level additional-factor policy is not asked on a switch.
 
 With the current rotation id, the token's principal must be the one the session records (`session_principal_mismatch`).
 The switch keeps the session's absolute deadline, or its having none while the guard sets no limit, held to the guard's
 absolute lifetime counted from the sign-in (`session_expired` when that has passed), restarts the idle one under the
-guard's lifetimes, issues both tokens for the target, then records the target, the switch time
-(`switched_at`), the rotation and both deadlines in one compare-and-swap. The access tokens of the principal
-switched from stop at once, and switching back does not revive them (see [Session](configuration.md#session)). A switch
-to the principal the session already records rotates the credential like a refresh and reports no switch.
+guard's lifetimes, issues both tokens for the destination, then records the destination principal and tenant, the switch
+time (`switched_at`), the tenant policy version, the rotation and both deadlines in one compare-and-swap. The session
+keeps its key, so its proofs and provenance carry over unchanged. Every access token issued before a switch that changed
+the principal or the tenant stops at once: one naming the other tenant is refused as `session_tenant_mismatch`, one
+naming the other principal as `session_principal_mismatch`, and one issued before the switch as `session_switched`, so
+switching back does not revive them (see [Session](configuration.md#session)). Two switches in one second record the
+second one second later, so the tokens the second issues are refused until the client refreshes after that second. A
+switch to the principal and tenant the session already records rotates the credential like a refresh and reports no
+switch.
 
-With the previous rotation id inside the grace window, the current credential for the target is handed back, writing
-nothing, only when the session records the target and either its last rotation was the switch to it (a lost switch
-response, retried) or the token's own principal is the target; anything else is `rotation_conflict`, without revoking,
-and the client retries with its current token. When another request changes the session between the switch's read and
-its write, the row is read again with a lock and judged once more under the same rules; the swap is never tried twice.
+With the previous rotation id inside the grace window, the current credential for the destination is handed back,
+writing nothing, only when the session records the destination principal and tenant and either its last rotation was the
+switch to them (a lost switch response, retried) or the token's own principal is the destination; anything else is
+`rotation_conflict`, without revoking, and the client retries with its current token. When another request changes the
+session between the switch's read and its write, the row is read again with a lock and judged once more under the same
+rules; the swap is never tried twice.
 
 A switch schedules `PrincipalSwitched` for its commit on the session's connection, with the new principal and tenant in
-its context, and the previous principal as the session recorded it (`previousPrincipalMorphClass`,
-`previousPrincipalId`) and, when it still resolves for the identity, the principal itself (`previousPrincipal`), before
-it binds the guard to the target (`Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`, no `Login`), so a
-listener that throws on those cannot withhold the report. Outside a transaction `PrincipalSwitched` is therefore
-dispatched before the bind events, and a listener on it reads the event's context, not the guard, which still holds the
-previous principal; inside your transaction it follows the commit, after the bind events, and a rollback drops it.
+its context, the previous principal as the session recorded it (`previousPrincipalMorphClass`, `previousPrincipalId`)
+and, when it still resolves for the identity, the principal itself (`previousPrincipal`), the previous tenant's
+identifier (`previousTenantId`) and which of the two changed (`principalChanged`, `tenantChanged`), before it binds the
+guard to the destination in the destination tenant (`Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`, no
+`Login`; `Auth::tenant()` is the new tenant), so a listener that throws on those cannot withhold the report. Outside a
+transaction `PrincipalSwitched` is therefore dispatched before the bind events, and a listener on it reads the event's
+context, not the guard, which still holds the previous principal; inside your transaction it follows the commit, after
+the bind events, and a rollback drops it.
 
 ## Signing out and revoking sessions
 
@@ -317,7 +353,7 @@ client's previous session only when the client proves it holds it, with that ses
 `SignInContext` (see [Signing in](signing-in.md#signing-in-the-session-service)); the session is then revoked with the
 reason `superseded` in the same transaction, and `SessionRevoked` reports it before the new session's `SessionCreated`.
 The IP address and user agent never count, so an application that does not pass the refresh token keeps every earlier
-session of the client until it expires, is signed out or is revoked. A refresh and a switch of principal keep their
+session of the client until it expires, is signed out or is revoked. A refresh and a switch keep their
 session.
 
 ### Listing sessions
@@ -539,7 +575,7 @@ Every revocation records one of these reasons in the session's `revoked_reason` 
 | `signed_out`            | The session signed itself out: `logout()`, `Auth::sessions()->signOut()`                                                      |
 | `signed_out_everywhere` | `signOutEverywhere()` ended the identity's sessions                                                                           |
 | `revoked`               | The application revoked it: `revokeSession()`, `revokeSessions()`, `revokePrincipalSessions()`                                |
-| `rotation_reuse`        | A rotated refresh token was replayed, by a refresh or a switch of principal                                                   |
+| `rotation_reuse`        | A rotated refresh token was replayed, by a refresh or a switch                                                                |
 | `superseded`            | A sign-in that proved the client holds the session, with its current refresh token, replaced it with a new session            |
 | `password_changed`      | `passwordChanged()`: directly, through `Auth::passwords()->set()` with `CHANGE`, or through `RevokeSessionsOnPasswordChange`  |
 | `password_reset`        | `passwordReset()`: directly, through a reset or `set()` with `RESET`, or through `RevokeSessionsOnPasswordReset`              |

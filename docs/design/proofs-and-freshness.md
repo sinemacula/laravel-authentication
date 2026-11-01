@@ -22,7 +22,7 @@ the token's claims and every freshness answer are worked out from them, never st
   holds.
 - Every session the package writes records a counting first factor in the transaction that writes the session; an
   external provider's session also records its provenance, once. Proofs and provenance carry unchanged from a pending
-  sign-in to its session and across every refresh and switch of principal; a sign-in that replaces a session starts a
+  sign-in to its session and across every refresh and switch; a sign-in that replaces a session starts a
   new session with its own.
 - Every read of proofs is of the session's own: those recorded under its key and bound to its guard and its owner (the
   morph type and key the session records), so another identity's or application's proof under the same key never

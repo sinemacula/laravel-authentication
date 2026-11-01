@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
+use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
@@ -139,7 +140,7 @@ final class LifecycleEventsContractTest extends TestCase
         )->session;
 
         self::assertNotNull($session);
-        self::assertTrue($this->sessions('members')->switchPrincipal($session->tokens->refreshToken, $second)->isSwitched());
+        self::assertTrue($this->sessions('members')->switchTo($session->tokens->refreshToken, SwitchTarget::principal($second))->isSwitched());
 
         $guard = $this->freshGuard('members');
 

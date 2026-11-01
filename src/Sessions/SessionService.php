@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
@@ -86,8 +87,8 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * `SessionRefresh` (`RefreshesSessions`), steps a session up and
  * reauthenticates it through `SessionStepUp` and `SessionReauthentication`
  * (`ProvesSessions`), each of which issues a new access token only, lets a
- * session switch the principal it acts as, lists sessions, and signs out,
- * revokes sessions and ends sessions on security changes through
+ * session switch the principal it acts as or its active tenant, lists sessions,
+ * and signs out, revokes sessions and ends sessions on security changes through
  * `SessionRevocations` (`EndsSessions`), which the guard's `logout()` and
  * password changes use too.
  *
@@ -125,6 +126,9 @@ final readonly class SessionService
 
     /** @var \SineMacula\Laravel\Authentication\Sessions\RevocationWriter Revokes the session a switch finds its refresh token replayed on. */
     private RevocationWriter $switchRevocations;
+
+    /** @var \SineMacula\Laravel\Authentication\Sessions\PendingTransitions Returns a session to pending when a switch's destination asks for a further factor. */
+    private PendingTransitions $transitions;
 
     /**
      * Constructor.
@@ -169,6 +173,7 @@ final readonly class SessionService
         $this->refreshes         = new SessionRefresh($context, $binding, new RefreshTokenExchange($tokens, $context, $connections, $transactions), $this->afterCommit, $container);
         $this->switchRevocations = $sessions;
         $this->rotations         = new RefreshRotationStore($connections);
+        $this->transitions       = new PendingTransitions($context, $this->afterCommit, $container->make(Repository::class));
 
         $issuance = new ProofIssuance($context, $tokens);
 
@@ -405,27 +410,33 @@ final readonly class SessionService
     }
 
     /**
-     * Switch the session the refresh token proves to another principal of its
-     * identity, in the same session.
+     * Switch the session the refresh token proves to the target: another
+     * principal of its identity (in the tenant selected for it, its default
+     * unless one is named), another active tenant for the principal it acts as,
+     * or both, in the same session.
      *
      * On success `PrincipalSwitched` is scheduled for once the switch is
      * committed on the session's connection (at once when no transaction is
      * open there, so before the bind), and then the guard is bound to the
-     * session as the new principal (`Authenticated`, `PrincipalAssigned`,
-     * `SessionAuthenticated`, no `Login`); a bind listener that throws cannot
-     * withhold the switch's report. A switch to the principal the session
-     * already records rotates the credential like a refresh and reports no
-     * switch. A refused switch reports `AuthenticationFailed` (flow
-     * `principal_switch`) and leaves the session as it was, unless the token
-     * proved a replay, which revokes the session.
+     * session as the destination principal in the destination tenant
+     * (`Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`, no
+     * `Login`); a bind listener that throws cannot withhold the switch's
+     * report. A switch to the principal and tenant the session already records
+     * rotates the credential like a refresh and reports no switch. A
+     * destination whose tenant's authentication policy asks for a further
+     * factor the session lacks returns the session to pending with the
+     * destination recorded: the result carries the pending session and its
+     * credential, and binds nothing. A refused switch reports
+     * `AuthenticationFailed` (flow `switch`) and leaves the session as it was,
+     * unless the token proved a replay, which revokes the session.
      *
      * @param  string  $refreshToken
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchTarget  $target
      * @return \SineMacula\Laravel\Authentication\Sessions\SwitchResult
      *
      * @throws \Throwable
      */
-    public function switchPrincipal(#[\SensitiveParameter] string $refreshToken, Principal $principal): SwitchResult
+    public function switchTo(#[\SensitiveParameter] string $refreshToken, SwitchTarget $target): SwitchResult
     {
         $client = $this->context->client();
         $revoke = function (EloquentSession&Model $record, CarbonImmutable $now) use ($client): bool {
@@ -438,7 +449,7 @@ final readonly class SessionService
             return $this->switchRevocations->revoke($record, RevocationReason::ROTATION_REUSE, $now, fn () => $this->context->dispatch($event));
         };
 
-        $outcome = (new PrincipalSwitch($this->tokens, $this->rotations, $this->context, $client, $principal, $revoke))
+        $outcome = (new SessionSwitch($this->tokens, $this->rotations, $this->context, $client, $target, $revoke, $this->transitions))
             ->switch($refreshToken);
 
         if ($outcome instanceof AuthenticationFailed) {
@@ -448,11 +459,13 @@ final readonly class SessionService
             return SwitchResult::failed($outcome->reason, $outcome->retryAfter);
         }
 
-        return $this->switched($outcome, $client);
+        return $outcome instanceof ReturnedToPending
+            ? SwitchResult::pending($outcome->pending, $outcome->credential)
+            : $this->switched($outcome, $client);
     }
 
     /**
-     * Switch the session to the principal with the refresh token the request
+     * Switch the session to the target with the refresh token the request
      * carries, read through the guard's refresh token transport, so it comes
      * from the one source the guard allows and a cookie passes its cross-site
      * checks, as `refreshFromRequest()` reads one.
@@ -460,29 +473,29 @@ final readonly class SessionService
      * Returns `null`, dispatching nothing, when the request carries no token. A
      * token the transport refuses fails with its reason
      * (`refresh_token_conflict`, `cross_site_request`, `token_invalid`) after
-     * `AuthenticationFailed` (flow `principal_switch`), touching no session;
-     * otherwise it is `switchPrincipal()`. The result says where the token was
-     * read from, so a switch read from the cookie can be answered with one.
+     * `AuthenticationFailed` (flow `switch`), touching no session; otherwise it
+     * is `switchTo()`. The result says where the token was read from, so a
+     * switch read from the cookie can be answered with one.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchTarget  $target
      * @return ?\SineMacula\Laravel\Authentication\Sessions\SwitchResult
      *
      * @throws \Throwable
      */
-    public function switchPrincipalFromRequest(Principal $principal): ?SwitchResult
+    public function switchFromRequest(SwitchTarget $target): ?SwitchResult
     {
         $request   = $this->context->request();
         $presented = RefreshTokenTransport::forGuard($this->context->name(), $this->container->make(ConfigRepository::class))->read($request);
 
         if ($presented instanceof PresentedRefreshToken) {
-            return $this->switchPrincipal($presented->token, $principal)->withSource($presented->source);
+            return $this->switchTo($presented->token, $target)->withSource($presented->source);
         }
 
         if ($presented !== null) {
 
             $context = new EventContext($this->context->name(), ClientContext::fromRequest($request));
 
-            $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::PRINCIPAL_SWITCH, $presented));
+            $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::SWITCH, $presented));
 
             return SwitchResult::failed($presented);
         }
@@ -754,10 +767,10 @@ final readonly class SessionService
     }
 
     /**
-     * Report the switch once committed when the principal changed, then bind
-     * the guard to the switched session, and answer it. The report is scheduled
-     * before the bind, so a bind listener that throws cannot withhold it from
-     * the switch it already wrote.
+     * Report the switch once committed when the principal or the tenant
+     * changed, then bind the guard to the switched session in its destination
+     * tenant, and answer it. The report is scheduled before the bind, so a bind
+     * listener that throws cannot withhold it from the switch it already wrote.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal  $switched
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -769,19 +782,22 @@ final readonly class SessionService
     {
         $session = $switched->session;
 
-        if ($switched->switched) {
+        if ($switched->changed()) {
 
             $event = new PrincipalSwitched(
                 new EventContext($this->context->name(), $client, $session->identity, $session->principal, $session->tenant, $session->record, $session->method),
-                $this->previousPrincipal($session->identity, $switched->previousType, $switched->previousId),
+                $switched->principalChanged ? $this->previousPrincipal($session->identity, $switched->previousType, $switched->previousId) : $session->principal,
                 $switched->previousType,
                 $switched->previousId,
+                $switched->previousTenantId,
+                $switched->principalChanged,
+                $switched->tenantChanged,
             );
 
             $this->afterCommit->run($session->record, fn () => $this->context->dispatch($event));
         }
 
-        $this->binding->authenticateAs($session->identity, $session->principal, $session->record);
+        $this->binding->authenticateAs($session->identity, $session->principal, $session->record, null, $session->tenant);
 
         return SwitchResult::switched(new SignedInSession($session->identity, $session->principal, $session->record, $session->tokens, (string) $session->method));
     }

@@ -11,17 +11,15 @@ use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\ApplicationAdmission;
 use SineMacula\Laravel\Authentication\Admission\PinnedPrincipal;
 use SineMacula\Laravel\Authentication\Admission\Refused;
-use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Admission\TenantAdmission;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
-use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch;
@@ -40,26 +38,38 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
+use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
+use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
+use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 
 /**
- * Switches a session to another principal of the same identity, proven by the
- * session's refresh token (never by an access token: a stolen short-lived
- * access token must not mint a refresh credential).
+ * Switches a session to another principal of the same identity, another active
+ * tenant, or both, proven by the session's refresh token (never by an access
+ * token: a stolen short-lived access token must not mint a refresh credential).
  *
  * The token is judged as a refresh judges it, counted against the same refresh
  * limits, and a replayed one revokes the session. Every live check runs on
  * every path: the owner, reloaded through the guard's provider and active; the
- * target, resolved through the hinted path as the very principal named, owned,
- * active, in an active tenant, and admitted by the application policy, also
- * with the type of identifier the session's sign-in used; the session's sign-in
- * method still allowed; and the additional-factor policy, which may not ask for
- * a further factor (sign in again as the target then).
+ * destination principal (the target, or for a tenant-only switch the one the
+ * session records), resolved through the hinted path as the very principal
+ * named, owned, active, in an active tenant of its own, allowed the application
+ * by `ApplicationAccess`, and admitted by the application policy with the type
+ * of identifier the session's sign-in used; the session's sign-in method still
+ * allowed; the destination tenant (the one selected, or the principal's
+ * default) one `TenantAccess` lets the principal act in, and active; then the
+ * destination tenant's authentication policy, judged against the session's own
+ * proofs and provenance. A policy that requires connections the session was not
+ * established through refuses the switch (`sso_required`); one that asks for a
+ * further factor the session lacks returns the session to pending with the
+ * destination recorded, instead of re-issuing its pair.
  *
- * A switch keeps the session's absolute clock (it never extends the absolute
- * deadline: it keeps it, or lowers it to the guard's absolute lifetime counted
- * from the sign-in, which also gives a session that had none a deadline once
- * the guard sets a limit), restarts the idle one, and writes in one
- * compare-and-swap.
+ * A switch keeps the session's key, so its proofs and provenance carry over
+ * unchanged, and its absolute clock (it never extends the absolute deadline: it
+ * keeps it, or lowers it to the guard's absolute lifetime counted from the
+ * sign-in, which also gives a session that had none a deadline once the guard
+ * sets a limit), restarts the idle one, and writes in one compare-and-swap.
+ * When the principal or the tenant changes, that write also moves the session's
+ * `switched_at`, so every access token issued before it is refused at once.
  *
  * One switch is one instance, built with the guard's context, the client and
  * the target when the switch runs.
@@ -69,7 +79,7 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  *
  * @internal
  */
-final readonly class PrincipalSwitch
+final readonly class SessionSwitch
 {
     /**
      * Constructor.
@@ -78,8 +88,9 @@ final readonly class PrincipalSwitch
      * @param  \SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore  $store
      * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $target
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchTarget  $target
      * @param  \Closure(\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, \Carbon\CarbonImmutable): bool  $revoke
+     * @param  \SineMacula\Laravel\Authentication\Sessions\PendingTransitions  $transitions
      */
     public function __construct(
 
@@ -95,26 +106,30 @@ final readonly class PrincipalSwitch
         /** The client of the request asking for the switch. */
         private ClientContext $client,
 
-        /** The principal to switch to. */
-        private Principal $target,
+        /** Where the session is to switch to. */
+        private SwitchTarget $target,
 
         /** Revokes a session whose refresh token was replayed, and reports it. */
         private \Closure $revoke,
+
+        /** Returns the session to pending when its destination asks for a further factor it lacks. */
+        private PendingTransitions $transitions,
     ) {}
 
     /**
      * Switch the session the refresh token proves to the target. Returns the
-     * switched session, or the `AuthenticationFailed` event that reports why it
-     * was refused, undispatched. A failure is counted against the token's
-     * session and the client's IP address; once either count is full the switch
-     * is refused as `rate_limited` before the session is looked up.
+     * switched session, the session returned to pending, or the
+     * `AuthenticationFailed` event that reports why it was refused,
+     * undispatched. A failure is counted against the token's session and the
+     * client's IP address; once either count is full the switch is refused as
+     * `rate_limited` before the session is looked up.
      *
      * @param  string  $refreshToken
-     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
      *
      * @throws \Throwable
      */
-    public function switch(#[\SensitiveParameter] string $refreshToken): AuthenticationFailed|SwitchedPrincipal
+    public function switch(#[\SensitiveParameter] string $refreshToken): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal
     {
         $claims    = $this->tokens->parse($refreshToken, TokenType::REFRESH);
         $sessionId = IdentifierCoercion::stringify($claims[Claims::SESSION_ID->value] ?? null);
@@ -139,11 +154,11 @@ final readonly class PrincipalSwitch
      * Run the switch for the parsed claims on the session they name.
      *
      * @param  ?array<string, mixed>  $claims
-     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
      *
      * @throws \Throwable
      */
-    private function switchClaims(#[\SensitiveParameter] ?array $claims): AuthenticationFailed|SwitchedPrincipal
+    private function switchClaims(#[\SensitiveParameter] ?array $claims): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal
     {
         $rotationId = $claims[Claims::JWT_ID->value] ?? null;
 
@@ -161,15 +176,15 @@ final readonly class PrincipalSwitch
 
     /**
      * Run the switch on the session the token names: its guard, the rotation id
-     * against it, the target's admission, then the switch or the retry.
+     * against it, the destination's admission, then the switch or the retry.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  array{0: string, 1: mixed}  $presented
-     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
      *
      * @throws \Throwable
      */
-    private function switchOn(EloquentSession&Model $session, #[\SensitiveParameter] array $presented): AuthenticationFailed|SwitchedPrincipal
+    private function switchOn(EloquentSession&Model $session, #[\SensitiveParameter] array $presented): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal
     {
         $now     = CarbonImmutable::now()->startOfSecond();
         $verdict = WriteConnection::during($session, static fn (): ?string => $session->getGuard()) === $this->context->name()
@@ -190,11 +205,12 @@ final readonly class PrincipalSwitch
     }
 
     /**
-     * Admit the target for the session: the session's owner, active, as the
-     * target resolved through the hinted path (the very principal named, owned,
-     * active, in an active tenant, admitted by the application policy), with
-     * the session's sign-in method still allowed, then as the target the
-     * session's sign-in could have chosen, with no further factor asked.
+     * Admit the destination for the session: the session's owner, active, as
+     * the destination principal resolved through the hinted path (the very
+     * principal named, owned, active, in an active tenant of its own, allowed
+     * the application), with the session's sign-in method still allowed, then
+     * as the destination the session's sign-in could have chosen, in the
+     * destination tenant.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Events\AuthenticationFailed
@@ -203,11 +219,14 @@ final readonly class PrincipalSwitch
      */
     private function admit(EloquentSession&Model $session): Admitted|AuthenticationFailed
     {
+        [, $id] = PrincipalReference::columns($session);
+        $hint   = $this->target->principal === null ? $session->getRawOriginal($id) : $this->target->principal->getPrincipalIdentifier() ?? '';
+
         $admitted = (new RefreshAdmission($this->context->name(), $this->context->provider(), $this->context->resolver()))
-            ->admitPrincipal($session, $this->target->getPrincipalIdentifier() ?? '');
+            ->admitPrincipal($session, $hint);
 
         if ($admitted instanceof Admitted) {
-            $admitted = $this->admitAsTarget($admitted, $session);
+            $admitted = $this->admitAsDestination($admitted, $session);
         }
 
         return $admitted instanceof Refused
@@ -216,15 +235,16 @@ final readonly class PrincipalSwitch
     }
 
     /**
-     * Hold the admitted principal to what makes it the target the session may
-     * switch to: it must be the very target (`principal_mismatch`); the
-     * application policy must admit the identity with the type of identifier
-     * the session's sign-in used, as that sign-in was admitted, so a policy
-     * that refuses such an identifier (an unverified one, say) refuses the
-     * switch for its reason; and the additional-factor policy must not ask a
-     * further factor (`additional_factor_required`). A session whose sign-in
-     * used no identifier is not held to an identifier type. The type is read on
-     * the write connection.
+     * Hold the admitted principal to what makes it the destination the session
+     * may switch to, in the destination tenant: it must be the very principal
+     * the switch names (`principal_mismatch`); the application policy must
+     * admit the identity with the type of identifier the session's sign-in
+     * used, as that sign-in was admitted, so a policy that refuses such an
+     * identifier (an unverified one, say) refuses the switch for its reason;
+     * and the tenant selected, or the principal's default, must be one
+     * `TenantAccess` lets it act in, and active (`tenant_ineligible`,
+     * `tenant_inactive`). A session whose sign-in used no identifier is not
+     * held to an identifier type. The type is read on the write connection.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
@@ -232,73 +252,40 @@ final readonly class PrincipalSwitch
      *
      * @throws \Throwable
      */
-    private function admitAsTarget(Admitted $admitted, EloquentSession&Model $session): Admitted|Refused
+    private function admitAsDestination(Admitted $admitted, EloquentSession&Model $session): Admitted|Refused
     {
-        if (!$this->isTarget($admitted)) {
+        if (!$this->isDestination($admitted, $session)) {
             return new Refused(FailureReason::PRINCIPAL_MISMATCH, $admitted->identity);
         }
 
         $type    = WriteConnection::during($session, static fn (): ?string => $session->getSignInIdentifierType());
-        $refusal = $type === null ? null : $this->admitWithType($admitted, $type);
+        $policy  = Container::getInstance()->make(ApplicationPolicy::class);
+        $refusal = $type === null ? null : ApplicationAdmission::admitIdentifier($policy, $this->context->name(), $admitted->identity, $type);
+        $tenant  = $refusal ?? TenantAdmission::select($admitted->principal, $this->target->tenant ?? TenantSelection::principalDefault());
 
-        $refusal ??= $this->requiresAdditionalFactor($admitted, $session) ? FailureReason::ADDITIONAL_FACTOR_REQUIRED : null;
-
-        return $refusal === null ? $admitted : Refused::after($refusal, $admitted);
-    }
-
-    /**
-     * The application policy's reason to refuse the identity to the session's
-     * identifier type, if any, as its sign-in was asked.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
-     * @param  string  $type
-     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \InvalidArgumentException
-     * @throws \LogicException
-     */
-    private function admitWithType(Admitted $admitted, string $type): ?FailureReason
-    {
-        return ApplicationAdmission::admitIdentifier(Container::getInstance()->make(ApplicationPolicy::class), $this->context->name(), $admitted->identity, $type);
+        return $tenant instanceof FailureReason
+            ? Refused::after($tenant, $admitted)
+            : new Admitted($admitted->identity, $admitted->principal, $tenant, $session);
     }
 
     /**
      * Whether the principal the hinted path resolved (whose identifier the
-     * admission already matched to the target's) is the very target: of its
-     * class, and owned by the session's owner, read from the principal's own
+     * admission already matched to the hint) is the very destination: of the
+     * target's class, or for a tenant-only switch the principal the session
+     * records, and owned by the session's owner, read from the principal's own
      * stored key rather than trusted to the resolver.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
-     * @return bool
-     */
-    private function isTarget(Admitted $admitted): bool
-    {
-        return $admitted->principal::class === $this->target::class
-            && PinnedPrincipal::isOwnedBy($admitted->principal, $admitted->identity);
-    }
-
-    /**
-     * Whether the additional-factor policy asks a further factor of the target
-     * on the session.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return bool
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    private function requiresAdditionalFactor(Admitted $admitted, EloquentSession&Model $session): bool
+    private function isDestination(Admitted $admitted, EloquentSession&Model $session): bool
     {
-        return Container::getInstance()->make(AdditionalFactorPolicy::class)->requiresAdditionalFactor(new AdditionalFactorContext(
-            $this->context->name(),
-            $admitted->identity,
-            (string) $session->getSignInMethod(),
-            $this->client,
-            null,
-            null,
-            $session,
-        ));
+        $named = $this->target->principal === null
+            ? PrincipalReference::isRecordedOn($session, $admitted->principal)
+            : $admitted->principal::class === $this->target->principal::class;
+
+        return $named && PinnedPrincipal::isOwnedBy($admitted->principal, $admitted->identity);
     }
 
     /**
@@ -310,7 +297,7 @@ final readonly class PrincipalSwitch
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  array{0: string, 1: mixed}  $presented
      * @param  \Carbon\CarbonImmutable  $now
-     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
      *
      * @throws \Throwable
      */
@@ -319,7 +306,7 @@ final readonly class PrincipalSwitch
         Admitted $admitted,
         #[\SensitiveParameter] array $presented,
         CarbonImmutable $now,
-    ): AuthenticationFailed|SwitchedPrincipal {
+    ): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal {
         [, $id]    = PrincipalReference::columns($session);
         $deadlines = $this->deadlines($session, $now);
 
@@ -330,18 +317,75 @@ final readonly class PrincipalSwitch
         };
 
         return $refusal === null
-            ? $this->rotateTo($session, $admitted, $presented, $deadlines, $now)
+            ? $this->underPolicy($session, $admitted, $presented, $deadlines, $now)
             : self::refused($refusal, $this->eventContext($session, $admitted));
     }
 
     /**
-     * Issue the pair for the target before the one compare-and-swap that
-     * records the switch, the rotation and the deadlines.
+     * Judge the session against the destination tenant's authentication policy,
+     * with its own proofs and provenance: one that requires connections the
+     * session was not established through refuses the switch (`sso_required`),
+     * leaving the session as it was; one that asks for a further factor the
+     * session lacks returns the session to pending with the destination
+     * recorded, a lost compare-and-swap judged again as after a lost switch;
+     * one the session meets lets the switch rotate.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
-     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
      * @param  array{0: string, 1: mixed}  $presented
      * @param  array{0: \Carbon\CarbonImmutable, 1: ?\Carbon\CarbonImmutable}  $deadlines
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
+     *
+     * @throws \Throwable
+     */
+    private function underPolicy(
+        EloquentSession&Model $session,
+        Admitted $destination,
+        #[\SensitiveParameter] array $presented,
+        array $deadlines,
+        CarbonImmutable $now,
+    ): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal {
+        $verdict = TenantPolicyCheck::check($this->context->name(), $destination->identity, $destination->principal, $destination->tenant, $session, $now);
+
+        return match ($verdict->standing) {
+            TenantPolicyStanding::SSO_REQUIRED    => self::refused(FailureReason::SSO_REQUIRED, $this->eventContext($session, $destination)),
+            TenantPolicyStanding::FACTOR_REQUIRED => $this->toPending($session, $destination, $presented, $now),
+            TenantPolicyStanding::MET             => $this->rotateTo($session, $destination, $presented, [$deadlines, $verdict->version], $now),
+        };
+    }
+
+    /**
+     * Return the session to pending with the destination recorded, instead of
+     * re-issuing its pair, or, when the compare-and-swap missed, judge the
+     * presented rotation id again as after a lost switch.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
+     * @param  array{0: string, 1: mixed}  $presented
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
+     *
+     * @throws \Throwable
+     */
+    private function toPending(
+        EloquentSession&Model $session,
+        Admitted $destination,
+        #[\SensitiveParameter] array $presented,
+        CarbonImmutable $now,
+    ): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal {
+        return $this->transitions->returnToPending($session, $destination, AuthenticationFlow::SWITCH, $now)
+            ?? $this->afterLostSwitch($session, $destination, $presented, $now);
+    }
+
+    /**
+     * Issue the pair for the destination before the one compare-and-swap that
+     * records the switch, the rotation, the deadlines and the policy version.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
+     * @param  array{0: string, 1: mixed}  $presented
+     * @param  array{0: array{0: \Carbon\CarbonImmutable, 1: ?\Carbon\CarbonImmutable}, 1: ?string}  $answered
      * @param  \Carbon\CarbonImmutable  $now
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
      *
@@ -349,41 +393,47 @@ final readonly class PrincipalSwitch
      */
     private function rotateTo(
         EloquentSession&Model $session,
-        Admitted $admitted,
+        Admitted $destination,
         #[\SensitiveParameter] array $presented,
-        array $deadlines,
+        array $answered,
         CarbonImmutable $now,
     ): AuthenticationFailed|SwitchedPrincipal {
-        [$type, $id] = PrincipalReference::columns($session);
-        $previous    = [IdentifierCoercion::stringify($session->getRawOriginal($type)), IdentifierCoercion::stringify($session->getRawOriginal($id))];
-        $switching   = !PrincipalReference::isRecordedOn($session, $admitted->principal);
-        $next        = RefreshTokenHasher::successor($presented[0]);
+        [$deadlines, $version] = $answered;
+        [$type, $id]           = PrincipalReference::columns($session);
+        [$principal, $tenant]  = RefreshRotationStore::contextChanges($session, $destination);
+
+        $previous = [
+            IdentifierCoercion::stringify($session->getRawOriginal($type)),
+            IdentifierCoercion::stringify($session->getRawOriginal($id)),
+            IdentifierCoercion::stringify($session->getRawOriginal($session->getTenantIdName())),
+        ];
+
+        $next = RefreshTokenHasher::successor($presented[0]);
 
         // Both tokens end with the session, now at its restarted idle deadline,
         // which is never after the absolute one when there is one, and name the
         // tenant it is to act in.
         $session->setAttribute($session->getIdleExpiresAtName(), $deadlines[0]);
+        $session->setAttribute($session->getTenantIdName(), IdentifierCoercion::stringify($destination->tenant?->getTenantIdentifier()));
 
-        if ($switching) {
-            $session->setAttribute($session->getTenantIdName(), IdentifierCoercion::stringify($admitted->tenant?->getTenantIdentifier()));
+        $tokens = $this->issue($destination, $session, $next, $now);
+
+        if (!$this->store->switchSession($session, [$presented[0], $next], $destination, $version, $deadlines, $now)) {
+            return $this->afterLostSwitch($session, $destination, $presented, $now);
         }
 
-        $tokens = $this->issue($admitted, $session, $next, $now);
-
-        if (!$this->store->switchPrincipal($session, $presented[0], $next, $admitted->principal, $admitted->tenant, $switching, $deadlines, $now)) {
-            return $this->afterLostSwitch($session, $admitted, $presented, $now);
-        }
-
-        return new SwitchedPrincipal(self::exchanged($admitted, $session, $tokens), $previous[0], $previous[1], $switching);
+        return new SwitchedPrincipal(self::exchanged($destination, $session, $tokens), $previous[0], $previous[1], $previous[2], $principal, $tenant);
     }
 
     /**
      * Answer a switch presenting the rotation id the session's current one
      * replaced, inside the grace window: hand back the current credential for
-     * the target, writing nothing, only when the session records the target and
-     * either its last rotation was a switch (a lost switch response retried) or
-     * the token's own principal is the target; anything else is a conflict the
-     * client can retry, not a replay.
+     * the destination, writing nothing, only when the session records the
+     * destination principal and tenant and either its last rotation was a
+     * switch (a lost switch response retried) or the token's own principal is
+     * the destination; anything else is a conflict the client can retry, not a
+     * replay. The destination tenant's policy is not asked again: the call that
+     * recorded the destination asked it.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
@@ -394,7 +444,7 @@ final readonly class PrincipalSwitch
      */
     private function retry(EloquentSession&Model $session, Admitted $admitted, #[\SensitiveParameter] array $presented): AuthenticationFailed|SwitchedPrincipal
     {
-        $honored = PrincipalReference::isRecordedOn($session, $admitted->principal)
+        $honored = !in_array(true, RefreshRotationStore::contextChanges($session, $admitted), true)
             && (self::isLastRotationASwitch($session) || IdentifierCoercion::matches($admitted->principal->getPrincipalIdentifier(), $presented[1]));
 
         if (!$honored) {
@@ -405,8 +455,9 @@ final readonly class PrincipalSwitch
         $tokens = $this->issue($admitted, $session, RefreshTokenHasher::successor($presented[0]), $now);
         $type   = PrincipalReference::type($admitted->principal);
         $id     = PrincipalReference::id($admitted->principal);
+        $tenant = IdentifierCoercion::stringify($admitted->tenant?->getTenantIdentifier());
 
-        return new SwitchedPrincipal(self::exchanged($admitted, $session, $tokens), $type, $id, false);
+        return new SwitchedPrincipal(self::exchanged($admitted, $session, $tokens), $type, $id, $tenant, false, false);
     }
 
     /**
@@ -482,7 +533,7 @@ final readonly class PrincipalSwitch
     }
 
     /**
-     * Issue the pair for the admitted target on the session at `$now`, the
+     * Issue the pair for the admitted destination on the session at `$now`, the
      * refresh token carrying the rotation id.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
@@ -526,9 +577,9 @@ final readonly class PrincipalSwitch
      * session and the method it records, and whatever of the identity,
      * principal and tenant the switch resolved. A failure before the owner was
      * read (the row's own state, an owner that no longer loads) is about the
-     * row, so it names the owner and principal the row records; a refusal of
-     * the target names the principal resolved for it, if any, never the one the
-     * session acts as.
+     * row, so it names the owner, principal and tenant the row records; a
+     * refusal of the destination names the principal and tenant resolved for
+     * it, if any, never the ones the session acts as.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused|null  $outcome
@@ -549,8 +600,9 @@ final readonly class PrincipalSwitch
     }
 
     /**
-     * Whether the session's last rotation was a switch of principal: the switch
-     * and the rotation were recorded at the same second.
+     * Whether the session's last rotation was a switch that changed its
+     * principal or active tenant: the switch and the rotation were recorded at
+     * the same second.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return bool
@@ -565,7 +617,7 @@ final readonly class PrincipalSwitch
     }
 
     /**
-     * The exchanged session, as the admitted target, with its new pair.
+     * The exchanged session, as the admitted destination, with its new pair.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
@@ -587,6 +639,6 @@ final readonly class PrincipalSwitch
      */
     private static function refused(FailureReason $reason, EventContext $context, ?int $retryAfter = null): AuthenticationFailed
     {
-        return new AuthenticationFailed($context, AuthenticationFlow::PRINCIPAL_SWITCH, $reason, retryAfter: $retryAfter);
+        return new AuthenticationFailed($context, AuthenticationFlow::SWITCH, $reason, retryAfter: $retryAfter);
     }
 }

@@ -71,7 +71,7 @@ for the next job. Only jobs a worker runs are reset: a job on the `sync` connect
 `dispatchSync()` whatever the default connection) runs inside the request that dispatched it and leaves its guards as
 they are, so a session the request just started stays bound and a request that signed out stays signed out. A
 dispatcher or principal resolver swapped in after a guard resolved (`Event::fake()`, a rebinding of
-`PrincipalResolver`) reaches the guard and its session service (and, through it, a refresh, a switch of principal and
+`PrincipalResolver`) reaches the guard and its session service (and, through it, a refresh, a switch and
 the revocations), which read the guard's collaborators each time they run.
 
 The package's singletons hold configuration only: the token service factory memoises each guard's signing configuration
@@ -109,7 +109,7 @@ for as long as it runs. To change a kept setting, change the configuration and r
 Like every setting, a change to an application's `application.methods` in the configuration files reaches a long-running
 process only after the restart above; the list itself is read on every use, so a runtime `config([...])` applies at
 once. Emptying the list (or removing a method) to stop an application's sign-ins and refreshes is therefore a deploy
-plus a worker restart, after which every sign-in, refresh, switch of principal, one-time code and password reset request
+plus a worker restart, after which every sign-in, refresh, switch, one-time code and password reset request
 and machine credential it no longer lists is refused (see [Applications](configuration.md#applications)). Nothing is
 revoked: access tokens already issued keep working until they expire, and sessions refresh again once the method is
 listed again.

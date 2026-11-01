@@ -135,7 +135,7 @@ final class FailureReasonTest extends TestCase
             'sign_in',
             'bearer',
             'refresh',
-            'principal_switch',
+            'switch',
             'code_request',
             'identifier_verification',
             'api_key',

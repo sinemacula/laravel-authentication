@@ -248,7 +248,7 @@ An application may set no absolute limit: set `refresh_absolute_ttl_minutes` to 
 (`AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES=null`, which `env()` reads as `null`) or in a guard's `jwt` block,
 where a `null` override lifts the package's limit for that guard alone. Its sessions have no absolute deadline
 (`absolute_expires_at` is `null`) and end only when they go idle, are revoked, or reach a deadline their sign-in
-supplied (below); a refresh never adds one, and a switch of principal adds one only when the guard has set a limit since
+supplied (below); a refresh never adds one, and a switch adds one only when the guard has set a limit since
 the sign-in, counted from it. The idle lifetime is always required, and an absolute lifetime missing at both levels
 fails closed rather than reading as none.
 
@@ -298,7 +298,7 @@ and a guard overrides any key in an `application` block of its own:
 | `require_verified_identifier` | `false` | Refuse a sign-in with an identifier the identity has not verified                                                                                          |
 
 Every feature is opt-in, so an application allows nothing until it lists it: with the default empty `methods` (or a
-guard's own `[]`), every sign-in (`attempt()`, `signIn()`, `start()`), refresh, switch of principal, one-time code
+guard's own `[]`), every sign-in (`attempt()`, `signIn()`, `start()`), refresh, switch, one-time code
 request and password reset request is refused as `method_not_allowed`, a password never reauthenticates
 (`reauthentication_required`), an `api_key` guard refuses every key, and a client credentials exchange answers
 `unauthorized_client`. A session still pending (on a further factor or a choice of principal) when its method is removed
@@ -320,8 +320,8 @@ the password method) fails with `identifier_unverified` unless the identity repo
 [Identifier verification](identity-models.md#identifier-verification)); sign-ins that used no identifier, such as SSO
 through `start()`, and refreshes are not gated, since the external provider or the existing session vouches for them.
 The check is made before any principal is resolved, so an unverified identifier gets `identifier_unverified` whether or
-not the identity has a principal yet, and the answer cannot tell whether it has been invited anywhere. A switch of
-principal is held to the identifier type its session's sign-in used, which the session records.
+not the identity has a principal yet, and the answer cannot tell whether it has been invited anywhere. A switch is
+held to the identifier type its session's sign-in used, which the session records.
 
 A guard key that is present wins, `null` included; a guard `application` entry of `null` means no overrides. Nothing
 falls back to a literal: a key missing from both blocks, a value of the wrong shape (`null` or a map for `methods`, or a
@@ -428,7 +428,7 @@ digest, the superseded session's refresh digest and the kept attempt slots are h
 every column when it creates a session (see [Signing in](signing-in.md#signing-in-the-session-service)); `getGuard()`,
 `getSignInMethod()` and `getSignInIdentifierType()` read the guard, method and type of identifier it recorded. The
 bearer path and refresh honour a session only for the guard it records, refresh only while that guard still allows the
-method it records, and a switch of principal admits its target with the identifier type it records (`null` for a
+method it records, and a switch admits its destination principal with the identifier type it records (`null` for a
 sign-in that used none, which is held to no type), so a session written outside the session service must record all
 three.
 

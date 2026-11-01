@@ -31,7 +31,7 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   `Passkeys\PasskeyService`, `ApiKeys\ApiKeyService`, `ClientCredentials\ClientCredentialsExchange`,
   `Passwords\PasswordService`, `IdentifierChanges\IdentifierChangeService`) take the guard's context, not the guard, and
   so do the classes they build (`ResetRequests`, `ResetSubmissions`, `ChangeRequests`, `ChangeConfirmation`, and
-  `Sessions\RecentAuthentication`, the reauthentication check), and `Sessions\PrincipalSwitch`, which the session
+  `Sessions\RecentAuthentication`, the reauthentication check), and `Sessions\SessionSwitch`, which the session
   service builds per switch. `ResetRecipient`'s static checks take the guard's name and provider. `AuthManager` resolves
   the guard, refuses one the service does not belong to with the message it always gave, and passes the guard's
   `context()`; for the password service it also passes the session revocations a change or a reset ends sessions
@@ -118,7 +118,7 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   `src/Passwords/ResetRequests.php`, `src/Passwords/ResetSubmissions.php`,
   `src/IdentifierChanges/IdentifierChangeService.php`, `src/IdentifierChanges/ChangeRequests.php`,
   `src/IdentifierChanges/ChangeConfirmation.php`, `src/Sessions/RecentAuthentication.php` and
-  `src/Sessions/PrincipalSwitch.php`; `src/Passwords/ResetRecipient.php`: `find()`, `eligible()`.
+  `src/Sessions/SessionSwitch.php`; `src/Passwords/ResetRecipient.php`: `find()`, `eligible()`.
 - `src/Runtime/JwtGuardContexts.php`: `named()`, called by `src/Codes/SendOneTimeCode.php` and
   `src/Passwords/SendPasswordReset.php`.
 - The deferred reports: `src/ApiKeys/ApiKeyService.php` `report()`, `src/Passkeys/PasskeyService.php`

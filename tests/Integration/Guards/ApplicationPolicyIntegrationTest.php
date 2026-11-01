@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 use Tests\Concerns\InteractsWithTypedPrincipals;
 use Tests\Fixtures\Sessions\GuardSessions;
@@ -226,7 +227,7 @@ final class ApplicationPolicyIntegrationTest extends TestCase
 
         Auth::forgetGuards();
 
-        $switched = Auth::sessions(self::GUARD)->switchPrincipal($refreshed->tokens->refreshToken, $second)->session;
+        $switched = Auth::sessions(self::GUARD)->switchTo($refreshed->tokens->refreshToken, SwitchTarget::principal($second))->session;
 
         self::assertNotNull($switched);
         self::assertSame($second->getKey(), $switched->principal->getPrincipalIdentifier());
