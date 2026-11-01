@@ -7,11 +7,8 @@ namespace Tests\Unit\Stubs;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 
 /**
- * Plain-object `Identity` fixture used by the event serialisation round-trip
- * tests. Intentionally NOT an Eloquent model so the `SerializesModels` trait
- * leaves the instance untouched during serialisation - the test asserts the
- * round trip on a uniformly supported payload without needing a database
- * connection.
+ * Plain-object `Identity` fixture: an identity that is not an Eloquent model,
+ * so it needs no database and a queued event keeps only its identifier.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
