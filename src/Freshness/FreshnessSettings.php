@@ -220,7 +220,9 @@ final readonly class FreshnessSettings
     }
 
     /**
-     * Whether the entry requires the flag: `false` when it does not set it.
+     * Whether the entry requires the flag: `false` when it does not set it. An
+     * explicit `null` (an unset environment value, say) is refused rather than
+     * read as `false`, so a requirement is never dropped silently.
      *
      * @param  array<array-key, mixed>  $entry
      * @param  string  $flag
@@ -231,7 +233,7 @@ final readonly class FreshnessSettings
      */
     private static function isRequired(array $entry, string $flag, string $setting): bool
     {
-        $value = $entry[$flag] ?? false;
+        $value = array_key_exists($flag, $entry) ? $entry[$flag] : false;
 
         return is_bool($value) ? $value : throw new \InvalidArgumentException(sprintf('%s.%s must be true or false.', $setting, $flag));
     }

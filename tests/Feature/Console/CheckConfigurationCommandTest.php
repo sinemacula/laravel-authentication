@@ -347,6 +347,14 @@ final class CheckConfigurationCommandTest extends TestCase
             ['authentication.freshness.password_establishment.multifactor' => 'yes'],
             '[freshness] authentication.freshness.password_establishment.multifactor must be true or false.',
         ];
+        yield 'a freshness entry whose flag is null' => [
+            ['authentication.freshness.password_establishment.phishing_resistant' => null],
+            '[freshness] authentication.freshness.password_establishment.phishing_resistant must be true or false.',
+        ];
+        yield 'a guard freshness entry whose flag is null' => [
+            ['auth.guards.api.freshness' => ['identifier_change' => ['max_age_seconds' => 900, 'proofs' => ['first_factor'], 'multifactor' => null]]],
+            '[api] auth.guards.api.freshness.identifier_change.multifactor must be true or false.',
+        ];
         yield 'a guard freshness block that is not a map' => [
             ['auth.guards.api.freshness' => 'soon'],
             '[api] auth.guards.api.freshness must map operation names to their freshness.',

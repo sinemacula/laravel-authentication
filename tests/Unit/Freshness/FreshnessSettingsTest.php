@@ -144,8 +144,11 @@ final class FreshnessSettingsTest extends TestCase
             'kinds that are no list'         => [$with(['proofs' => 'first_factor']), null, $key . $kinds],
             'a kind that is no string'       => [$with(['proofs' => [1]]), null, $key . $kinds],
             'a flag that is no boolean'      => [$with(['multifactor' => 'yes']), null, $key . '.multifactor must be true or false.'],
+            'a flag that is null'            => [$with(['multifactor' => null]), null, $key . '.multifactor must be true or false.'],
+            'a phishing flag that is null'   => [$with(['phishing_resistant' => null]), null, $key . '.phishing_resistant must be true or false.'],
             'a guard entry malformed'        => [[], $with(['max_age_seconds' => 0]), 'auth.guards.api.freshness.identifier_change' . $age],
             'a guard phishing flag'          => [[], $with(['phishing_resistant' => 1]), 'auth.guards.api.freshness.identifier_change.phishing_resistant must be true or false.'],
+            'a guard multifactor flag null'  => [[], $with(['multifactor' => null]), 'auth.guards.api.freshness.identifier_change.multifactor must be true or false.'],
         ];
     }
 
