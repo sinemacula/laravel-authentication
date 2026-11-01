@@ -17,7 +17,7 @@ use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenSettings;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use Symfony\Component\HttpFoundation\Cookie;
-use Tests\Unit\Stubs\PlainDeviceFixture;
+use Tests\Unit\Stubs\PlainSessionFixture;
 
 /**
  * Unit tests for reading a refresh token through the one source a guard allows:
@@ -394,7 +394,7 @@ final class RefreshTokenTransportTest extends TestCase
     /**
      * The refresh cookie carries the token `HttpOnly`, `Secure` and
      * `SameSite=Strict`, with the guard's name, path and domain, and expires
-     * when the device's session ends.
+     * when the session ends.
      *
      * @param  int  $idle
      * @param  int  $absolute
@@ -408,7 +408,7 @@ final class RefreshTokenTransportTest extends TestCase
         Carbon::setTestNow($now);
 
         try {
-            $cookie = self::cookieTransport('.example.test')->cookie(self::TOKEN, new PlainDeviceFixture('device-1', $now->addSeconds($idle), $now->addSeconds($absolute)));
+            $cookie = self::cookieTransport('.example.test')->cookie(self::TOKEN, new PlainSessionFixture('session-1', $now->addSeconds($idle), $now->addSeconds($absolute)));
         } finally {
             Carbon::setTestNow();
         }
@@ -425,17 +425,16 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A device whose session has ended, or that has no deadlines, gets no
-     * cookie.
+     * A session that has ended, or that has no deadlines, gets no cookie.
      *
      * @return void
      */
     public function testAnEndedSessionGetsNoCookie(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Cannot set a refresh cookie for a device whose session has ended or that has no idle and absolute deadlines.');
+        $this->expectExceptionMessage('Cannot set a refresh cookie for a session that has ended or that has no idle and absolute deadlines.');
 
-        self::cookieTransport()->cookie(self::TOKEN, new PlainDeviceFixture('device-1'));
+        self::cookieTransport()->cookie(self::TOKEN, new PlainSessionFixture('session-1'));
     }
 
     /**
@@ -466,9 +465,9 @@ final class RefreshTokenTransportTest extends TestCase
      */
     public static function provideCookieCalls(): iterable
     {
-        $device = new PlainDeviceFixture('device-1', Carbon::now()->addHour(), Carbon::now()->addHours(2));
+        $session = new PlainSessionFixture('session-1', Carbon::now()->addHour(), Carbon::now()->addHours(2));
 
-        yield 'setting it' => [static fn (RefreshTokenTransport $transport): Cookie => $transport->cookie(self::TOKEN, $device)];
+        yield 'setting it' => [static fn (RefreshTokenTransport $transport): Cookie => $transport->cookie(self::TOKEN, $session)];
         yield 'clearing it' => [static fn (RefreshTokenTransport $transport): Cookie => $transport->forgetCookie()];
     }
 

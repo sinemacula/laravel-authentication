@@ -7,10 +7,10 @@ namespace Tests\Feature\Guards;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
-use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
-use Tests\Unit\Stubs\StubDevice;
+use Tests\Unit\Stubs\StubSession;
 
 /**
  * Feature tests for the timebox budget, lifecycle state management, and
@@ -18,7 +18,7 @@ use Tests\Unit\Stubs\StubDevice;
  *
  * Covers the `Timebox::call()` budget selection, the `returnEarly()` call on
  * success, `clearContextualState()` between logins, and the explicit
- * principal/device argument paths.
+ * principal/session argument paths.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -223,8 +223,8 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
 
     /**
      * `bindAuthenticationLifecycle()` clears prior contextual state before
-     * binding the new triple, so a stale device from a previous login does not
-     * leak into a deviceless `attempt()`. Mutation guard: pins the
+     * binding the new triple, so a stale session from a previous login does not
+     * leak into a sessionless `attempt()`. Mutation guard: pins the
      * `clearContextualState()` call at the top of
      * `bindAuthenticationLifecycle()`.
      *
@@ -236,20 +236,20 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
 
         $identity1  = $this->mockIdentity();
         $principal1 = $this->mockActivePrincipal();
-        $device1    = $this->mockDevice();
+        $session1   = $this->mockSession();
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        $guard->login($identity1, $principal1, $device1);
+        $guard->login($identity1, $principal1, $session1);
 
-        self::assertSame($device1, $guard->device());
+        self::assertSame($session1, $guard->session());
 
         $identity2  = $this->mockIdentity();
         $principal2 = $this->mockActivePrincipal();
 
         $guard->login($identity2, $principal2);
 
-        self::assertNull($guard->device());
+        self::assertNull($guard->session());
         self::assertSame($identity2, $guard->user());
         self::assertSame($principal2, $guard->principal());
     }
@@ -337,30 +337,31 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
     }
 
     /**
-     * `attempt()` fires `DeviceAuthenticated` exactly once when an explicit
-     * `Device` argument the identity owns is supplied. Pins the `setDevice`
-     * call inside `bindAuthenticationLifecycle` for the non-null device branch.
+     * `attempt()` fires `SessionAuthenticated` exactly once when an explicit
+     * `Session` argument the identity owns is supplied. Pins the `setSession`
+     * call inside `bindAuthenticationLifecycle` for the non-null session
+     * branch.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAttemptBindsDeviceAndFiresDeviceAuthenticatedEvent(): void
+    public function testAttemptBindsSessionAndFiresSessionAuthenticatedEvent(): void
     {
         $guard = $this->makeGuard();
 
-        $deviceId = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
+        $sessionId = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
 
         $principal = $this->mockActivePrincipal();
-        $device    = $this->pinnableDevice($deviceId, $principal);
+        $session   = $this->pinnableSession($sessionId, $principal);
 
-        $devices = \Mockery::mock(Builder::class);
-        $devices->shouldReceive('useWritePdo')->once()->andReturnSelf();
-        $devices->shouldReceive('getModel')->andReturn(new StubDevice);
-        $devices->shouldReceive('find')->once()->with($deviceId)->andReturn($device);
+        $sessions = \Mockery::mock(Builder::class);
+        $sessions->shouldReceive('useWritePdo')->once()->andReturnSelf();
+        $sessions->shouldReceive('getModel')->andReturn(new StubSession);
+        $sessions->shouldReceive('find')->once()->with($sessionId)->andReturn($session);
 
-        $identity = $this->mockIdentity(HasDevices::class);
-        $identity->shouldReceive('devices')->andReturn($devices);
+        $identity = $this->mockIdentity(HasSessions::class);
+        $identity->shouldReceive('sessions')->andReturn($sessions);
 
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()
@@ -384,24 +385,24 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
             $guard->attempt(
                 ['email' => 'x', 'password' => 'y'],
                 null,
-                $device,
+                $session,
             ),
         );
 
-        self::assertSame($device, $guard->device());
-        self::assertContains(DeviceAuthenticated::class, $dispatched);
+        self::assertSame($session, $guard->session());
+        self::assertContains(SessionAuthenticated::class, $dispatched);
     }
 
     /**
-     * `attempt()` does NOT fire `DeviceAuthenticated` when no device is
-     * supplied. Pins the `if ($device !== null)` guard inside
+     * `attempt()` does NOT fire `SessionAuthenticated` when no session is
+     * supplied. Pins the `if ($session !== null)` guard inside
      * `bindAuthenticationLifecycle`.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAttemptDoesNotFireDeviceAuthenticatedWhenDeviceOmitted(): void
+    public function testAttemptDoesNotFireSessionAuthenticatedWhenSessionOmitted(): void
     {
         $guard = $this->makeGuard();
 
@@ -428,8 +429,8 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
 
         self::assertTrue($guard->attempt(['email' => 'x', 'password' => 'y']));
 
-        self::assertNull($guard->device());
-        self::assertNotContains(DeviceAuthenticated::class, $dispatched);
+        self::assertNull($guard->session());
+        self::assertNotContains(SessionAuthenticated::class, $dispatched);
     }
 
     /**

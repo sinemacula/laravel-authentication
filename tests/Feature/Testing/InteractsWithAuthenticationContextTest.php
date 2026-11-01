@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\AssertionFailedError;
 use PHPUnit\Framework\Attributes\CoversTrait;
-use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Testing\Concerns\InteractsWithAuthenticationContext;
 use Tests\Concerns\InteractsWithSessions;
@@ -24,10 +24,10 @@ use Tests\TestCase;
 
 /**
  * Feature tests for the testing helpers, driven as an application's test suite
- * would: acting as an identity, a principal or a device's session survives the
- * requests the test sends through `auth:<guard>` routes, ends on a sign-out
- * through a real endpoint and on `stopActing()`, keeps each guard's context
- * apart, and the bound-context assertions pass and fail with what they found.
+ * would: acting as an identity, a principal or a session survives the requests
+ * the test sends through `auth:<guard>` routes, ends on a sign-out through a
+ * real endpoint and on `stopActing()`, keeps each guard's context apart, and
+ * the bound-context assertions pass and fail with what they found.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -82,8 +82,8 @@ final class InteractsWithAuthenticationContextTest extends TestCase
 
     /**
      * Acting as an identity authenticates every request the test sends through
-     * the guard's `auth` middleware, as its default principal and on no device,
-     * and makes the guard the default.
+     * the guard's `auth` middleware, as its default principal and on no
+     * session, and makes the guard the default.
      *
      * @return void
      */
@@ -95,7 +95,7 @@ final class InteractsWithAuthenticationContextTest extends TestCase
 
         self::assertSame('api', Auth::getDefaultDriver());
 
-        $expected = ['identity' => $ada->getKey(), 'principal' => $ada->getKey(), 'tenant' => null, 'device' => null, 'scopes' => null];
+        $expected = ['identity' => $ada->getKey(), 'principal' => $ada->getKey(), 'tenant' => null, 'session' => null, 'scopes' => null];
 
         $this->getJson('/api/me')->assertOk()->assertExactJson($expected);
         $this->getJson('/api/me')->assertOk()->assertExactJson($expected);
@@ -120,28 +120,28 @@ final class InteractsWithAuthenticationContextTest extends TestCase
 
     /**
      * Acting as an identity of a three-dimensional guard binds the principal
-     * and device given, and the tenant the principal acts within, on every
+     * and session given, and the tenant the principal acts within, on every
      * request.
      *
      * @return void
      */
-    public function testActingAsAnIdentityWithAPrincipalAndADevice(): void
+    public function testActingAsAnIdentityWithAPrincipalAndASession(): void
     {
         [$member, $membership, $tenant] = $this->seedMember();
 
-        $device = $this->signedInDevice('members', 'member@example.test');
+        $session = $this->signedInSession('members', 'member@example.test');
 
         [, $other] = $this->seedMember('other@example.test');
 
         $other->forceFill(['identity_id' => $member->getKey()])->save();
 
-        $this->actingAsIdentity($member, $other, $device, null, 'members');
+        $this->actingAsIdentity($member, $other, $session, null, 'members');
 
         $this->getJson('/members/me')->assertOk()->assertExactJson([
             'identity'  => $member->getKey(),
             'principal' => $other->getKey(),
             'tenant'    => $other->tenant_id,
-            'device'    => $device->getKey(),
+            'session'   => $session->getKey(),
             'scopes'    => null,
         ]);
 
@@ -151,7 +151,7 @@ final class InteractsWithAuthenticationContextTest extends TestCase
             'identity'  => $member->getKey(),
             'principal' => $membership->getKey(),
             'tenant'    => $tenant->getKey(),
-            'device'    => null,
+            'session'   => null,
             'scopes'    => null,
         ]);
     }
@@ -208,24 +208,24 @@ final class InteractsWithAuthenticationContextTest extends TestCase
             'identity'  => $member->getKey(),
             'principal' => $membership->getKey(),
             'tenant'    => $tenant->getKey(),
-            'device'    => null,
+            'session'   => null,
             'scopes'    => null,
         ]);
     }
 
     /**
-     * Acting on a device's session acts as its owner and the principal it
-     * records, on the guard it records, which becomes the default.
+     * Acting on a session acts as its owner and the principal it records, on
+     * the guard it records, which becomes the default.
      *
      * @return void
      */
-    public function testActingOnADeviceActsAsItsSession(): void
+    public function testActingOnASessionActsAsItsSession(): void
     {
         [$member, $membership, $tenant] = $this->seedMember();
 
-        $device = $this->signedInDevice('members', 'member@example.test');
+        $session = $this->signedInSession('members', 'member@example.test');
 
-        $this->actingOnDevice($device);
+        $this->actingOnSession($session);
 
         self::assertSame('members', Auth::getDefaultDriver());
 
@@ -233,72 +233,72 @@ final class InteractsWithAuthenticationContextTest extends TestCase
             'identity'  => $member->getKey(),
             'principal' => $membership->getKey(),
             'tenant'    => $tenant->getKey(),
-            'device'    => $device->getKey(),
+            'session'   => $session->getKey(),
             'scopes'    => null,
         ]);
 
         $this->assertBoundIdentity($member)
             ->assertBoundPrincipal($membership)
             ->assertBoundTenant($tenant)
-            ->assertBoundDevice($device)
+            ->assertBoundSession($session)
             ->assertBoundScopes(null);
     }
 
     /**
-     * A device of another guard cannot be acted on under a guard it does not
+     * A session of another guard cannot be acted on under a guard it does not
      * record.
      *
      * @return void
      */
-    public function testADeviceCannotBeActedOnUnderAnotherGuard(): void
+    public function testASessionCannotBeActedOnUnderAnotherGuard(): void
     {
         $this->seedMember();
 
-        $device = $this->signedInDevice('members', 'member@example.test');
+        $session = $this->signedInSession('members', 'member@example.test');
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage(sprintf('Device [%s] belongs to guard [members], not [api].', $device->getKey()));
+        $this->expectExceptionMessage(sprintf('Session [%s] belongs to guard [members], not [api].', $session->getKey()));
 
-        $this->actingOnDevice($device, 'api');
+        $this->actingOnSession($session, 'api');
     }
 
     /**
-     * Naming the guard a device records is the same as naming none.
+     * Naming the guard a session records is the same as naming none.
      *
      * @return void
      */
-    public function testNamingTheGuardADeviceRecords(): void
+    public function testNamingTheGuardASessionRecords(): void
     {
-        $ada    = $this->seedIdentity();
-        $device = $this->signedInDevice('api', 'ada@example.test');
+        $ada     = $this->seedIdentity();
+        $session = $this->signedInSession('api', 'ada@example.test');
 
-        $this->actingOnDevice($device, 'api')
+        $this->actingOnSession($session, 'api')
             ->assertBoundIdentity($ada, 'api')
-            ->assertBoundDevice($device, 'api');
+            ->assertBoundSession($session, 'api');
     }
 
     /**
-     * A device that records no guard is acted on under the guard named, or the
+     * A session that records no guard is acted on under the guard named, or the
      * default one.
      *
      * @return void
      */
-    public function testADeviceRecordingNoGuardIsActedOnUnderTheGuardNamed(): void
+    public function testASessionRecordingNoGuardIsActedOnUnderTheGuardNamed(): void
     {
-        $ada    = $this->seedIdentity();
-        $device = $this->signedInDevice('api', 'ada@example.test');
+        $ada     = $this->seedIdentity();
+        $session = $this->signedInSession('api', 'ada@example.test');
 
-        $device->forceFill(['guard' => null]);
+        $session->forceFill(['guard' => null]);
 
         Auth::shouldUse('admin');
 
-        $this->actingOnDevice($device, 'api')->assertBoundDevice($device, 'api');
+        $this->actingOnSession($session, 'api')->assertBoundSession($session, 'api');
 
         self::assertSame('api', Auth::getDefaultDriver());
 
         Auth::shouldUse('admin');
 
-        $this->actingOnDevice($device)->assertBoundIdentity($ada, 'admin')->assertBoundDevice($device, 'admin');
+        $this->actingOnSession($session)->assertBoundIdentity($ada, 'admin')->assertBoundSession($session, 'admin');
     }
 
     /**
@@ -311,7 +311,7 @@ final class InteractsWithAuthenticationContextTest extends TestCase
     {
         [$member, $membership, $tenant] = $this->seedMember();
 
-        $device = $this->signedInDevice('members', 'member@example.test');
+        $session = $this->signedInSession('members', 'member@example.test');
 
         $scenario = new class {
             /**
@@ -321,7 +321,7 @@ final class InteractsWithAuthenticationContextTest extends TestCase
              * @param  \Tests\Integration\Fixtures\ActivatableTenantMember  $member
              * @param  \Tests\Integration\Fixtures\ActivatableTenantMembership  $membership
              * @param  \Tests\Integration\Fixtures\ActivatableTenant  $tenant
-             * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+             * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
              * @return void
              */
             public function run(
@@ -329,20 +329,20 @@ final class InteractsWithAuthenticationContextTest extends TestCase
                 ActivatableTenantMember $member,
                 ActivatableTenantMembership $membership,
                 ActivatableTenant $tenant,
-                EloquentDevice&Model $device,
+                EloquentSession&Model $session,
             ): void {
                 $test->actingAsIdentity($member, guard: 'members')->assertBoundIdentity($member)->assertBoundTenant($tenant);
                 $test->actingAsPrincipal($membership)->assertBoundPrincipal($membership)->assertBoundScopes(null);
-                $test->actingOnDevice($device)->assertBoundDevice($device);
+                $test->actingOnSession($session)->assertBoundSession($session);
                 $test->stopActing()->assertBoundIdentity(null);
             }
         };
 
-        $scenario->run($this, $member, $membership, $tenant, $device);
+        $scenario->run($this, $member, $membership, $tenant, $session);
     }
 
     /**
-     * Signing out through a real endpoint ends acting on the guard: the device
+     * Signing out through a real endpoint ends acting on the guard: the session
      * acted on is revoked and the next request is unauthenticated.
      *
      * @return void
@@ -351,13 +351,13 @@ final class InteractsWithAuthenticationContextTest extends TestCase
     {
         $this->seedIdentity();
 
-        $device = $this->signedInDevice('api', 'ada@example.test');
+        $session = $this->signedInSession('api', 'ada@example.test');
 
-        $this->actingOnDevice($device);
+        $this->actingOnSession($session);
 
         $this->postJson('/api/sign-out')->assertNoContent();
 
-        self::assertNotNull($device->refresh()->getRevokedAt());
+        self::assertNotNull($session->refresh()->getRevokedAt());
 
         $this->getJson('/api/me')->assertUnauthorized();
     }
@@ -403,7 +403,7 @@ final class InteractsWithAuthenticationContextTest extends TestCase
             ->assertBoundIdentity(null)
             ->assertBoundPrincipal(null)
             ->assertBoundTenant(null)
-            ->assertBoundDevice(null)
+            ->assertBoundSession(null)
             ->assertBoundScopes(null);
 
         $this->getJson('/api/me')->assertUnauthorized();
@@ -503,22 +503,22 @@ final class InteractsWithAuthenticationContextTest extends TestCase
         [$member, $membership, $tenant]          = $this->seedMember();
         [$other, $otherMembership, $otherTenant] = $this->seedMember('other@example.test');
 
-        $device = $this->signedInDevice('members', 'member@example.test');
+        $session = $this->signedInSession('members', 'member@example.test');
 
-        $this->actingOnDevice($device);
+        $this->actingOnSession($session);
 
         $failures = [
             'identity'  => fn () => $this->assertBoundIdentity($other),
             'principal' => fn () => $this->assertBoundPrincipal($otherMembership),
             'tenant'    => fn () => $this->assertBoundTenant($otherTenant),
-            'device'    => fn () => $this->assertBoundDevice(null),
+            'session'   => fn () => $this->assertBoundSession(null),
         ];
 
         $found = [
             'identity'  => sprintf('%s [%s]', ActivatableTenantMember::class, $member->getKey()),
             'principal' => sprintf('%s [%s]', $membership::class, $membership->getKey()),
             'tenant'    => sprintf('%s [%s]', $tenant::class, $tenant->getKey()),
-            'device'    => sprintf('%s [%s]', $device::class, $device->getKey()),
+            'session'   => sprintf('%s [%s]', $session::class, $session->getKey()),
         ];
 
         foreach ($failures as $kind => $assertion) {
@@ -562,28 +562,27 @@ final class InteractsWithAuthenticationContextTest extends TestCase
             'identity'  => Auth::identity()?->getAuthIdentifier(),
             'principal' => Auth::principal()?->getPrincipalIdentifier(),
             'tenant'    => Auth::tenant()?->getTenantIdentifier(),
-            'device'    => Auth::device()?->getDeviceIdentifier(),
+            'session'   => Auth::session()?->getSessionIdentifier(),
             'scopes'    => Auth::scopes(),
         ];
     }
 
     /**
-     * Sign the identity with the email in on the guard and return the device
-     * its session lives on.
+     * Sign the identity with the email in on the guard and return its session.
      *
      * @param  string  $guard
      * @param  string  $email
-     * @return \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice
+     * @return \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession
      */
-    private function signedInDevice(string $guard, string $email): EloquentDevice&Model
+    private function signedInSession(string $guard, string $email): EloquentSession&Model
     {
-        $device = $this->sessions($guard)->signIn('password', self::credentials($email))->session?->device;
+        $session = $this->sessions($guard)->signIn('password', self::credentials($email))->session?->record;
 
-        self::assertNotNull($device);
+        self::assertNotNull($session);
 
         Auth::forgetGuards();
 
-        return $device;
+        return $session;
     }
 
     /**

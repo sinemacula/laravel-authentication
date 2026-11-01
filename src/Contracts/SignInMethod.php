@@ -13,12 +13,12 @@ use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
  * A sign-in method proves who is signing in from the input a client sent: a
  * password, a one-time code, an external provider's assertion. It answers with
  * the identity it verified, or why it did not; everything after that (activity,
- * the principal, the application policy, a further factor, the device and the
+ * the principal, the application policy, a further factor, the session and the
  * tokens) belongs to the session service, so every method ends in the same
  * place.
  *
  * Methods are registered on the `SignInMethodManager` under the name the
- * session service records on the device and the application policy allows per
+ * session service records on the session and the application policy allows per
  * guard. The manager keeps one instance per name for the life of the process,
  * so a method must hold no state between calls (Octane, queue workers), and it
  * must never bind a guard, issue tokens or write session state itself. Its

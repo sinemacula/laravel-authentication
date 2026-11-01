@@ -15,11 +15,11 @@ use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 
 /**
- * Sessionless JWT bearer-token guard.
+ * Stateless JWT bearer-token guard.
  *
  * Reads `Authorization: Bearer <token>` from the active request, decodes via
  * `JwtTokenService`, then rehydrates the live identity, principal, and optional
- * device from the configured provider/resolver/model state before binding them
+ * session from the configured provider/resolver/model state before binding them
  * (see `BearerAuthentication`).
  *
  * `logout()` signs the session out through the guard's session revocations,
@@ -102,11 +102,11 @@ final class JwtGuard extends AbstractGuard
 
     /**
      * Sign the request's session out through the guard's session revocations,
-     * as the session service's `signOut()` does: the device the guard is bound
-     * to is revoked (`signed_out`) and `DeviceRevoked` reported once committed,
-     * Laravel's `Logout` fires when an identity was bound, and the guard stays
-     * signed out for the rest of the request. A session without a persisted
-     * device is only forgotten.
+     * as the session service's `signOut()` does: the session the guard is bound
+     * to is revoked (`signed_out`) and `SessionRevoked` reported once
+     * committed, Laravel's `Logout` fires when an identity was bound, and the
+     * guard stays signed out for the rest of the request. A request without a
+     * persisted session is only forgotten.
      *
      * @return void
      *
@@ -136,7 +136,7 @@ final class JwtGuard extends AbstractGuard
      * without a token attempts nothing and dispatches nothing.
      *
      * Fail-closed: a token that claims a specific `pid` or `did` but does not
-     * resolve to that exact principal/device is rejected rather than silently
+     * resolve to that exact principal/session is rejected rather than silently
      * downgraded.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
@@ -160,7 +160,7 @@ final class JwtGuard extends AbstractGuard
      * Authenticate a bearer token and bind what it names. A request's token is
      * an authentication, not a sign-in: success binds through
      * `bindVerifiedContext()` without `Validated` or `Login`, so only
-     * `Authenticated`, `PrincipalAssigned` and `DeviceAuthenticated` fire, and
+     * `Authenticated`, `PrincipalAssigned` and `SessionAuthenticated` fire, and
      * a rejected token fires only `AuthenticationFailed` with the reason (no
      * `Attempting` or `Failed`).
      *
@@ -187,7 +187,7 @@ final class JwtGuard extends AbstractGuard
         $this->bindVerifiedContext(
             $admitted->identity,
             $admitted->principal,
-            $admitted->device,
+            $admitted->session,
             $admitted->tenant,
             $outcome->method(),
             false,

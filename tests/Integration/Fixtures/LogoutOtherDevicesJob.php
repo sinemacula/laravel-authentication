@@ -11,7 +11,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Support\Facades\Auth;
 
 /**
- * A queued job that signs an identity's other devices out through Laravel's
+ * A queued job that signs an identity's other sessions out through Laravel's
  * `console` session guard, whose `logoutOtherDevices()` saves a fresh hash of
  * the same password.
  *
@@ -32,7 +32,7 @@ final class LogoutOtherDevicesJob implements ShouldQueue
      */
     public function __construct(
 
-        /** Key of the identity whose other devices are signed out. */
+        /** Key of the identity whose other sessions are signed out. */
         public int $identityId,
 
         /** The identity's current password. */
@@ -40,7 +40,7 @@ final class LogoutOtherDevicesJob implements ShouldQueue
     ) {}
 
     /**
-     * Bind the identity on the guard and sign its other devices out.
+     * Bind the identity on the guard and sign its other sessions out.
      *
      * @return void
      *

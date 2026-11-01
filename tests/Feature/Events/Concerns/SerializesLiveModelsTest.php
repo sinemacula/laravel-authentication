@@ -18,9 +18,9 @@ use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
-use Tests\Unit\Stubs\PlainDeviceFixture;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
+use Tests\Unit\Stubs\PlainSessionFixture;
 use Tests\Unit\Stubs\PlainTenantFixture;
 
 /**
@@ -108,7 +108,7 @@ final class SerializesLiveModelsTest extends TestCase
         self::assertSame('Renamed', $copy->principal->tenant?->name);
         self::assertInstanceOf(ActivatableTenant::class, $copy->tenant);
         self::assertSame('Renamed', $copy->tenant->name);
-        self::assertSame('device-1', $copy->deviceId);
+        self::assertSame('session-1', $copy->sessionId);
     }
 
     /**
@@ -176,7 +176,7 @@ final class SerializesLiveModelsTest extends TestCase
             new PlainIdentityFixture('plain-identity'),
             new PlainPrincipalFixture('plain-principal'),
             new PlainTenantFixture('plain-tenant'),
-            new PlainDeviceFixture('plain-device'),
+            new PlainSessionFixture('plain-session'),
         ];
 
         $context = new EventContext('api', new ClientContext('203.0.113.7', 'agent'), ...$parts, method: 'password');
@@ -192,7 +192,7 @@ final class SerializesLiveModelsTest extends TestCase
         self::assertNull($copy->identity);
         self::assertNull($copy->principal);
         self::assertNull($copy->tenant);
-        self::assertNull($copy->device);
+        self::assertNull($copy->session);
         self::assertSame($context->toArray(), $copy->toArray());
         self::assertSame('plain-principal', $copy->principalId);
         self::assertSame('agent', $copy->client->userAgent);
@@ -248,12 +248,12 @@ final class SerializesLiveModelsTest extends TestCase
 
     /**
      * A context of the seeded member, membership and tenant, with a named
-     * device.
+     * session.
      *
      * @return \SineMacula\Laravel\Authentication\Events\EventContext
      */
     private function context(): EventContext
     {
-        return new EventContext('api', new ClientContext('203.0.113.7', 'agent'), $this->member, $this->membership, $this->tenant, method: 'password', deviceId: 'device-1');
+        return new EventContext('api', new ClientContext('203.0.113.7', 'agent'), $this->member, $this->membership, $this->tenant, method: 'password', sessionId: 'session-1');
     }
 }

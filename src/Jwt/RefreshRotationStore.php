@@ -8,7 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Builder;
-use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
@@ -16,13 +16,13 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * The writes and the locking re-read behind a refresh: each a single statement
- * on the device's own connection, guarded so that it only applies to the state
+ * on the session's own connection, guarded so that it only applies to the state
  * it was decided on.
  *
  * Writes go through the query builder, so Eloquent observers do not fire and
  * unsaved in-memory attributes never reach the row; each successful write is
- * then mirrored on the in-memory device as persisted state. Every timestamp is
- * formatted with the device model's own date format.
+ * then mirrored on the in-memory session as persisted state. Every timestamp is
+ * formatted with the session model's own date format.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -38,12 +38,12 @@ final readonly class RefreshRotationStore
      */
     public function __construct(
 
-        /** Resolver for the device's own connection. */
+        /** Resolver for the session's own connection. */
         private ConnectionResolverInterface $connections,
     ) {}
 
     /**
-     * Rotate the device from the presented rotation id to the next one, and
+     * Rotate the session from the presented rotation id to the next one, and
      * move its idle deadline, in one compare-and-swap UPDATE.
      *
      * The swap applies only while the row still holds the presented id as its
@@ -52,7 +52,7 @@ final readonly class RefreshRotationStore
      * affect no row. It records the presented id as the previous one and `$now`
      * as the rotation time. Returns whether the row was rotated.
      *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  string  $presentedRotationId
      * @param  string  $nextRotationId
      * @param  \Carbon\CarbonImmutable  $idle
@@ -62,7 +62,7 @@ final readonly class RefreshRotationStore
      * @imperative
      */
     public function rotate(
-        EloquentDevice&Model $device,
+        EloquentSession&Model $session,
         #[\SensitiveParameter] string $presentedRotationId,
         #[\SensitiveParameter] string $nextRotationId,
         CarbonImmutable $idle,
@@ -71,23 +71,23 @@ final readonly class RefreshRotationStore
         $presentedDigest = RefreshTokenHasher::hash($presentedRotationId);
 
         $rotated = [
-            $device->getRefreshKeyName()         => RefreshTokenHasher::hash($nextRotationId),
-            $device->getPreviousRefreshKeyName() => $presentedDigest,
-            $device->getRefreshRotatedAtName()   => $device->fromDateTime($now),
-            $device->getIdleExpiresAtName()      => $device->fromDateTime($idle),
+            $session->getRefreshKeyName()         => RefreshTokenHasher::hash($nextRotationId),
+            $session->getPreviousRefreshKeyName() => $presentedDigest,
+            $session->getRefreshRotatedAtName()   => $session->fromDateTime($now),
+            $session->getIdleExpiresAtName()      => $session->fromDateTime($idle),
         ];
 
-        $affected = $this->table($device)
-            ->where($device->getRefreshKeyName(), $presentedDigest)
-            ->whereNull($device->getRevokedAtName())
-            ->where($this->loadedDeadlines($device))
+        $affected = $this->table($session)
+            ->where($session->getRefreshKeyName(), $presentedDigest)
+            ->whereNull($session->getRevokedAtName())
+            ->where($this->loadedDeadlines($session))
             ->update($rotated);
 
-        return $this->mirror($device, $affected, $rotated);
+        return $this->mirror($session, $affected, $rotated);
     }
 
     /**
-     * Rotate the device from the presented rotation id to the next one for a
+     * Rotate the session from the presented rotation id to the next one for a
      * switch of principal, and move both deadlines, in one compare-and-swap
      * UPDATE; when `$switching`, also record the target as the principal the
      * session acts as, with `$now` as the time of the switch.
@@ -102,7 +102,7 @@ final readonly class RefreshRotationStore
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  string  $presentedRotationId
      * @param  string  $nextRotationId
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $target
@@ -118,7 +118,7 @@ final readonly class RefreshRotationStore
      * @imperative
      */
     public function switchPrincipal(
-        EloquentDevice&Model $device,
+        EloquentSession&Model $session,
         #[\SensitiveParameter] string $presentedRotationId,
         #[\SensitiveParameter] string $nextRotationId,
         Principal $target,
@@ -126,132 +126,147 @@ final readonly class RefreshRotationStore
         array $deadlines,
         CarbonImmutable $now,
     ): bool {
-        [$type, $id]       = PrincipalReference::columns($device);
+        [$type, $id]       = PrincipalReference::columns($session);
         [$idle, $absolute] = $deadlines;
         $presentedDigest   = RefreshTokenHasher::hash($presentedRotationId);
 
         $switched = [
-            $device->getRefreshKeyName()         => RefreshTokenHasher::hash($nextRotationId),
-            $device->getPreviousRefreshKeyName() => $presentedDigest,
-            $device->getRefreshRotatedAtName()   => $device->fromDateTime($now),
-            $device->getIdleExpiresAtName()      => $device->fromDateTime($idle),
-            $device->getAbsoluteExpiresAtName()  => $device->fromDateTime($absolute),
+            $session->getRefreshKeyName()         => RefreshTokenHasher::hash($nextRotationId),
+            $session->getPreviousRefreshKeyName() => $presentedDigest,
+            $session->getRefreshRotatedAtName()   => $session->fromDateTime($now),
+            $session->getIdleExpiresAtName()      => $session->fromDateTime($idle),
+            $session->getAbsoluteExpiresAtName()  => $session->fromDateTime($absolute),
         ];
 
         if ($switching) {
             $switched += [
-                $type                                 => PrincipalReference::type($target),
-                $id                                   => PrincipalReference::id($target),
-                $device->getPrincipalSwitchedAtName() => $device->fromDateTime($now),
+                $type                                  => PrincipalReference::type($target),
+                $id                                    => PrincipalReference::id($target),
+                $session->getPrincipalSwitchedAtName() => $session->fromDateTime($now),
             ];
         }
 
-        $affected = $this->table($device)
-            ->where($device->getRefreshKeyName(), $presentedDigest)
-            ->whereNull($device->getRevokedAtName())
-            ->where($this->loadedDeadlines($device))
-            ->where([$type => $device->getRawOriginal($type), $id => $device->getRawOriginal($id)])
+        $affected = $this->table($session)
+            ->where($session->getRefreshKeyName(), $presentedDigest)
+            ->whereNull($session->getRevokedAtName())
+            ->where($this->loadedDeadlines($session))
+            ->where([$type => $session->getRawOriginal($type), $id => $session->getRawOriginal($id)])
             ->update($switched);
 
-        return $this->mirror($device, $affected, $switched);
+        return $this->mirror($session, $affected, $switched);
     }
 
     /**
-     * Revoke the device: record the time and reason and clear both refresh
+     * Revoke the session: record the time and reason and clear both refresh
      * digests, unless it is already revoked, in which case the first
      * revocation's time and reason are kept. Returns whether this call revoked
      * it.
      *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
      * @param  \Carbon\CarbonImmutable  $now
      * @return bool
      *
      * @imperative
      */
-    public function revoke(EloquentDevice&Model $device, RevocationReason $reason, CarbonImmutable $now): bool
+    public function revoke(EloquentSession&Model $session, RevocationReason $reason, CarbonImmutable $now): bool
     {
-        $revoked = [
-            $device->getRevokedAtName()          => $device->fromDateTime($now),
-            $device->getRevokedReasonName()      => $reason->value,
-            $device->getRefreshKeyName()         => null,
-            $device->getPreviousRefreshKeyName() => null,
-        ];
+        $revoked = self::revocation($session, $reason, $now);
 
-        $affected = $this->table($device)
-            ->whereNull($device->getRevokedAtName())
+        $affected = $this->table($session)
+            ->whereNull($session->getRevokedAtName())
             ->update($revoked);
 
-        return $this->mirror($device, $affected, $revoked);
+        return $this->mirror($session, $affected, $revoked);
     }
 
     /**
-     * Read the device again from the write connection with a locking read, so a
-     * refresh that lost its compare-and-swap judges the row as it now is.
-     * Inside a caller's transaction the lock is held until it ends; outside
-     * one, the locking read still returns the latest committed row. Returns
-     * `null` when the device no longer exists.
+     * The columns a revocation writes, keyed by column: the time and reason,
+     * and both refresh digests cleared, so no refresh token of the session is
+     * accepted again.
      *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null
-     */
-    public function reload(EloquentDevice&Model $device): (EloquentDevice&Model)|null
-    {
-        $fresh = WriteConnection::during($device, static fn (): mixed => WriteConnection::query($device->newQuery())->lockForUpdate()->find($device->getKey()));
-
-        return $fresh instanceof $device ? $fresh : null;
-    }
-
-    /**
-     * Start a query on the device's row, on the device's own connection.
-     *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @return \Illuminate\Database\Query\Builder
-     */
-    private function table(EloquentDevice&Model $device): Builder
-    {
-        return $this->connections
-            ->connection($device->getConnectionName())
-            ->table($device->getTable())
-            ->where($device->getKeyName(), $device->getKey());
-    }
-
-    /**
-     * The device's idle and absolute deadlines exactly as they were loaded,
-     * keyed by column, for a swap that must match them by equality.
-     *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
+     * @param  \Carbon\CarbonImmutable  $now
      * @return array<string, mixed>
      */
-    private function loadedDeadlines(EloquentDevice&Model $device): array
+    public static function revocation(EloquentSession&Model $session, RevocationReason $reason, CarbonImmutable $now): array
     {
-        $idle     = $device->getIdleExpiresAtName();
-        $absolute = $device->getAbsoluteExpiresAtName();
-
         return [
-            $idle     => $device->getRawOriginal($idle),
-            $absolute => $device->getRawOriginal($absolute),
+            $session->getRevokedAtName()          => $session->fromDateTime($now),
+            $session->getRevokedReasonName()      => $reason->value,
+            $session->getRefreshKeyName()         => null,
+            $session->getPreviousRefreshKeyName() => null,
         ];
     }
 
     /**
-     * Mirror a write on the in-memory device as persisted state when it changed
-     * the row, and report whether it did.
+     * Read the session again from the write connection with a locking read, so
+     * a refresh that lost its compare-and-swap judges the row as it now is.
+     * Inside a caller's transaction the lock is held until it ends; outside
+     * one, the locking read still returns the latest committed row. Returns
+     * `null` when the session no longer exists.
      *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null
+     */
+    public function reload(EloquentSession&Model $session): (EloquentSession&Model)|null
+    {
+        $fresh = WriteConnection::during($session, static fn (): mixed => WriteConnection::query($session->newQuery())->lockForUpdate()->find($session->getKey()));
+
+        return $fresh instanceof $session ? $fresh : null;
+    }
+
+    /**
+     * Start a query on the session's row, on the session's own connection.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @return \Illuminate\Database\Query\Builder
+     */
+    private function table(EloquentSession&Model $session): Builder
+    {
+        return $this->connections
+            ->connection($session->getConnectionName())
+            ->table($session->getTable())
+            ->where($session->getKeyName(), $session->getKey());
+    }
+
+    /**
+     * The session's idle and absolute deadlines exactly as they were loaded,
+     * keyed by column, for a swap that must match them by equality.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @return array<string, mixed>
+     */
+    private function loadedDeadlines(EloquentSession&Model $session): array
+    {
+        $idle     = $session->getIdleExpiresAtName();
+        $absolute = $session->getAbsoluteExpiresAtName();
+
+        return [
+            $idle     => $session->getRawOriginal($idle),
+            $absolute => $session->getRawOriginal($absolute),
+        ];
+    }
+
+    /**
+     * Mirror a write on the in-memory session as persisted state when it
+     * changed the row, and report whether it did.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  int  $affected
      * @param  array<string, mixed>  $values
      * @return bool
      *
      * @imperative
      */
-    private function mirror(EloquentDevice&Model $device, int $affected, array $values): bool
+    private function mirror(EloquentSession&Model $session, int $affected, array $values): bool
     {
         if ($affected !== 1) {
             return false;
         }
 
-        $device->forceFill($values)->syncOriginalAttributes(array_keys($values));
+        $session->forceFill($values)->syncOriginalAttributes(array_keys($values));
 
         return true;
     }

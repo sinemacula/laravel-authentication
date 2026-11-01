@@ -6,9 +6,9 @@ namespace Tests\Concerns;
 
 use Carbon\Carbon;
 use Firebase\JWT\JWT;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 
 /**
@@ -46,9 +46,8 @@ trait InteractsWithJwtTokens
     }
 
     /**
-     * Issue an access token for mock identity, principal, and device context
-     * objects, the principal without a type and the device in a session that
-     * started now.
+     * Issue an access token for mock identity, principal, and session context
+     * objects, the principal without a type and the session started now.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $service
      * @return string
@@ -64,11 +63,11 @@ trait InteractsWithJwtTokens
         $principal->shouldReceive('getPrincipalIdentifier')->andReturn('pid-1');
         $principal->shouldReceive('getTenant')->andReturn(null);
 
-        $device = \Mockery::mock(Device::class);
-        $device->shouldReceive('getDeviceIdentifier')->andReturn('did-1');
-        $device->shouldReceive('getIdleExpiresAt')->andReturn(Carbon::now()->addDays(90));
-        $device->shouldReceive('getAbsoluteExpiresAt')->andReturn(Carbon::now()->addDays(180));
+        $session = \Mockery::mock(Session::class);
+        $session->shouldReceive('getSessionIdentifier')->andReturn('did-1');
+        $session->shouldReceive('getIdleExpiresAt')->andReturn(Carbon::now()->addDays(90));
+        $session->shouldReceive('getAbsoluteExpiresAt')->andReturn(Carbon::now()->addDays(180));
 
-        return $service->issueAccessToken($identity, $principal, $device);
+        return $service->issueAccessToken($identity, $principal, $session);
     }
 }

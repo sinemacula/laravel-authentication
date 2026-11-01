@@ -23,7 +23,7 @@ enum AuthenticationFlow: string
     // refreshFromRequest()
     case REFRESH = 'refresh';
 
-    // A switch of the principal a device's session acts as
+    // A switch of the principal a session acts as
     case PRINCIPAL_SWITCH = 'principal_switch';
 
     // A request for a one-time code: a sign-in code or an identifier

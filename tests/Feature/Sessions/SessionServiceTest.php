@@ -29,16 +29,16 @@ use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
-use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
-use SineMacula\Laravel\Authentication\Events\DeviceCreated;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
+use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
@@ -46,8 +46,8 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
-use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
@@ -133,17 +133,17 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A password sign-in starts a session on a new device: the result carries
-     * the identity, principal, device, method and first pair; the device
-     * records who, as whom, through which guard and method, from which client,
-     * the sign-in as its last use, the digest of the refresh token's rotation
-     * id, and the guard's deadlines; and the guard is bound to it.
+     * A password sign-in starts a new session: the result carries the identity,
+     * principal, session, method and first pair; the session records who, as
+     * whom, through which guard and method, from which client, the sign-in as
+     * its last use, the digest of the refresh token's rotation id, and the
+     * guard's deadlines; and the guard is bound to it.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testSignInStartsASessionOnANewDevice(): void
+    public function testSignInStartsASessionOnANewSession(): void
     {
         $identity = $this->seedIdentity();
         $guard    = $this->freshGuard();
@@ -162,49 +162,48 @@ final class SessionServiceTest extends TestCase
         self::assertSameModel($identity, $session->identity);
         self::assertSame($session->identity, $session->principal);
         self::assertSame('password', $session->method);
-        self::assertTrue($session->deviceCreated);
 
-        $device = Device::query()->whereKey($session->device->getKey())->firstOrFail();
+        $record = Session::query()->whereKey($session->record->getKey())->firstOrFail();
         $claims = Auth::manager()->jwt('api')->parse($session->tokens->refreshToken);
 
         self::assertNotNull($claims);
-        self::assertSame($device->getKey(), $claims['did']);
-        self::assertSame(IntegrationIdentity::class, $device->authenticatable_type);
-        self::assertSame((string) $identity->id, $device->authenticatable_id);
-        self::assertSame(IntegrationIdentity::class, $device->principal_type);
-        self::assertSame((string) $identity->id, $device->principal_id);
-        self::assertSame('api', $device->getGuard());
-        self::assertSame('password', $device->getSignInMethod());
-        self::assertSame('Work laptop', $device->client_name);
-        self::assertSame('macOS', $device->platform);
-        self::assertSame(self::CLIENT_IP, $device->created_ip);
-        self::assertSame(self::CLIENT_AGENT, $device->created_user_agent);
-        self::assertSame(self::CLIENT_IP, $device->last_used_ip);
-        self::assertSame(self::CLIENT_AGENT, $device->last_used_user_agent);
-        self::assertSame($this->now->getTimestamp(), $device->getLastUsedAt()?->getTimestamp());
+        self::assertSame($record->getKey(), $claims['did']);
+        self::assertSame(IntegrationIdentity::class, $record->authenticatable_type);
+        self::assertSame((string) $identity->id, $record->authenticatable_id);
+        self::assertSame(IntegrationIdentity::class, $record->principal_type);
+        self::assertSame((string) $identity->id, $record->principal_id);
+        self::assertSame('api', $record->getGuard());
+        self::assertSame('password', $record->getSignInMethod());
+        self::assertSame('Work laptop', $record->client_name);
+        self::assertSame('macOS', $record->platform);
+        self::assertSame(self::CLIENT_IP, $record->created_ip);
+        self::assertSame(self::CLIENT_AGENT, $record->created_user_agent);
+        self::assertSame(self::CLIENT_IP, $record->last_used_ip);
+        self::assertSame(self::CLIENT_AGENT, $record->last_used_user_agent);
+        self::assertSame($this->now->getTimestamp(), $record->getLastUsedAt()?->getTimestamp());
         self::assertIsString($claims['jti']);
-        self::assertTrue(RefreshTokenHasher::verify($claims['jti'], (string) $device->getRefreshKey()));
-        self::assertNull($device->getPreviousRefreshKey());
-        self::assertNull($device->getRefreshRotatedAt());
-        self::assertSame($this->now->addDays(30)->getTimestamp(), $device->getIdleExpiresAt()?->getTimestamp());
-        self::assertSame($this->now->addDays(180)->getTimestamp(), $device->getAbsoluteExpiresAt()?->getTimestamp());
-        self::assertNull($device->getRevokedAt());
+        self::assertTrue(RefreshTokenHasher::verify($claims['jti'], (string) $record->getRefreshKey()));
+        self::assertNull($record->getPreviousRefreshKey());
+        self::assertNull($record->getRefreshRotatedAt());
+        self::assertSame($this->now->addDays(30)->getTimestamp(), $record->getIdleExpiresAt()?->getTimestamp());
+        self::assertSame($this->now->addDays(180)->getTimestamp(), $record->getAbsoluteExpiresAt()?->getTimestamp());
+        self::assertNull($record->getRevokedAt());
 
         self::assertSame($session->identity, $guard->user());
         self::assertSame($session->principal, $guard->principal());
-        self::assertSame($session->device, $guard->device());
+        self::assertSame($session->record, $guard->session());
     }
 
     /**
      * A successful sign-in announces itself in a fixed order: `Attempting`,
-     * then `DeviceCreated` and `SignedIn`, reported before the bind, then the
+     * then `SessionCreated` and `SignedIn`, reported before the bind, then the
      * bind events, each lifecycle event carrying the sign-in's context.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testSignInDispatchesDeviceCreatedAndSignedInThenTheBindEvents(): void
+    public function testSignInDispatchesSessionCreatedAndSignedInThenTheBindEvents(): void
     {
         $this->seedIdentity();
 
@@ -214,8 +213,8 @@ final class SessionServiceTest extends TestCase
             Login::class,
             Authenticated::class,
             PrincipalAssigned::class,
-            DeviceAuthenticated::class,
-            DeviceCreated::class,
+            SessionAuthenticated::class,
+            SessionCreated::class,
             SignedIn::class,
             Failed::class,
             AuthenticationFailed::class,
@@ -224,12 +223,21 @@ final class SessionServiceTest extends TestCase
         $result = $this->sessions()->signIn('password', self::credentials());
 
         self::assertSame(
-            [Attempting::class, DeviceCreated::class, SignedIn::class, Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class, DeviceAuthenticated::class],
+            [
+                Attempting::class,
+                SessionCreated::class,
+                SignedIn::class,
+                Validated::class,
+                Login::class,
+                Authenticated::class,
+                PrincipalAssigned::class,
+                SessionAuthenticated::class,
+            ],
             $this->recordedClasses(),
         );
 
         $session  = $result->session;
-        $created  = $this->recordedEvent(DeviceCreated::class);
+        $created  = $this->recordedEvent(SessionCreated::class);
         $signedIn = $this->recordedEvent(SignedIn::class);
 
         self::assertNotNull($session);
@@ -239,13 +247,12 @@ final class SessionServiceTest extends TestCase
             self::assertSame($session->identity, $event->context->identity);
             self::assertSame($session->principal, $event->context->principal);
             self::assertNull($event->context->tenant);
-            self::assertSame($session->device, $event->context->device);
+            self::assertSame($session->record, $event->context->session);
             self::assertSame('password', $event->context->method);
             self::assertSame(self::CLIENT_IP, $event->context->client->ip);
             self::assertSame(self::CLIENT_AGENT, $event->context->client->userAgent);
         }
 
-        self::assertTrue($signedIn->deviceCreated);
         self::assertFalse($signedIn->refresh);
     }
 
@@ -436,7 +443,7 @@ final class SessionServiceTest extends TestCase
         self::assertSame(' ADA@example.test ', $limitedSubject->identifier);
         self::assertSame('email', $limitedSubject->identifierType);
         self::assertSame(self::CLIENT_IP, $limitedSubject->ip);
-        self::assertSame(1, Device::query()->count());
+        self::assertSame(1, Session::query()->count());
     }
 
     /**
@@ -482,7 +489,7 @@ final class SessionServiceTest extends TestCase
         $pinnedSession = self::sessionOf($pinned);
 
         self::assertSameModel($membership, $pinnedSession->principal);
-        self::assertSame(IdentifierCoercion::stringify($membership->getKey()), Device::query()->whereKey($pinnedSession->device->getKey())->firstOrFail()->principal_id);
+        self::assertSame(IdentifierCoercion::stringify($membership->getKey()), Session::query()->whereKey($pinnedSession->record->getKey())->firstOrFail()->principal_id);
 
         $this->recordEvents([AuthenticationFailed::class]);
 
@@ -624,10 +631,10 @@ final class SessionServiceTest extends TestCase
 
     /**
      * The additional-factor policy is asked about every admitted sign-in, with
-     * the client's description and no proven device; a sign-in it asks a factor
-     * of starts no session: it hands out a pending sign-in for the identity and
-     * principal, which does not fail the sign-in and keeps every slot the
-     * sign-in took, the account's included, recording their windows.
+     * the client's description and no proven session; a sign-in it asks a
+     * factor of starts no session: it hands out a pending sign-in for the
+     * identity and principal, which does not fail the sign-in and keeps every
+     * slot the sign-in took, the account's included, recording their windows.
      *
      * @return void
      *
@@ -653,7 +660,7 @@ final class SessionServiceTest extends TestCase
         });
         $limiter->shouldReceive('release')->never();
 
-        $this->recordEvents([Failed::class, AuthenticationFailed::class, DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([Failed::class, AuthenticationFailed::class, SessionCreated::class, SignedIn::class]);
 
         $guard   = $this->freshGuard();
         $context = SignInContext::fromRequest(app('request'), 'Phone', 'iOS');
@@ -670,7 +677,7 @@ final class SessionServiceTest extends TestCase
         self::assertSame('password', $result->pending->method);
         self::assertSame('api', $result->pending->guard);
         self::assertSame([['sign-in' => '2026-04-06 12:05:00'], ['account' => '2026-04-06 12:05:00']], PendingSignIn::query()->sole()->attempt_windows);
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
         self::assertSame([], $this->recordedClasses());
         self::assertFalse($guard->hasUser());
 
@@ -683,12 +690,12 @@ final class SessionServiceTest extends TestCase
         self::assertSame($context->client, $asked->client);
         self::assertSame('Phone', $asked->clientName);
         self::assertSame('iOS', $asked->platform);
-        self::assertNull($asked->provenDevice);
+        self::assertNull($asked->provenSession);
     }
 
     /**
      * A sign-in acting within a tenant carries that tenant on: the factor
-     * policy is told of it, and so are `DeviceCreated` and `SignedIn` when the
+     * policy is told of it, and so are `SessionCreated` and `SignedIn` when the
      * session starts (the first sign-in), and the pending sign-in and
      * `AdditionalFactorRequired` when a further factor is required (the
      * second).
@@ -710,13 +717,13 @@ final class SessionServiceTest extends TestCase
             return count($asked) === 2;
         });
 
-        $this->recordEvents([DeviceCreated::class, SignedIn::class, AdditionalFactorRequired::class]);
+        $this->recordEvents([SessionCreated::class, SignedIn::class, AdditionalFactorRequired::class]);
 
         $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
 
         self::assertNotNull($session);
         self::assertSameModel($membership, $session->principal);
-        self::assertSameModel($tenant, $this->recordedEvent(DeviceCreated::class)->context->tenant);
+        self::assertSameModel($tenant, $this->recordedEvent(SessionCreated::class)->context->tenant);
         self::assertSameModel($tenant, $this->recordedEvent(SignedIn::class)->context->tenant);
 
         $pending = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->pending;
@@ -730,7 +737,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * The device's deadlines follow the lifetimes the application policy gives
+     * The session's deadlines follow the lifetimes the application policy gives
      * the guard.
      *
      * @return void
@@ -747,8 +754,8 @@ final class SessionServiceTest extends TestCase
         $session = $this->sessions()->signIn('password', self::credentials())->session;
 
         self::assertNotNull($session);
-        self::assertSame($this->now->addHour()->getTimestamp(), $session->device->getIdleExpiresAt()?->getTimestamp());
-        self::assertSame($this->now->addHours(2)->getTimestamp(), $session->device->getAbsoluteExpiresAt()?->getTimestamp());
+        self::assertSame($this->now->addHour()->getTimestamp(), $session->record->getIdleExpiresAt()?->getTimestamp());
+        self::assertSame($this->now->addHours(2)->getTimestamp(), $session->record->getAbsoluteExpiresAt()?->getTimestamp());
     }
 
     /**
@@ -814,14 +821,14 @@ final class SessionServiceTest extends TestCase
      */
     public function testAMethodThatRefusesWithAServiceReasonIsAMisconfiguration(): void
     {
-        $this->registerTrustedMethod(FailureReason::DEVICE_REVOKED);
+        $this->registerTrustedMethod(FailureReason::SESSION_REVOKED);
         $this->recordEvents([AuthenticationFailed::class]);
 
         try {
             $this->sessions()->signIn('trusted', []);
             self::fail('Expected a LogicException.');
         } catch (\LogicException $exception) {
-            self::assertStringContainsString('`device_revoked`', $exception->getMessage());
+            self::assertStringContainsString('`session_revoked`', $exception->getMessage());
             self::assertStringContainsString('`invalid_credentials`', $exception->getMessage());
         }
 
@@ -845,7 +852,7 @@ final class SessionServiceTest extends TestCase
         $limiter = $this->bindMock(AttemptLimiter::class);
         $limiter->shouldNotReceive('acquire');
 
-        $this->recordEvents([Attempting::class, Validated::class, DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([Attempting::class, Validated::class, SessionCreated::class, SignedIn::class]);
 
         $result = $this->sessions()->start($stale, null, 'sso');
 
@@ -854,8 +861,8 @@ final class SessionServiceTest extends TestCase
 
         self::assertNotSame($stale, $session->identity);
         self::assertSameModel($identity, $session->identity);
-        self::assertSame('sso', $session->device->getSignInMethod());
-        self::assertSame([DeviceCreated::class, SignedIn::class, Validated::class], $this->recordedClasses());
+        self::assertSame('sso', $session->record->getSignInMethod());
+        self::assertSame([SessionCreated::class, SignedIn::class, Validated::class], $this->recordedClasses());
         self::assertSame('sso', $this->recordedEvent(SignedIn::class)->context->method);
     }
 
@@ -894,7 +901,7 @@ final class SessionServiceTest extends TestCase
 
         self::assertTrue($pending->requiresFactor());
         self::assertSame('otp', $pending->pending?->method);
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
     }
 
     /**
@@ -936,7 +943,7 @@ final class SessionServiceTest extends TestCase
             self::assertSame("[{$kind}] names a machine credential, not a sign-in method; no session can be started with it.", $exception->getMessage());
         }
 
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
     }
 
     /**
@@ -982,45 +989,45 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Signing in an identity that does not own devices fails as the
-     * misconfiguration it is, naming the identity class, and writes no device.
+     * Signing in an identity that does not own sessions fails as the
+     * misconfiguration it is, naming the identity class, and writes no session.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testSignInRefusesAnIdentityWithoutDevices(): void
+    public function testSignInRefusesAnIdentityWithoutSessions(): void
     {
-        $this->seedIdentityWithoutDevices();
+        $this->seedIdentityWithoutSessions();
 
-        $this->expectRefusalOfIdentitiesWithoutDevices();
+        $this->expectRefusalOfIdentitiesWithoutSessions();
 
         try {
             $this->sessions('plain')->signIn('password', self::credentials());
         } finally {
-            self::assertSame(0, Device::query()->count());
+            self::assertSame(0, Session::query()->count());
         }
     }
 
     /**
-     * Starting a session for an identity that does not own devices fails the
+     * Starting a session for an identity that does not own sessions fails the
      * same way.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testStartRefusesAnIdentityWithoutDevices(): void
+    public function testStartRefusesAnIdentityWithoutSessions(): void
     {
-        $identity = $this->seedIdentityWithoutDevices();
+        $identity = $this->seedIdentityWithoutSessions();
 
-        $this->expectRefusalOfIdentitiesWithoutDevices();
+        $this->expectRefusalOfIdentitiesWithoutSessions();
 
         $this->sessions('plain')->start($identity, null, 'password');
     }
 
     /**
-     * Completing a pending sign-in of an identity that does not own devices
+     * Completing a pending sign-in of an identity that does not own sessions
      * fails the same way before anything is written, so the pending sign-in is
      * not used up.
      *
@@ -1028,9 +1035,9 @@ final class SessionServiceTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testCompleteRefusesAnIdentityWithoutDevicesAndKeepsThePendingSignIn(): void
+    public function testCompleteRefusesAnIdentityWithoutSessionsAndKeepsThePendingSignIn(): void
     {
-        $identity = $this->seedIdentityWithoutDevices();
+        $identity = $this->seedIdentityWithoutSessions();
         $pending  = (new PendingSignIns(app(ConfigRepository::class)))->issue(
             'plain',
             new Admitted($identity, $identity, null),
@@ -1040,13 +1047,13 @@ final class SessionServiceTest extends TestCase
             CarbonImmutable::now()->startOfSecond(),
         );
 
-        $this->expectRefusalOfIdentitiesWithoutDevices();
+        $this->expectRefusalOfIdentitiesWithoutSessions();
 
         try {
             $this->sessions('plain')->complete($pending->token);
         } finally {
             self::assertSame(1, PendingSignIn::query()->count());
-            self::assertSame(0, Device::query()->count());
+            self::assertSame(0, Session::query()->count());
         }
     }
 
@@ -1093,18 +1100,18 @@ final class SessionServiceTest extends TestCase
     public static function provideBindEvents(): iterable
     {
         yield from [
-            'Validated'           => [Validated::class],
-            'Login'               => [Login::class],
-            'Authenticated'       => [Authenticated::class],
-            'PrincipalAssigned'   => [PrincipalAssigned::class],
-            'DeviceAuthenticated' => [DeviceAuthenticated::class],
+            'Validated'            => [Validated::class],
+            'Login'                => [Login::class],
+            'Authenticated'        => [Authenticated::class],
+            'PrincipalAssigned'    => [PrincipalAssigned::class],
+            'SessionAuthenticated' => [SessionAuthenticated::class],
         ];
     }
 
     /**
      * A listener that throws on any bind event fails the sign-in after its
      * session committed, but cannot withhold the session's report:
-     * `DeviceCreated` and `SignedIn` were dispatched, once, before the bind,
+     * `SessionCreated` and `SignedIn` were dispatched, once, before the bind,
      * and the listener's exception reaches the caller.
      *
      * @param  class-string  $bindEvent
@@ -1117,15 +1124,15 @@ final class SessionServiceTest extends TestCase
     {
         $this->seedIdentity();
 
-        $this->recordEvents([DeviceCreated::class, SignedIn::class, $bindEvent]);
+        $this->recordEvents([SessionCreated::class, SignedIn::class, $bindEvent]);
 
         Event::listen($bindEvent, static function (): never {
             throw new \RuntimeException('listener failed');
         });
 
         self::assertSame('listener failed', self::failureOf(fn (): SignInResult => $this->sessions()->signIn('password', self::credentials())));
-        self::assertSame([DeviceCreated::class, SignedIn::class, $bindEvent], $this->recordedClasses());
-        self::assertSame(1, Device::query()->count());
+        self::assertSame([SessionCreated::class, SignedIn::class, $bindEvent], $this->recordedClasses());
+        self::assertSame(1, Session::query()->count());
     }
 
     /**
@@ -1140,14 +1147,14 @@ final class SessionServiceTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionCreated::class, SignedIn::class]);
 
         Event::listen(Login::class, static function (): never {
             throw new \RuntimeException('listener failed');
         });
 
         self::assertSame('listener failed', self::failureOf(fn (): SignInResult => $this->sessions()->start($identity, null, 'sso')));
-        self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertSame('sso', $this->recordedEvent(SignedIn::class)->context->method);
     }
 
@@ -1175,14 +1182,14 @@ final class SessionServiceTest extends TestCase
         $limiter = $this->bindMock(AttemptLimiter::class);
         $limiter->shouldReceive('release')->twice();
 
-        $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionCreated::class, SignedIn::class]);
 
         Event::listen(Authenticated::class, static function (): never {
             throw new \RuntimeException('listener failed');
         });
 
         self::assertSame('listener failed', self::failureOf(fn (): SignInResult => $this->sessions()->complete($pending->token)));
-        self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertSame(0, PendingSignIn::query()->count());
     }
 
@@ -1214,7 +1221,7 @@ final class SessionServiceTest extends TestCase
 
         app()->instance(AttemptLimiter::class, $limiter);
 
-        $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionCreated::class, SignedIn::class]);
 
         Event::listen(Authenticated::class, static function (): never {
             throw new \RuntimeException('listener failed');
@@ -1230,7 +1237,7 @@ final class SessionServiceTest extends TestCase
 
         self::assertSame([], $this->recordedClasses());
         self::assertCount(0, $limiter->released);
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
         self::assertSame(1, PendingSignIn::query()->count());
 
         DB::beginTransaction();
@@ -1241,9 +1248,9 @@ final class SessionServiceTest extends TestCase
 
         DB::commit();
 
-        self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertCount(2, $limiter->released);
-        self::assertSame(1, Device::query()->count());
+        self::assertSame(1, Session::query()->count());
         self::assertSame(0, PendingSignIn::query()->count());
     }
 
@@ -1271,7 +1278,7 @@ final class SessionServiceTest extends TestCase
         self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => self::sessionsOf($guard)->signIn('password', self::credentials())));
         self::assertSame([], $this->recordedClasses());
         self::assertFalse($guard->hasUser());
-        self::assertSame(1, Device::query()->count());
+        self::assertSame(1, Session::query()->count());
     }
 
     /**
@@ -1302,7 +1309,7 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Configure the guards, a guard over identities without devices, and one
+     * Configure the guards, a guard over identities without sessions, and one
      * over members with no default principal.
      *
      * @param  mixed  $app
@@ -1328,12 +1335,12 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Create the table of identities without devices, dropped with the
+     * Create the table of identities without sessions, dropped with the
      * application, and seed one.
      *
      * @return \Tests\Integration\Fixtures\NormalizedEmailIdentity
      */
-    private function seedIdentityWithoutDevices(): NormalizedEmailIdentity
+    private function seedIdentityWithoutSessions(): NormalizedEmailIdentity
     {
         Schema::create('normalized_email_identities', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');
@@ -1351,19 +1358,19 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Expect the refusal of an identity class without devices.
+     * Expect the refusal of an identity class without sessions.
      *
      * @return void
      */
-    private function expectRefusalOfIdentitiesWithoutDevices(): void
+    private function expectRefusalOfIdentitiesWithoutSessions(): void
     {
         $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage(sprintf('identities that implement %s; %s does not.', HasDevices::class, NormalizedEmailIdentity::class));
+        $this->expectExceptionMessage(sprintf('identities that implement %s; %s does not.', HasSessions::class, NormalizedEmailIdentity::class));
     }
 
     /**
-     * Assert a sign-in failed with the reason, started no session, and created
-     * no device.
+     * Assert a sign-in failed with the reason, returned no session, and wrote
+     * no session row.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInResult  $result
@@ -1376,7 +1383,7 @@ final class SessionServiceTest extends TestCase
         self::assertSame(SignInStatus::FAILED, $result->status);
         self::assertSame($reason, $result->reason);
         self::assertNull($result->session);
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
     }
 
     /**

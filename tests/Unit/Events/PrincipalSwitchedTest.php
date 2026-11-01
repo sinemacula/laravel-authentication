@@ -12,9 +12,9 @@ use SineMacula\Laravel\Authentication\Events\Concerns\SerializesLiveModels;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use Tests\Unit\Stubs\PlainDeviceFixture;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
+use Tests\Unit\Stubs\PlainSessionFixture;
 
 /**
  * PrincipalSwitched event unit tests.
@@ -29,7 +29,7 @@ final class PrincipalSwitchedTest extends TestCase
 {
     /**
      * The event keeps its context and the previous principal, as resolved and
-     * as the device recorded it.
+     * as the session recorded it.
      *
      * @return void
      */
@@ -68,7 +68,7 @@ final class PrincipalSwitchedTest extends TestCase
         self::assertInstanceOf(PrincipalSwitched::class, $copy);
         self::assertSame('7', $copy->context->identityId);
         self::assertSame('p-2', $copy->context->principalId);
-        self::assertSame('switched-device', $copy->context->deviceId);
+        self::assertSame('switched-session', $copy->context->sessionId);
         self::assertNull($copy->previousPrincipal);
         self::assertSame('membership', $copy->previousPrincipalMorphClass);
         self::assertSame('9', $copy->previousPrincipalId);
@@ -83,6 +83,6 @@ final class PrincipalSwitchedTest extends TestCase
     {
         $client = new ClientContext('203.0.113.7', 'agent');
 
-        return new EventContext('api', $client, new PlainIdentityFixture(7), new PlainPrincipalFixture('p-2'), null, new PlainDeviceFixture('switched-device'), 'password');
+        return new EventContext('api', $client, new PlainIdentityFixture(7), new PlainPrincipalFixture('p-2'), null, new PlainSessionFixture('switched-session'), 'password');
     }
 }

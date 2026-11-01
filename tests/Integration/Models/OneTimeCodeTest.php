@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Models\OneTimeCode;
-use Tests\Integration\Fixtures\SeparateConnectionDevice;
+use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\TestCase;
 
 /**
@@ -44,7 +44,7 @@ final class OneTimeCodeTest extends TestCase
 
     /**
      * The model reads the configured table, on the storage connection, each
-     * time one is made, whatever connection the device model names.
+     * time one is made, whatever connection the session model names.
      *
      * @return void
      */
@@ -56,7 +56,7 @@ final class OneTimeCodeTest extends TestCase
 
         self::assertSame('sign_in_codes', (new OneTimeCode)->getTable());
 
-        config()->set('authentication.device.model', SeparateConnectionDevice::class);
+        config()->set('authentication.session.model', SeparateConnectionSession::class);
 
         self::assertNull((new OneTimeCode)->getConnectionName());
 

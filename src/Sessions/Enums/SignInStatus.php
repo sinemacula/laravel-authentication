@@ -12,7 +12,7 @@ namespace SineMacula\Laravel\Authentication\Sessions\Enums;
  */
 enum SignInStatus: string
 {
-    // A session started: the result carries the device and the token pair
+    // A session started: the result carries the session and the token pair
     case SIGNED_IN = 'signed_in';
 
     // A further factor is required: the result carries the pending sign-in

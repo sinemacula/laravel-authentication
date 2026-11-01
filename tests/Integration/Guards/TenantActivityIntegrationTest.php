@@ -21,8 +21,8 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Concerns\InteractsWithDevices;
+use SineMacula\Laravel\Authentication\Models\Session;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
@@ -48,7 +48,7 @@ use Tests\Unit\Stubs\StubFixedPrincipalResolver;
 #[CoversClass(RefreshTokenExchange::class)]
 final class TenantActivityIntegrationTest extends TestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
     /** @var string */
     private const string PASSWORD = 'correct horse battery staple';
@@ -188,15 +188,15 @@ final class TenantActivityIntegrationTest extends TestCase
     {
         [$member, $membership, $tenant] = $this->seedMembership();
 
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => ActivatableTenantMember::class,
             'authenticatable_id'   => (string) $member->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID, $membership);
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $membership);
 
         $tenant->forceFill(['is_active' => false])->save();
 
@@ -209,9 +209,9 @@ final class TenantActivityIntegrationTest extends TestCase
         self::assertNull(GuardSessions::of($this->freshGuard())->refresh($refreshToken)->session);
         self::assertSame([FailureReason::TENANT_INACTIVE], $reasons);
 
-        $fresh = Device::query()->findOrFail($device->getKey());
+        $fresh = Session::query()->findOrFail($session->getKey());
 
-        assert($fresh instanceof Device);
+        assert($fresh instanceof Session);
 
         self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), $fresh->getRefreshKey());
     }
@@ -442,9 +442,9 @@ final class TenantActivityIntegrationTest extends TestCase
     {
         $membership = $this->seedMorphMembership();
         $member     = ActivatableTenantMember::query()->findOrFail($membership->identity_id);
-        $device     = $this->seedDevice($member);
+        $session    = $this->seedSession($member);
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID, $membership);
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $membership);
 
         MorphTenantMembership::query()->whereKey($membership->getKey())->update(['tenant_type' => '']);
 
@@ -459,9 +459,9 @@ final class TenantActivityIntegrationTest extends TestCase
         self::assertNull(GuardSessions::of($guard)->refresh($refreshToken)->session);
         self::assertSame([FailureReason::TENANT_INACTIVE], $reasons);
 
-        $fresh = Device::query()->findOrFail($device->getKey());
+        $fresh = Session::query()->findOrFail($session->getKey());
 
-        assert($fresh instanceof Device);
+        assert($fresh instanceof Session);
 
         self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), $fresh->getRefreshKey());
     }
@@ -500,15 +500,15 @@ final class TenantActivityIntegrationTest extends TestCase
     {
         [$member, $membership, $tenant] = $this->seedMembership();
 
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => ActivatableTenantMember::class,
             'authenticatable_id'   => (string) $member->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID, $membership);
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $membership);
 
         $tenant->delete();
 
@@ -608,22 +608,22 @@ final class TenantActivityIntegrationTest extends TestCase
     }
 
     /**
-     * Persist a device holding the stored rotation for the member.
+     * Persist a session holding the stored rotation for the member.
      *
      * @param  \Tests\Integration\Fixtures\ActivatableTenantMember  $member
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private function seedDevice(ActivatableTenantMember $member): Device
+    private function seedSession(ActivatableTenantMember $member): Session
     {
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => ActivatableTenantMember::class,
             'authenticatable_id'   => (string) $member->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 
-        return $device;
+        return $session;
     }
 
     /**

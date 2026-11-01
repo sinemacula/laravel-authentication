@@ -7,11 +7,11 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\HoldsARotatedSession;
 
 /**
- * The outcome of refreshing a session: the session on the same device with its
- * rotated token pair, or why the refresh was refused.
+ * The outcome of refreshing a session: the same session with its rotated token
+ * pair, or why the refresh was refused.
  *
  * A refused refresh leaves the session as it was (unless the presented refresh
- * token proved a replay, which revokes the device), and `Failed` and
+ * token proved a replay, which revokes the session), and `Failed` and
  * `AuthenticationFailed` report why; `retryAfter` carries the wait of a
  * `rate_limited` refusal. A refresh read from the request
  * (`refreshFromRequest()`) says where the refresh token came from (`source`),

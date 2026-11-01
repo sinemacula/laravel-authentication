@@ -118,9 +118,9 @@ final class ClientCredentialsExchangeTest extends TestCase
         self::assertSame($issued->id, $claims[Claims::CREDENTIAL_ID->value]);
         self::assertSame('invoices:read reports', $claims[Claims::SCOPE->value]);
         self::assertSame(IdentifierCoercion::stringify($machine->getKey()), $claims[Claims::SUBJECT->value]);
-        self::assertNull($claims[Claims::DEVICE_ID->value] ?? null);
+        self::assertNull($claims[Claims::SESSION_ID->value] ?? null);
         self::assertArrayNotHasKey('pty', $claims);
-        self::assertSame(0, DB::table('devices')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->count());
 
         $granted = $this->machineEventsOf(ClientCredentialsGranted::class);
 

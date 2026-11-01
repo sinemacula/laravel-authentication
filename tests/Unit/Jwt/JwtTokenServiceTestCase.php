@@ -9,9 +9,9 @@ use Carbon\CarbonInterface;
 use Firebase\JWT\JWT;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
@@ -170,36 +170,36 @@ abstract class JwtTokenServiceTestCase extends TestCase
     }
 
     /**
-     * Build a Device mock whose getDeviceIdentifier() returns the supplied
-     * value, in a session that started now with the default lifetimes.
+     * Build a Session mock whose getSessionIdentifier() returns the supplied
+     * value, started now with the default lifetimes.
      *
      * @param  mixed  $id
-     * @return \SineMacula\Laravel\Authentication\Contracts\Device
+     * @return \SineMacula\Laravel\Authentication\Contracts\Session
      */
-    protected function mockDevice(mixed $id): Device
+    protected function mockSession(mixed $id): Session
     {
-        return $this->mockDeviceEndingAt($id, $this->now->copy()->addMinutes(self::REFRESH_TTL_MINUTES), $this->now->copy()->addMinutes(self::ABSOLUTE_TTL_MINUTES));
+        return $this->mockSessionEndingAt($id, $this->now->copy()->addMinutes(self::REFRESH_TTL_MINUTES), $this->now->copy()->addMinutes(self::ABSOLUTE_TTL_MINUTES));
     }
 
     /**
-     * Build a Device mock with the supplied identifier and deadlines.
+     * Build a Session mock with the supplied identifier and deadlines.
      *
      * @param  mixed  $id
      * @param  ?\Carbon\CarbonInterface  $idle
      * @param  ?\Carbon\CarbonInterface  $absolute
-     * @return \SineMacula\Laravel\Authentication\Contracts\Device
+     * @return \SineMacula\Laravel\Authentication\Contracts\Session
      */
-    protected function mockDeviceEndingAt(mixed $id, ?CarbonInterface $idle, ?CarbonInterface $absolute): Device
+    protected function mockSessionEndingAt(mixed $id, ?CarbonInterface $idle, ?CarbonInterface $absolute): Session
     {
-        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Device $device */
-        $device = \Mockery::mock(Device::class);
-        $device->shouldReceive('getDeviceIdentifier')
+        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Session $session */
+        $session = \Mockery::mock(Session::class);
+        $session->shouldReceive('getSessionIdentifier')
             ->andReturn($id);
-        $device->shouldReceive('getIdleExpiresAt')
+        $session->shouldReceive('getIdleExpiresAt')
             ->andReturn($idle);
-        $device->shouldReceive('getAbsoluteExpiresAt')
+        $session->shouldReceive('getAbsoluteExpiresAt')
             ->andReturn($absolute);
 
-        return $device;
+        return $session;
     }
 }

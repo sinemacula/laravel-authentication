@@ -41,8 +41,8 @@ return new class extends Migration {
             $blueprint->char('credential_id_hash', 64)->unique();
             $blueprint->text('credential_id');
 
-            // Plain string polymorphic columns, as on the devices table, so any
-            // key type fits.
+            // Plain string polymorphic columns, as on the sessions table, so
+            // any key type fits.
             $blueprint->string('authenticatable_type');
             $blueprint->string('authenticatable_id');
 

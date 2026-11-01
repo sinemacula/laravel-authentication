@@ -24,7 +24,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
  *
  * @method static \SineMacula\Laravel\Authentication\Contracts\Identity|null identity()
  * @method static \SineMacula\Laravel\Authentication\Contracts\Principal|null principal()
- * @method static \SineMacula\Laravel\Authentication\Contracts\Device|null device()
+ * @method static \SineMacula\Laravel\Authentication\Contracts\Session|null session()
  * @method static \SineMacula\Laravel\Authentication\Contracts\Tenant|null tenant()
  * @method static list<string>|null scopes()
  * @method static \SineMacula\Laravel\Authentication\Jwt\JwtTokenService jwt(?string $guard = null)

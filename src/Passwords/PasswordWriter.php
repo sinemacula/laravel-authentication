@@ -8,8 +8,8 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PasswordSet;
@@ -35,16 +35,16 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * row has it.
  *
  * A change ends every session of the identity but the one it was made from,
- * when the caller keeps that device; a reset ends every session; a registration
- * ends none (see `SessionRevocations`). Ending them also cancels the identity's
- * pending identifier changes, whose links need no session. Whatever the flow,
- * every reset link and code still waiting for the identity's identifiers is
- * invalidated in the same transaction, and a change or a reset invalidates
- * their sign-in codes too (see `OutdatedProofs`): none can take the account
- * back once its owner has set a new password. When the devices live on another
- * connection, their revocation commits inside the identity's transaction, so a
- * failure after it leaves the devices revoked and the password as it was: more
- * is ended, never less.
+ * when the caller keeps that session; a reset ends every session; a
+ * registration ends none (see `SessionRevocations`). Ending them also cancels
+ * the identity's pending identifier changes, whose links need no session.
+ * Whatever the flow, every reset link and code still waiting for the identity's
+ * identifiers is invalidated in the same transaction, and a change or a reset
+ * invalidates their sign-in codes too (see `OutdatedProofs`): none can take the
+ * account back once its owner has set a new password. When the sessions live on
+ * another connection, their revocation commits inside the identity's
+ * transaction, so a failure after it leaves the sessions revoked and the
+ * password as it was: more is ended, never less.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -65,7 +65,7 @@ final readonly class PasswordWriter
         /** The context of the guard the change is made through, whose dispatcher reports it. */
         private GuardContext $context,
 
-        /** Ends every session but the kept device's on a change, and every session on a reset; a registration ends none. */
+        /** Ends every session but the kept one on a change, and every session on a reset; a registration ends none. */
         private SessionRevocations $revocations,
 
         /** Container the hasher and the transactions manager are resolved from. */
@@ -76,24 +76,24 @@ final readonly class PasswordWriter
      * Hash the password, store it, invalidate the proofs it outdates and end
      * the sessions the flow ends, cancelling the identity's pending identifier
      * changes with them, in one transaction, and report it once committed;
-     * returns how many devices the flow revoked.
+     * returns how many sessions the flow revoked.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $password
      * @param  \SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow  $flow
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $except
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return int
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      *
      * @imperative
      */
-    public function write(Identity&Model $identity, #[\SensitiveParameter] string $password, PasswordFlow $flow, ?Device $except = null, ?ClientContext $client = null): int
+    public function write(Identity&Model $identity, #[\SensitiveParameter] string $password, PasswordFlow $flow, ?Session $except = null, ?ClientContext $client = null): int
     {
         // `#[\SensitiveParameter]` does not cover what a closure captures,
         // which a dump of the trace shows.
@@ -107,7 +107,7 @@ final readonly class PasswordWriter
 
             (new OutdatedProofs($container))->invalidate($identity, $flow);
 
-            $event = new PasswordSet(new EventContext($this->context->name(), $client, $identity, device: $except), $flow);
+            $event = new PasswordSet(new EventContext($this->context->name(), $client, $identity, session: $except), $flow);
 
             $revoked = match ($flow) {
                 PasswordFlow::CHANGE       => $this->revocations->passwordChanged($identity, $except),

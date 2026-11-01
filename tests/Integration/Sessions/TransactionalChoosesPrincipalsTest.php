@@ -15,8 +15,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalChoiceRequired;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
-use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalChoices;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
@@ -124,11 +124,11 @@ final class TransactionalChoosesPrincipalsTest extends TestCase
         });
 
         self::assertSame([PrincipalSwitched::class], $this->recordedClasses());
-        self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify(Device::query()->sole()->getAttribute('principal_id')));
+        self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify(Session::query()->sole()->getAttribute('principal_id')));
     }
 
     /**
-     * A switch rolled back by its caller reports nothing and leaves the device
+     * A switch rolled back by its caller reports nothing and leaves the session
      * acting as it did, so its refresh token switches it again.
      *
      * @return void
@@ -140,7 +140,7 @@ final class TransactionalChoosesPrincipalsTest extends TestCase
         [$first, $second] = $this->seedMemberships();
 
         $session = $this->signInMember();
-        $before  = Device::query()->sole()->getAttributes();
+        $before  = Session::query()->sole()->getAttributes();
 
         $this->recordEvents([PrincipalSwitched::class]);
 
@@ -151,7 +151,7 @@ final class TransactionalChoosesPrincipalsTest extends TestCase
         DB::rollBack();
 
         self::assertSame([], $this->recordedClasses());
-        self::assertSame($before, Device::query()->sole()->getAttributes());
+        self::assertSame($before, Session::query()->sole()->getAttributes());
         self::assertSame(IdentifierCoercion::stringify($first->getKey()), IdentifierCoercion::stringify($before['principal_id']));
 
         self::assertTrue($this->sessions(self::MEMBERS)->switchPrincipal($session->tokens->refreshToken, $second)->isSwitched());
@@ -219,7 +219,7 @@ final class TransactionalChoosesPrincipalsTest extends TestCase
 
         self::assertSame([2, 2, 2], $this->hits($member));
         self::assertSame(1, PendingSignIn::query()->count());
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
 
         DB::transaction(function () use ($token, $first, $member): void {
 
@@ -229,7 +229,7 @@ final class TransactionalChoosesPrincipalsTest extends TestCase
 
         self::assertSame([1, 1, 1], $this->hits($member));
         self::assertSame(0, PendingSignIn::query()->count());
-        self::assertSame(1, Device::query()->count());
+        self::assertSame(1, Session::query()->count());
     }
 
     /**

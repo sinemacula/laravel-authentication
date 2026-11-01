@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * A principal model keyed by a UUID, for devices whose principal column must
+ * A principal model keyed by a UUID, for sessions whose principal column must
  * hold a non-integer key.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

@@ -9,7 +9,7 @@ use Tests\Unit\Stubs\StubPrincipal;
 /**
  * 2D principal whose identifier can be read only a set number of times (once by
  * default), so a refresh fails part of the way through: past its check that the
- * device records the principal, while issuing the access token or the refresh
+ * session records the principal, while issuing the access token or the refresh
  * token.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

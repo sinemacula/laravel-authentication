@@ -32,11 +32,11 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
-use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
+use SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
@@ -52,24 +52,24 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 use SineMacula\Laravel\Authentication\Runtime\CredentialTimebox;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
-use Tests\Concerns\InteractsWithDevices;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
-use Tests\Unit\Stubs\StubBareDevice;
-use Tests\Unit\Stubs\StubDevice;
+use Tests\Unit\Stubs\StubBareSession;
 use Tests\Unit\Stubs\StubIdentity;
-use Tests\Unit\Stubs\StubInjectableDevice;
+use Tests\Unit\Stubs\StubInjectableSession;
 use Tests\Unit\Stubs\StubPrincipal;
+use Tests\Unit\Stubs\StubSession;
 
 /**
  * Feature tests for the `RefreshTokenExchange` service that fill in the few
  * branches not covered by the JwtGuardRefreshTest's end-to-end coverage:
  *
- * - invalid `device.model` config -> refresh fails fast with an explicit
- *   configuration exception rather than falling through to `device_unknown`.
+ * - invalid `session.model` config -> refresh fails fast with an explicit
+ *   configuration exception rather than falling through to `session_unknown`.
  * - resolver throws `UnresolvableIdentityException` -> the misconfiguration
  *   propagates out of the exchange instead of becoming a refresh failure.
- * - device model outside the explicit `EloquentDevice` boundary is rejected.
- * - a `did` that cannot be a key of the device model is `device_unknown`
+ * - session model outside the explicit `EloquentSession` boundary is rejected.
+ * - a `did` that cannot be a key of the session model is `session_unknown`
  *   without a query, and a database error on a well-formed `did` propagates.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -81,7 +81,7 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(IdentifierCoercion::class)]
 final class RefreshTokenExchangeTest extends TestCase
 {
-    use InteractsWithDevices, MockeryPHPUnitIntegration;
+    use InteractsWithSessionRecords, MockeryPHPUnitIntegration;
 
     /** @var string Shared JWT secret for the test fixtures. */
     private const string SECRET = 'test-secret-key-with-at-least-32-bytes!';
@@ -110,10 +110,10 @@ final class RefreshTokenExchangeTest extends TestCase
     /** @var string IP address every exchange comes from. */
     private const string CLIENT_IP = '198.51.100.7';
 
-    /** @var string Well-formed device id for lookups that reach the builder. */
-    private const string DEVICE_ID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
+    /** @var string Well-formed session id for lookups that reach the builder. */
+    private const string SESSION_ID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
 
-    /** @var \Mockery\MockInterface Identity provider mock that reloads the device owner. */
+    /** @var \Mockery\MockInterface Identity provider mock that reloads the session owner. */
     private MockInterface $provider;
 
     /** @var \Mockery\MockInterface Resolver mock. */
@@ -145,7 +145,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
     /**
      * Build collaborator mocks, freeze the clock, and create the in-memory
-     * `stub_devices` schema.
+     * `stub_sessions` schema.
      *
      * @return void
      */
@@ -184,7 +184,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->app?->instance(ApplicationPolicy::class, $this->policy);
         $this->app?->instance(AttemptLimiter::class, $this->limiter);
 
-        self::createDeviceTable('stub_devices');
+        self::createSessionRecordTable('stub_sessions');
     }
 
     /**
@@ -195,7 +195,7 @@ final class RefreshTokenExchangeTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
-        Schema::dropIfExists('stub_devices');
+        Schema::dropIfExists('stub_sessions');
 
         Carbon::setTestNow();
 
@@ -206,7 +206,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
     /**
      * After the guard's context is rebound to another dispatcher, the
-     * revocation of a replayed device goes to the new dispatcher and no longer
+     * revocation of a replayed session goes to the new dispatcher and no longer
      * reaches the one the exchange was built with.
      *
      * @return void
@@ -216,13 +216,13 @@ final class RefreshTokenExchangeTest extends TestCase
      */
     public function testARebindOfTheContextsDispatcherRoutesLaterRevocationsToIt(): void
     {
-        $device   = $this->seedRotatedDevice(42, rotatedSecondsAgo: 5);
+        $session  = $this->seedRotatedSession(42, rotatedSecondsAgo: 5);
         $exchange = $this->makeExchange();
 
         $replacement = \Mockery::mock(Dispatcher::class);
         $replacement->shouldReceive('dispatch')
             ->once()
-            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof DeviceRevoked
+            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof SessionRevoked
                 && $event->context->guard === self::GUARD_NAME
                 && $event->reason         === RevocationReason::ROTATION_REUSE));
 
@@ -230,7 +230,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $this->context->rebindEvents($replacement);
 
-        $failure = $this->refused($exchange->exchange($this->tokenFor($device, 'a-replayed-rotation-id'), self::client()));
+        $failure = $this->refused($exchange->exchange($this->tokenFor($session, 'a-replayed-rotation-id'), self::client()));
 
         self::assertSame(FailureReason::ROTATION_REUSE, $failure->reason);
     }
@@ -255,14 +255,14 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame(self::GUARD_NAME, $failure->context->guard);
         self::assertSame(self::CLIENT_IP, $failure->context->client->ip);
         self::assertNull($failure->context->identity);
-        self::assertNull($failure->context->deviceId);
+        self::assertNull($failure->context->sessionId);
         self::assertNull($failure->identifier);
         self::assertNull($failure->retryAfter);
     }
 
     /**
-     * An empty `authentication.device.model` config is now an explicit
-     * configuration error rather than a silent `device_unknown` refresh
+     * An empty `authentication.session.model` config is now an explicit
+     * configuration error rather than a silent `session_unknown` refresh
      * failure.
      *
      * @return void
@@ -270,9 +270,9 @@ final class RefreshTokenExchangeTest extends TestCase
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testExchangeThrowsWhenConfiguredDeviceModelClassIsEmpty(): void
+    public function testExchangeThrowsWhenConfiguredSessionModelClassIsEmpty(): void
     {
-        config()->set('authentication.device.model', '');
+        config()->set('authentication.session.model', '');
 
         $exchange = $this->makeExchange();
 
@@ -281,7 +281,7 @@ final class RefreshTokenExchangeTest extends TestCase
             'jti' => 'rotation-id',
         ]);
 
-        $this->expectException(InvalidDeviceModelConfigurationException::class);
+        $this->expectException(InvalidSessionModelConfigurationException::class);
 
         $exchange->exchange($token, self::client());
     }
@@ -304,16 +304,16 @@ final class RefreshTokenExchangeTest extends TestCase
         $identity = new StubIdentity;
         $identity->forceFill(['id' => 9]);
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '9',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $this->expectOwnerReload($device, $identity);
+        $this->expectOwnerReload($session, $identity);
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $this->swapSessionModelToInMemoryInstance($session);
 
         $exchange  = $this->makeExchange();
         $exception = new UnresolvableIdentityException('cannot resolve');
@@ -324,7 +324,7 @@ final class RefreshTokenExchangeTest extends TestCase
             ->andThrow($exception);
 
         $token = $this->encodeRefreshToken([
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -337,12 +337,12 @@ final class RefreshTokenExchangeTest extends TestCase
             self::assertSame($exception, $caught);
         }
 
-        self::assertSame(RefreshTokenHasher::hash($plainRotationId), $device->fresh()?->getRefreshKey());
+        self::assertSame(RefreshTokenHasher::hash($plainRotationId), $session->fresh()?->getRefreshKey());
     }
 
     /**
      * A principal acting within a `CanBeActive` tenant that reports inactive is
-     * rejected with `tenant_inactive`, attributed to the device, and no
+     * rejected with `tenant_inactive`, attributed to the session, and no
      * rotation happens.
      *
      * @return void
@@ -357,16 +357,16 @@ final class RefreshTokenExchangeTest extends TestCase
         $identity = new StubIdentity;
         $identity->forceFill(['id' => 10]);
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '10',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $this->expectOwnerReload($device, $identity);
+        $this->expectOwnerReload($session, $identity);
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $this->swapSessionModelToInMemoryInstance($session);
 
         $exchange = $this->makeExchange();
 
@@ -383,7 +383,7 @@ final class RefreshTokenExchangeTest extends TestCase
             ->andReturn($principal);
 
         $token = $this->encodeRefreshToken([
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -392,21 +392,21 @@ final class RefreshTokenExchangeTest extends TestCase
         $failure = $this->refused($exchange->exchange($token, self::client()));
 
         self::assertSame(FailureReason::TENANT_INACTIVE, $failure->reason);
-        self::assertSame($device->id, $failure->context->deviceId);
+        self::assertSame($session->id, $failure->context->sessionId);
         self::assertSame($identity, $failure->context->identity);
         self::assertSame($principal, $failure->context->principal);
         self::assertNull($failure->context->tenant);
         self::assertSame('password', $failure->context->method);
-        self::assertSame(RefreshTokenHasher::hash($plainRotationId), $device->fresh()?->getRefreshKey());
+        self::assertSame(RefreshTokenHasher::hash($plainRotationId), $session->fresh()?->getRefreshKey());
     }
 
     /**
-     * Provider answers for owner key `9` of a `StubIdentity` device that are
+     * Provider answers for owner key `9` of a `StubIdentity` session that are
      * not that owner.
      *
      * @return iterable<string, array{0: \Closure(): mixed}>
      */
-    public static function provideAnswersThatAreNotTheDeviceOwner(): iterable
+    public static function provideAnswersThatAreNotTheSessionOwner(): iterable
     {
         yield from [
             'no identity through the provider'          => [static fn (): null => null],
@@ -415,10 +415,10 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * The device owner is reloaded through the provider and must be that exact
+     * The session owner is reloaded through the provider and must be that exact
      * owner: no identity, or an identity of another model that shares the owner
      * key, fails as `identity_unknown` before any principal is resolved. The
-     * failure is about the device row, so it names the owner and the principal
+     * failure is about the session row, so it names the owner and the principal
      * the row records.
      *
      * @param  \Closure(): mixed  $answer
@@ -427,21 +427,21 @@ final class RefreshTokenExchangeTest extends TestCase
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    #[DataProvider('provideAnswersThatAreNotTheDeviceOwner')]
-    public function testExchangeRejectsAProviderAnswerThatIsNotTheDeviceOwner(\Closure $answer): void
+    #[DataProvider('provideAnswersThatAreNotTheSessionOwner')]
+    public function testExchangeRejectsAProviderAnswerThatIsNotTheSessionOwner(\Closure $answer): void
     {
         $plainRotationId = 'stored-rotation-id';
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME, new PlainPrincipalFixture('p-9')),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '9',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $this->expectOwnerReload($device, $answer());
+        $this->expectOwnerReload($session, $answer());
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $this->swapSessionModelToInMemoryInstance($session);
 
         $exchange = $this->makeExchange();
 
@@ -450,14 +450,14 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->events->shouldNotReceive('dispatch');
 
         $token = $this->encodeRefreshToken([
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
         $failure = $this->refused($exchange->exchange($token, self::client()));
 
         self::assertSame(FailureReason::IDENTITY_UNKNOWN, $failure->reason);
-        self::assertSame($device->id, $failure->context->deviceId);
+        self::assertSame($session->id, $failure->context->sessionId);
         self::assertNull($failure->context->identity);
         self::assertSame('9', $failure->context->identityId);
         self::assertSame(PlainPrincipalFixture::class, $failure->context->principalMorphClass);
@@ -500,8 +500,8 @@ final class RefreshTokenExchangeTest extends TestCase
         $identity = new StubIdentity;
         $identity->forceFill(['id' => 31]);
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '31',
@@ -513,7 +513,7 @@ final class RefreshTokenExchangeTest extends TestCase
             ->with('31')
             ->andReturn($identity);
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $this->swapSessionModelToInMemoryInstance($session);
 
         $reads = 0;
 
@@ -533,7 +533,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $working->shouldReceive('getTenant')->andReturnNull();
         $working->shouldReceive('getPrincipalIdentifier')->andReturn('p-31');
 
-        $device->forceFill(['principal_type' => $failing::class, 'principal_id' => 'p-31'])->save();
+        $session->forceFill(['principal_type' => $failing::class, 'principal_id' => 'p-31'])->save();
 
         $this->resolver->shouldReceive('resolve')
             ->twice()
@@ -545,7 +545,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $exchange = $this->makeExchange();
 
         $token = $this->encodeRefreshToken([
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -557,15 +557,15 @@ final class RefreshTokenExchangeTest extends TestCase
             self::assertSame('random source unavailable', $exception->getMessage());
         }
 
-        self::assertSame($storedDigest, $this->storedDigest($device->id));
+        self::assertSame($storedDigest, $this->storedDigest($session->id));
 
         self::assertInstanceOf(ExchangedRefresh::class, $exchange->exchange($token, self::client()));
-        self::assertNotSame($storedDigest, $this->storedDigest($device->id));
+        self::assertNotSame($storedDigest, $this->storedDigest($session->id));
     }
 
     /**
      * A refresh payload whose `jti` is not a string is rejected as
-     * `token_invalid` and preserves the parseable device id on the emitted
+     * `token_invalid` and preserves the parseable session id on the emitted
      * failure event.
      *
      * @return void
@@ -573,12 +573,12 @@ final class RefreshTokenExchangeTest extends TestCase
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testExchangeIncludesDeviceIdWhenRotationIdShapeIsInvalid(): void
+    public function testExchangeIncludesSessionIdWhenRotationIdShapeIsInvalid(): void
     {
         $exchange = $this->makeExchange();
 
         $token = $this->encodeRefreshToken([
-            'did' => 'device-non-string-jti',
+            'did' => 'session-non-string-jti',
             'jti' => 12345,
         ]);
 
@@ -587,7 +587,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $failure = $this->refused($exchange->exchange($token, self::client()));
 
         self::assertSame(FailureReason::TOKEN_INVALID, $failure->reason);
-        self::assertSame('device-non-string-jti', $failure->context->deviceId);
+        self::assertSame('session-non-string-jti', $failure->context->sessionId);
     }
 
     /**
@@ -606,16 +606,16 @@ final class RefreshTokenExchangeTest extends TestCase
         $identity = new StubIdentity;
         $identity->forceFill(['id' => 12]);
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '12',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $this->expectOwnerReload($device, $identity);
+        $this->expectOwnerReload($session, $identity);
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $this->swapSessionModelToInMemoryInstance($session);
 
         $exchange = $this->makeExchange();
 
@@ -628,7 +628,7 @@ final class RefreshTokenExchangeTest extends TestCase
             ->once()
             ->andReturnTrue();
 
-        $device->forceFill(['principal_type' => $principal::class, 'principal_id' => 'p-12'])->save();
+        $session->forceFill(['principal_type' => $principal::class, 'principal_id' => 'p-12'])->save();
 
         $this->resolver->shouldReceive('resolve')
             ->once()
@@ -639,7 +639,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $token = $this->encodeRefreshToken([
             'pid' => 'p-12',
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -657,7 +657,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
     /**
      * Fail-closed: a hinted principal whose identifier stringifies to `null` is
-     * treated as unresolved and attributed to the device id carried by the
+     * treated as unresolved and attributed to the session id carried by the
      * refresh token.
      *
      * @return void
@@ -672,16 +672,16 @@ final class RefreshTokenExchangeTest extends TestCase
         $identity = new StubIdentity;
         $identity->forceFill(['id' => 14]);
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '14',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $this->expectOwnerReload($device, $identity);
+        $this->expectOwnerReload($session, $identity);
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $this->swapSessionModelToInMemoryInstance($session);
 
         $exchange = $this->makeExchange();
 
@@ -697,7 +697,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $token = $this->encodeRefreshToken([
             'pid' => 'p-hinted',
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -706,14 +706,14 @@ final class RefreshTokenExchangeTest extends TestCase
         $failure = $this->refused($exchange->exchange($token, self::client()));
 
         self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $failure->reason);
-        self::assertSame($device->id, $failure->context->deviceId);
+        self::assertSame($session->id, $failure->context->sessionId);
     }
 
     /**
      * Fail-closed: when the resolver resolves nothing for a hinted `pid`, the
      * exchange reports `principal_mismatch` rather than falling through to the
      * unresolved-principal branch, and no rotation happens. Once the owner is
-     * read the failure names it, and no principal: the one the device records
+     * read the failure names it, and no principal: the one the session records
      * does not stand in for the one that did not resolve.
      *
      * @return void
@@ -728,16 +728,16 @@ final class RefreshTokenExchangeTest extends TestCase
         $identity = new StubIdentity;
         $identity->forceFill(['id' => 15]);
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME, new PlainPrincipalFixture('p-recorded')),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '15',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $this->expectOwnerReload($device, $identity);
+        $this->expectOwnerReload($session, $identity);
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $this->swapSessionModelToInMemoryInstance($session);
 
         $exchange = $this->makeExchange();
 
@@ -748,7 +748,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $token = $this->encodeRefreshToken([
             'pid' => 'p-hinted',
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -757,16 +757,16 @@ final class RefreshTokenExchangeTest extends TestCase
         $failure = $this->refused($exchange->exchange($token, self::client()));
 
         self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $failure->reason);
-        self::assertSame($device->id, $failure->context->deviceId);
+        self::assertSame($session->id, $failure->context->sessionId);
         self::assertSame('15', $failure->context->identityId);
         self::assertNull($failure->context->principalMorphClass);
         self::assertNull($failure->context->principalId);
-        self::assertSame(RefreshTokenHasher::hash($plainRotationId), $device->fresh()?->getRefreshKey());
+        self::assertSame(RefreshTokenHasher::hash($plainRotationId), $session->fresh()?->getRefreshKey());
     }
 
     /**
      * A refresh token without a `pid` whose identity has no default principal
-     * fails as `principal_unresolved`, attributed to the device, and no
+     * fails as `principal_unresolved`, attributed to the session, and no
      * rotation happens.
      *
      * @return void
@@ -781,16 +781,16 @@ final class RefreshTokenExchangeTest extends TestCase
         $identity = new StubIdentity;
         $identity->forceFill(['id' => 16]);
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '16',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $this->expectOwnerReload($device, $identity);
+        $this->expectOwnerReload($session, $identity);
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $this->swapSessionModelToInMemoryInstance($session);
 
         $exchange = $this->makeExchange();
 
@@ -800,7 +800,7 @@ final class RefreshTokenExchangeTest extends TestCase
             ->andReturnNull();
 
         $token = $this->encodeRefreshToken([
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -809,8 +809,8 @@ final class RefreshTokenExchangeTest extends TestCase
         $failure = $this->refused($exchange->exchange($token, self::client()));
 
         self::assertSame(FailureReason::PRINCIPAL_UNRESOLVED, $failure->reason);
-        self::assertSame($device->id, $failure->context->deviceId);
-        self::assertSame(RefreshTokenHasher::hash($plainRotationId), $device->fresh()?->getRefreshKey());
+        self::assertSame($session->id, $failure->context->sessionId);
+        self::assertSame(RefreshTokenHasher::hash($plainRotationId), $session->fresh()?->getRefreshKey());
     }
 
     /**
@@ -830,9 +830,9 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A device whose session has ended, or that has no deadlines, fails as
+     * A session that has ended, or that has no deadlines, fails as
      * `session_expired` before its owner is loaded or its digest compared, and
-     * nothing is written: the device is not revoked.
+     * nothing is written: the session is not revoked.
      *
      * @param  ?int  $idleIn
      * @param  ?int  $absoluteIn
@@ -846,8 +846,8 @@ final class RefreshTokenExchangeTest extends TestCase
     {
         $plainRotationId = 'stored-rotation-id';
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '9',
             'guard'                => self::GUARD_NAME,
@@ -856,9 +856,9 @@ final class RefreshTokenExchangeTest extends TestCase
             'absolute_expires_at'  => $absoluteIn === null ? null : $this->now->copy()->addSeconds($absoluteIn),
         ])->save();
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $this->swapSessionModelToInMemoryInstance($session);
 
-        $before = (array) DB::table('stub_devices')->where('id', $device->id)->first();
+        $before = (array) DB::table('stub_sessions')->where('id', $session->id)->first();
 
         $this->provider->shouldNotReceive('retrieveById');
         $this->resolver->shouldNotReceive('resolve');
@@ -866,15 +866,15 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->events->shouldNotReceive('dispatch');
 
         $token = $this->encodeRefreshToken([
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
         $failure = $this->refused($this->makeExchange()->exchange($token, self::client()));
 
         self::assertSame(FailureReason::SESSION_EXPIRED, $failure->reason);
-        self::assertSame($device->id, $failure->context->deviceId);
-        self::assertSame($before, (array) DB::table('stub_devices')->where('id', $device->id)->first());
+        self::assertSame($session->id, $failure->context->sessionId);
+        self::assertSame($before, (array) DB::table('stub_sessions')->where('id', $session->id)->first());
     }
 
     /**
@@ -882,7 +882,7 @@ final class RefreshTokenExchangeTest extends TestCase
      * presented id as the previous one and the exchange's time as the rotation
      * time, moves the idle deadline to the idle lifetime from that time, and
      * leaves the absolute deadline alone. The new refresh token carries the
-     * successor, and the returned device mirrors the row with nothing left to
+     * successor, and the returned session mirrors the row with nothing left to
      * save.
      *
      * @return void
@@ -893,7 +893,7 @@ final class RefreshTokenExchangeTest extends TestCase
     public function testExchangeRotatesTheCurrentRotationIdToItsSuccessor(): void
     {
         $absolute = $this->now->copy()->addDays(100);
-        $device   = $this->seedDevice(32, [
+        $session  = $this->seedSession(32, [
             'refresh_key'         => RefreshTokenHasher::hash(self::ROTATION_ID),
             'idle_expires_at'     => $this->now->copy()->addMinute(),
             'absolute_expires_at' => $absolute,
@@ -902,13 +902,13 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->expectRefreshContext(32);
         $this->recordEvents();
 
-        $result = $this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client());
+        $result = $this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client());
 
         self::assertInstanceOf(ExchangedRefresh::class, $result);
 
         $successor    = RefreshTokenHasher::successor(self::ROTATION_ID);
         $expectedIdle = $this->now->getTimestamp() + (self::REFRESH_TTL * 60);
-        $stored       = StubDevice::query()->findOrFail($device->id);
+        $stored       = StubSession::query()->findOrFail($session->id);
 
         self::assertSame(RefreshTokenHasher::hash($successor), $stored->refresh_key);
         self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), $stored->previous_refresh_key);
@@ -917,10 +917,10 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame($absolute->getTimestamp(), $stored->absolute_expires_at?->getTimestamp());
         self::assertSame($successor, $this->refreshClaims($result->tokens->refreshToken)[Claims::JWT_ID->value]);
         self::assertSame($expectedIdle, $this->refreshClaims($result->tokens->refreshToken)[Claims::EXPIRES_AT->value]);
-        self::assertSame($stored->refresh_key, $result->device->getRefreshKey());
-        self::assertSame($stored->previous_refresh_key, $result->device->getPreviousRefreshKey());
-        self::assertSame($expectedIdle, $result->device->getIdleExpiresAt()?->getTimestamp());
-        self::assertFalse($result->device->isDirty());
+        self::assertSame($stored->refresh_key, $result->record->getRefreshKey());
+        self::assertSame($stored->previous_refresh_key, $result->record->getPreviousRefreshKey());
+        self::assertSame($expectedIdle, $result->record->getIdleExpiresAt()?->getTimestamp());
+        self::assertFalse($result->record->isDirty());
         self::assertSame([], $this->dispatched);
     }
 
@@ -940,18 +940,18 @@ final class RefreshTokenExchangeTest extends TestCase
     {
         $current = RefreshTokenHasher::successor(self::ROTATION_ID);
         $idle    = $this->now->copy()->addDays(20);
-        $device  = $this->seedRotatedDevice(33, rotatedSecondsAgo: 29, idle: $idle);
-        $before  = $this->row($device);
+        $session = $this->seedRotatedSession(33, rotatedSecondsAgo: 29, idle: $idle);
+        $before  = $this->row($session);
 
         $this->expectRefreshContext(33);
         $this->recordEvents();
 
-        $result = $this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client());
+        $result = $this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client());
 
         self::assertInstanceOf(ExchangedRefresh::class, $result);
         self::assertSame($current, $this->refreshClaims($result->tokens->refreshToken)[Claims::JWT_ID->value]);
         self::assertSame($idle->getTimestamp(), $this->refreshClaims($result->tokens->refreshToken)[Claims::EXPIRES_AT->value]);
-        self::assertSame($before, $this->row($device));
+        self::assertSame($before, $this->row($session));
         self::assertSame([], $this->dispatched);
     }
 
@@ -971,7 +971,7 @@ final class RefreshTokenExchangeTest extends TestCase
     public function testTheGraceWindowIsTheTokenServicesWhateverLifetimesThePolicyReturns(): void
     {
         $policyGrace = new \ArrayObject(['seconds' => 0]);
-        $retried     = $this->seedRotatedDevice(35, rotatedSecondsAgo: self::GRACE - 1);
+        $retried     = $this->seedRotatedSession(35, rotatedSecondsAgo: self::GRACE - 1);
 
         $this->policy->shouldReceive('lifetimes')->andReturnUsing(
             static fn (): TokenLifetimes => new TokenLifetimes(self::ACCESS_TTL, self::REFRESH_TTL, 60 * 24 * 180, $policyGrace['seconds']),
@@ -986,7 +986,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $policyGrace['seconds'] = TokenLifetimes::MAX_GRACE_SECONDS;
 
-        $replayed = $this->seedRotatedDevice(36, rotatedSecondsAgo: self::GRACE);
+        $replayed = $this->seedRotatedSession(36, rotatedSecondsAgo: self::GRACE);
 
         $this->provider->shouldNotReceive('retrieveById');
         $this->recordEvents();
@@ -997,7 +997,7 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Rows of `[how the presented rotation id relates to the device, seconds
+     * Rows of `[how the presented rotation id relates to the session, seconds
      * since the rotation, grace window in seconds]` for tokens that prove a
      * replay.
      *
@@ -1011,18 +1011,18 @@ final class RefreshTokenExchangeTest extends TestCase
             'previous id with grace disabled'         => ['previous', 0, 0],
             'an older id inside the window'           => ['older', 5, 30],
             'previous id the row did not rotate from' => ['unrelated', 5, 30],
-            'an id the device never issued'           => ['foreign', 5, 30],
+            'an id the session never issued'          => ['foreign', 5, 30],
             'previous digest without a rotation time' => ['no rotation time', 5, 30],
             'rotation time without a previous digest' => ['no previous digest', 5, 30],
         ];
     }
 
     /**
-     * A validly signed token for a live device whose rotation id is neither the
-     * current one nor the previous one inside the grace window proves the token
-     * was replayed: the device is revoked with reason `rotation_reuse` (its
-     * time and reason recorded, both digests cleared), `DeviceRevoked` and
-     * `AuthenticationFailed` are dispatched, and nothing is issued.
+     * A validly signed token for a live session whose rotation id is neither
+     * the current one nor the previous one inside the grace window proves the
+     * token was replayed: the session is revoked with reason `rotation_reuse`
+     * (its time and reason recorded, both digests cleared), `SessionRevoked`
+     * and `AuthenticationFailed` are dispatched, and nothing is issued.
      *
      * @param  string  $presented
      * @param  int  $rotatedSecondsAgo
@@ -1033,9 +1033,9 @@ final class RefreshTokenExchangeTest extends TestCase
      * @throws \Random\RandomException
      */
     #[DataProvider('provideReplays')]
-    public function testReplayRevokesTheDevice(string $presented, int $rotatedSecondsAgo, int $grace): void
+    public function testReplayRevokesTheSession(string $presented, int $rotatedSecondsAgo, int $grace): void
     {
-        $device = $this->seedRotatedDevice(34, rotatedSecondsAgo: $rotatedSecondsAgo);
+        $session = $this->seedRotatedSession(34, rotatedSecondsAgo: $rotatedSecondsAgo);
 
         $changes = match ($presented) {
             'unrelated'          => ['refresh_key' => RefreshTokenHasher::hash('set-outside-a-rotation')],
@@ -1044,7 +1044,7 @@ final class RefreshTokenExchangeTest extends TestCase
             default              => [],
         };
 
-        DB::table('stub_devices')->where('id', $device->id)->update([...$changes, 'updated_at' => $this->now]);
+        DB::table('stub_sessions')->where('id', $session->id)->update([...$changes, 'updated_at' => $this->now]);
 
         $rotationId = match ($presented) {
             'older'   => 'the-id-before-the-previous-one',
@@ -1055,9 +1055,9 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->provider->shouldNotReceive('retrieveById');
         $this->recordEvents();
 
-        $this->refused($this->makeExchange($grace)->exchange($this->tokenFor($device, $rotationId), self::client()));
+        $this->refused($this->makeExchange($grace)->exchange($this->tokenFor($session, $rotationId), self::client()));
 
-        $this->assertRevokedForReuse($device);
+        $this->assertRevokedForReuse($session);
     }
 
     /**
@@ -1072,26 +1072,26 @@ final class RefreshTokenExchangeTest extends TestCase
      */
     public function testOnlyTheImmediatelyPreviousRotationIdIsHonored(): void
     {
-        $first  = self::ROTATION_ID;
-        $device = $this->seedDevice(35, ['refresh_key' => RefreshTokenHasher::hash($first)]);
+        $first   = self::ROTATION_ID;
+        $session = $this->seedSession(35, ['refresh_key' => RefreshTokenHasher::hash($first)]);
 
         $this->expectRefreshContext(35, 2);
         $this->recordEvents();
 
-        $second = $this->makeExchange()->exchange($this->tokenFor($device, $first), self::client());
+        $second = $this->makeExchange()->exchange($this->tokenFor($session, $first), self::client());
 
         self::assertInstanceOf(ExchangedRefresh::class, $second);
 
         $third = $this->makeExchange()->exchange($second->tokens->refreshToken, self::client());
 
         self::assertInstanceOf(ExchangedRefresh::class, $third);
-        $this->refused($this->makeExchange()->exchange($this->tokenFor($device, $first), self::client()));
+        $this->refused($this->makeExchange()->exchange($this->tokenFor($session, $first), self::client()));
 
-        $this->assertRevokedForReuse($device);
+        $this->assertRevokedForReuse($session);
     }
 
     /**
-     * A device that holds no refresh credential cannot tell a replay from
+     * A session that holds no refresh credential cannot tell a replay from
      * anything else, so its tokens are rejected as `refresh_key_missing`
      * without revoking it or writing anything.
      *
@@ -1100,46 +1100,46 @@ final class RefreshTokenExchangeTest extends TestCase
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testDeviceWithoutARefreshCredentialIsRejectedWithoutRevoking(): void
+    public function testSessionWithoutARefreshCredentialIsRejectedWithoutRevoking(): void
     {
-        $device = $this->seedDevice(36, ['refresh_key' => null, 'previous_refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
-        $before = $this->row($device);
+        $session = $this->seedSession(36, ['refresh_key' => null, 'previous_refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
+        $before  = $this->row($session);
 
         $this->provider->shouldNotReceive('retrieveById');
         $this->recordEvents();
 
-        $this->refused($this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client()));
-        self::assertSame($before, $this->row($device));
+        $this->refused($this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client()));
+        self::assertSame($before, $this->row($session));
         self::assertSame([FailureReason::REFRESH_KEY_MISSING], $this->failureReasons());
     }
 
     /**
-     * A refresh for a principal the device no longer records (the session was
-     * switched to another one) fails as `device_principal_mismatch`, without
-     * revoking the device or writing to it.
+     * A refresh for a principal the session no longer records (the session was
+     * switched to another one) fails as `session_principal_mismatch`, without
+     * revoking the session or writing to it.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testARefreshAsAPrincipalTheDeviceNoLongerRecordsIsRefused(): void
+    public function testARefreshAsAPrincipalTheSessionNoLongerRecordsIsRefused(): void
     {
-        $device = $this->seedDevice(44, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID), 'principal_id' => 'p-switched']);
-        $before = $this->row($device);
+        $session = $this->seedSession(44, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID), 'principal_id' => 'p-switched']);
+        $before  = $this->row($session);
 
         $this->expectRefreshContext(44);
         $this->recordEvents();
 
-        $this->refused($this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client()));
-        self::assertSame([FailureReason::DEVICE_PRINCIPAL_MISMATCH], $this->failureReasons());
-        self::assertSame($before, $this->row($device));
+        $this->refused($this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client()));
+        self::assertSame([FailureReason::SESSION_PRINCIPAL_MISMATCH], $this->failureReasons());
+        self::assertSame($before, $this->row($session));
     }
 
     /**
-     * A device that holds no refresh credential and whose session has ended
-     * fails as `session_expired`, not `refresh_key_missing`: the session is
-     * judged before the credential, and nothing is written.
+     * A session that holds no refresh credential and has ended fails as
+     * `session_expired`, not `refresh_key_missing`: the session is judged
+     * before the credential, and nothing is written.
      *
      * @return void
      *
@@ -1148,76 +1148,76 @@ final class RefreshTokenExchangeTest extends TestCase
      */
     public function testEndedSessionIsReportedBeforeAMissingRefreshCredential(): void
     {
-        $device = $this->seedDevice(36, ['refresh_key' => null, 'idle_expires_at' => $this->now]);
-        $before = $this->row($device);
+        $session = $this->seedSession(36, ['refresh_key' => null, 'idle_expires_at' => $this->now]);
+        $before  = $this->row($session);
 
         $this->provider->shouldNotReceive('retrieveById');
         $this->recordEvents();
 
-        $this->refused($this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client()));
-        self::assertSame($before, $this->row($device));
+        $this->refused($this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client()));
+        self::assertSame($before, $this->row($session));
         self::assertSame([FailureReason::SESSION_EXPIRED], $this->failureReasons());
     }
 
     /**
-     * A device loaded without its previous digest cannot be judged for a token
+     * A session loaded without its previous digest cannot be judged for a token
      * that is not current: the missing column is reported instead of the token
-     * being read as a replay that revokes the device.
+     * being read as a replay that revokes the session.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testDeviceLoadedWithoutItsPreviousDigestIsReportedNotRevoked(): void
+    public function testSessionLoadedWithoutItsPreviousDigestIsReportedNotRevoked(): void
     {
-        $device = $this->seedRotatedDevice(37, rotatedSecondsAgo: 5);
+        $session = $this->seedRotatedSession(37, rotatedSecondsAgo: 5);
 
-        $loaded = new StubDevice;
-        $loaded->setRawAttributes(array_diff_key((array) DB::table('stub_devices')->where('id', $device->id)->first(), ['previous_refresh_key' => true]), true);
+        $loaded = new StubSession;
+        $loaded->setRawAttributes(array_diff_key((array) DB::table('stub_sessions')->where('id', $session->id)->first(), ['previous_refresh_key' => true]), true);
         $loaded->exists = true;
 
-        $this->swapDeviceModelToInMemoryInstance($loaded, false);
+        $this->swapSessionModelToInMemoryInstance($loaded, false);
 
         $this->events->shouldNotReceive('dispatch');
 
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('its `previous_refresh_key` attribute is not loaded');
 
-        $this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client());
+        $this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client());
     }
 
     /**
-     * Revoking a device records the time and reason, clears both digests,
-     * mirrors the revocation on the in-memory device, and dispatches
-     * `DeviceRevoked` once. Revoking it again changes nothing: the first
+     * Revoking a session records the time and reason, clears both digests,
+     * mirrors the revocation on the in-memory session, and dispatches
+     * `SessionRevoked` once. Revoking it again changes nothing: the first
      * revocation's time and reason are kept and no event is dispatched.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testRevokingADeviceIsIdempotent(): void
+    public function testRevokingASessionIsIdempotent(): void
     {
-        $device = $this->seedRotatedDevice(38, rotatedSecondsAgo: 5);
+        $session = $this->seedRotatedSession(38, rotatedSecondsAgo: 5);
 
         $this->recordEvents();
 
-        self::assertTrue($this->makeExchange()->revokeDevice($device, RevocationReason::ROTATION_REUSE, self::client()));
-        self::assertSame($this->now->getTimestamp(), $device->revoked_at?->getTimestamp());
-        self::assertSame('rotation_reuse', $device->getRevokedReason());
-        self::assertNull($device->getRefreshKey());
-        self::assertFalse($device->isDirty());
+        self::assertTrue($this->makeExchange()->revokeSession($session, RevocationReason::ROTATION_REUSE, self::client()));
+        self::assertSame($this->now->getTimestamp(), $session->revoked_at?->getTimestamp());
+        self::assertSame('rotation_reuse', $session->getRevokedReason());
+        self::assertNull($session->getRefreshKey());
+        self::assertFalse($session->isDirty());
 
-        $first = $this->row($device);
+        $first = $this->row($session);
 
         Carbon::setTestNow($this->now->copy()->addMinute());
 
-        self::assertFalse($this->makeExchange()->revokeDevice(StubDevice::query()->findOrFail($device->id), RevocationReason::ROTATION_REUSE, self::client()));
-        self::assertSame($first, $this->row($device));
+        self::assertFalse($this->makeExchange()->revokeSession(StubSession::query()->findOrFail($session->id), RevocationReason::ROTATION_REUSE, self::client()));
+        self::assertSame($first, $this->row($session));
         self::assertCount(1, $this->dispatched);
-        self::assertInstanceOf(DeviceRevoked::class, $this->dispatched[0]);
-        self::assertSame($device, $this->dispatched[0]->context->device);
+        self::assertInstanceOf(SessionRevoked::class, $this->dispatched[0]);
+        self::assertSame($session, $this->dispatched[0]->context->session);
         self::assertSame(self::GUARD_NAME, $this->dispatched[0]->context->guard);
         self::assertSame(self::CLIENT_IP, $this->dispatched[0]->context->client->ip);
         self::assertSame('password', $this->dispatched[0]->context->method);
@@ -1236,18 +1236,18 @@ final class RefreshTokenExchangeTest extends TestCase
      */
     public function testLostRotationToAParallelRefreshIsAGraceRetry(): void
     {
-        $device = $this->seedDevice(39, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
+        $session = $this->seedSession(39, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
 
         $this->expectRefreshContext(39);
         $this->recordEvents();
-        $this->beforeTheSwap(fn () => $this->rotateOnTheRow($device, self::ROTATION_ID));
+        $this->beforeTheSwap(fn () => $this->rotateOnTheRow($session, self::ROTATION_ID));
 
-        $result = $this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client());
+        $result = $this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client());
 
         self::assertInstanceOf(ExchangedRefresh::class, $result);
         self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->refreshClaims($result->tokens->refreshToken)[Claims::JWT_ID->value]);
-        self::assertSame(RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)), $this->storedDigest($device->id));
-        self::assertSame($result->device->getRefreshKey(), $this->storedDigest($device->id));
+        self::assertSame(RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)), $this->storedDigest($session->id));
+        self::assertSame($result->record->getRefreshKey(), $this->storedDigest($session->id));
         self::assertSame([], $this->dispatched);
     }
 
@@ -1264,41 +1264,41 @@ final class RefreshTokenExchangeTest extends TestCase
      */
     public function testLostRotationIsJudgedAtTheExchangesOwnTime(): void
     {
-        $device = $this->seedDevice(40, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
+        $session = $this->seedSession(40, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
 
         $this->expectRefreshContext(40);
         $this->recordEvents();
-        $this->beforeTheSwap(function () use ($device): void {
-            $this->rotateOnTheRow($device, self::ROTATION_ID);
+        $this->beforeTheSwap(function () use ($session): void {
+            $this->rotateOnTheRow($session, self::ROTATION_ID);
 
             Carbon::setTestNow($this->now->copy()->addMinutes(5));
         });
 
-        self::assertInstanceOf(ExchangedRefresh::class, $this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client()));
+        self::assertInstanceOf(ExchangedRefresh::class, $this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client()));
         self::assertSame([], $this->dispatched);
     }
 
     /**
      * With grace disabled, a parallel refresh that rotates first leaves the
      * loser holding a replaced token: the row judged again proves a replay, and
-     * the device is revoked.
+     * the session is revoked.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testLostRotationWithGraceDisabledRevokesTheDevice(): void
+    public function testLostRotationWithGraceDisabledRevokesTheSession(): void
     {
-        $device = $this->seedDevice(41, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
+        $session = $this->seedSession(41, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
 
         $this->expectRefreshContext(41);
         $this->recordEvents();
-        $this->beforeTheSwap(fn () => $this->rotateOnTheRow($device, self::ROTATION_ID));
+        $this->beforeTheSwap(fn () => $this->rotateOnTheRow($session, self::ROTATION_ID));
 
-        $this->refused($this->makeExchange(0)->exchange($this->tokenFor($device, self::ROTATION_ID), self::client()));
+        $this->refused($this->makeExchange(0)->exchange($this->tokenFor($session, self::ROTATION_ID), self::client()));
 
-        $this->assertRevokedForReuse($device);
+        $this->assertRevokedForReuse($session);
     }
 
     /**
@@ -1310,25 +1310,25 @@ final class RefreshTokenExchangeTest extends TestCase
     public static function provideCompetingChanges(): iterable
     {
         yield from [
-            'revoked'                  => ['revoked', FailureReason::DEVICE_REVOKED],
-            'deleted'                  => ['deleted', FailureReason::DEVICE_UNKNOWN],
+            'revoked'                  => ['revoked', FailureReason::SESSION_REVOKED],
+            'deleted'                  => ['deleted', FailureReason::SESSION_UNKNOWN],
             'ended'                    => ['ended', FailureReason::SESSION_EXPIRED],
             'credential cleared'       => ['cleared', FailureReason::REFRESH_KEY_MISSING],
             'absolute deadline moved'  => ['shortened', FailureReason::ROTATION_CONFLICT],
             'idle deadline moved'      => ['extended', FailureReason::ROTATION_CONFLICT],
             'rotated to another owner' => ['reowned', FailureReason::IDENTITY_UNKNOWN],
-            'switched to another one'  => ['switched', FailureReason::DEVICE_PRINCIPAL_MISMATCH],
+            'switched to another one'  => ['switched', FailureReason::SESSION_PRINCIPAL_MISMATCH],
         ];
     }
 
     /**
      * When the swap misses for any other reason, the row judged again decides
-     * the failure: a device revoked, deleted, ended, or stripped of its
+     * the failure: a session revoked, deleted, ended, or stripped of its
      * credential in between fails for that reason; a token that is still
      * current, because only a deadline moved, fails as `rotation_conflict`; and
      * a grace retry whose row now has another owner fails as
      * `identity_unknown`, or, when the row now records another principal,
-     * `device_principal_mismatch`. None of them revokes the device, and the
+     * `session_principal_mismatch`. None of them revokes the session, and the
      * swap is never tried twice.
      *
      * @param  string  $change
@@ -1341,7 +1341,7 @@ final class RefreshTokenExchangeTest extends TestCase
     #[DataProvider('provideCompetingChanges')]
     public function testLostRotationFailsWithWhatTheRowNowSays(string $change, FailureReason $reason): void
     {
-        $device = $this->seedDevice(42, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
+        $session = $this->seedSession(42, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
 
         $this->expectRefreshContext(42);
         $this->recordEvents();
@@ -1352,32 +1352,32 @@ final class RefreshTokenExchangeTest extends TestCase
             $swaps += str_contains($query->sql, 'refresh_rotated_at') && str_contains($query->sql, 'is null') ? 1 : 0;
         });
 
-        $this->beforeTheSwap(fn () => $this->compete($change, $device));
+        $this->beforeTheSwap(fn () => $this->compete($change, $session));
 
-        $this->refused($this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client()));
+        $this->refused($this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client()));
         self::assertSame([$reason], $this->failureReasons());
         self::assertSame(1, $swaps);
-        self::assertNotContains(DeviceRevoked::class, array_map(static fn (object $event): string => $event::class, $this->dispatched));
-        self::assertNotSame('rotation_reuse', $this->row($device)['revoked_reason'] ?? null);
+        self::assertNotContains(SessionRevoked::class, array_map(static fn (object $event): string => $event::class, $this->dispatched));
+        self::assertNotSame('rotation_reuse', $this->row($session)['revoked_reason'] ?? null);
     }
 
     /**
-     * A `did` that cannot be a key of the configured device model names no
-     * device: the exchange reports `device_unknown` without querying.
+     * A `did` that cannot be a key of the configured session model names no
+     * session: the exchange reports `session_unknown` without querying.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testExchangeRejectsMalformedDeviceIdWithoutQuerying(): void
+    public function testExchangeRejectsMalformedSessionIdWithoutQuerying(): void
     {
         $builder = \Mockery::mock(Builder::class);
         $builder->shouldNotReceive('find');
 
-        StubInjectableDevice::$injectedBuilder = $builder;
+        StubInjectableSession::$injectedBuilder = $builder;
 
-        config()->set('authentication.device.model', StubInjectableDevice::class);
+        config()->set('authentication.session.model', StubInjectableSession::class);
 
         $exchange = $this->makeExchange();
 
@@ -1390,20 +1390,20 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $failure = $this->refused($exchange->exchange($token, self::client()));
 
-        self::assertSame(FailureReason::DEVICE_UNKNOWN, $failure->reason);
-        self::assertSame('not-a-valid-uuid', $failure->context->deviceId);
+        self::assertSame(FailureReason::SESSION_UNKNOWN, $failure->reason);
+        self::assertSame('not-a-valid-uuid', $failure->context->sessionId);
     }
 
     /**
      * A database error on a well-formed `did` propagates to the caller as a
-     * server error instead of being reported as an unknown device.
+     * server error instead of being reported as an unknown session.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testExchangePropagatesQueryExceptionDuringDeviceLookup(): void
+    public function testExchangePropagatesQueryExceptionDuringSessionLookup(): void
     {
         $failure = new QueryException('testing', 'select', [], new \PDOException('server has gone away'));
 
@@ -1413,17 +1413,17 @@ final class RefreshTokenExchangeTest extends TestCase
             ->andReturnSelf();
         $builder->shouldReceive('find')
             ->once()
-            ->with(self::DEVICE_ID)
+            ->with(self::SESSION_ID)
             ->andThrow($failure);
 
-        StubInjectableDevice::$injectedBuilder = $builder;
+        StubInjectableSession::$injectedBuilder = $builder;
 
-        config()->set('authentication.device.model', StubInjectableDevice::class);
+        config()->set('authentication.session.model', StubInjectableSession::class);
 
         $exchange = $this->makeExchange();
 
         $token = $this->encodeRefreshToken([
-            'did' => self::DEVICE_ID,
+            'did' => self::SESSION_ID,
             'jti' => 'rotation-id',
         ]);
 
@@ -1435,8 +1435,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * The exchange rejects configured device models that implement the generic
-     * `Device` contract but do not satisfy the explicit `EloquentDevice`
+     * The exchange rejects configured session models that implement the generic
+     * `Session` contract but do not satisfy the explicit `EloquentSession`
      * persistence boundary.
      *
      * @return void
@@ -1444,27 +1444,27 @@ final class RefreshTokenExchangeTest extends TestCase
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testExchangeThrowsWhenConfiguredDeviceModelDoesNotImplementEloquentDevice(): void
+    public function testExchangeThrowsWhenConfiguredSessionModelDoesNotImplementEloquentSession(): void
     {
-        config()->set('authentication.device.model', StubBareDevice::class);
+        config()->set('authentication.session.model', StubBareSession::class);
 
         $exchange = $this->makeExchange();
 
         $token = $this->encodeRefreshToken([
-            'did' => 'bare-device-1',
+            'did' => 'bare-session-1',
             'jti' => 'rotation-id',
         ]);
 
-        $this->expectException(InvalidDeviceModelConfigurationException::class);
-        $this->expectExceptionMessage(StubBareDevice::class);
+        $this->expectException(InvalidSessionModelConfigurationException::class);
+        $this->expectExceptionMessage(StubBareSession::class);
 
         $exchange->exchange($token, self::client());
     }
 
     /**
      * Once failed refreshes fill a limit, the exchange stops before looking the
-     * device up: it reports and returns `rate_limited` with the wait, and
-     * counts nothing more. The limits are asked about the token's device and
+     * session up: it reports and returns `rate_limited` with the wait, and
+     * counts nothing more. The limits are asked about the token's session and
      * the client's IP address.
      *
      * @return void
@@ -1478,7 +1478,7 @@ final class RefreshTokenExchangeTest extends TestCase
             ->once()
             ->with(\Mockery::on(static fn (AttemptSubject $subject): bool => $subject->guard === self::GUARD_NAME
                 && $subject->flow                                                            === AttemptFlow::REFRESH
-                && $subject->identifier                                                      === self::DEVICE_ID
+                && $subject->identifier                                                      === self::SESSION_ID
                 && $subject->identifierType                                                  === null
                 && $subject->ip                                                              === self::CLIENT_IP))
             ->andReturn(42);
@@ -1489,28 +1489,28 @@ final class RefreshTokenExchangeTest extends TestCase
 
         DB::connection()->enableQueryLog();
 
-        $failure = $this->makeExchange()->exchange($this->encodeRefreshToken(['did' => self::DEVICE_ID, 'jti' => self::ROTATION_ID]), self::client());
+        $failure = $this->makeExchange()->exchange($this->encodeRefreshToken(['did' => self::SESSION_ID, 'jti' => self::ROTATION_ID]), self::client());
 
         self::assertSame([], DB::connection()->getQueryLog());
         self::assertSame([], $this->dispatched);
         self::assertInstanceOf(AuthenticationFailed::class, $failure);
         self::assertSame(self::GUARD_NAME, $failure->context->guard);
         self::assertSame(FailureReason::RATE_LIMITED, $failure->reason);
-        self::assertSame(self::DEVICE_ID, $failure->context->deviceId);
+        self::assertSame(self::SESSION_ID, $failure->context->sessionId);
         self::assertSame(42, $failure->retryAfter);
     }
 
     /**
-     * Every failure is counted against the token's device and the client's IP
+     * Every failure is counted against the token's session and the client's IP
      * address before it is reported; a token that does not parse names no
-     * device, so it counts against the IP address only.
+     * session, so it counts against the IP address only.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testEveryFailureIsCountedAgainstTheDeviceAndTheIpAddress(): void
+    public function testEveryFailureIsCountedAgainstTheSessionAndTheIpAddress(): void
     {
         $counted = [];
 
@@ -1526,14 +1526,14 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $this->recordEvents();
 
-        $unknown = $this->encodeRefreshToken(['did' => self::DEVICE_ID, 'jti' => self::ROTATION_ID]);
+        $unknown = $this->encodeRefreshToken(['did' => self::SESSION_ID, 'jti' => self::ROTATION_ID]);
 
         $this->refused($this->makeExchange()->exchange($unknown, self::client()));
 
         $this->failures = [];
 
         $this->refused($this->makeExchange()->exchange('not-a-jwt', self::client()));
-        self::assertSame([self::DEVICE_ID, null], $counted);
+        self::assertSame([self::SESSION_ID, null], $counted);
         self::assertSame([FailureReason::TOKEN_INVALID], $this->failureReasons());
     }
 
@@ -1547,16 +1547,16 @@ final class RefreshTokenExchangeTest extends TestCase
      */
     public function testASuccessfulExchangeIsNotCounted(): void
     {
-        $device = $this->seedDevice(41, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
+        $session = $this->seedSession(41, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
 
         $this->expectRefreshContext(41);
         $this->limiter->shouldNotReceive('recordFailure');
 
-        self::assertInstanceOf(ExchangedRefresh::class, $this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client()));
+        self::assertInstanceOf(ExchangedRefresh::class, $this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client()));
     }
 
     /**
-     * Rows of `[guard]` a device may record other than the exchanging guard.
+     * Rows of `[guard]` a session may record other than the exchanging guard.
      *
      * @return iterable<string, array{0: ?string}>
      */
@@ -1569,7 +1569,7 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A device of another guard, or of none, fails as `device_guard_mismatch`
+     * A session of another guard, or of none, fails as `session_guard_mismatch`
      * before its rotation id is judged, so even a replayed token of it revokes
      * nothing, and its owner is never loaded.
      *
@@ -1580,27 +1580,27 @@ final class RefreshTokenExchangeTest extends TestCase
      * @throws \Random\RandomException
      */
     #[DataProvider('provideOtherGuards')]
-    public function testADeviceOfAnotherGuardIsRefusedWithoutRevokingIt(?string $guard): void
+    public function testASessionOfAnotherGuardIsRefusedWithoutRevokingIt(?string $guard): void
     {
-        $device = $this->seedDevice(42, ['guard' => $guard, 'refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
-        $before = $this->row($device);
+        $session = $this->seedSession(42, ['guard' => $guard, 'refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
+        $before  = $this->row($session);
 
         $this->provider->shouldNotReceive('retrieveById');
         $this->recordEvents();
 
-        $failure = $this->refused($this->makeExchange()->exchange($this->tokenFor($device, 'a-replayed-rotation-id'), self::client()));
+        $failure = $this->refused($this->makeExchange()->exchange($this->tokenFor($session, 'a-replayed-rotation-id'), self::client()));
 
-        self::assertSame([FailureReason::DEVICE_GUARD_MISMATCH], $this->failureReasons());
+        self::assertSame([FailureReason::SESSION_GUARD_MISMATCH], $this->failureReasons());
         self::assertSame([], $this->dispatched);
         self::assertSame(self::GUARD_NAME, $failure->context->guard);
-        self::assertSame($device->id, $failure->context->device?->getDeviceIdentifier());
-        self::assertSame($device->id, $failure->context->deviceId);
-        self::assertSame($before, $this->row($device));
+        self::assertSame($session->id, $failure->context->session?->getSessionIdentifier());
+        self::assertSame($session->id, $failure->context->sessionId);
+        self::assertSame($before, $this->row($session));
     }
 
     /**
      * The method that started the session must still be one the guard lets
-     * start its sessions; a device that records no method fails closed without
+     * start its sessions; a session that records no method fails closed without
      * asking. Neither writes anything.
      *
      * @return void
@@ -1610,8 +1610,8 @@ final class RefreshTokenExchangeTest extends TestCase
      */
     public function testTheMethodThatStartedTheSessionMustStillBeAllowed(): void
     {
-        $removed  = $this->seedDevice(43, ['sign_in_method' => 'sso', 'refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
-        $unstated = $this->seedDevice(43, ['sign_in_method' => null, 'refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
+        $removed  = $this->seedSession(43, ['sign_in_method' => 'sso', 'refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
+        $unstated = $this->seedSession(43, ['sign_in_method' => null, 'refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
         $before   = [$this->row($removed), $this->row($unstated)];
 
         $this->policy->shouldReceive('allowsMethod')->once()->with(self::GUARD_NAME, 'sso')->andReturn(false);
@@ -1637,8 +1637,8 @@ final class RefreshTokenExchangeTest extends TestCase
      */
     public function testThePolicyMustStillAdmitTheOwnerAsThePrincipal(): void
     {
-        $device   = $this->seedDevice(44, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
-        $before   = $this->row($device);
+        $session  = $this->seedSession(44, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
+        $before   = $this->row($session);
         $identity = $this->expectRefreshContext(44);
 
         $this->policy->shouldReceive('allowsMethod')->once()->with(self::GUARD_NAME, 'password')->andReturn(true);
@@ -1648,9 +1648,9 @@ final class RefreshTokenExchangeTest extends TestCase
             ->andReturn(FailureReason::IDENTIFIER_UNVERIFIED);
         $this->recordEvents();
 
-        $this->refused($this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client()));
+        $this->refused($this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client()));
         self::assertSame([FailureReason::PRINCIPAL_INELIGIBLE], $this->failureReasons());
-        self::assertSame($before, $this->row($device));
+        self::assertSame($before, $this->row($session));
     }
 
     /**
@@ -1664,7 +1664,7 @@ final class RefreshTokenExchangeTest extends TestCase
      */
     public function testARotationMovesTheIdleDeadlineByThePolicysLifetimes(): void
     {
-        $device = $this->seedDevice(45, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
+        $session = $this->seedSession(45, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
 
         $this->expectRefreshContext(45);
         $this->policy->shouldReceive('lifetimes')
@@ -1672,15 +1672,15 @@ final class RefreshTokenExchangeTest extends TestCase
             ->with(self::GUARD_NAME)
             ->andReturn(new TokenLifetimes(self::ACCESS_TTL, 45, 60 * 24 * 180, self::GRACE));
 
-        $result = $this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client());
+        $result = $this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client());
 
         self::assertInstanceOf(ExchangedRefresh::class, $result);
-        self::assertSame($this->now->getTimestamp() + (45 * 60), StubDevice::query()->findOrFail($device->id)->idle_expires_at?->getTimestamp());
+        self::assertSame($this->now->getTimestamp() + (45 * 60), StubSession::query()->findOrFail($session->id)->idle_expires_at?->getTimestamp());
         self::assertSame($this->now->getTimestamp() + (45 * 60), $this->refreshClaims($result->tokens->refreshToken)[Claims::EXPIRES_AT->value]);
     }
 
     /**
-     * Define the test environment: in-memory sqlite + stub device model +
+     * Define the test environment: in-memory sqlite + stub session model +
      * secret config.
      *
      * @param  mixed  $app
@@ -1703,8 +1703,8 @@ final class RefreshTokenExchangeTest extends TestCase
             'prefix'   => '',
         ]);
 
-        $config->set('authentication.device.model', StubDevice::class);
-        $config->set('authentication.device.table', 'stub_devices');
+        $config->set('authentication.session.model', StubSession::class);
+        $config->set('authentication.session.table', 'stub_sessions');
     }
 
     /**
@@ -1769,19 +1769,19 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Swap the configured device model so the exchange resolves the supplied
-     * in-memory device through `find()` instead of issuing a real polymorphic
-     * query. The device is reloaded first, unless told otherwise, so it carries
-     * every column, as the exchange's own lookup would.
+     * Swap the configured session model so the exchange resolves the supplied
+     * in-memory session through `find()` instead of issuing a real polymorphic
+     * query. The session is reloaded first, unless told otherwise, so it
+     * carries every column, as the exchange's own lookup would.
      *
-     * @param  \Tests\Unit\Stubs\StubDevice  $device
+     * @param  \Tests\Unit\Stubs\StubSession  $session
      * @param  bool  $reload
      * @return void
      */
-    private function swapDeviceModelToInMemoryInstance(StubDevice $device, bool $reload = true): void
+    private function swapSessionModelToInMemoryInstance(StubSession $session, bool $reload = true): void
     {
         if ($reload) {
-            $device->refresh();
+            $session->refresh();
         }
 
         $builder = \Mockery::mock(Builder::class);
@@ -1789,77 +1789,77 @@ final class RefreshTokenExchangeTest extends TestCase
             ->atLeast()->once()
             ->andReturnSelf();
         $builder->shouldReceive('find')
-            ->with($device->id)
-            ->andReturn($device);
+            ->with($session->id)
+            ->andReturn($session);
         $builder->shouldReceive('find')
             ->andReturn(null);
 
-        StubInjectableDevice::$injectedBuilder = $builder;
+        StubInjectableSession::$injectedBuilder = $builder;
 
-        config()->set('authentication.device.model', StubInjectableDevice::class);
+        config()->set('authentication.session.model', StubInjectableSession::class);
     }
 
     /**
-     * Expect the exchange's identity provider to reload the device's owner
-     * once, by the owner key stored on the device row, and answer with the
+     * Expect the exchange's identity provider to reload the session's owner
+     * once, by the owner key stored on the session row, and answer with the
      * supplied identity.
      *
-     * @param  \Tests\Unit\Stubs\StubDevice  $device
+     * @param  \Tests\Unit\Stubs\StubSession  $session
      * @param  mixed  $identity
      * @return void
      */
-    private function expectOwnerReload(StubDevice $device, mixed $identity): void
+    private function expectOwnerReload(StubSession $session, mixed $identity): void
     {
         $this->provider->shouldReceive('retrieveById')
             ->once()
-            ->with($device->getAttribute('authenticatable_id'))
+            ->with($session->getAttribute('authenticatable_id'))
             ->andReturn($identity);
     }
 
     /**
-     * Read the refresh digest stored on the device row.
+     * Read the refresh digest stored on the session row.
      *
-     * @param  string  $deviceId
+     * @param  string  $sessionId
      * @return mixed
      */
-    private function storedDigest(string $deviceId): mixed
+    private function storedDigest(string $sessionId): mixed
     {
-        return DB::table('stub_devices')->where('id', $deviceId)->value('refresh_key');
+        return DB::table('stub_sessions')->where('id', $sessionId)->value('refresh_key');
     }
 
     /**
-     * Persist a live device owned by the `StubIdentity` with the given key,
+     * Persist a live session owned by the `StubIdentity` with the given key,
      * with any further state.
      *
      * @param  int  $ownerId
      * @param  array<string, mixed>  $state
-     * @return \Tests\Unit\Stubs\StubDevice
+     * @return \Tests\Unit\Stubs\StubSession
      */
-    private function seedDevice(int $ownerId, array $state): StubDevice
+    private function seedSession(int $ownerId, array $state): StubSession
     {
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME, new PlainPrincipalFixture("p-{$ownerId}")),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => (string) $ownerId,
             ...$state,
         ])->save();
 
-        return StubDevice::query()->findOrFail($device->id);
+        return StubSession::query()->findOrFail($session->id);
     }
 
     /**
-     * Persist a live device that was rotated from `ROTATION_ID` to its
+     * Persist a live session that was rotated from `ROTATION_ID` to its
      * successor the given number of seconds ago.
      *
      * @param  int  $ownerId
      * @param  int  $rotatedSecondsAgo
      * @param  ?\Carbon\Carbon  $idle
-     * @return \Tests\Unit\Stubs\StubDevice
+     * @return \Tests\Unit\Stubs\StubSession
      */
-    private function seedRotatedDevice(int $ownerId, int $rotatedSecondsAgo, ?Carbon $idle = null): StubDevice
+    private function seedRotatedSession(int $ownerId, int $rotatedSecondsAgo, ?Carbon $idle = null): StubSession
     {
-        return $this->seedDevice($ownerId, [
+        return $this->seedSession($ownerId, [
             'refresh_key'          => RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)),
             'previous_refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID),
             'refresh_rotated_at'   => $this->now->copy()->subSeconds($rotatedSecondsAgo),
@@ -1868,37 +1868,37 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Rotate the device's row from the given rotation id to its successor, as a
-     * refresh that won a race would, optionally moving it to another owner, or
-     * to another principal as a switch that won would.
+     * Rotate the session's row from the given rotation id to its successor, as
+     * a refresh that won a race would, optionally moving it to another owner,
+     * or to another principal as a switch that won would.
      *
-     * @param  \Tests\Unit\Stubs\StubDevice  $device
+     * @param  \Tests\Unit\Stubs\StubSession  $session
      * @param  string  $rotationId
      * @param  ?string  $ownerId
      * @param  ?string  $principalId
      * @return void
      */
-    private function rotateOnTheRow(StubDevice $device, string $rotationId, ?string $ownerId = null, ?string $principalId = null): void
+    private function rotateOnTheRow(StubSession $session, string $rotationId, ?string $ownerId = null, ?string $principalId = null): void
     {
-        DB::table('stub_devices')->where('id', $device->id)->update([
+        DB::table('stub_sessions')->where('id', $session->id)->update([
             'refresh_key'          => RefreshTokenHasher::hash(RefreshTokenHasher::successor($rotationId)),
             'previous_refresh_key' => RefreshTokenHasher::hash($rotationId),
             'refresh_rotated_at'   => $this->now,
-            'authenticatable_id'   => $ownerId     ?? $device->getAttribute('authenticatable_id'),
-            'principal_id'         => $principalId ?? $device->getAttribute('principal_id'),
+            'authenticatable_id'   => $ownerId     ?? $session->getAttribute('authenticatable_id'),
+            'principal_id'         => $principalId ?? $session->getAttribute('principal_id'),
         ]);
     }
 
     /**
-     * Commit the named competing change to the device's row.
+     * Commit the named competing change to the session's row.
      *
      * @param  string  $change
-     * @param  \Tests\Unit\Stubs\StubDevice  $device
+     * @param  \Tests\Unit\Stubs\StubSession  $session
      * @return void
      */
-    private function compete(string $change, StubDevice $device): void
+    private function compete(string $change, StubSession $session): void
     {
-        $row = DB::table('stub_devices')->where('id', $device->id);
+        $row = DB::table('stub_sessions')->where('id', $session->id);
 
         match ($change) {
             'revoked'   => $row->update(['revoked_at' => $this->now, 'revoked_reason' => 'elsewhere']),
@@ -1907,8 +1907,8 @@ final class RefreshTokenExchangeTest extends TestCase
             'cleared'   => $row->update(['refresh_key' => null]),
             'shortened' => $row->update(['absolute_expires_at' => $this->now->copy()->addDay()]),
             'extended'  => $row->update(['idle_expires_at' => $this->now->copy()->addDays(91)]),
-            'switched'  => $this->rotateOnTheRow($device, self::ROTATION_ID, principalId: 'p-switched'),
-            default     => $this->rotateOnTheRow($device, self::ROTATION_ID, '43'),
+            'switched'  => $this->rotateOnTheRow($session, self::ROTATION_ID, principalId: 'p-switched'),
+            default     => $this->rotateOnTheRow($session, self::ROTATION_ID, '43'),
         };
     }
 
@@ -1935,8 +1935,9 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Expect the device's owner to be reloaded and a principal resolved for it,
-     * with or without the token's principal hint, the given number of times.
+     * Expect the session's owner to be reloaded and a principal resolved for
+     * it, with or without the token's principal hint, the given number of
+     * times.
      *
      * @param  int  $ownerId
      * @param  int  $times
@@ -2001,14 +2002,14 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Assert the device was revoked for a replay, once, with both events.
+     * Assert the session was revoked for a replay, once, with both events.
      *
-     * @param  \Tests\Unit\Stubs\StubDevice  $device
+     * @param  \Tests\Unit\Stubs\StubSession  $session
      * @return void
      */
-    private function assertRevokedForReuse(StubDevice $device): void
+    private function assertRevokedForReuse(StubSession $session): void
     {
-        $row = $this->row($device);
+        $row = $this->row($session);
 
         self::assertNotNull($row['revoked_at']);
         self::assertSame('rotation_reuse', $row['revoked_reason']);
@@ -2016,43 +2017,43 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertNull($row['previous_refresh_key']);
         self::assertSame([FailureReason::ROTATION_REUSE], $this->failureReasons());
 
-        $revocations = array_values(array_filter($this->dispatched, static fn (object $event): bool => $event instanceof DeviceRevoked));
+        $revocations = array_values(array_filter($this->dispatched, static fn (object $event): bool => $event instanceof SessionRevoked));
 
         self::assertCount(1, $revocations);
         self::assertSame(RevocationReason::ROTATION_REUSE, $revocations[0]->reason);
-        self::assertSame($device->id, $revocations[0]->context->device?->getDeviceIdentifier());
-        self::assertSame($device->id, $revocations[0]->context->deviceId);
+        self::assertSame($session->id, $revocations[0]->context->session?->getSessionIdentifier());
+        self::assertSame($session->id, $revocations[0]->context->sessionId);
         self::assertNull($revocations[0]->context->identity);
 
         foreach ([$revocations[0]->context, $this->failures[0]->context] as $context) {
-            self::assertSame($device->getAttribute('authenticatable_id'), $context->identityId);
+            self::assertSame($session->getAttribute('authenticatable_id'), $context->identityId);
             self::assertSame(PlainPrincipalFixture::class, $context->principalMorphClass);
-            self::assertSame($device->getAttribute('principal_id'), $context->principalId);
+            self::assertSame($session->getAttribute('principal_id'), $context->principalId);
         }
     }
 
     /**
-     * Read a device's raw row.
+     * Read a session's raw row.
      *
-     * @param  \Tests\Unit\Stubs\StubDevice  $device
+     * @param  \Tests\Unit\Stubs\StubSession  $session
      * @return array<string, mixed>
      */
-    private function row(StubDevice $device): array
+    private function row(StubSession $session): array
     {
-        return (array) DB::table('stub_devices')->where('id', $device->id)->first();
+        return (array) DB::table('stub_sessions')->where('id', $session->id)->first();
     }
 
     /**
-     * A refresh token for the device with the given rotation id.
+     * A refresh token for the session with the given rotation id.
      *
-     * @param  \Tests\Unit\Stubs\StubDevice  $device
+     * @param  \Tests\Unit\Stubs\StubSession  $session
      * @param  string  $rotationId
      * @return string
      */
-    private function tokenFor(StubDevice $device, string $rotationId): string
+    private function tokenFor(StubSession $session, string $rotationId): string
     {
         return $this->encodeRefreshToken([
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $rotationId,
         ]);
     }

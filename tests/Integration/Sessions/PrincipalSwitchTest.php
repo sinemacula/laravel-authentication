@@ -14,10 +14,10 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
@@ -31,10 +31,10 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
 /**
- * Integration tests of a switch of principal racing other writes to its device,
- * against a real database: the switch's compare-and-swap misses whenever the
- * row changed after it was read, and the row is then judged once more, under a
- * lock, without a second swap.
+ * Integration tests of a switch of principal racing other writes to its
+ * session, against a real database: the switch's compare-and-swap misses
+ * whenever the row changed after it was read, and the row is then judged once
+ * more, under a lock, without a second swap.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -110,7 +110,7 @@ final class PrincipalSwitchTest extends TestCase
             $refreshed = self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken)->session?->tokens;
         });
 
-        $this->recordEvents([PrincipalSwitched::class, DeviceRevoked::class]);
+        $this->recordEvents([PrincipalSwitched::class, SessionRevoked::class]);
 
         $result = $this->switch($session, $second);
 
@@ -118,7 +118,7 @@ final class PrincipalSwitchTest extends TestCase
         self::assertSame(FailureReason::ROTATION_CONFLICT, $result->reason);
         self::assertSame([], $this->recordedClasses());
 
-        $row = DB::table('devices')->sole();
+        $row = DB::table('authentication_sessions')->sole();
 
         self::assertSame((string) $first->getKey(), (string) $row->principal_id); // @phpstan-ignore cast.string
         self::assertNull($row->principal_switched_at);
@@ -126,8 +126,8 @@ final class PrincipalSwitchTest extends TestCase
     }
 
     /**
-     * A switch that loses its swap to a revocation of the device fails as
-     * `device_revoked` and leaves the revocation in place.
+     * A switch that loses its swap to a revocation of the session fails as
+     * `session_revoked` and leaves the revocation in place.
      *
      * @return void
      *
@@ -140,12 +140,14 @@ final class PrincipalSwitchTest extends TestCase
         $session = $this->signIn();
 
         $this->beforeTheSwap(static function (): void {
-            DB::table('devices')->update(['revoked_at' => CarbonImmutable::now(), 'revoked_reason' => 'revoked', 'refresh_key' => null, 'previous_refresh_key' => null]);
+            $revoked = ['revoked_at' => CarbonImmutable::now(), 'revoked_reason' => 'revoked', 'refresh_key' => null, 'previous_refresh_key' => null];
+
+            DB::table('authentication_sessions')->update($revoked);
         });
 
-        self::assertSame(FailureReason::DEVICE_REVOKED, $this->switch($session, $second)->reason);
-        self::assertSame('revoked', DB::table('devices')->value('revoked_reason'));
-        self::assertNull(DB::table('devices')->value('principal_switched_at'));
+        self::assertSame(FailureReason::SESSION_REVOKED, $this->switch($session, $second)->reason);
+        self::assertSame('revoked', DB::table('authentication_sessions')->value('revoked_reason'));
+        self::assertNull(DB::table('authentication_sessions')->value('principal_switched_at'));
     }
 
     /**
@@ -180,7 +182,7 @@ final class PrincipalSwitchTest extends TestCase
         self::assertTrue($loser->isSwitched());
         self::assertTrue($loser->session?->principal->is($second)); // @phpstan-ignore method.notFound
         self::assertSame([PrincipalSwitched::class], $this->recordedClasses());
-        self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify(DB::table('devices')->value('principal_id')));
+        self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify(DB::table('authentication_sessions')->value('principal_id')));
     }
 
     /**
@@ -207,13 +209,13 @@ final class PrincipalSwitchTest extends TestCase
         });
 
         self::assertSame(FailureReason::ROTATION_CONFLICT, $this->switch($session, $third)->reason);
-        self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify(DB::table('devices')->value('principal_id')));
+        self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify(DB::table('authentication_sessions')->value('principal_id')));
     }
 
     /**
      * A switch whose swap misses while its token is still the current one (the
-     * deadlines moved under it) is a conflict, and one whose device was deleted
-     * under it fails as `device_unknown`.
+     * deadlines moved under it) is a conflict, and one whose session was
+     * deleted under it fails as `session_unknown`.
      *
      * @return void
      *
@@ -226,16 +228,16 @@ final class PrincipalSwitchTest extends TestCase
         $session = $this->signIn();
 
         $this->beforeTheSwap(function (): void {
-            DB::table('devices')->update(['idle_expires_at' => $this->now->addDay()]);
+            DB::table('authentication_sessions')->update(['idle_expires_at' => $this->now->addDay()]);
         });
 
         self::assertSame(FailureReason::ROTATION_CONFLICT, $this->switch($session, $second)->reason);
 
         $this->beforeTheSwap(static function (): void {
-            DB::table('devices')->delete();
+            DB::table('authentication_sessions')->delete();
         });
 
-        self::assertSame(FailureReason::DEVICE_UNKNOWN, $this->switch($session, $second)->reason);
+        self::assertSame(FailureReason::SESSION_UNKNOWN, $this->switch($session, $second)->reason);
     }
 
     /**
@@ -254,14 +256,14 @@ final class PrincipalSwitchTest extends TestCase
         $session = $this->signIn();
 
         $this->beforeTheSwap(function (): void {
-            DB::table('devices')->update(['idle_expires_at' => $this->now->addDay()]);
+            DB::table('authentication_sessions')->update(['idle_expires_at' => $this->now->addDay()]);
         });
 
         self::assertSame(FailureReason::ROTATION_CONFLICT, $this->switch($session, $first)->reason);
     }
 
     /**
-     * A switch that loses its swap to the same switch, after which the device
+     * A switch that loses its swap to the same switch, after which the session
      * passed to another identity, is refused as `identity_unknown`.
      *
      * @return void
@@ -281,7 +283,7 @@ final class PrincipalSwitchTest extends TestCase
         $this->beforeTheSwap(function () use ($session, $second, $other): void {
             self::assertTrue($this->switch($session, $second)->isSwitched());
 
-            DB::table('devices')->update(['authenticatable_id' => IdentifierCoercion::stringify($other->getKey())]);
+            DB::table('authentication_sessions')->update(['authenticatable_id' => IdentifierCoercion::stringify($other->getKey())]);
         });
 
         self::assertSame(FailureReason::IDENTITY_UNKNOWN, $this->switch($session, $second)->reason);
@@ -308,20 +310,20 @@ final class PrincipalSwitchTest extends TestCase
         ActivatableTenant::query()->whereKey($second->tenant_id)->update(['is_active' => false]);
 
         self::assertSame(FailureReason::TENANT_INACTIVE, $this->switch($session, $second)->reason);
-        self::assertNull(DB::table('devices')->value('revoked_at'));
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
     }
 
     /**
      * A switch that loses its swap to a refresh of the same token, with the
      * grace window off, finds its token replayed when it judges the row again:
-     * the device is revoked as `rotation_reuse`, as a refresh revokes it, and
-     * `DeviceRevoked` is reported once the caller's transaction commits.
+     * the session is revoked as `rotation_reuse`, as a refresh revokes it, and
+     * `SessionRevoked` is reported once the caller's transaction commits.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testALostSwapToARefreshWithoutAGraceWindowRevokesTheDevice(): void
+    public function testALostSwapToARefreshWithoutAGraceWindowRevokesTheSession(): void
     {
         config()->set('auth.guards.' . self::GUARD . '.jwt.refresh_grace_seconds', 0);
 
@@ -337,19 +339,19 @@ final class PrincipalSwitchTest extends TestCase
             $refreshed[] = self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken)->session?->tokens;
         });
 
-        $this->assertALostSwapRevokesTheDevice($session, $second, $refreshed);
+        $this->assertALostSwapRevokesTheSession($session, $second, $refreshed);
     }
 
     /**
      * A switch that loses its swap to two refreshes in a row finds its token
-     * two rotations old, which no grace window honours: the device is revoked
+     * two rotations old, which no grace window honours: the session is revoked
      * as `rotation_reuse`.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testALostSwapToTwoRotationsRevokesTheDevice(): void
+    public function testALostSwapToTwoRotationsRevokesTheSession(): void
     {
         [, $second] = $this->seedMemberships();
 
@@ -368,7 +370,7 @@ final class PrincipalSwitchTest extends TestCase
             $refreshed[] = self::sessionsOf($this->freshGuard(self::GUARD))->refresh($first->refreshToken)->session?->tokens;
         });
 
-        $this->assertALostSwapRevokesTheDevice($session, $second, $refreshed);
+        $this->assertALostSwapRevokesTheSession($session, $second, $refreshed);
     }
 
     /**
@@ -443,7 +445,7 @@ final class PrincipalSwitchTest extends TestCase
 
     /**
      * Run the switch inside a transaction and assert that, losing its swap to
-     * the given refreshes, it revoked the device as a replay: `DeviceRevoked`
+     * the given refreshes, it revoked the session as a replay: `SessionRevoked`
      * only once committed, both digests cleared, nothing switched, and every
      * token of the session refused at the `auth` middleware and by a refresh.
      *
@@ -454,9 +456,9 @@ final class PrincipalSwitchTest extends TestCase
      *
      * @throws \Throwable
      */
-    private function assertALostSwapRevokesTheDevice(SignedInSession $session, ActivatableTenantMembership $target, array &$refreshed): void
+    private function assertALostSwapRevokesTheSession(SignedInSession $session, ActivatableTenantMembership $target, array &$refreshed): void
     {
-        $this->recordEvents([PrincipalSwitched::class, DeviceRevoked::class]);
+        $this->recordEvents([PrincipalSwitched::class, SessionRevoked::class]);
 
         $result = DB::transaction(function () use ($session, $target): SwitchResult {
 
@@ -468,10 +470,10 @@ final class PrincipalSwitchTest extends TestCase
         });
 
         self::assertSame(FailureReason::ROTATION_REUSE, $result->reason);
-        self::assertSame([DeviceRevoked::class], $this->recordedClasses());
-        self::assertSame(RevocationReason::ROTATION_REUSE, $this->recordedEvent(DeviceRevoked::class)->reason);
+        self::assertSame([SessionRevoked::class], $this->recordedClasses());
+        self::assertSame(RevocationReason::ROTATION_REUSE, $this->recordedEvent(SessionRevoked::class)->reason);
 
-        $row = DB::table('devices')->sole();
+        $row = DB::table('authentication_sessions')->sole();
 
         self::assertSame('rotation_reuse', $row->revoked_reason);
         self::assertNotNull($row->revoked_at);

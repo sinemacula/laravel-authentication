@@ -20,7 +20,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRequests;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeRequestStatus;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
@@ -33,8 +33,9 @@ use Tests\TestCase;
 
 /**
  * Feature tests for the recent authentication a change of identifier asks for:
- * when a device, a password or a confirmation time proves it, within the window
- * and from its first second to its last, and what a refusal reports and counts.
+ * when a session, a password or a confirmation time proves it, within the
+ * window and from its first second to its last, and what a refusal reports and
+ * counts.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -113,19 +114,19 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * A device is recent when, as stored, it signed in within the window.
+     * A session is recent when, as stored, it signed in within the window.
      *
      * @param  int  $ago
      * @param  bool  $recent
      * @return void
      */
     #[DataProvider('provideTimes')]
-    public function testADeviceIsRecentWhenItSignedInWithinTheWindow(int $ago, bool $recent): void
+    public function testASessionIsRecentWhenItSignedInWithinTheWindow(int $ago, bool $recent): void
     {
         $identity = self::seedChangeable();
-        $device   = self::seedDevice($identity, 'web', $this->now->subSeconds($ago));
+        $record   = self::seedSession($identity, 'web', $this->now->subSeconds($ago));
 
-        self::assertSame($recent ? null : FailureReason::REAUTHENTICATION_REQUIRED, $this->check()->refusal($identity, Reauthentication::device($device), null));
+        self::assertSame($recent ? null : FailureReason::REAUTHENTICATION_REQUIRED, $this->check()->refusal($identity, Reauthentication::session($record), null));
     }
 
     /**
@@ -157,9 +158,9 @@ final class RecentAuthenticationTest extends TestCase
 
     /**
      * A proof accepted before the transaction stands under the lock as the rows
-     * read then: a device while it is still a live session (read with its row
-     * locked), a password while the locked row holds the hash read before it
-     * was checked, and a confirmation time always; nothing is counted.
+     * read then: a session while it is still live (read with its row locked), a
+     * password while the locked row holds the hash read before it was checked,
+     * and a confirmation time always; nothing is counted.
      *
      * @return void
      *
@@ -168,19 +169,19 @@ final class RecentAuthenticationTest extends TestCase
     public function testAnAcceptedProofStandsWhileItsRowsAreAsTheyWere(): void
     {
         $identity = self::seedChangeable();
-        $device   = self::seedDevice($identity);
+        $record   = self::seedSession($identity);
         $check    = $this->check();
         $before   = ChangeableIdentity::query()->sole();
         $password = Reauthentication::password(self::PASSWORD);
 
-        self::assertTrue($check->stands($before, ChangeableIdentity::query()->sole(), Reauthentication::device($device)));
+        self::assertTrue($check->stands($before, ChangeableIdentity::query()->sole(), Reauthentication::session($record)));
         self::assertTrue($check->stands($before, ChangeableIdentity::query()->sole(), $password));
         self::assertTrue($check->stands($before, ChangeableIdentity::query()->sole(), Reauthentication::confirmedAt($this->now->subYear())));
 
-        DB::table('devices')->update(['revoked_at' => '2026-04-06 11:59:00']);
+        DB::table('authentication_sessions')->update(['revoked_at' => '2026-04-06 11:59:00']);
         DB::table('changeable_identities')->update(['password' => app(Hasher::class)->make(self::PASSWORD)]);
 
-        self::assertFalse($check->stands($before, ChangeableIdentity::query()->sole(), Reauthentication::device($device)));
+        self::assertFalse($check->stands($before, ChangeableIdentity::query()->sole(), Reauthentication::session($record)));
         self::assertFalse($check->stands($before, ChangeableIdentity::query()->sole(), $password));
 
         DB::table('changeable_identities')->update(['password' => null]);
@@ -193,50 +194,50 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * A device proves nothing when, as stored, it is another identity's, of
+     * A session proves nothing when, as stored, it is another identity's, of
      * another guard, revoked, past its deadlines or gone, whatever the instance
      * given says.
      *
      * @return void
      */
-    public function testADeviceThatIsNotALiveSessionOfTheIdentityProvesNothing(): void
+    public function testASessionThatIsNotALiveSessionOfTheIdentityProvesNothing(): void
     {
         $identity = self::seedChangeable();
         $other    = self::seedChangeable('other@example.test');
         $check    = $this->check();
         $refused  = FailureReason::REAUTHENTICATION_REQUIRED;
 
-        self::assertSame($refused, $check->refusal($identity, Reauthentication::device(self::seedDevice($other)), null));
-        self::assertSame($refused, $check->refusal($identity, Reauthentication::device(self::seedDevice($identity, 'admin')), null));
+        self::assertSame($refused, $check->refusal($identity, Reauthentication::session(self::seedSession($other)), null));
+        self::assertSame($refused, $check->refusal($identity, Reauthentication::session(self::seedSession($identity, 'admin')), null));
 
-        $revoked = self::seedDevice($identity);
+        $revoked = self::seedSession($identity);
 
-        DB::table('devices')->where('id', $revoked->getKey())->update(['revoked_at' => '2026-04-06 11:59:00']);
+        DB::table('authentication_sessions')->where('id', $revoked->getKey())->update(['revoked_at' => '2026-04-06 11:59:00']);
 
-        self::assertSame($refused, $check->refusal($identity, Reauthentication::device($revoked), null));
+        self::assertSame($refused, $check->refusal($identity, Reauthentication::session($revoked), null));
 
-        $ended = self::seedDevice($identity);
+        $ended = self::seedSession($identity);
 
-        DB::table('devices')->where('id', $ended->getKey())->update(['idle_expires_at' => '2026-04-06 12:00:00']);
+        DB::table('authentication_sessions')->where('id', $ended->getKey())->update(['idle_expires_at' => '2026-04-06 12:00:00']);
 
-        self::assertSame($refused, $check->refusal($identity, Reauthentication::device($ended), null));
+        self::assertSame($refused, $check->refusal($identity, Reauthentication::session($ended), null));
 
-        $stale = self::seedDevice($identity);
+        $stale = self::seedSession($identity);
 
-        DB::table('devices')->where('id', $stale->getKey())->update(['signed_in_at' => '2026-04-06 11:00:00']);
+        DB::table('authentication_sessions')->where('id', $stale->getKey())->update(['signed_in_at' => '2026-04-06 11:00:00']);
 
-        self::assertSame($refused, $check->refusal($identity, Reauthentication::device($stale), null));
+        self::assertSame($refused, $check->refusal($identity, Reauthentication::session($stale), null));
 
-        $gone = self::seedDevice($identity);
+        $gone = self::seedSession($identity);
 
         $gone->delete();
 
-        self::assertSame($refused, $check->refusal($identity, Reauthentication::device($gone), null));
-        self::assertSame($refused, $check->refusal($identity, Reauthentication::device(new Device), null));
+        self::assertSame($refused, $check->refusal($identity, Reauthentication::session($gone), null));
+        self::assertSame($refused, $check->refusal($identity, Reauthentication::session(new Session), null));
     }
 
     /**
-     * A refresh does not renew a session's sign-in, so a device signed in long
+     * A refresh does not renew a session's sign-in, so a session signed in long
      * ago proves nothing however recently it refreshed; signing in again on the
      * same client does.
      *
@@ -255,15 +256,15 @@ final class RecentAuthenticationTest extends TestCase
 
         self::assertNotNull(self::sessionsOf($this->freshGuard('web'))->refresh($session->tokens->refreshToken)->session);
 
-        $refreshed = Device::query()->findOrFail($session->device->getKey());
+        $refreshed = Session::query()->findOrFail($session->record->getKey());
         $check     = new RecentAuthentication($this->guardContext(), $this->app, 900, CarbonImmutable::now());
 
-        self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $check->refusal($identity, Reauthentication::device($refreshed), null));
+        self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $check->refusal($identity, Reauthentication::session($refreshed), null));
 
         $again = $this->sessions('web')->signIn('password', self::credentials(self::EMAIL))->session;
 
         self::assertNotNull($again);
-        self::assertNull($check->refusal($identity, Reauthentication::device($again->device), null));
+        self::assertNull($check->refusal($identity, Reauthentication::session($again->record), null));
     }
 
     /**

@@ -18,10 +18,10 @@ use SineMacula\Laravel\Authentication\Console\ApplicationChecks;
 use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
 use SineMacula\Laravel\Authentication\Console\PasswordChecks;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
-use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Passwords\NotifyingResetLinkSender;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
@@ -29,13 +29,13 @@ use SineMacula\Laravel\Authentication\Testing\FakePasswordResetLinkSender;
 use Tests\Fixtures\Sessions\RefusingApplicationPolicy;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\MachineClient;
-use Tests\Integration\Fixtures\SeparateConnectionDevice;
+use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 use Tests\Unit\Stubs\StubReplacementPrincipalResolver;
 
 /**
  * Feature tests for `authentication:check`: it resolves each `jwt` and
- * `api_key` guard's settings and the device model as the package would, lists
+ * `api_key` guard's settings and the session model as the package would, lists
  * every problem it finds as `[<guard>] <message>`, exits `1` when there is one
  * and `0` when there is none, and reads configuration only.
  *
@@ -52,13 +52,13 @@ final class CheckConfigurationCommandTest extends TestCase
     /** @var string A signing secret long enough for HS256. */
     private const string SECRET = 'a-signing-secret-of-at-least-32-bytes!!';
 
-    /** @var list<string> What a run prints for the package-wide settings but the device model when none has a problem. */
-    private const array DEVICELESS_OK = ['[storage] OK', ...self::SHARED_OK];
+    /** @var list<string> What a run prints for the package-wide settings but the session model when none has a problem. */
+    private const array SESSIONLESS_OK = ['[storage] OK', ...self::SHARED_OK];
 
     /** @var list<string> What a run prints for the package-wide settings when none has a problem and a `jwt` guard is configured. */
-    private const array PACKAGE_OK = ['[storage] OK', '[device] OK', ...self::SHARED_OK];
+    private const array PACKAGE_OK = ['[storage] OK', '[session] OK', ...self::SHARED_OK];
 
-    /** @var list<string> What a run prints for the package-wide settings after the storage and device checks. */
+    /** @var list<string> What a run prints for the package-wide settings after the storage and session checks. */
     private const array SHARED_OK = ['[sign_in] OK', '[passwords] OK', '[codes] OK', '[delivery] OK', '[passkeys] OK', '[api_keys] OK', '[identifier_changes] OK'];
 
     /** @var string What a run prints for the `machine` guard when its application does not allow `api_key`. */
@@ -70,7 +70,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
     /**
      * A configuration without problems passes, says so for each guard and the
-     * device model, ignores guards of other drivers, and opens no database
+     * session model, ignores guards of other drivers, and opens no database
      * connection.
      *
      * @return void
@@ -182,17 +182,17 @@ final class CheckConfigurationCommandTest extends TestCase
             ['authentication.rate_limits.connection' => 'counters'],
             '[storage] The connection [counters] the package\'s tables are to live on is not configured in `database.connections`.',
         ];
-        yield 'a device model off the storage connection' => [
-            ['authentication.device.model' => SeparateConnectionDevice::class],
-            '[device] authentication.device.model [' . SeparateConnectionDevice::class . '] must live on the storage connection',
+        yield 'a session model off the storage connection' => [
+            ['authentication.session.model' => SeparateConnectionSession::class],
+            '[session] authentication.session.model [' . SeparateConnectionSession::class . '] must live on the storage connection',
         ];
-        yield 'a device model that is not one' => [
-            ['authentication.device.model' => \stdClass::class],
-            '[device] authentication.device.model must be a non-empty class-string of an Eloquent model',
+        yield 'a session model that is not one' => [
+            ['authentication.session.model' => \stdClass::class],
+            '[session] authentication.session.model must be a non-empty class-string of an Eloquent model',
         ];
         yield 'a pruning retention out of range' => [
-            ['authentication.device.prune_after_days' => 3651],
-            '[device] authentication.device.prune_after_days must be an integer from 0 to 3650.',
+            ['authentication.session.prune_after_days' => 3651],
+            '[session] authentication.session.prune_after_days must be an integer from 0 to 3650.',
         ];
         yield 'a pending sign-in lifetime out of range' => [
             ['authentication.sign_in.pending_ttl_seconds' => 5],
@@ -329,8 +329,8 @@ final class CheckConfigurationCommandTest extends TestCase
         config()->set([
             'auth.guards.api.application'                => ['methods' => null],
             'auth.guards.api.refresh_token'              => ['header' => ''],
-            'authentication.device.model'                => '',
-            'authentication.device.prune_after_days'     => -1,
+            'authentication.session.model'               => '',
+            'authentication.session.prune_after_days'    => -1,
             'authentication.sign_in.pending_ttl_seconds' => 'soon',
         ]);
 
@@ -344,8 +344,8 @@ final class CheckConfigurationCommandTest extends TestCase
             '[identifier_changes] OK',
             '[admin] OK',
             '[machine] OK',
-            '[device] authentication.device.model must be a non-empty class-string of an Eloquent model implementing [' . EloquentDevice::class . ']; got [(empty string)].',
-            '[device] authentication.device.prune_after_days must be an integer from 0 to 3650.',
+            '[session] authentication.session.model must be a non-empty class-string of an Eloquent model implementing [' . EloquentSession::class . ']; got [(empty string)].',
+            '[session] authentication.session.prune_after_days must be an integer from 0 to 3650.',
             '[sign_in] authentication.sign_in.pending_ttl_seconds must be an integer from 30 to 3600.',
             '[api] Application `methods` for guard [api] must be a list of lower-case sign-in method names: set `authentication.application.methods` '
                 . 'or the guard\'s `application.methods` override.',
@@ -450,7 +450,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
         config()->set('auth.guards', ['machine' => config('auth.guards.machine')]);
 
-        self::assertSame([0, [...self::DEVICELESS_OK, '[machine] OK']], $this->check());
+        self::assertSame([0, [...self::SESSIONLESS_OK, '[machine] OK']], $this->check());
     }
 
     /**
@@ -503,7 +503,7 @@ final class CheckConfigurationCommandTest extends TestCase
         self::assertSame(1, $code);
         self::assertSame([
             '[storage] OK',
-            '[device] OK',
+            '[session] OK',
             '[sign_in] OK',
             '[passwords] OK',
             '[passkeys] OK',
@@ -548,7 +548,7 @@ final class CheckConfigurationCommandTest extends TestCase
         self::assertSame(1, $code);
         self::assertSame([
             '[storage] OK',
-            '[device] OK',
+            '[session] OK',
             '[sign_in] OK',
             '[passwords] OK',
             '[codes] OK',
@@ -564,7 +564,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
     /**
      * Without `jwt` guards there is nothing to check but the package-wide
-     * settings, the device model's aside, and the command says so and passes.
+     * settings, the session model's aside, and the command says so and passes.
      *
      * @return void
      */
@@ -575,26 +575,26 @@ final class CheckConfigurationCommandTest extends TestCase
         [$code, $output] = $this->check();
 
         self::assertSame(0, $code);
-        self::assertSame(['No jwt or api_key guards are configured.', ...self::DEVICELESS_OK], $output);
+        self::assertSame(['No jwt or api_key guards are configured.', ...self::SESSIONLESS_OK], $output);
 
         config()->set('auth.guards', null);
 
-        self::assertSame([0, ['No jwt or api_key guards are configured.', ...self::DEVICELESS_OK]], $this->check());
+        self::assertSame([0, ['No jwt or api_key guards are configured.', ...self::SESSIONLESS_OK]], $this->check());
     }
 
     /**
-     * With only `api_key` guards, which keep no device sessions, the device
-     * model is not checked: a configuration the `api_key` guard accepts, with
-     * no device model at all, passes.
+     * With only `api_key` guards, which keep no sessions, the session model is
+     * not checked: a configuration the `api_key` guard accepts, with no session
+     * model at all, passes.
      *
      * @return void
      */
-    public function testOnlyApiKeyGuardsLeaveTheDeviceModelUnchecked(): void
+    public function testOnlyApiKeyGuardsLeaveTheSessionModelUnchecked(): void
     {
         config()->set('auth.guards', ['machine' => config('auth.guards.machine')]);
-        config()->set('authentication.device.model', '');
+        config()->set('authentication.session.model', '');
 
-        self::assertSame([0, [...self::DEVICELESS_OK, '[machine] OK']], $this->check());
+        self::assertSame([0, [...self::SESSIONLESS_OK, '[machine] OK']], $this->check());
 
         config()->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'users', 'application' => ['methods' => ['password']]]);
 
@@ -602,7 +602,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
         self::assertSame(1, $code);
         self::assertContains('[machine] OK', $output);
-        self::assertNotEmpty(array_filter($output, static fn (string $line): bool => str_starts_with($line, '[device] authentication.device.model must be')));
+        self::assertNotEmpty(array_filter($output, static fn (string $line): bool => str_starts_with($line, '[session] authentication.session.model must be')));
     }
 
     /**
@@ -720,7 +720,7 @@ final class CheckConfigurationCommandTest extends TestCase
     {
         $problem = static fn (string $guard, string $message): string => "[codes] Guard [{$guard}]'s application policy could not say"
             . " whether it allows a code sign-in method: {$message}";
-        $before = ['[storage] OK', '[device] OK', '[sign_in] OK', '[passwords] OK', '[delivery] OK', '[passkeys] OK', '[api_keys] OK', '[identifier_changes] OK'];
+        $before = ['[storage] OK', '[session] OK', '[sign_in] OK', '[passwords] OK', '[delivery] OK', '[passkeys] OK', '[api_keys] OK', '[identifier_changes] OK'];
 
         foreach ([new \InvalidArgumentException('Unreadable `phone_code` setting.'), new \RuntimeException('Policy store down.')] as $exception) {
 
@@ -777,7 +777,7 @@ final class CheckConfigurationCommandTest extends TestCase
             . ' guard [admin] must be a list of lower-case sign-in method names: set `authentication.application.methods` or the guard\'s'
             . ' `application.methods` override.';
 
-        $before = ['[storage] OK', '[device] OK', '[sign_in] OK', '[passwords] OK', '[delivery] OK', '[passkeys] OK', '[api_keys] OK', '[identifier_changes] OK'];
+        $before = ['[storage] OK', '[session] OK', '[sign_in] OK', '[passwords] OK', '[delivery] OK', '[passkeys] OK', '[api_keys] OK', '[identifier_changes] OK'];
 
         self::assertSame([1, [...$before, '[machine] OK', $problem]], $this->check(['--guard' => ['machine']]));
     }
@@ -988,12 +988,12 @@ final class CheckConfigurationCommandTest extends TestCase
      */
     public function testResetsAcrossConnectionsAreAWarning(): void
     {
-        config()->set('database.connections.device_store', ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
-        config()->set('authentication.storage.connection', SeparateConnectionDevice::CONNECTION);
+        config()->set('database.connections.session_store', ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
+        config()->set('authentication.storage.connection', SeparateConnectionSession::CONNECTION);
 
         $warning = static fn (string $guard): string => "[{$guard}] Password resets and identifier changes spend their proof with their change to the identity "
             . 'in one transaction, so ' . IntegrationIdentity::class
-            . ' must be on the storage connection (`authentication.storage.connection`): the identity is on [unreachable], the package\'s tables on [device_store].';
+            . ' must be on the storage connection (`authentication.storage.connection`): the identity is on [unreachable], the package\'s tables on [session_store].';
 
         [$code, $output] = $this->check();
 
@@ -1066,7 +1066,7 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * Configure the guards, the keys and the device model, and a database
+     * Configure the guards, the keys and the session model, and a database
      * connection that fails if opened.
      *
      * @param  mixed  $app
@@ -1084,7 +1084,7 @@ final class CheckConfigurationCommandTest extends TestCase
         $config->set('app.key', 'base64:' . base64_encode('laravel-authentication test key!'));
         $config->set('database.default', 'unreachable');
         $config->set('database.connections.unreachable', ['driver' => 'sqlite', 'database' => '/nonexistent/directory/database.sqlite', 'prefix' => '']);
-        $config->set('authentication.device.model', Device::class);
+        $config->set('authentication.session.model', Session::class);
         $config->set('authentication.jwt.keys', ['kid' => self::SECRET]);
         $config->set('authentication.jwt.active_kid', 'kid');
         $config->set('auth.providers.users', ['driver' => 'model', 'model' => IntegrationIdentity::class]);

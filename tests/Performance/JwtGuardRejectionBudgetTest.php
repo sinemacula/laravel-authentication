@@ -20,8 +20,8 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Concerns\InteractsWithDevices;
+use SineMacula\Laravel\Authentication\Models\Session;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 
@@ -29,7 +29,7 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
  * Query-budget and timing contracts for rejected bearer and refresh tokens: a
  * request whose token fails after a lookup is resolved once however often the
  * guard is asked, a bearer token for another guard or missing a required claim
- * is rejected before any query, and such a refresh token before any device or
+ * is rejected before any query, and such a refresh token before any session or
  * identity query, touching only the IP address's refresh limit.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -42,7 +42,7 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 #[CoversClass(RefreshTokenExchange::class)]
 final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
     /** @var string Guard under test. */
     private const string GUARD = 'api';
@@ -50,7 +50,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     /** @var string Second guard over the same identities and signing key. */
     private const string OTHER_GUARD = 'other_api';
 
-    /** @var string Plaintext rotation id stored on the seeded device. */
+    /** @var string Plaintext rotation id stored on the seeded session. */
     private const string ROTATION_ID = 'stored-rotation-id';
 
     /** @var int Bearer resolutions timed by the timing contract. */
@@ -102,7 +102,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
         yield from [
             'unknown subject'         => ['unknown', 1],
             'inactive identity'       => ['inactive', 1],
-            'revoked device'          => ['revoked', 2],
+            'revoked session'         => ['revoked', 2],
             'idle deadline reached'   => ['idle', 2],
             'absolute deadline past'  => ['absolute', 2],
             'principal switched away' => ['switched', 2],
@@ -112,8 +112,8 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     /**
      * A bearer token that fails after a lookup is resolved once per request:
      * asking the guard again through every accessor costs no further query. A
-     * revoked or ended device, or one whose session switched to another
-     * principal, is rejected from the row the device lookup already loaded.
+     * revoked or ended session, or one that switched to another principal, is
+     * rejected from the row the session lookup already loaded.
      *
      * @param  string  $rejection
      * @param  int  $reads
@@ -126,16 +126,16 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     public function testRejectedBearerTokenIsResolvedOncePerRequest(string $rejection, int $reads): void
     {
         $identity = $this->seedIdentity();
-        $device   = $this->seedDevice($identity);
-        $token    = $this->tokens()->issueAccessToken($identity, $identity, $device);
+        $session  = $this->seedSession($identity);
+        $token    = $this->tokens()->issueAccessToken($identity, $identity, $session);
 
         match ($rejection) {
             'unknown'  => $identity->delete(),
             'inactive' => $identity->forceFill(['is_active' => false])->save(),
-            'idle'     => $device->forceFill(['idle_expires_at' => $this->now])->save(),
-            'absolute' => $device->forceFill(['absolute_expires_at' => $this->now->copy()->subSecond()])->save(),
-            'switched' => $device->forceFill(['principal_id' => 'another principal', 'principal_switched_at' => $this->now])->save(),
-            default    => $device->forceFill(['revoked_at' => $this->now])->save(),
+            'idle'     => $session->forceFill(['idle_expires_at' => $this->now])->save(),
+            'absolute' => $session->forceFill(['absolute_expires_at' => $this->now->copy()->subSecond()])->save(),
+            'switched' => $session->forceFill(['principal_id' => 'another principal', 'principal_switched_at' => $this->now])->save(),
+            default    => $session->forceFill(['revoked_at' => $this->now])->save(),
         };
 
         $this->bindRequestWithBearer('/perf/rejected', $token);
@@ -152,7 +152,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
                 $outcomes[] = $guard->id();
                 $outcomes[] = $guard->identity();
                 $outcomes[] = $guard->principal();
-                $outcomes[] = $guard->device();
+                $outcomes[] = $guard->session();
                 $outcomes[] = $guard->tenant();
             }
 
@@ -209,8 +209,8 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
 
     /**
      * A refresh token issued by another guard is rejected while parsing, before
-     * any device or identity query. It names no device the guard can trust, so
-     * only the IP address's limit is read and, as a failure, counted: on a
+     * any session or identity query. It names no session the guard can trust,
+     * so only the IP address's limit is read and, as a failure, counted: on a
      * fresh window an update that changes nothing and the insert that creates
      * the counter.
      *
@@ -221,7 +221,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     public function testRefreshTokenFromAnotherGuardTouchesOnlyTheIpAddressLimit(): void
     {
         $identity = $this->seedIdentity();
-        $token    = $this->tokens(self::OTHER_GUARD)->issueRefreshToken($this->seedDevice($identity), self::ROTATION_ID, $identity);
+        $token    = $this->tokens(self::OTHER_GUARD)->issueRefreshToken($this->seedSession($identity), self::ROTATION_ID, $identity);
 
         $guard = $this->refreshGuard();
 
@@ -230,7 +230,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
 
     /**
      * A correctly signed refresh token missing its `did` is rejected while
-     * parsing, before any device or identity query, and counted against the IP
+     * parsing, before any session or identity query, and counted against the IP
      * address only.
      *
      * @return void
@@ -246,7 +246,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Resolving a device-bearing bearer request, with every write-connection
+     * Resolving a session-bearing bearer request, with every write-connection
      * pin it takes, stays far inside a generous time ceiling. The phpbench
      * harness (`benchmarks/Runtime/JwtGuardBench.php`, `composer bench`)
      * measures the same path precisely; this guards against a pathological
@@ -260,10 +260,10 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     public function testBearerResolutionStaysWithinAGenerousTimeCeiling(): void
     {
         $identity = $this->seedIdentity();
-        $device   = $this->seedDevice($identity);
-        $token    = $this->tokens()->issueAccessToken($identity, $identity, $device);
+        $session  = $this->seedSession($identity);
+        $token    = $this->tokens()->issueAccessToken($identity, $identity, $session);
 
-        $device->forceFill(['last_used_at' => $this->now])->save();
+        $session->forceFill(['last_used_at' => $this->now])->save();
 
         $started = hrtime(true);
 
@@ -306,7 +306,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
             'model'  => IntegrationIdentity::class,
         ]);
 
-        $config->set('authentication.device.last_used_throttle_seconds', 60);
+        $config->set('authentication.session.last_used_throttle_seconds', 60);
     }
 
     /**
@@ -326,15 +326,15 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Persist a live device for the identity holding the stored rotation.
+     * Persist a live session for the identity holding the stored rotation.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private function seedDevice(IntegrationIdentity $identity): Device
+    private function seedSession(IntegrationIdentity $identity): Session
     {
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => IntegrationIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
@@ -343,7 +343,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 
-        return $device;
+        return $session;
     }
 
     /**

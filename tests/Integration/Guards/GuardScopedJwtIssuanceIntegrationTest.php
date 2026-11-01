@@ -16,8 +16,8 @@ use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
-use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Concerns\InteractsWithDevices;
+use SineMacula\Laravel\Authentication\Models\Session;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
@@ -37,7 +37,7 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(JwtGuard::class)]
 final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
     /** @var string */
     private const string STAFF_GUARD = 'staff';
@@ -136,8 +136,8 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
 
         $plainRotationId = 'plain-rotation-id';
 
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession(self::STAFF_GUARD),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $principal->getKey(), // @phpstan-ignore cast.string
@@ -148,7 +148,7 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
 
         $jwtService = PackageAuth::jwt(self::STAFF_GUARD);
 
-        $refreshToken = $jwtService->issueRefreshToken($device, $plainRotationId);
+        $refreshToken = $jwtService->issueRefreshToken($session, $plainRotationId);
 
         $staffGuard = $this->guard(self::STAFF_GUARD);
         $result     = GuardSessions::of($staffGuard)->refresh($refreshToken)->session?->tokens;

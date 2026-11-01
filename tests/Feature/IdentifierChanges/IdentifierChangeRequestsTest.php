@@ -111,7 +111,7 @@ final class IdentifierChangeRequestsTest extends TestCase
 
         Event::fake([IdentifierChangeRequested::class, AuthenticationFailed::class]);
 
-        $request = $this->changes()->requestByCode($identity, 'email', ' ADA@New.Example.Test ', Reauthentication::device(self::seedDevice($identity)));
+        $request = $this->changes()->requestByCode($identity, 'email', ' ADA@New.Example.Test ', Reauthentication::session(self::seedSession($identity)));
         $row     = (array) DB::table('identifier_changes')->first();
 
         self::assertSame([IdentifierChangeRequestStatus::SENT, null, null], [$request->status, $request->retryAfter, $request->link()]);
@@ -507,7 +507,7 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * A device revoked between a request's check and its lock is found under
+     * A session revoked between a request's check and its lock is found under
      * the lock: reauthentication is required, nothing is written, and the slots
      * are given back.
      *
@@ -515,14 +515,14 @@ final class IdentifierChangeRequestsTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testADeviceRevokedBeforeTheLockRefusesTheRequest(): void
+    public function testASessionRevokedBeforeTheLockRefusesTheRequest(): void
     {
         $identity = self::seedChangeable();
-        $device   = self::seedDevice($identity);
+        $session  = self::seedSession($identity);
 
-        self::beforeTheLock(static fn (): int => DB::table('devices')->update(['revoked_at' => '2026-04-06 12:00:00']));
+        self::beforeTheLock(static fn (): int => DB::table('authentication_sessions')->update(['revoked_at' => '2026-04-06 12:00:00']));
 
-        $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::device($device));
+        $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session($session));
 
         self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $request->status);
         self::assertSame(0, self::rows('identifier_changes'));

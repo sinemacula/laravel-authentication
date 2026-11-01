@@ -12,7 +12,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 
 /**
  * Unit tests for the failure and revocation enums: the values listeners and the
- * device row store, and which reasons a sign-in method may give.
+ * session row store, and which reasons a sign-in method may give.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -42,18 +42,18 @@ final class FailureReasonTest extends TestCase
             'tenant_inactive',
             'principal_ineligible',
             'identifier_unverified',
-            'device_mismatch',
+            'session_mismatch',
             'additional_factor_required',
             'additional_factor_failed',
             'principal_choice_abandoned',
             'pending_invalid',
             'token_invalid',
             'issued_before_cutoff',
-            'device_unknown',
-            'device_guard_mismatch',
-            'device_revoked',
+            'session_unknown',
+            'session_guard_mismatch',
+            'session_revoked',
             'session_expired',
-            'device_principal_mismatch',
+            'session_principal_mismatch',
             'rotation_reuse',
             'rotation_conflict',
             'refresh_key_missing',
@@ -140,7 +140,7 @@ final class FailureReasonTest extends TestCase
     }
 
     /**
-     * The revocation reasons, in order, with the values stored on the device
+     * The revocation reasons, in order, with the values stored on the session
      * row.
      *
      * @return void
@@ -152,6 +152,7 @@ final class FailureReasonTest extends TestCase
             'signed_out',
             'signed_out_everywhere',
             'revoked',
+            'superseded',
             'password_changed',
             'password_reset',
             'factor_removed',

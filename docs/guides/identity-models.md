@@ -20,27 +20,33 @@ class AppUser extends User implements Identity, Principal
 Point `auth.providers.users.model` at `AppUser::class`. `Auth::identity()` and `Auth::principal()` both return
 the same instance.
 
-Add `HasDevices` for device tracking and refresh-token rotation:
+Add `HasSessions` for session tracking and refresh-token rotation:
 
 ```php
 use Illuminate\Database\Eloquent\Relations\MorphMany;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
+use SineMacula\Laravel\Authentication\Models\Session;
 
-class AppUser extends User implements Identity, Principal, HasDevices
+class AppUser extends User implements Identity, Principal, HasSessions
 {
     use Authenticatable, ActsAsPrincipal;
 
-    public function devices(): MorphMany
+    public function sessions(): MorphMany
     {
-        return $this->morphMany(Device::class, 'authenticatable');
+        return $this->morphMany(Session::class, 'authenticatable');
     }
 }
 ```
 
-The relation must query the configured device model, or another model that implements `EloquentDevice`: the bearer
-path, sign-in pins, the device list and revocations all read it, and a relation over any other model throws a
+The relation must query the configured session model, or another model that implements `EloquentSession`: the bearer
+path, sign-in pins, the session list and revocations all read it, and a relation over any other model throws a
 `LogicException`.
+
+`Models\Session` shares its short name with Laravel's `Session` facade and `Illuminate\Contracts\Session\Session`. The
+explicit `use` above takes precedence over the facade alias in that file; a file that needs Laravel's session as well
+imports one of them under another name, for example
+`use SineMacula\Laravel\Authentication\Models\Session as AuthenticationSession;`. The package's sessions table is
+`authentication_sessions`, so it never collides with the `sessions` table of Laravel's database session driver.
 
 ## 3D adoption (separate identity, principal, tenant)
 
@@ -54,18 +60,18 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Foundation\Auth\User;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal as PrincipalContract;
 use SineMacula\Laravel\Authentication\Contracts\Tenant as TenantContract;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsTenant;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
 
-class AppIdentity extends User implements Identity, HasDevices, HasPrincipals
+class AppIdentity extends User implements Identity, HasSessions, HasPrincipals
 {
     use Authenticatable;
 
@@ -74,9 +80,9 @@ class AppIdentity extends User implements Identity, HasDevices, HasPrincipals
         return $this->hasMany(AppMembership::class, 'identity_id');
     }
 
-    public function devices(): MorphMany
+    public function sessions(): MorphMany
     {
-        return $this->morphMany(Device::class, 'authenticatable');
+        return $this->morphMany(Session::class, 'authenticatable');
     }
 
     public function resolveDefaultPrincipal(): ?PrincipalContract

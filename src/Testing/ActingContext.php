@@ -9,12 +9,12 @@ use Illuminate\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\Assert;
-use SineMacula\Laravel\Authentication\Contracts\Device;
-use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Devices\DeviceOwnership;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
+use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
@@ -43,7 +43,7 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  */
 final class ActingContext
 {
-    /** @var array<string, array{identity: \SineMacula\Laravel\Authentication\Contracts\Identity, principal: \SineMacula\Laravel\Authentication\Contracts\Principal, device: ?\SineMacula\Laravel\Authentication\Contracts\Device, scopes: ?list<string>}> The context acted as, by guard name. */
+    /** @var array<string, array{identity: \SineMacula\Laravel\Authentication\Contracts\Identity, principal: \SineMacula\Laravel\Authentication\Contracts\Principal, session: ?\SineMacula\Laravel\Authentication\Contracts\Session, scopes: ?list<string>}> The context acted as, by guard name. */
     private array $acting = [];
 
     /** @var array<string, \SineMacula\Laravel\Authentication\Guards\AbstractGuard> The guard instance, by name, whose request rebinding binds the context again. */
@@ -138,28 +138,28 @@ final class ActingContext
     }
 
     /**
-     * The identity and principal a device's session acts as on the guard: the
-     * owner it records, found through the guard's provider, and the principal
-     * it records, found through the guard's resolver (its default when the
-     * device records none). An `InvalidArgumentException` says what could not
-     * be found.
+     * The identity and principal a session acts as on the guard: the owner it
+     * records, found through the guard's provider, and the principal it
+     * records, found through the guard's resolver (its default when the session
+     * records none). An `InvalidArgumentException` says what could not be
+     * found.
      *
      * @param  \SineMacula\Laravel\Authentication\Guards\AbstractGuard  $guard
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Contracts\Principal}
      *
      * @throws \InvalidArgumentException
      */
-    public static function recordedOn(AbstractGuard $guard, EloquentDevice&Model $device): array
+    public static function recordedOn(AbstractGuard $guard, EloquentSession&Model $session): array
     {
-        $ownerKey = DeviceOwnership::ownerKey($device);
+        $ownerKey = SessionOwnership::ownerKey($session);
         $identity = $ownerKey === null ? null : $guard->getProvider()->retrieveById($ownerKey);
 
-        if (!$identity instanceof Identity || !DeviceOwnership::isOwner($device, $identity)) {
-            throw new \InvalidArgumentException(sprintf('Device [%s] has no owner the provider of guard [%s] finds.', self::key($device), $guard->getName()));
+        if (!$identity instanceof Identity || !SessionOwnership::isOwner($session, $identity)) {
+            throw new \InvalidArgumentException(sprintf('Session [%s] has no owner the provider of guard [%s] finds.', self::key($session), $guard->getName()));
         }
 
-        $recorded = $device->getAttribute(PrincipalReference::columns($device)[1]);
+        $recorded = $session->getAttribute(PrincipalReference::columns($session)[1]);
 
         if ($recorded === null) {
             return [$identity, self::defaultPrincipal($guard, $identity)];
@@ -167,8 +167,8 @@ final class ActingContext
 
         $principal = $guard->getPrincipalResolver()->resolve($identity, $recorded);
 
-        if ($principal === null || !PrincipalReference::isRecordedOn($device, $principal)) {
-            throw new \InvalidArgumentException(sprintf('The resolver of guard [%s] does not resolve the principal device [%s] records.', $guard->getName(), self::key($device)));
+        if ($principal === null || !PrincipalReference::isRecordedOn($session, $principal)) {
+            throw new \InvalidArgumentException(sprintf('The resolver of guard [%s] does not resolve the principal session [%s] records.', $guard->getName(), self::key($session)));
         }
 
         return [$identity, $principal];
@@ -207,20 +207,20 @@ final class ActingContext
      * @param  \SineMacula\Laravel\Authentication\Guards\AbstractGuard  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?list<string>  $scopes
      * @return void
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public function act(AbstractGuard $guard, Identity $identity, Principal $principal, ?Device $device, ?array $scopes = null): void
+    public function act(AbstractGuard $guard, Identity $identity, Principal $principal, ?Session $session, ?array $scopes = null): void
     {
         $name = $guard->getName();
 
-        $guard->authenticateAs($identity, $principal, $device, $scopes);
+        $guard->authenticateAs($identity, $principal, $session, $scopes);
 
-        $this->acting[$name] = ['identity' => $identity, 'principal' => $principal, 'device' => $device, 'scopes' => $scopes];
+        $this->acting[$name] = ['identity' => $identity, 'principal' => $principal, 'session' => $session, 'scopes' => $scopes];
 
         if (($this->wired[$name] ?? null) === $guard) {
             return;
@@ -261,7 +261,7 @@ final class ActingContext
             return;
         }
 
-        $guard->authenticateAs($acting['identity'], $acting['principal'], $acting['device'], $acting['scopes']);
+        $guard->authenticateAs($acting['identity'], $acting['principal'], $acting['session'], $acting['scopes']);
     }
 
     /**
@@ -284,14 +284,14 @@ final class ActingContext
     }
 
     /**
-     * The device's key, for a message.
+     * The session's key, for a message.
      *
-     * @param  \Illuminate\Database\Eloquent\Model  $device
+     * @param  \Illuminate\Database\Eloquent\Model  $session
      * @return ?string
      */
-    private static function key(Model $device): ?string
+    private static function key(Model $session): ?string
     {
-        return IdentifierCoercion::stringify($device->getKey());
+        return IdentifierCoercion::stringify($session->getKey());
     }
 
     /**

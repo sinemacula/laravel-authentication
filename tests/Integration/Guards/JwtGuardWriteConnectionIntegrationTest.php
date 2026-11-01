@@ -29,21 +29,21 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
-use Tests\Concerns\InteractsWithDevices;
 use Tests\Concerns\InteractsWithLaggingReplica;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\Coexist3dIdentity;
 use Tests\Integration\Fixtures\Coexist3dPrincipal;
-use Tests\Integration\Fixtures\EagerRevocationLogDevice;
-use Tests\Integration\Fixtures\OriginLogDevice;
-use Tests\Integration\Fixtures\RevocationLogDevice;
+use Tests\Integration\Fixtures\EagerRevocationLogSession;
+use Tests\Integration\Fixtures\OriginLogSession;
 use Tests\Integration\Fixtures\RevocationLogIdentity;
+use Tests\Integration\Fixtures\RevocationLogSession;
 use Tests\Integration\Fixtures\SuspendableUser;
 use Tests\Integration\Fixtures\TenantAware3dIdentity;
 use Tests\Integration\Fixtures\TenantAware3dPrincipal;
@@ -57,7 +57,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  * The default connection is a read/write split whose replica lags behind the
  * primary: rows written during the test exist on the primary only. A lookup
  * served by the replica would therefore reject the request, so each passing
- * assertion shows the identity, device, refresh digest, or principal was read
+ * assertion shows the identity, session, refresh digest, or principal was read
  * from the writer.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -74,9 +74,9 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversTrait(VerifiesPinnedContext::class)]
 final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 {
-    use InteractsWithDevices, InteractsWithLaggingReplica;
+    use InteractsWithLaggingReplica, InteractsWithSessionRecords;
 
-    /** @var string Plaintext rotation id stored on the seeded device. */
+    /** @var string Plaintext rotation id stored on the seeded session. */
     private const string ROTATION_ID = 'stored-rotation-id';
 
     /** @var string Plaintext password of the seeded identity. */
@@ -145,46 +145,46 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A bearer token for an identity and device that exist only on the primary
-     * authenticates and binds both, so the identity and device lookups read the
-     * writer.
+     * A bearer token for an identity and session that exist only on the primary
+     * authenticates and binds both, so the identity and session lookups read
+     * the writer.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testBearerReadsIdentityAndDeviceFromTheWriteConnection(): void
+    public function testBearerReadsIdentityAndSessionFromTheWriteConnection(): void
     {
         $identity = $this->seedIdentity();
-        $device   = $this->seedDevice($identity);
+        $session  = $this->seedSession($identity);
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $device);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $session);
 
         $guard = $this->guardForRequest(Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]));
 
         self::assertTrue($identity->is($guard->user()));
-        self::assertSame($device->getKey(), $guard->device()?->getDeviceIdentifier());
+        self::assertSame($session->getKey(), $guard->session()?->getSessionIdentifier());
     }
 
     /**
-     * A device revoked on the primary while the replica still shows it live
+     * A session revoked on the primary while the replica still shows it live
      * rejects the bearer token: the revocation is read from the writer.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testBearerRejectsDeviceRevokedOnThePrimaryWhileTheReplicaLags(): void
+    public function testBearerRejectsSessionRevokedOnThePrimaryWhileTheReplicaLags(): void
     {
         $identity = $this->seedIdentity();
-        $device   = $this->seedDevice($identity);
+        $session  = $this->seedSession($identity);
 
         $this->copyRowToReplica('stub_principals', $identity->getKey());
-        $this->copyRowToReplica('devices', $device->getKey());
+        $this->copyRowToReplica('authentication_sessions', $session->getKey());
 
-        Device::query()->whereKey($device->getKey())->update(['revoked_at' => Carbon::now()]);
+        Session::query()->whereKey($session->getKey())->update(['revoked_at' => Carbon::now()]);
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $device);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $session);
 
         $guard = $this->guardForRequest(Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]));
 
@@ -192,24 +192,24 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A device whose session ended on the primary while the replica still shows
-     * it live rejects the bearer token: the deadlines are read from the writer.
+     * A session that ended on the primary while the replica still shows it live
+     * rejects the bearer token: the deadlines are read from the writer.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testBearerRejectsDeviceWhoseSessionEndedOnThePrimaryWhileTheReplicaLags(): void
+    public function testBearerRejectsSessionThatEndedOnThePrimaryWhileTheReplicaLags(): void
     {
         $identity = $this->seedIdentity();
-        $device   = $this->seedDevice($identity);
+        $session  = $this->seedSession($identity);
 
         $this->copyRowToReplica('stub_principals', $identity->getKey());
-        $this->copyRowToReplica('devices', $device->getKey());
+        $this->copyRowToReplica('authentication_sessions', $session->getKey());
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $device);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $session);
 
-        Device::query()->whereKey($device->getKey())->update(['idle_expires_at' => Carbon::now()]);
+        Session::query()->whereKey($session->getKey())->update(['idle_expires_at' => Carbon::now()]);
 
         $guard = $this->guardForRequest(Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]));
 
@@ -229,16 +229,16 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     public function testGraceRetryIsJudgedFromThePrimaryWhileTheReplicaLags(): void
     {
         $identity = $this->seedIdentity();
-        $device   = $this->seedDevice($identity);
+        $session  = $this->seedSession($identity);
 
-        $device->forceFill(['last_used_at' => Carbon::now()])->save();
+        $session->forceFill(['last_used_at' => Carbon::now()])->save();
 
         $this->copyRowToReplica('stub_principals', $identity->getKey());
-        $this->copyRowToReplica('devices', $device->getKey());
+        $this->copyRowToReplica('authentication_sessions', $session->getKey());
 
-        $this->rotateOnThePrimary($device, Carbon::now()->subSeconds(5));
+        $this->rotateOnThePrimary($session, Carbon::now()->subSeconds(5));
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $identity);
         $updates      = $this->recordUpdates();
 
         $pair = GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST')))->refresh($refreshToken)->session?->tokens;
@@ -250,7 +250,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
     /**
      * A replay is recognised from the primary while the replica still shows the
-     * replayed id as current: the device is revoked without first attempting
+     * replayed id as current: the session is revoked without first attempting
      * the rotation the replica's stale state would have led to.
      *
      * @return void
@@ -260,147 +260,146 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     public function testReplayIsJudgedFromThePrimaryWhileTheReplicaLags(): void
     {
         $identity = $this->seedIdentity();
-        $device   = $this->seedDevice($identity);
+        $session  = $this->seedSession($identity);
 
         $this->copyRowToReplica('stub_principals', $identity->getKey());
-        $this->copyRowToReplica('devices', $device->getKey());
+        $this->copyRowToReplica('authentication_sessions', $session->getKey());
 
-        $this->rotateOnThePrimary($device, Carbon::now()->subHour());
+        $this->rotateOnThePrimary($session, Carbon::now()->subHour());
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $identity);
         $updates      = $this->recordUpdates();
 
         self::assertNull(GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST')))->refresh($refreshToken)->session);
         self::assertCount(1, $updates);
         self::assertStringContainsString('revoked_reason', $updates[0]);
-        self::assertSame('rotation_reuse', DB::connection(self::PRIMARY_CONNECTION)->table('devices')->where('id', $device->getKey())->value('revoked_reason'));
+        self::assertSame('rotation_reuse', DB::connection(self::PRIMARY_CONNECTION)->table('authentication_sessions')->where('id', $session->getKey())->value('revoked_reason'));
     }
 
     /**
-     * A device pinned on `attempt()` that is revoked on the primary while the
-     * replica still shows it live fails the attempt: the pinned device is read
+     * A session pinned on `attempt()` that is revoked on the primary while the
+     * replica still shows it live fails the attempt: the pinned session is read
      * from the writer, like a bearer `did`.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAttemptRejectsPinnedDeviceRevokedOnThePrimaryWhileTheReplicaLags(): void
+    public function testAttemptRejectsPinnedSessionRevokedOnThePrimaryWhileTheReplicaLags(): void
     {
         $identity = $this->seedIdentity();
-        $device   = $this->seedDevice($identity);
+        $session  = $this->seedSession($identity);
 
         $identity->forceFill(['password' => app(Hasher::class)->make(self::PASSWORD)])->save();
 
         $this->copyRowToReplica('stub_principals', $identity->getKey());
-        $this->copyRowToReplica('devices', $device->getKey());
+        $this->copyRowToReplica('authentication_sessions', $session->getKey());
 
         $credentials = ['email' => 'writer@example.test', 'password' => self::PASSWORD];
 
-        self::assertTrue($this->guardForRequest(Request::create('/sign-in', 'POST'))->attempt($credentials, null, $device));
+        self::assertTrue($this->guardForRequest(Request::create('/sign-in', 'POST'))->attempt($credentials, null, $session));
 
-        Device::query()->whereKey($device->getKey())->update(['revoked_at' => Carbon::now()]);
+        Session::query()->whereKey($session->getKey())->update(['revoked_at' => Carbon::now()]);
 
         $guard = $this->guardForRequest(Request::create('/sign-in', 'POST'));
 
-        self::assertFalse($guard->attempt($credentials, null, $device));
+        self::assertFalse($guard->attempt($credentials, null, $session));
         self::assertFalse($guard->hasUser());
     }
 
     /**
-     * A device that derives its revocation from another table, revoked on the
+     * A session that derives its revocation from another table, revoked on the
      * primary while the replica lags, rejects the bearer token: the revocation
-     * is read inside the device lookup's write-connection pin, not only the
+     * is read inside the session lookup's write-connection pin, not only the
      * lookup's own query.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testBearerRejectsDeviceWhoseRevocationIsRecordedOnThePrimaryWhileTheReplicaLags(): void
+    public function testBearerRejectsSessionWhoseRevocationIsRecordedOnThePrimaryWhileTheReplicaLags(): void
     {
-        [$identity, $device] = $this->seedRevocationLogDevice();
+        [$identity, $session] = $this->seedRevocationLogSession();
 
-        $token   = $this->authManager()->jwt('revocation_log')->issueAccessToken($identity, $identity, $device);
+        $token   = $this->authManager()->jwt('revocation_log')->issueAccessToken($identity, $identity, $session);
         $request = Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]);
 
         self::assertTrue($identity->is($this->guardForRequest($request, 'revocation_log')->user()));
 
-        $this->recordRevocation($device);
+        $this->recordRevocation($session);
 
         self::assertNull($this->guardForRequest($request, 'revocation_log')->user());
     }
 
     /**
-     * A device that derives the end of its session from another table, ended on
-     * the primary while the replica lags, rejects the bearer token: the
-     * deadlines are read inside the device lookup's write-connection pin, not
-     * only the lookup's own query.
+     * A session that derives its end from another table, ended on the primary
+     * while the replica lags, rejects the bearer token: the deadlines are read
+     * inside the session lookup's write-connection pin, not only the lookup's
+     * own query.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testBearerRejectsDeviceWhoseSessionEndIsRecordedOnThePrimaryWhileTheReplicaLags(): void
+    public function testBearerRejectsSessionWhoseEndIsRecordedOnThePrimaryWhileTheReplicaLags(): void
     {
-        [$identity, $device] = $this->seedRevocationLogDevice();
+        [$identity, $session] = $this->seedRevocationLogSession();
 
-        $token   = $this->authManager()->jwt('revocation_log')->issueAccessToken($identity, $identity, $device);
+        $token   = $this->authManager()->jwt('revocation_log')->issueAccessToken($identity, $identity, $session);
         $request = Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]);
 
         self::assertTrue($identity->is($this->guardForRequest($request, 'revocation_log')->user()));
 
-        $this->recordSessionEnd($device);
+        $this->recordSessionEnd($session);
 
         self::assertNull($this->guardForRequest($request, 'revocation_log')->user());
     }
 
     /**
-     * A device pinned on `attempt()` that derives the end of its session from
-     * another table, ended on the primary while the replica lags, fails the
-     * attempt: the pin's deadlines are read from the writer, like a bearer
-     * `did`'s.
+     * A session pinned on `attempt()` that derives its end from another table,
+     * ended on the primary while the replica lags, fails the attempt: the pin's
+     * deadlines are read from the writer, like a bearer `did`'s.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAttemptRejectsPinnedDeviceWhoseSessionEndIsRecordedOnThePrimaryWhileTheReplicaLags(): void
+    public function testAttemptRejectsPinnedSessionWhoseEndIsRecordedOnThePrimaryWhileTheReplicaLags(): void
     {
-        [$identity, $device] = $this->seedRevocationLogDevice();
+        [$identity, $session] = $this->seedRevocationLogSession();
 
         $identity->forceFill(['password' => app(Hasher::class)->make(self::PASSWORD)])->save();
 
         $credentials = ['email' => 'revocation-log@example.test', 'password' => self::PASSWORD];
 
-        self::assertTrue($this->guardForRequest(Request::create('/sign-in', 'POST'), 'revocation_log')->attempt($credentials, null, $device));
+        self::assertTrue($this->guardForRequest(Request::create('/sign-in', 'POST'), 'revocation_log')->attempt($credentials, null, $session));
 
-        $this->recordSessionEnd($device);
+        $this->recordSessionEnd($session);
 
         $guard = $this->guardForRequest(Request::create('/sign-in', 'POST'), 'revocation_log');
 
-        self::assertFalse($guard->attempt($credentials, null, $device));
+        self::assertFalse($guard->attempt($credentials, null, $session));
         self::assertFalse($guard->hasUser());
     }
 
     /**
-     * A refresh for a device that derives the end of its session from another
-     * table, ended on the primary while the replica lags, fails with
-     * `session_expired`: the deadlines are read from the writer.
+     * A refresh for a session that derives its end from another table, ended on
+     * the primary while the replica lags, fails with `session_expired`: the
+     * deadlines are read from the writer.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testRefreshRejectsDeviceWhoseSessionEndIsRecordedOnThePrimaryWhileTheReplicaLags(): void
+    public function testRefreshRejectsSessionWhoseEndIsRecordedOnThePrimaryWhileTheReplicaLags(): void
     {
-        app(ConfigRepository::class)->set('authentication.device.model', RevocationLogDevice::class);
+        app(ConfigRepository::class)->set('authentication.session.model', RevocationLogSession::class);
 
-        [$identity, $device] = $this->seedRevocationLogDevice();
+        [$identity, $session] = $this->seedRevocationLogSession();
 
-        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($session, self::ROTATION_ID, $identity);
 
-        $this->recordSessionEnd($device);
+        $this->recordSessionEnd($session);
 
         $reasons = [];
 
@@ -413,11 +412,11 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A refresh that rotates a device deriving the end of its session from
-     * another table, whose session ends at 12:03 on the primary while the
-     * replica still shows it ended at 11:00, succeeds and caps both tokens at
-     * 12:03: the deadlines that bound the issued pair are read from the writer
-     * too, not only the ones that judged the token.
+     * A refresh that rotates a session that derives its end from another table
+     * and ends at 12:03 on the primary, while the replica still shows it ended
+     * at 11:00, succeeds and caps both tokens at 12:03: the deadlines that
+     * bound the issued pair are read from the writer too, not only the ones
+     * that judged the token.
      *
      * @return void
      *
@@ -425,19 +424,19 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
      */
     public function testRotationCapsTheIssuedPairAtTheSessionEndRecordedOnThePrimary(): void
     {
-        app(ConfigRepository::class)->set('authentication.device.model', RevocationLogDevice::class);
+        app(ConfigRepository::class)->set('authentication.session.model', RevocationLogSession::class);
 
-        [$identity, $device] = $this->seedRevocationLogDevice();
+        [$identity, $session] = $this->seedRevocationLogSession();
 
-        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($session, self::ROTATION_ID, $identity);
         $sessionEnd   = Carbon::now()->addMinutes(3);
 
-        $this->recordSessionEnd($device, $sessionEnd);
-        $this->recordSessionEnd($device, Carbon::now()->subHour(), self::REPLICA_CONNECTION);
+        $this->recordSessionEnd($session, $sessionEnd);
+        $this->recordSessionEnd($session, Carbon::now()->subHour(), self::REPLICA_CONNECTION);
 
         $pair   = GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST'), 'revocation_log'))->refresh($refreshToken)->session?->tokens;
         $tokens = $this->authManager()->jwt('revocation_log');
-        $stored = DB::connection(self::PRIMARY_CONNECTION)->table('devices')->where('id', $device->getKey())->value('refresh_key');
+        $stored = DB::connection(self::PRIMARY_CONNECTION)->table('authentication_sessions')->where('id', $session->getKey())->value('refresh_key');
 
         self::assertNotNull($pair);
         self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->accessToken)['exp'] ?? null);
@@ -446,11 +445,10 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A grace retry for a device deriving the end of its session from another
-     * table, whose session ends at 12:01 on the primary while the replica does
-     * not yet show it, is handed a pair that expires at 12:01: the reissue
-     * reads the session's end from the writer instead of minting tokens that
-     * outlive it.
+     * A grace retry for a session that derives its end from another table and
+     * ends at 12:01 on the primary, while the replica does not yet show it, is
+     * handed a pair that expires at 12:01: the reissue reads the session's end
+     * from the writer instead of minting tokens that outlive it.
      *
      * @return void
      *
@@ -458,16 +456,16 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
      */
     public function testGraceRetryCapsTheIssuedPairAtTheSessionEndRecordedOnThePrimary(): void
     {
-        app(ConfigRepository::class)->set('authentication.device.model', RevocationLogDevice::class);
+        app(ConfigRepository::class)->set('authentication.session.model', RevocationLogSession::class);
 
-        [$identity, $device] = $this->seedRevocationLogDevice();
+        [$identity, $session] = $this->seedRevocationLogSession();
 
-        $this->rotateOnThePrimary($device, Carbon::now()->subSeconds(5));
+        $this->rotateOnThePrimary($session, Carbon::now()->subSeconds(5));
 
-        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($session, self::ROTATION_ID, $identity);
         $sessionEnd   = Carbon::now()->addMinute();
 
-        $this->recordSessionEnd($device, $sessionEnd);
+        $this->recordSessionEnd($session, $sessionEnd);
 
         $pair   = GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST'), 'revocation_log'))->refresh($refreshToken)->session?->tokens;
         $tokens = $this->authManager()->jwt('revocation_log');
@@ -479,9 +477,9 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Tokens issued at sign-in for a device deriving the end of its session
-     * from another table, whose session ends at 12:01 on the primary while the
-     * replica does not yet show it, expire at 12:01.
+     * Tokens issued at sign-in for a session that derives its end from another
+     * table and ends at 12:01 on the primary, while the replica does not yet
+     * show it, expire at 12:01.
      *
      * @return void
      *
@@ -489,53 +487,53 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
      */
     public function testIssuanceCapsTokensAtTheSessionEndRecordedOnThePrimary(): void
     {
-        [$identity, $device] = $this->seedRevocationLogDevice();
+        [$identity, $session] = $this->seedRevocationLogSession();
 
         $sessionEnd = Carbon::now()->addMinute();
 
-        $this->recordSessionEnd($device, $sessionEnd);
+        $this->recordSessionEnd($session, $sessionEnd);
 
         $tokens = $this->authManager()->jwt('revocation_log');
 
-        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($tokens->issueAccessToken($identity, $identity, $device))['exp'] ?? null);
-        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($tokens->issueRefreshToken($device, self::ROTATION_ID, $identity))['exp'] ?? null);
+        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($tokens->issueAccessToken($identity, $identity, $session))['exp'] ?? null);
+        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($tokens->issueRefreshToken($session, self::ROTATION_ID, $identity))['exp'] ?? null);
     }
 
     /**
-     * Rows of `[device model]`: device models that derive their revocation from
-     * the `device_revocations` table.
+     * Rows of `[session model]`: session models that derive their revocation
+     * from the `session_revocations` table.
      *
-     * @return iterable<string, array{0: class-string<\SineMacula\Laravel\Authentication\Models\Device>}>
+     * @return iterable<string, array{0: class-string<\SineMacula\Laravel\Authentication\Models\Session>}>
      */
-    public static function provideRevocationLogDeviceModels(): iterable
+    public static function provideRevocationLogSessionModels(): iterable
     {
         yield from [
-            'read of its own'       => [RevocationLogDevice::class],
-            'eager-loaded relation' => [EagerRevocationLogDevice::class],
+            'read of its own'       => [RevocationLogSession::class],
+            'eager-loaded relation' => [EagerRevocationLogSession::class],
         ];
     }
 
     /**
-     * A refresh for a device that derives its revocation from another table, by
-     * a read of its own or through a relation it eager-loads, revoked on the
-     * primary while the replica lags, fails with `device_revoked`: the device
+     * A refresh for a session that derives its revocation from another table,
+     * by a read of its own or through a relation it eager-loads, revoked on the
+     * primary while the replica lags, fails with `session_revoked`: the session
      * lookup and the revocation are both read from the writer.
      *
-     * @param  class-string<\SineMacula\Laravel\Authentication\Models\Device>  $model
+     * @param  class-string<\SineMacula\Laravel\Authentication\Models\Session>  $model
      * @return void
      *
      * @throws \Random\RandomException
      */
-    #[DataProvider('provideRevocationLogDeviceModels')]
-    public function testRefreshRejectsDeviceWhoseRevocationIsRecordedOnThePrimaryWhileTheReplicaLags(string $model): void
+    #[DataProvider('provideRevocationLogSessionModels')]
+    public function testRefreshRejectsSessionWhoseRevocationIsRecordedOnThePrimaryWhileTheReplicaLags(string $model): void
     {
-        app(ConfigRepository::class)->set('authentication.device.model', $model);
+        app(ConfigRepository::class)->set('authentication.session.model', $model);
 
-        [$identity, $device] = $this->seedRevocationLogDevice($model);
+        [$identity, $session] = $this->seedRevocationLogSession($model);
 
-        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($session, self::ROTATION_ID, $identity);
 
-        $this->recordRevocation($device);
+        $this->recordRevocation($session);
 
         $reasons = [];
 
@@ -544,40 +542,40 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         });
 
         self::assertNull(GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST'), 'revocation_log'))->refresh($refreshToken)->session);
-        self::assertSame([FailureReason::DEVICE_REVOKED], $reasons);
+        self::assertSame([FailureReason::SESSION_REVOKED], $reasons);
     }
 
     /**
-     * A refresh that loses its compare-and-swap judges the device again from
+     * A refresh that loses its compare-and-swap judges the session again from
      * the primary, relations it eager-loads included: when a competing rotation
      * and a revocation recorded only on the primary land between the read and
-     * the swap, it fails with `device_revoked` and issues no pair, instead of
+     * the swap, it fails with `session_revoked` and issues no pair, instead of
      * reading the lagging replica and treating itself as a grace retry.
      *
-     * @param  class-string<\SineMacula\Laravel\Authentication\Models\Device>  $model
+     * @param  class-string<\SineMacula\Laravel\Authentication\Models\Session>  $model
      * @return void
      *
      * @throws \Random\RandomException
      */
-    #[DataProvider('provideRevocationLogDeviceModels')]
+    #[DataProvider('provideRevocationLogSessionModels')]
     public function testLostRotationIsJudgedFromThePrimaryWhileTheReplicaLags(string $model): void
     {
-        app(ConfigRepository::class)->set('authentication.device.model', $model);
+        app(ConfigRepository::class)->set('authentication.session.model', $model);
 
-        [$identity, $device] = $this->seedRevocationLogDevice($model);
+        [$identity, $session] = $this->seedRevocationLogSession($model);
 
-        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($session, self::ROTATION_ID, $identity);
         $raced        = false;
 
-        DB::connection()->beforeExecuting(function (string $query) use (&$raced, $device): void {
+        DB::connection()->beforeExecuting(function (string $query) use (&$raced, $session): void {
             if ($raced || !str_starts_with(strtolower($query), 'update') || !str_contains($query, 'refresh_rotated_at')) {
                 return;
             }
 
             $raced = true;
 
-            $this->rotateOnThePrimary($device, Carbon::now());
-            $this->recordRevocation($device);
+            $this->rotateOnThePrimary($session, Carbon::now());
+            $this->recordRevocation($session);
         });
 
         $reasons = [];
@@ -588,11 +586,11 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         self::assertNull(GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST'), 'revocation_log'))->refresh($refreshToken)->session);
         self::assertTrue($raced);
-        self::assertSame([FailureReason::DEVICE_REVOKED], $reasons);
+        self::assertSame([FailureReason::SESSION_REVOKED], $reasons);
     }
 
     /**
-     * Rows of `[origin the primary records, refusal]`: a device that derives
+     * Rows of `[origin the primary records, refusal]`: a session that derives
      * its guard and sign-in method from another table, whose origin the replica
      * still shows as an `api` password session.
      *
@@ -601,13 +599,13 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     public static function provideOriginsRecordedOnThePrimary(): iterable
     {
         yield from [
-            'another guard'       => [['guard' => 'admin', 'sign_in_method' => 'password'], FailureReason::DEVICE_GUARD_MISMATCH],
+            'another guard'       => [['guard' => 'admin', 'sign_in_method' => 'password'], FailureReason::SESSION_GUARD_MISMATCH],
             'a disallowed method' => [['guard' => 'api', 'sign_in_method' => 'disabled'], FailureReason::METHOD_NOT_ALLOWED],
         ];
     }
 
     /**
-     * A refresh for a device that derives its guard and sign-in method from
+     * A refresh for a session that derives its guard and sign-in method from
      * another table, whose origin the primary records as one the guard refuses
      * while the replica still shows an `api` password session, is refused for
      * the primary's origin and leaves the refresh digest as it was.
@@ -621,21 +619,21 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     #[DataProvider('provideOriginsRecordedOnThePrimary')]
     public function testRefreshJudgesTheOriginRecordedOnThePrimaryWhileTheReplicaLags(array $origin, FailureReason $reason): void
     {
-        app(ConfigRepository::class)->set('authentication.device.model', OriginLogDevice::class);
+        app(ConfigRepository::class)->set('authentication.session.model', OriginLogSession::class);
 
-        $this->createOnPrimaryAndReplica('device_origins', static function (Blueprint $blueprint): void {
-            $blueprint->uuid('device_id');
+        $this->createOnPrimaryAndReplica('session_origins', static function (Blueprint $blueprint): void {
+            $blueprint->uuid('session_id');
             $blueprint->string('guard');
             $blueprint->string('sign_in_method');
         });
 
         $identity = $this->seedIdentity();
-        $device   = $this->seedDevice($identity, OriginLogDevice::class);
+        $session  = $this->seedSession($identity, OriginLogSession::class);
 
-        DB::connection(self::REPLICA_CONNECTION)->table('device_origins')->insert(['device_id' => $device->getKey(), 'guard' => 'api', 'sign_in_method' => 'password']);
-        DB::connection(self::PRIMARY_CONNECTION)->table('device_origins')->insert(['device_id' => $device->getKey(), ...$origin]);
+        DB::connection(self::REPLICA_CONNECTION)->table('session_origins')->insert(['session_id' => $session->getKey(), 'guard' => 'api', 'sign_in_method' => 'password']);
+        DB::connection(self::PRIMARY_CONNECTION)->table('session_origins')->insert(['session_id' => $session->getKey(), ...$origin]);
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $identity);
         $reasons      = [];
 
         Event::listen(AuthenticationFailed::class, static function (AuthenticationFailed $event) use (&$reasons): void {
@@ -644,25 +642,25 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         self::assertNull(GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST')))->refresh($refreshToken)->session);
         self::assertSame([$reason], $reasons);
-        $stored = DB::connection(self::PRIMARY_CONNECTION)->table('devices')->where('id', $device->getKey())->value('refresh_key');
+        $stored = DB::connection(self::PRIMARY_CONNECTION)->table('authentication_sessions')->where('id', $session->getKey())->value('refresh_key');
 
         self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), $stored);
     }
 
     /**
-     * A refresh for a device whose digest exists only on the primary rotates
-     * successfully, so the device and owner lookups read the writer.
+     * A refresh for a session whose digest exists only on the primary rotates
+     * successfully, so the session and owner lookups read the writer.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testRefreshReadsDeviceAndIdentityFromTheWriteConnection(): void
+    public function testRefreshReadsSessionAndIdentityFromTheWriteConnection(): void
     {
         $identity = $this->seedIdentity();
-        $device   = $this->seedDevice($identity);
+        $session  = $this->seedSession($identity);
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $identity);
 
         $guard = $this->guardForRequest(Request::create('/refresh', 'POST'));
 
@@ -1054,17 +1052,17 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Write a device with a refresh digest for the identity through the split
+     * Write a session with a refresh digest for the identity through the split
      * connection, so it exists on the primary only.
      *
      * @param  \Tests\Unit\Stubs\StubPrincipal  $identity
-     * @param  class-string<\SineMacula\Laravel\Authentication\Models\Device>  $model
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @param  class-string<\SineMacula\Laravel\Authentication\Models\Session>  $model
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private function seedDevice(StubPrincipal $identity, string $model = Device::class): Device
+    private function seedSession(StubPrincipal $identity, string $model = Session::class): Session
     {
-        $device = new $model;
-        $device->forceFill([
+        $session = new $model;
+        $session->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
@@ -1073,29 +1071,29 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 
-        return $device;
+        return $session;
     }
 
     /**
-     * Write an identity with a `revocation_log` device that derives its
-     * revocation and the end of its session from the `device_revocations` and
-     * `device_session_ends` tables through the split connection, creating those
-     * tables on the primary and the replica.
+     * Write an identity with a `revocation_log` session that derives its
+     * revocation and its end from the `session_revocations` and `session_ends`
+     * tables through the split connection, creating those tables on the primary
+     * and the replica.
      *
-     * @param  class-string<\SineMacula\Laravel\Authentication\Models\Device>  $model
-     * @return array{0: \Tests\Integration\Fixtures\RevocationLogIdentity, 1: \SineMacula\Laravel\Authentication\Models\Device}
+     * @param  class-string<\SineMacula\Laravel\Authentication\Models\Session>  $model
+     * @return array{0: \Tests\Integration\Fixtures\RevocationLogIdentity, 1: \SineMacula\Laravel\Authentication\Models\Session}
      */
-    private function seedRevocationLogDevice(string $model = RevocationLogDevice::class): array
+    private function seedRevocationLogSession(string $model = RevocationLogSession::class): array
     {
-        $this->createOnPrimaryAndReplica('device_revocations', static function (Blueprint $blueprint): void {
+        $this->createOnPrimaryAndReplica('session_revocations', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');
-            $blueprint->uuid('device_id');
+            $blueprint->uuid('session_id');
             $blueprint->timestamp('revoked_at');
         });
 
-        $this->createOnPrimaryAndReplica('device_session_ends', static function (Blueprint $blueprint): void {
+        $this->createOnPrimaryAndReplica('session_ends', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');
-            $blueprint->uuid('device_id');
+            $blueprint->uuid('session_id');
             $blueprint->dateTime('ended_at');
         });
 
@@ -1105,8 +1103,8 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
             'password' => 'hashed',
         ])->save();
 
-        $device = new $model;
-        $device->forceFill([
+        $session = new $model;
+        $session->forceFill([
             ...self::liveSession('revocation_log'),
             'authenticatable_type' => RevocationLogIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
@@ -1115,7 +1113,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 
-        return [$identity, $device];
+        return [$identity, $session];
     }
 
     /**
@@ -1167,35 +1165,35 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Record a revocation of the device through the split connection, so the
+     * Record a revocation of the session through the split connection, so the
      * replica does not see it.
      *
-     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @return void
      */
-    private function recordRevocation(Device $device): void
+    private function recordRevocation(Session $session): void
     {
-        DB::connection(self::SPLIT_CONNECTION)->table('device_revocations')->insert([
-            'device_id'  => $device->getKey(),
+        DB::connection(self::SPLIT_CONNECTION)->table('session_revocations')->insert([
+            'session_id' => $session->getKey(),
             'revoked_at' => Carbon::now(),
         ]);
     }
 
     /**
-     * Record the end of the device's session at the given time (default now),
-     * through the split connection unless another is named, so the replica does
-     * not see it.
+     * Record the end of the session at the given time (default now), through
+     * the split connection unless another is named, so the replica does not see
+     * it.
      *
-     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @param  ?\Carbon\Carbon  $endedAt
      * @param  string  $connection
      * @return void
      */
-    private function recordSessionEnd(Device $device, ?Carbon $endedAt = null, string $connection = self::SPLIT_CONNECTION): void
+    private function recordSessionEnd(Session $session, ?Carbon $endedAt = null, string $connection = self::SPLIT_CONNECTION): void
     {
-        DB::connection($connection)->table('device_session_ends')->insert([
-            'device_id' => $device->getKey(),
-            'ended_at'  => $endedAt ?? Carbon::now(),
+        DB::connection($connection)->table('session_ends')->insert([
+            'session_id' => $session->getKey(),
+            'ended_at'   => $endedAt ?? Carbon::now(),
         ]);
     }
 
@@ -1234,16 +1232,16 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Rotate the device on the primary from `ROTATION_ID` to its successor at
+     * Rotate the session on the primary from `ROTATION_ID` to its successor at
      * the given time, leaving the replica behind.
      *
-     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @param  \Carbon\Carbon  $rotatedAt
      * @return void
      */
-    private function rotateOnThePrimary(Device $device, Carbon $rotatedAt): void
+    private function rotateOnThePrimary(Session $session, Carbon $rotatedAt): void
     {
-        Device::query()->whereKey($device->getKey())->update([
+        Session::query()->whereKey($session->getKey())->update([
             'refresh_key'          => RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)),
             'previous_refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID),
             'refresh_rotated_at'   => $rotatedAt,
@@ -1251,7 +1249,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Record the SQL of every update of the devices table run from here on (a
+     * Record the SQL of every update of the sessions table run from here on (a
      * failed refresh also counts the failure in the rate limits table).
      *
      * @return \ArrayObject<int, string>
@@ -1262,7 +1260,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $updates = new \ArrayObject;
 
         DB::listen(static function (QueryExecuted $query) use ($updates): void {
-            if (!str_starts_with(strtolower($query->sql), 'update "devices"')) {
+            if (!str_starts_with(strtolower($query->sql), 'update "authentication_sessions"')) {
                 return;
             }
 

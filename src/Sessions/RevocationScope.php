@@ -5,31 +5,31 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Illuminate\Database\Eloquent\Model;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
-use SineMacula\Laravel\Authentication\Devices\DeviceLookup;
-use SineMacula\Laravel\Authentication\Devices\IdentityDevices;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
+use SineMacula\Laravel\Authentication\SessionRecords\IdentitySessions;
+use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * The sessions a bulk revocation ends: an identity's, or a principal's, with
- * the devices that hold them, the pending sign-ins that could still start one,
- * the "tokens valid after" cutoff that ends its access tokens issued without a
- * device, and, for an identity whose identifiers can be changed, its pending
- * identifier changes, which end with them.
+ * the pending sign-ins that could still start one, the "tokens valid after"
+ * cutoff that ends its access tokens issued without a session, and, for an
+ * identity whose identifiers can be changed, its pending identifier changes,
+ * which end with them.
  *
- * An identity's devices are those its `devices()` relation returns, of every
- * guard; a principal's are the configured device model's devices that record it
- * as their principal. Only an identity that implements `HasDevices` can hold a
- * device or a pending sign-in (the session service refuses to start a session
- * for any other), so a scope whose identity does not (access-only mode, where
- * the package's tables may not exist) touches neither and only moves its
+ * An identity's sessions are those its `sessions()` relation returns, of every
+ * guard; a principal's are the configured session model's sessions that record
+ * it as their principal. Only an identity that implements `HasSessions` can
+ * hold a session or a pending sign-in (the session service refuses to start a
+ * session for any other), so a scope whose identity does not (access-only mode,
+ * where the package's tables may not exist) touches neither and only moves its
  * cutoff, and an unsaved principal has neither to find. A principal's scope
  * ends no identifier change: the identity that requested one keeps its other
  * sessions.
@@ -48,7 +48,7 @@ final readonly class RevocationScope
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
-     * @param  ?array{0: \Illuminate\Contracts\Database\Eloquent\Builder, 1: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice}  $devices
+     * @param  ?array{0: \Illuminate\Contracts\Database\Eloquent\Builder, 1: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession}  $sessions
      * @param  ?array<string, string>  $pendings
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter  $cutoff
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -62,8 +62,8 @@ final readonly class RevocationScope
      */
     private function __construct(
 
-        /** A query of the scope's devices, in any state, with their model, or `null` when it has none to find. */
-        public ?array $devices,
+        /** A query of the scope's sessions, in any state, with their model, or `null` when it has none to find. */
+        public ?array $sessions,
 
         /** The columns and values that pick the scope's pending sign-ins, or `null` when it has none. */
         public ?array $pendings,
@@ -85,7 +85,7 @@ final readonly class RevocationScope
     ) {}
 
     /**
-     * Every session of the identity, through its `devices()` relation, read on
+     * Every session of the identity, through its `sessions()` relation, read on
      * the write connection, and its pending identifier changes of the types
      * given, for an identity whose identifiers can be changed: a change link
      * needs no session, so one requested from a session that ends must end with
@@ -99,46 +99,46 @@ final readonly class RevocationScope
      */
     public static function identity(Identity $identity, array $changeTypes = []): self
     {
-        $devices  = $identity instanceof HasDevices ? IdentityDevices::query($identity) : null;
-        $pendings = $identity instanceof HasDevices && $identity instanceof Model ? self::owner($identity) : null;
+        $sessions = $identity instanceof HasSessions ? IdentitySessions::query($identity) : null;
+        $pendings = $identity instanceof HasSessions && $identity instanceof Model ? self::owner($identity) : null;
         $changes  = array_map(static fn (string $type): string => PendingChanges::key($identity, $type), $changeTypes);
 
-        return new self($devices, $pendings, $identity instanceof HasTokensValidAfter ? $identity : null, $identity, null, changes: $changes);
+        return new self($sessions, $pendings, $identity instanceof HasTokensValidAfter ? $identity : null, $identity, null, changes: $changes);
     }
 
     /**
-     * Every session acting as the principal, of the configured device model,
+     * Every session acting as the principal, of the configured session model,
      * read on the write connection, with the tenant whose deactivation ends
      * them when that is why, and the principal's owning identity, read afresh
      * on the write connection (a 2D principal is its own). When that identity
-     * does not implement `HasDevices`, no session acting as the principal can
-     * hold a device or a pending sign-in, so none is looked for; when the owner
-     * cannot be read, they are.
+     * does not implement `HasSessions`, the principal can have no session or
+     * pending sign-in, so none is looked for; when the owner cannot be read,
+     * they are.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @return self
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     public static function principal(Principal $principal, ?Tenant $tenant = null): self
     {
         $owner    = self::ownerOf($principal);
         $id       = PrincipalReference::id($principal);
-        $recorded = $id === null || ($owner !== null && !$owner instanceof HasDevices) ? null : ['principal_type' => PrincipalReference::type($principal), 'principal_id' => $id];
-        $devices  = null;
+        $recorded = $id === null || ($owner !== null && !$owner instanceof HasSessions) ? null : ['principal_type' => PrincipalReference::type($principal), 'principal_id' => $id];
+        $sessions = null;
 
         if ($recorded !== null) {
 
-            $model = DeviceLookup::model();
+            $model = SessionLookup::model();
 
             [$type, $key] = PrincipalReference::columns($model);
 
-            $devices = [WriteConnection::query($model->newQuery())->where([$type => $recorded['principal_type'], $key => $recorded['principal_id']]), $model];
+            $sessions = [WriteConnection::query($model->newQuery())->where([$type => $recorded['principal_type'], $key => $recorded['principal_id']]), $model];
         }
 
         return new self(
-            $devices,
+            $sessions,
             $recorded,
             $principal instanceof HasTokensValidAfter ? $principal : null,
             $owner,
@@ -149,14 +149,14 @@ final readonly class RevocationScope
 
     /**
      * The same sessions with the cutoff left where it is, so the scope's
-     * device-less access tokens keep working: how the request's own device-less
-     * session is kept when its identity signs out everywhere else.
+     * session-less access tokens keep working: how the request's own
+     * session-less token is kept when its identity signs out everywhere else.
      *
      * @return self
      */
     public function keepingCutoff(): self
     {
-        return new self($this->devices, $this->pendings, null, $this->identity, $this->principal, $this->tenant, $this->changes);
+        return new self($this->sessions, $this->pendings, null, $this->identity, $this->principal, $this->tenant, $this->changes);
     }
 
     /**

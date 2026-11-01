@@ -4,10 +4,10 @@
 composer require sinemacula/laravel-authentication
 ```
 
-Publish the config and the migrations (the `devices`, `pending_sign_ins`, `rate_limits`, `one_time_codes`, `passkeys`,
-`passkey_challenges`, `api_keys` and `identifier_changes` tables, created on the storage connection: the default
-connection unless `authentication.storage.connection` names another, see [Storage](configuration.md#storage)), then
-migrate:
+Publish the config and the migrations (the `authentication_sessions`, `pending_sign_ins`, `rate_limits`,
+`one_time_codes`, `passkeys`, `passkey_challenges`, `api_keys` and `identifier_changes` tables, created on the storage
+connection: the default connection unless `authentication.storage.connection` names another, see
+[Storage](configuration.md#storage)), then migrate:
 
 ```bash
 php artisan vendor:publish --tag=authentication-config
@@ -16,7 +16,7 @@ php artisan migrate
 ```
 
 Each migration refuses to run over an existing table of the same name, before changing anything, with a
-`TableAlreadyExistsException` that names the configuration key renaming its table (`device.table`,
+`TableAlreadyExistsException` that names the configuration key renaming its table (`session.table`,
 `sign_in.pending_table`, `rate_limits.table`, `codes.table`, `passkeys.table`, `passkeys.challenges_table`,
 `api_keys.table`, `identifier_changes.table`).
 
@@ -117,27 +117,27 @@ and which the guides answer with `__('Too Many Attempts.')`. One-time codes and 
 the senders your application binds, and the default password reset link sender sends Laravel's `ResetPassword`
 notification, worded through Laravel's own translation keys.
 
-## Access-only mode (no devices, no refresh)
+## Access-only mode (no sessions, no refresh)
 
-Device tracking and refresh are opt-in. For simple backends or short-lived session flows (non-human clients use
+Session tracking and refresh are opt-in. For simple backends or short-lived token flows (non-human clients use
 [machine credentials](machine-credentials.md) instead):
 
-1. Do not implement `HasDevices` on your identity model.
+1. Do not implement `HasSessions` on your identity model.
 2. Issue access tokens with `Auth::jwt('api')->issueAccessToken($identity, $principal, null)`.
 3. Do not refresh (`Auth::sessions('api')->refresh(...)`) or start sessions through the session service (`signIn()`,
-   `start()`), which throws a `LogicException` for an identity without `HasDevices`. Clients re-authenticate when the
+   `start()`), which throws a `LogicException` for an identity without `HasSessions`. Clients re-authenticate when the
    access token expires. To end an identity's tokens before they expire, give the identity (or the principal) a "tokens
-   valid after" time (below): the session service's revocation methods (`revokeDevices()`, `signOutEverywhere()`,
-   `passwordChanged()` and the other security changes, `principalDeactivated()`, `revokePrincipalDevices()`) move it,
+   valid after" time (below): the session service's revocation methods (`revokeSessions()`, `signOutEverywhere()`,
+   `passwordChanged()` and the other security changes, `principalDeactivated()`, `revokePrincipalSessions()`) move it,
    and need none of the package's tables for such an identity, except `identifier_changes` for one that implements
    `HasChangeableIdentifiers`, whose pending changes they cancel, or call `invalidateTokensIssuedBefore()` yourself.
 
-`Auth::device()` returns `null` in this mode; the rest of the contextual surface works normally. Such a token has no
-device to revoke, so an identity or principal model that implements `HasTokensValidAfter` ends them instead: a token
+`Auth::session()` returns `null` in this mode; the rest of the contextual surface works normally. Such a token has no
+session to revoke, so an identity or principal model that implements `HasTokensValidAfter` ends them instead: a token
 whose `iat` is at or before either one's `getTokensValidAfter()` is rejected (`issued_before_cutoff`), counted in whole
-seconds, so a token issued in the cutoff's own second is rejected too. Tokens that name a device are not held to it.
+seconds, so a token issued in the cutoff's own second is rejected too. Tokens that name a session are not held to it.
 Bearer requests need none of the package's tables. A guard that signs in with `attempt()` lists `password` in its
 `application.methods` (see [Applications](configuration.md#applications)) and counts its attempts in the `rate_limits`
 table (see [Rate limits](configuration.md#rate-limits)), so publish and run the migrations for it, or set the guard's
-`rate_limits.sign_in` to `null`; the `devices` and `pending_sign_ins` tables then stay empty. See
+`rate_limits.sign_in` to `null`; the `authentication_sessions` and `pending_sign_ins` tables then stay empty. See
 `docs/design/access-only-mode.md`.

@@ -17,10 +17,10 @@ use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
@@ -30,16 +30,16 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
-use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Concerns\InteractsWithDevices;
+use SineMacula\Laravel\Authentication\Models\Session;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * End-to-end tests for refresh replay detection on the shipped devices table,
+ * End-to-end tests for refresh replay detection on the shipped sessions table,
  * through the guard, the facade, and HTTP: parallel refreshes with one token,
- * replays that revoke the device and end its access tokens, recovery from a
+ * replays that revoke the session and end its access tokens, recovery from a
  * lost response, revocation reported only after commit, and refresh inside a
  * caller's transaction on each engine.
  *
@@ -48,15 +48,15 @@ use Tests\Unit\Stubs\StubPrincipal;
  *
  * @internal
  */
-#[CoversClass(DeviceRevoked::class)]
+#[CoversClass(SessionRevoked::class)]
 #[CoversClass(JwtGuard::class)]
 #[CoversClass(RefreshTokenExchange::class)]
 #[CoversClass(RefreshRotationStore::class)]
 final class RefreshReplayIntegrationTest extends TestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
-    /** @var string Plaintext rotation id of the device's first refresh token. */
+    /** @var string Plaintext rotation id of the session's first refresh token. */
     private const string ROTATION_ID = 'first-rotation-id';
 
     /** @var string Second connection to the same database, for a competing request. */
@@ -88,7 +88,7 @@ final class RefreshReplayIntegrationTest extends TestCase
             $blueprint->timestamps();
         });
 
-        Route::middleware('auth:api')->get('/me', static fn (): array => ['device' => Auth::device()?->getDeviceIdentifier()]);
+        Route::middleware('auth:api')->get('/me', static fn (): array => ['session' => Auth::session()?->getSessionIdentifier()]);
     }
 
     /**
@@ -108,9 +108,9 @@ final class RefreshReplayIntegrationTest extends TestCase
     }
 
     /**
-     * Two refreshes with the same token race: the second rotates the device
+     * Two refreshes with the same token race: the second rotates the session
      * between the first one's read and its swap. Both succeed with the same
-     * current credential, and the device stays live.
+     * current credential, and the session stays live.
      *
      * @return void
      *
@@ -118,9 +118,9 @@ final class RefreshReplayIntegrationTest extends TestCase
      */
     public function testParallelRefreshesWithOneTokenBothGetTheCurrentCredential(): void
     {
-        [$identity, $device] = $this->signIn();
+        [$identity, $session] = $this->signIn();
 
-        $token  = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $token  = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity);
         $winner = null;
 
         $this->beforeTheSwap(function () use ($token, &$winner): void {
@@ -133,25 +133,25 @@ final class RefreshReplayIntegrationTest extends TestCase
         self::assertInstanceOf(TokenPair::class, $loser);
         self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->claims($winner->refreshToken)[Claims::JWT_ID->value]);
         self::assertSame($this->claims($winner->refreshToken)[Claims::JWT_ID->value], $this->claims($loser->refreshToken)[Claims::JWT_ID->value]);
-        self::assertNull($this->stored($device)->getRevokedAt());
-        self::assertSame(RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)), $this->stored($device)->getRefreshKey());
+        self::assertNull($this->stored($session)->getRevokedAt());
+        self::assertSame(RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)), $this->stored($session)->getRefreshKey());
     }
 
     /**
      * With grace disabled, the request that loses the race holds a replaced
-     * token: it is treated as a replay and the device is revoked.
+     * token: it is treated as a replay and the session is revoked.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testParallelRefreshesWithGraceDisabledRevokeTheDevice(): void
+    public function testParallelRefreshesWithGraceDisabledRevokeTheSession(): void
     {
         config()->set('auth.guards.api.jwt.refresh_grace_seconds', 0);
 
-        [$identity, $device] = $this->signIn();
+        [$identity, $session] = $this->signIn();
 
-        $token  = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $token  = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity);
         $winner = null;
 
         $this->beforeTheSwap(function () use ($token, &$winner): void {
@@ -160,25 +160,25 @@ final class RefreshReplayIntegrationTest extends TestCase
 
         self::assertNull(GuardSessions::of($this->guard())->refresh($token)->session);
         self::assertInstanceOf(TokenPair::class, $winner);
-        self::assertSame('rotation_reuse', $this->stored($device)->getRevokedReason());
+        self::assertSame('rotation_reuse', $this->stored($session)->getRevokedReason());
     }
 
     /**
      * A refresh token presented after the grace window of the rotation that
-     * replaced it revokes the device: `DeviceRevoked` is dispatched once with
-     * `AuthenticationFailed`, and the device's access tokens stop working at
+     * replaced it revokes the session: `SessionRevoked` is dispatched once with
+     * `AuthenticationFailed`, and the session's access tokens stop working at
      * once, through the `auth` middleware, each request reporting the revoked
-     * device.
+     * session.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testReplayRevokesTheDeviceAndEndsItsAccessTokens(): void
+    public function testReplayRevokesTheSessionAndEndsItsAccessTokens(): void
     {
-        [$identity, $device] = $this->signIn();
+        [$identity, $session] = $this->signIn();
 
-        $stolen = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $stolen = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity);
         $pair   = GuardSessions::of($this->guard())->refresh($stolen)->session?->tokens;
 
         self::assertNotNull($pair);
@@ -187,13 +187,13 @@ final class RefreshReplayIntegrationTest extends TestCase
 
         $this->moveClockTo($this->now->copy()->addMinute());
 
-        /** @var \ArrayObject<int, \SineMacula\Laravel\Authentication\Events\DeviceRevoked> $revoked */
+        /** @var \ArrayObject<int, \SineMacula\Laravel\Authentication\Events\SessionRevoked> $revoked */
         $revoked = new \ArrayObject;
 
         /** @var \ArrayObject<int, array{0: \SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}> $failed */
         $failed = new \ArrayObject;
 
-        Event::listen(DeviceRevoked::class, static function (DeviceRevoked $event) use ($revoked): void {
+        Event::listen(SessionRevoked::class, static function (SessionRevoked $event) use ($revoked): void {
             $revoked->append($event);
         });
         Event::listen(AuthenticationFailed::class, static function (AuthenticationFailed $event) use ($failed): void {
@@ -202,7 +202,7 @@ final class RefreshReplayIntegrationTest extends TestCase
 
         self::assertNull(GuardSessions::of($this->guard())->refresh($stolen)->session);
         self::assertCount(1, $revoked);
-        self::assertSame($device->getKey(), $revoked->getArrayCopy()[0]->context->device?->getDeviceIdentifier());
+        self::assertSame($session->getKey(), $revoked->getArrayCopy()[0]->context->session?->getSessionIdentifier());
         self::assertSame([[AuthenticationFlow::REFRESH, FailureReason::ROTATION_REUSE]], $failed->getArrayCopy());
 
         $this->bearer($pair->accessToken)->assertUnauthorized();
@@ -210,16 +210,16 @@ final class RefreshReplayIntegrationTest extends TestCase
         self::assertNull(GuardSessions::of($this->guard())->refresh($pair->refreshToken)->session);
         self::assertSame([
             [AuthenticationFlow::REFRESH, FailureReason::ROTATION_REUSE],
-            [AuthenticationFlow::BEARER, FailureReason::DEVICE_REVOKED],
-            [AuthenticationFlow::REFRESH, FailureReason::DEVICE_REVOKED],
+            [AuthenticationFlow::BEARER, FailureReason::SESSION_REVOKED],
+            [AuthenticationFlow::REFRESH, FailureReason::SESSION_REVOKED],
         ], $failed->getArrayCopy());
         self::assertCount(1, $revoked);
     }
 
     /**
-     * A rotation and a replay change only the device they concern. Another
-     * device of the same identity, and a device of another identity that holds
-     * the same rotation id digest, keep their digests, rotation time, and
+     * A rotation and a replay change only the session they concern. Another
+     * session of the same identity, and a session of another identity that
+     * holds the same rotation id digest, keep their digests, rotation time, and
      * deadlines through both, stay live, and still authenticate through the
      * `auth` middleware and refresh.
      *
@@ -227,16 +227,16 @@ final class RefreshReplayIntegrationTest extends TestCase
      *
      * @throws \Random\RandomException
      */
-    public function testRotationAndReplayTouchOnlyTheirOwnDevice(): void
+    public function testRotationAndReplayTouchOnlyTheirOwnSession(): void
     {
-        [$identity, $device]       = $this->signIn();
+        [$identity, $session]      = $this->signIn();
         [$stranger, $sameRotation] = $this->signIn('stranger@example.test');
 
-        $sibling = $this->addDevice($identity, 'sibling-rotation-id');
+        $sibling = $this->addSession($identity, 'sibling-rotation-id');
         $others  = [$sibling, $sameRotation];
         $before  = array_map($this->rawRow(...), $others);
 
-        $stolen = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $stolen = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity);
 
         self::assertNotNull(GuardSessions::of($this->guard())->refresh($stolen)->session);
         self::assertSame($before, array_map($this->rawRow(...), $others));
@@ -244,12 +244,12 @@ final class RefreshReplayIntegrationTest extends TestCase
         $this->moveClockTo($this->now->copy()->addMinute());
 
         self::assertNull(GuardSessions::of($this->guard())->refresh($stolen)->session);
-        self::assertSame('rotation_reuse', $this->stored($device)->getRevokedReason());
+        self::assertSame('rotation_reuse', $this->stored($session)->getRevokedReason());
         self::assertSame($before, array_map($this->rawRow(...), $others));
 
         foreach ([[$identity, $sibling, 'sibling-rotation-id'], [$stranger, $sameRotation, self::ROTATION_ID]] as [$owner, $other, $rotationId]) {
 
-            $this->bearer($this->tokens()->issueAccessToken($owner, $owner, $other))->assertOk()->assertJson(['device' => $other->getKey()]);
+            $this->bearer($this->tokens()->issueAccessToken($owner, $owner, $other))->assertOk()->assertJson(['session' => $other->getKey()]);
 
             self::assertNotNull(GuardSessions::of($this->guard())->refresh($this->tokens()->issueRefreshToken($other, $rotationId, $owner))->session);
             self::assertNull($this->stored($other)->getRevokedAt());
@@ -269,9 +269,9 @@ final class RefreshReplayIntegrationTest extends TestCase
      */
     public function testLostResponseIsRecoverableInsideTheGraceWindowOnly(): void
     {
-        [$identity, $device] = $this->signIn();
+        [$identity, $session] = $this->signIn();
 
-        $token  = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $token  = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity);
         $failed = false;
 
         Event::listen(Refreshed::class, static function () use (&$failed): void {
@@ -300,13 +300,13 @@ final class RefreshReplayIntegrationTest extends TestCase
         $this->moveClockTo($this->now->copy()->addSeconds(30));
 
         self::assertNull(GuardSessions::of($this->guard())->refresh($token)->session);
-        self::assertSame('rotation_reuse', $this->stored($device)->getRevokedReason());
+        self::assertSame('rotation_reuse', $this->stored($session)->getRevokedReason());
     }
 
     /**
      * A revocation made inside a transaction is reported only once the
      * transaction commits; one that is rolled back is never reported and leaves
-     * the device live.
+     * the session live.
      *
      * @return void
      *
@@ -315,16 +315,16 @@ final class RefreshReplayIntegrationTest extends TestCase
      */
     public function testRevocationIsReportedOnlyAfterCommit(): void
     {
-        [$identity, $device] = $this->signIn();
+        [$identity, $session] = $this->signIn();
 
-        $this->rotateOnTheRow($device, $this->now->copy()->subHour());
+        $this->rotateOnTheRow($session, $this->now->copy()->subHour());
 
-        $replay = $this->tokens()->issueRefreshToken($this->stored($device), self::ROTATION_ID, $identity);
+        $replay = $this->tokens()->issueRefreshToken($this->stored($session), self::ROTATION_ID, $identity);
 
-        /** @var \ArrayObject<int, \SineMacula\Laravel\Authentication\Events\DeviceRevoked> $revoked */
+        /** @var \ArrayObject<int, \SineMacula\Laravel\Authentication\Events\SessionRevoked> $revoked */
         $revoked = new \ArrayObject;
 
-        Event::listen(DeviceRevoked::class, static function (DeviceRevoked $event) use ($revoked): void {
+        Event::listen(SessionRevoked::class, static function (SessionRevoked $event) use ($revoked): void {
             $revoked->append($event);
         });
 
@@ -336,12 +336,12 @@ final class RefreshReplayIntegrationTest extends TestCase
         DB::rollBack();
 
         self::assertCount(0, $revoked);
-        self::assertNull($this->stored($device)->getRevokedAt());
+        self::assertNull($this->stored($session)->getRevokedAt());
 
         DB::transaction(fn () => GuardSessions::of($this->guard())->refresh($replay));
 
         self::assertCount(1, $revoked);
-        self::assertSame('rotation_reuse', $this->stored($device)->getRevokedReason());
+        self::assertSame('rotation_reuse', $this->stored($session)->getRevokedReason());
     }
 
     /**
@@ -365,12 +365,12 @@ final class RefreshReplayIntegrationTest extends TestCase
             self::markTestSkipped('SQLite serialises writers; there is no concurrent transaction to race.');
         }
 
-        [$identity, $device] = $this->signIn();
+        [$identity, $session] = $this->signIn();
 
-        $token = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $token = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity);
 
-        $this->beforeTheSwap(function () use ($device): void {
-            DB::connection(self::COMPETITOR)->table('devices')->where('id', $device->getKey())->update([
+        $this->beforeTheSwap(function () use ($session): void {
+            DB::connection(self::COMPETITOR)->table('authentication_sessions')->where('id', $session->getKey())->update([
                 'refresh_key'          => RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)),
                 'previous_refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID),
                 'refresh_rotated_at'   => $this->now->format('Y-m-d H:i:s'),
@@ -392,7 +392,7 @@ final class RefreshReplayIntegrationTest extends TestCase
 
             self::assertSame('pgsql', $driver);
             self::assertSame('40001', $exception->getCode());
-            self::assertNull(DB::connection(self::COMPETITOR)->table('devices')->where('id', $device->getKey())->value('revoked_at'));
+            self::assertNull(DB::connection(self::COMPETITOR)->table('authentication_sessions')->where('id', $session->getKey())->value('revoked_at'));
 
             return;
         }
@@ -420,14 +420,14 @@ final class RefreshReplayIntegrationTest extends TestCase
         $config->set('auth.defaults.guard', 'api');
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => StubPrincipal::class]);
         $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities', 'application' => ['methods' => ['password']], 'jwt' => ['refresh_grace_seconds' => 30]]);
-        $config->set('authentication.device.last_used_throttle_seconds', 3600);
+        $config->set('authentication.session.last_used_throttle_seconds', 3600);
     }
 
     /**
-     * Persist an identity signed in on a new device holding `ROTATION_ID`.
+     * Persist an identity signed in on a new session holding `ROTATION_ID`.
      *
      * @param  string  $email
-     * @return array{0: \Tests\Unit\Stubs\StubPrincipal, 1: \SineMacula\Laravel\Authentication\Models\Device}
+     * @return array{0: \Tests\Unit\Stubs\StubPrincipal, 1: \SineMacula\Laravel\Authentication\Models\Session}
      */
     private function signIn(string $email = 'replay@example.test'): array
     {
@@ -437,20 +437,20 @@ final class RefreshReplayIntegrationTest extends TestCase
         $identity->is_active = true;
         $identity->save();
 
-        return [$identity, $this->addDevice($identity, self::ROTATION_ID)];
+        return [$identity, $this->addSession($identity, self::ROTATION_ID)];
     }
 
     /**
-     * Persist a live device of the identity holding the given rotation id.
+     * Persist a live session of the identity holding the given rotation id.
      *
      * @param  \Tests\Unit\Stubs\StubPrincipal  $identity
      * @param  string  $rotationId
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private function addDevice(StubPrincipal $identity, string $rotationId): Device
+    private function addSession(StubPrincipal $identity, string $rotationId): Session
     {
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
@@ -460,31 +460,31 @@ final class RefreshReplayIntegrationTest extends TestCase
             'last_used_at'         => $this->now,
         ])->save();
 
-        return $device;
+        return $session;
     }
 
     /**
-     * Read a device's raw row.
+     * Read a session's raw row.
      *
-     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @return array<string, mixed>
      */
-    private function rawRow(Device $device): array
+    private function rawRow(Session $session): array
     {
-        return (array) DB::table('devices')->where('id', $device->getKey())->first();
+        return (array) DB::table('authentication_sessions')->where('id', $session->getKey())->first();
     }
 
     /**
-     * Rotate the device's row from `ROTATION_ID` to its successor at the given
+     * Rotate the session's row from `ROTATION_ID` to its successor at the given
      * time.
      *
-     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @param  \Carbon\Carbon  $rotatedAt
      * @return void
      */
-    private function rotateOnTheRow(Device $device, Carbon $rotatedAt): void
+    private function rotateOnTheRow(Session $session, Carbon $rotatedAt): void
     {
-        Device::query()->whereKey($device->getKey())->update([
+        Session::query()->whereKey($session->getKey())->update([
             'refresh_key'          => RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)),
             'previous_refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID),
             'refresh_rotated_at'   => $rotatedAt,
@@ -540,14 +540,14 @@ final class RefreshReplayIntegrationTest extends TestCase
     }
 
     /**
-     * Reload a device from the database.
+     * Reload a session from the database.
      *
-     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private function stored(Device $device): Device
+    private function stored(Session $session): Session
     {
-        return Device::query()->whereKey($device->getKey())->firstOrFail();
+        return Session::query()->whereKey($session->getKey())->firstOrFail();
     }
 
     /**

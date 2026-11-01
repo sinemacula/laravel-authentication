@@ -15,14 +15,14 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Concerns\InteractsWithDevices;
+use SineMacula\Laravel\Authentication\Models\Session;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
@@ -30,7 +30,7 @@ use Tests\Unit\Stubs\StubPrincipal;
 /**
  * End-to-end tests for replay revocation in an application's own test suite,
  * which wraps every test in a transaction with Laravel's `DatabaseTransactions`
- * trait: that wrapping transaction never commits, so `DeviceRevoked` must not
+ * trait: that wrapping transaction never commits, so `SessionRevoked` must not
  * wait for it, yet a transaction the application opens inside it still defers
  * the event until it commits.
  *
@@ -43,17 +43,17 @@ use Tests\Unit\Stubs\StubPrincipal;
  *
  * @internal
  */
-#[CoversClass(DeviceRevoked::class)]
+#[CoversClass(SessionRevoked::class)]
 #[CoversClass(RefreshRotationStore::class)]
 final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
 {
-    use DatabaseTransactions, InteractsWithDevices;
+    use DatabaseTransactions, InteractsWithSessionRecords;
 
-    /** @var string Plaintext rotation id of the device's first refresh token. */
+    /** @var string Plaintext rotation id of the session's first refresh token. */
     private const string ROTATION_ID = 'first-rotation-id';
 
-    /** @var string Path of the shipped devices migration. */
-    private const string MIGRATION_PATH = __DIR__ . '/../../../database/migrations/2026_04_06_000000_create_devices_table.php';
+    /** @var string Path of the shipped sessions migration. */
+    private const string MIGRATION_PATH = __DIR__ . '/../../../database/migrations/2026_04_06_000000_create_authentication_sessions_table.php';
 
     /** @var string Path of the shipped rate limits migration, whose table the refresh exchange counts failures in. */
     private const string RATE_LIMITS_MIGRATION_PATH = __DIR__ . '/../../../database/migrations/2026_04_06_000002_create_rate_limits_table.php';
@@ -61,11 +61,11 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
     /** @var \Carbon\Carbon Frozen clock reference. */
     private Carbon $now;
 
-    /** @var \ArrayObject<int, \SineMacula\Laravel\Authentication\Events\DeviceRevoked> Revocations reported so far. */
+    /** @var \ArrayObject<int, \SineMacula\Laravel\Authentication\Events\SessionRevoked> Revocations reported so far. */
     private \ArrayObject $revoked;
 
     /**
-     * Freeze the clocks and record every `DeviceRevoked` event.
+     * Freeze the clocks and record every `SessionRevoked` event.
      *
      * @return void
      */
@@ -82,7 +82,7 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
 
         $this->revoked = new \ArrayObject;
 
-        Event::listen(DeviceRevoked::class, function (DeviceRevoked $event): void {
+        Event::listen(SessionRevoked::class, function (SessionRevoked $event): void {
             $this->revoked->append($event);
         });
     }
@@ -113,23 +113,23 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
      */
     public function testReplayOutsideTheApplicationsTransactionsIsReportedAtOnce(): void
     {
-        $device = $this->replayedDevice();
+        $session = $this->replayedSession();
 
         self::assertInstanceOf(DatabaseTransactionsManager::class, app('db.transactions'));
         self::assertSame(1, DB::transactionLevel());
 
-        self::assertNull(GuardSessions::of($this->guard())->refresh($this->replay($device))->session);
-        self::assertSame([$device->getKey()], array_map(
-            static fn (DeviceRevoked $event): mixed => $event->context->deviceId,
+        self::assertNull(GuardSessions::of($this->guard())->refresh($this->replay($session))->session);
+        self::assertSame([$session->getKey()], array_map(
+            static fn (SessionRevoked $event): mixed => $event->context->sessionId,
             $this->revoked->getArrayCopy(),
         ));
-        self::assertSame('rotation_reuse', $this->stored($device)->getRevokedReason());
+        self::assertSame('rotation_reuse', $this->stored($session)->getRevokedReason());
     }
 
     /**
      * A replay inside a transaction the application opens within the test's
      * wrapping one is reported when that transaction commits, and never when it
-     * is rolled back, which also leaves the device live.
+     * is rolled back, which also leaves the session live.
      *
      * @return void
      *
@@ -138,8 +138,8 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
      */
     public function testReplayInsideTheApplicationsTransactionIsReportedWhenItCommits(): void
     {
-        $device = $this->replayedDevice();
-        $replay = $this->replay($device);
+        $session = $this->replayedSession();
+        $replay  = $this->replay($session);
 
         DB::beginTransaction();
 
@@ -148,7 +148,7 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
         DB::rollBack();
 
         self::assertCount(0, $this->revoked);
-        self::assertNull($this->stored($device)->getRevokedAt());
+        self::assertNull($this->stored($session)->getRevokedAt());
 
         DB::beginTransaction();
 
@@ -158,11 +158,11 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
         DB::commit();
 
         self::assertCount(1, $this->revoked);
-        self::assertSame('rotation_reuse', $this->stored($device)->getRevokedReason());
+        self::assertSame('rotation_reuse', $this->stored($session)->getRevokedReason());
     }
 
     /**
-     * Create the shipped devices and rate limits tables and the identity table
+     * Create the shipped sessions and rate limits tables and the identity table
      * before the wrapping transaction begins. Teardown callbacks run in reverse
      * order, so on a persistent database the tables are dropped after the
      * wrapping transaction is rolled back; an in-memory one goes with its
@@ -197,7 +197,7 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
 
         $this->beforeApplicationDestroyed(static function (): void {
             Schema::dropIfExists('stub_principals');
-            Schema::dropIfExists('devices');
+            Schema::dropIfExists('authentication_sessions');
             Schema::dropIfExists('rate_limits');
         });
     }
@@ -219,16 +219,16 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
         $config->set('auth.defaults.guard', 'api');
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => StubPrincipal::class]);
         $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities', 'jwt' => ['refresh_grace_seconds' => 30]]);
-        $config->set('authentication.device.last_used_throttle_seconds', 3600);
+        $config->set('authentication.session.last_used_throttle_seconds', 3600);
     }
 
     /**
-     * Persist an identity with a live device whose `ROTATION_ID` was replaced
+     * Persist an identity with a live session whose `ROTATION_ID` was replaced
      * an hour ago, so presenting it again is a replay.
      *
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private function replayedDevice(): Device
+    private function replayedSession(): Session
     {
         $identity            = new StubPrincipal;
         $identity->email     = 'replay@example.test';
@@ -236,8 +236,8 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
         $identity->is_active = true;
         $identity->save();
 
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
@@ -247,30 +247,30 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
             'last_used_at'         => $this->now,
         ])->save();
 
-        return $device;
+        return $session;
     }
 
     /**
-     * A validly signed refresh token for the device carrying the replaced
+     * A validly signed refresh token for the session carrying the replaced
      * `ROTATION_ID`.
      *
-     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @return string
      */
-    private function replay(Device $device): string
+    private function replay(Session $session): string
     {
-        return $this->tokens()->issueRefreshToken($this->stored($device), self::ROTATION_ID);
+        return $this->tokens()->issueRefreshToken($this->stored($session), self::ROTATION_ID);
     }
 
     /**
-     * Reload a device from the database.
+     * Reload a session from the database.
      *
-     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private function stored(Device $device): Device
+    private function stored(Session $session): Session
     {
-        return Device::query()->whereKey($device->getKey())->firstOrFail();
+        return Session::query()->whereKey($session->getKey())->firstOrFail();
     }
 
     /**

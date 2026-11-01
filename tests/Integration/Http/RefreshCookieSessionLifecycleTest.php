@@ -39,7 +39,7 @@ use Tests\TestCase;
  * cookie, through the rest of its session: a switch of principal proven by the
  * cookie, held to the cookie's cross-site checks and answered with the rotated
  * cookie, and a sign-out from a route outside the cookie's path that revokes
- * the device and clears the cookie, as the documented routes do.
+ * the session and clears the cookie, as the documented routes do.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -146,7 +146,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
 
     /**
      * A switch that sends the cookie from another site is refused by the
-     * cookie's checks before the session service is reached: the device keeps
+     * cookie's checks before the session service is reached: the session keeps
      * its principal and its credential, and the cookie still refreshes.
      *
      * @return void
@@ -156,7 +156,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
         [$first, $second] = $this->seedMemberships();
 
         $cookie = self::refreshCookie($this->browser('POST', '/auth/sign-in')->assertOk());
-        $before = DB::table('devices')->first(['principal_id', 'refresh_key']);
+        $before = DB::table('authentication_sessions')->first(['principal_id', 'refresh_key']);
 
         $this->browser('POST', '/auth/switch', $cookie, ['membership' => $second->getKey()], ['Origin' => 'https://evil.example', 'X-Requested-With' => 'XMLHttpRequest'])
             ->assertUnauthorized()
@@ -166,8 +166,8 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
             ->assertUnauthorized()
             ->assertJson(['reason' => 'cross_site_request']);
 
-        self::assertEquals($before, DB::table('devices')->first(['principal_id', 'refresh_key']));
-        self::assertSame((string) $first->id, DB::table('devices')->value('principal_id'));
+        self::assertEquals($before, DB::table('authentication_sessions')->first(['principal_id', 'refresh_key']));
+        self::assertSame((string) $first->id, DB::table('authentication_sessions')->value('principal_id'));
 
         $this->browser('POST', '/auth/refresh', $cookie)->assertOk();
     }
@@ -184,7 +184,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
         $this->seedMemberships();
 
         $cookie = self::refreshCookie($this->browser('POST', '/auth/sign-in')->assertOk());
-        $before = DB::table('devices')->value('refresh_key');
+        $before = DB::table('authentication_sessions')->value('refresh_key');
 
         $limiter = \Mockery::mock(AttemptLimiter::class);
         $limiter->shouldReceive('blocked')->once()->andReturn(42);
@@ -196,7 +196,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
             ->assertHeader('Retry-After', '42')
             ->assertCookieMissing(self::COOKIE);
 
-        self::assertSame($before, DB::table('devices')->value('refresh_key'));
+        self::assertSame($before, DB::table('authentication_sessions')->value('refresh_key'));
     }
 
     /**
@@ -211,7 +211,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
         [, $second] = $this->seedMemberships();
 
         $cookie = self::refreshCookie($this->browser('POST', '/auth/sign-in')->assertOk());
-        $before = DB::table('devices')->first(['principal_id', 'refresh_key']);
+        $before = DB::table('authentication_sessions')->first(['principal_id', 'refresh_key']);
 
         $limiter = \Mockery::mock(AttemptLimiter::class);
         $limiter->shouldReceive('blocked')->once()->andReturn(42);
@@ -222,29 +222,40 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
             ->assertTooManyRequests()
             ->assertHeader('Retry-After', '42');
 
-        self::assertEquals($before, DB::table('devices')->first(['principal_id', 'refresh_key']));
+        self::assertEquals($before, DB::table('authentication_sessions')->first(['principal_id', 'refresh_key']));
     }
 
     /**
      * A browser that signs in again while it holds the refresh cookie proves
-     * its device through it, so the sign-in continues that device rather than
-     * starting another, and the new cookie refreshes it.
+     * its session through it, so the sign-in replaces that session with a new
+     * one: the old session is revoked as `superseded`, its access token stops
+     * authenticating at once and its cookie is refused as revoked, while the
+     * new cookie refreshes the new session.
      *
      * @return void
      */
-    public function testASignInFromABrowserHoldingTheCookieContinuesItsDevice(): void
+    public function testASignInFromABrowserHoldingTheCookieReplacesItsSession(): void
     {
         $this->seedMemberships();
 
-        $first  = self::refreshCookie($this->browser('POST', '/auth/sign-in')->assertOk());
-        $device = DB::table('devices')->value('id');
+        $signIn = $this->browser('POST', '/auth/sign-in')->assertOk();
+        $first  = self::refreshCookie($signIn);
+        $access = $signIn->json('access_token');
+        $record = DB::table('authentication_sessions')->value('id');
+
+        self::assertIsString($access);
+
+        $this->browser('GET', '/me', bearer: $access)->assertOk();
+
         $second = self::refreshCookie($this->browser('POST', '/auth/sign-in', $first)->assertOk());
 
-        self::assertSame(1, DB::table('devices')->count());
-        self::assertSame($device, DB::table('devices')->value('id'));
-
+        self::assertSame(2, DB::table('authentication_sessions')->count());
+        self::assertSame('superseded', DB::table('authentication_sessions')->where('id', $record)->value('revoked_reason'));
+        self::assertSame(1, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
         self::assertNotSame($first->getValue(), $second->getValue());
 
+        $this->browser('GET', '/me', bearer: $access)->assertUnauthorized();
+        $this->browser('POST', '/auth/refresh', $first)->assertUnauthorized()->assertJson(['reason' => 'session_revoked']);
         $this->browser('POST', '/auth/refresh', $second)->assertOk();
     }
 
@@ -266,13 +277,13 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
             self::assertSame([], $response->headers->getCookies());
         }
 
-        self::assertSame(0, DB::table('devices')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->count());
     }
 
     /**
-     * Logging out from a route outside the cookie's path revokes the session's
-     * device and clears the cookie: the cookie it held no longer refreshes and
-     * the access token no longer authenticates.
+     * Logging out from a route outside the cookie's path revokes the session
+     * and clears the cookie: the cookie it held no longer refreshes and the
+     * access token no longer authenticates.
      *
      * @return void
      */
@@ -290,9 +301,9 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
 
         self::assertTrue($cleared->isCleared());
         self::assertSame('/auth', $cleared->getPath());
-        self::assertSame('signed_out', DB::table('devices')->value('revoked_reason'));
+        self::assertSame('signed_out', DB::table('authentication_sessions')->value('revoked_reason'));
 
-        $this->browser('POST', '/auth/refresh', $cookie)->assertUnauthorized()->assertJson(['reason' => 'device_revoked']);
+        $this->browser('POST', '/auth/refresh', $cookie)->assertUnauthorized()->assertJson(['reason' => 'session_revoked']);
         $this->browser('GET', '/me', bearer: $access)->assertUnauthorized();
     }
 
@@ -323,7 +334,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
      * Sign the member in as its default membership and answer with the access
      * token in the body and the refresh token in the cookie, for a request from
      * the API's own site only: a cross-site form must not sign the browser in.
-     * A browser that holds the cookie proves its device with it.
+     * A browser that holds the cookie proves its session with it.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
@@ -345,7 +356,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
         assert($session !== null);
 
         return (new JsonResponse(['access_token' => $session->tokens->accessToken]))
-            ->withCookie($transport->cookie($session->tokens->refreshToken, $session->device));
+            ->withCookie($transport->cookie($session->tokens->refreshToken, $session->record));
     }
 
     /**
@@ -372,7 +383,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
         $tokens = $result->session->tokens;
 
         return (new JsonResponse(['access_token' => $tokens->accessToken, 'source' => $result->source?->value]))
-            ->withCookie(Auth::refreshTransport(self::GUARD)->cookie($tokens->refreshToken, $result->session->device));
+            ->withCookie(Auth::refreshTransport(self::GUARD)->cookie($tokens->refreshToken, $result->session->record));
     }
 
     /**
@@ -402,7 +413,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
         $response = new JsonResponse(['access_token' => $result->session->tokens->accessToken, 'principal' => $result->session->principal->getPrincipalIdentifier()]);
 
         return $result->source === RefreshTokenSource::COOKIE
-            ? $response->withCookie(Auth::refreshTransport(self::GUARD)->cookie($result->session->tokens->refreshToken, $result->session->device))
+            ? $response->withCookie(Auth::refreshTransport(self::GUARD)->cookie($result->session->tokens->refreshToken, $result->session->record))
             : $response;
     }
 

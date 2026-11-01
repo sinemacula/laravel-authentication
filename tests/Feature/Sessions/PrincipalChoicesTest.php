@@ -22,9 +22,9 @@ use SineMacula\Laravel\Authentication\Events\PrincipalChoiceRequired;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
-use SineMacula\Laravel\Authentication\Sessions\DeviceProof;
 use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalChoices;
+use SineMacula\Laravel\Authentication\Sessions\ProvenSessions;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Concerns\InteractsWithSessions;
@@ -360,7 +360,7 @@ final class PrincipalChoicesTest extends TestCase
     {
         return new PrincipalChoices(
             $guard->context(),
-            new DeviceProof($guard->tokens()),
+            new ProvenSessions($guard->tokens()),
             new PendingSignIns(app(ConfigRepository::class)),
             new AfterCommit(static fn (): mixed => app('db.transactions')),
             app(),

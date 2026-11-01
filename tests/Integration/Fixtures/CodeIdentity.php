@@ -12,16 +12,16 @@ use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesIdentifierVerification;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
  * 2D identity fixture for one-time codes, stored in `code_identities`: a
  * designated phone number and email address, each normalised and with a
- * verification time beside it, an activity flag, and devices, so the session
+ * verification time beside it, an activity flag, and sessions, so the session
  * service can sign it in with a code.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -37,7 +37,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
  *
  * @internal
  */
-final class CodeIdentity extends Model implements CanBeActive, HasDevices, HasVerifiableIdentifiers, Identity, Principal
+final class CodeIdentity extends Model implements CanBeActive, HasSessions, HasVerifiableIdentifiers, Identity, Principal
 {
     use ActsAsPrincipal, Authenticatable, ProvidesActiveState, ProvidesIdentifierVerification;
 
@@ -48,14 +48,14 @@ final class CodeIdentity extends Model implements CanBeActive, HasDevices, HasVe
     protected $guarded = [];
 
     /**
-     * Eloquent relation builder for the identity's devices.
+     * Eloquent relation builder for the identity's sessions.
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
     #[\Override]
-    public function devices(): Builder
+    public function sessions(): Builder
     {
-        return Device::query()
+        return Session::query()
             ->where('authenticatable_type', self::class)
             ->where('authenticatable_id', (string) $this->getKey()); // @phpstan-ignore cast.string
     }

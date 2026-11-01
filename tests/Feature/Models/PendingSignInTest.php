@@ -7,7 +7,7 @@ namespace Tests\Feature\Models;
 use Illuminate\Support\Facades\Config;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
-use Tests\Integration\Fixtures\SeparateConnectionDevice;
+use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\TestCase;
 
 /**
@@ -41,15 +41,15 @@ final class PendingSignInTest extends TestCase
 
     /**
      * The model lives on the storage connection, read each time it is built,
-     * where the devices must live too, so a pending sign-in and the device it
-     * may continue share it; the device model's own connection does not move
+     * where the sessions must live too, so a pending sign-in and the session it
+     * may continue share it; the session model's own connection does not move
      * it.
      *
      * @return void
      */
     public function testTheConnectionIsTheStorageConnection(): void
     {
-        Config::set('authentication.device.model', SeparateConnectionDevice::class);
+        Config::set('authentication.session.model', SeparateConnectionSession::class);
 
         self::assertNull((new PendingSignIn)->getConnectionName());
 

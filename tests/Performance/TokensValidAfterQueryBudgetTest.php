@@ -17,9 +17,9 @@ use Tests\Integration\Fixtures\CutoffIdentity;
 
 /**
  * Performance contract for "tokens valid after" on the bearer path: the time is
- * read from the identity the bearer path already loaded, so a device-less token
- * of an identity that records one costs the same single read as any other,
- * accepted or rejected.
+ * read from the identity the bearer path already loaded, so a session-less
+ * token of an identity that records one costs the same single read as any
+ * other, accepted or rejected.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -115,7 +115,7 @@ final class TokensValidAfterQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A fresh guard serving a device-less token, issued now, of an identity
+     * A fresh guard serving a session-less token, issued now, of an identity
      * that records the given time.
      *
      * @param  \Carbon\CarbonInterface  $time

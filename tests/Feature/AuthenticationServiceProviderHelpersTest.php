@@ -74,7 +74,7 @@ final class AuthenticationServiceProviderHelpersTest extends TestCase
      * `mergeConfigFrom()` seeds the package defaults without clobbering values
      * the consumer has already set. The test confirms the consumer's key map
      * from `defineEnvironment` survives the provider's `mergeConfigFrom` call,
-     * while a key the consumer did NOT set (`device.table`) takes the package
+     * while a key the consumer did NOT set (`session.table`) takes the package
      * default.
      *
      * @return void
@@ -86,7 +86,7 @@ final class AuthenticationServiceProviderHelpersTest extends TestCase
             config('authentication.jwt.keys'),
         );
 
-        self::assertSame('devices', config('authentication.device.table'));
+        self::assertSame('authentication_sessions', config('authentication.session.table'));
     }
 
     /**

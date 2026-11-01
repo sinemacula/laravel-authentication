@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Model;
  * to an identity (a password reset, an identifier change): the proof (a code or
  * token, and an identifier change's pending row, on the storage connection, see
  * `StorageConnection`) and the identity, with a reset's "tokens valid after"
- * cutoff and devices, must be written in one transaction, so the identity must
+ * cutoff and sessions, must be written in one transaction, so the identity must
  * live on the storage connection. Two connections cannot commit as one, and a
  * failure between their commits would leave a proof spent without its change,
  * or a change made with its proof still live. Both helpers refuse such an

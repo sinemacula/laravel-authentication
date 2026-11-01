@@ -57,8 +57,8 @@ final class GuardCoexistenceIntegrationTest extends TestCase
     /**
      * Freeze the Carbon + JWT clocks and create the three fixture tables used
      * by the 2D and 3D guards (the base TestCase already creates the shipped
-     * `devices` table via `defineDatabaseMigrations()`, which these guards do
-     * not need but is harmless to leave in place).
+     * `authentication_sessions` table via `defineDatabaseMigrations()`, which
+     * these guards do not need but is harmless to leave in place).
      *
      * @return void
      */

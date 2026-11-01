@@ -35,7 +35,7 @@ use Tests\TestCase;
  * from the application the worker booted, and Octane's
  * `FlushAuthenticationState` hands the package's auth manager that sandbox and
  * forgets its guards. Nothing one request binds (an identity, a principal, a
- * device, a tenant, a refusal, a sign-in, a logout) is seen by the next, which
+ * session, a tenant, a refusal, a sign-in, a logout) is seen by the next, which
  * authenticates from its own token or not at all.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -119,7 +119,7 @@ final class JwtGuardRequestsTest extends TestCase
     /**
      * One identity's token, then no token, then another identity's: the guest
      * request binds nothing, and the third sees only the second identity, its
-     * principal and its device.
+     * principal and its session.
      *
      * @return void
      */
@@ -130,7 +130,7 @@ final class JwtGuardRequestsTest extends TestCase
 
         $this->me($first)->assertJson(['identity' => $ada, 'principal' => $ada]);
         $this->me(null)->assertExactJson(self::guest());
-        $this->me($second)->assertExactJson([...self::guest(), 'identity' => $grace, 'principal' => $grace, 'device' => $this->deviceOf($second)]);
+        $this->me($second)->assertExactJson([...self::guest(), 'identity' => $grace, 'principal' => $grace, 'session' => $this->sessionOf($second)]);
     }
 
     /**
@@ -184,7 +184,7 @@ final class JwtGuardRequestsTest extends TestCase
 
         $this->me($first)->assertExactJson(self::guest());
 
-        self::assertSame(FailureReason::DEVICE_REVOKED, $this->recordedEvent(AuthenticationFailed::class)->reason);
+        self::assertSame(FailureReason::SESSION_REVOKED, $this->recordedEvent(AuthenticationFailed::class)->reason);
     }
 
     /**
@@ -336,27 +336,27 @@ final class JwtGuardRequestsTest extends TestCase
     }
 
     /**
-     * The identifier of the device the access token names.
+     * The identifier of the session the access token names.
      *
      * @param  string  $access
      * @return mixed
      */
-    private function deviceOf(string $access): mixed
+    private function sessionOf(string $access): mixed
     {
         $claims = Auth::manager()->jwt('api')->parse($access);
 
         self::assertNotNull($claims);
 
-        return $claims[Claims::DEVICE_ID->value] ?? null;
+        return $claims[Claims::SESSION_ID->value] ?? null;
     }
 
     /**
      * What a guard reports for a guest.
      *
-     * @return array{identity: null, principal: null, device: null, tenant: null, scopes: null}
+     * @return array{identity: null, principal: null, session: null, tenant: null, scopes: null}
      */
     private static function guest(): array
     {
-        return ['identity' => null, 'principal' => null, 'device' => null, 'tenant' => null, 'scopes' => null];
+        return ['identity' => null, 'principal' => null, 'session' => null, 'tenant' => null, 'scopes' => null];
     }
 }

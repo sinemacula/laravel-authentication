@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase as OrchestraTestCase;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
  * Shared base test case for the package's integration tests.
@@ -111,8 +111,8 @@ abstract class TestCase extends OrchestraTestCase
         $config->set('database.default', self::CONNECTION);
         $config->set('database.connections.' . self::CONNECTION, $this->databaseConnection());
 
-        $config->set('authentication.device.model', Device::class);
-        $config->set('authentication.device.table', 'devices');
+        $config->set('authentication.session.model', Session::class);
+        $config->set('authentication.session.table', 'authentication_sessions');
         $config->set('authentication.jwt.keys', ['test-kid' => 'test-secret-key-with-at-least-32-bytes!']);
         $config->set('authentication.jwt.active_kid', 'test-kid');
         $config->set('authentication.jwt.algorithm', 'HS256');
@@ -123,11 +123,11 @@ abstract class TestCase extends OrchestraTestCase
     }
 
     /**
-     * Run the package's shipped migrations so the default `devices`,
-     * `pending_sign_ins`, `rate_limits`, `one_time_codes`, `passkeys`,
-     * `passkey_challenges`, `api_keys` and `identifier_changes` tables exist
-     * for tests that use the shipped models, on the connections the storage
-     * settings name when they run.
+     * Run the package's shipped migrations so the default
+     * `authentication_sessions`, `pending_sign_ins`, `rate_limits`,
+     * `one_time_codes`, `passkeys`, `passkey_challenges`, `api_keys` and
+     * `identifier_changes` tables exist for tests that use the shipped models,
+     * on the connections the storage settings name when they run.
      *
      * A test may point the storage settings elsewhere once the tables exist;
      * `tearDown()` puts them back before the migrations are rolled back. On a
@@ -219,7 +219,7 @@ abstract class TestCase extends OrchestraTestCase
         $limits  = StorageConnection::forRateLimits() ?? $config->string('database.default');
 
         return [
-            [$storage, $config->string('authentication.device.table', 'devices')],
+            [$storage, $config->string('authentication.session.table', 'authentication_sessions')],
             [$storage, $config->string('authentication.sign_in.pending_table', 'pending_sign_ins')],
             [$limits, $config->string('authentication.rate_limits.table', 'rate_limits')],
             [$storage, $config->string('authentication.codes.table', 'one_time_codes')],

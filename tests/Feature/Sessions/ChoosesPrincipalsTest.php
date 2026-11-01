@@ -33,6 +33,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\PrincipalChoiceRequired;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
@@ -232,10 +233,10 @@ final class ChoosesPrincipalsTest extends TestCase
         self::assertTrue($event->context->identity?->is($member)); // @phpstan-ignore method.notFound
         self::assertNull($event->context->principal);
         self::assertNull($event->context->tenant);
-        self::assertNull($event->context->device);
+        self::assertNull($event->context->session);
         self::assertSame($choice->expiresAt->getTimestamp(), $event->expiresAt->getTimestamp());
 
-        self::assertSame(0, DB::table('devices')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->count());
 
         $row = DB::table('pending_sign_ins')->sole();
 
@@ -277,14 +278,13 @@ final class ChoosesPrincipalsTest extends TestCase
         self::assertNotNull($result->session);
         self::assertTrue($result->session->principal->is($first)); // @phpstan-ignore method.notFound
         self::assertSame('password', $result->session->method);
-        self::assertTrue($result->session->deviceCreated);
         self::assertSame([SignedIn::class, Login::class], $this->recordedClasses());
 
-        $device = DB::table('devices')->sole();
+        $record = DB::table('authentication_sessions')->sole();
 
-        self::assertSame(ChoosingMembership::class, $device->principal_type);
-        self::assertSame((string) $first->getKey(), (string) $device->principal_id); // @phpstan-ignore cast.string
-        self::assertSame(self::CLIENT_IP, $device->created_ip);
+        self::assertSame(ChoosingMembership::class, $record->principal_type);
+        self::assertSame((string) $first->getKey(), (string) $record->principal_id); // @phpstan-ignore cast.string
+        self::assertSame(self::CLIENT_IP, $record->created_ip);
 
         self::assertNull($this->sessions(self::GUARD)->choice($token));
         self::assertSame(0, DB::table('pending_sign_ins')->count());
@@ -509,7 +509,7 @@ final class ChoosesPrincipalsTest extends TestCase
 
         self::assertNotNull($session);
 
-        $row = (array) DB::table('devices')->sole();
+        $row = (array) DB::table('authentication_sessions')->sole();
 
         self::assertSame('email', $row['sign_in_identifier_type']);
 
@@ -517,7 +517,7 @@ final class ChoosesPrincipalsTest extends TestCase
 
         self::assertTrue($switch->isFailed());
         self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $switch->reason);
-        self::assertEquals($row, (array) DB::table('devices')->sole());
+        self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
     }
 
     /**
@@ -707,16 +707,18 @@ final class ChoosesPrincipalsTest extends TestCase
     }
 
     /**
-     * A sign-in that proves the client holds a device for the identity offers
-     * the choice with that device, reported with no principal although the
-     * device records one; choosing the principal the device records continues
-     * it, while choosing another starts a new one.
+     * A sign-in that proves the client holds a session for the identity offers
+     * the choice with that session, reported with no principal although the
+     * session records one, and revokes nothing. Choosing the principal the
+     * session records replaces it, revoking it as `superseded` only then, while
+     * choosing another starts a new session and leaves the proven one live, as
+     * does discarding the choice.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAProvenDeviceIsContinuedOnlyForThePrincipalItRecords(): void
+    public function testAProvenSessionIsReplacedOnlyForThePrincipalItRecords(): void
     {
         [$identity, $first, $second] = $this->seedChooser();
 
@@ -729,23 +731,34 @@ final class ChoosesPrincipalsTest extends TestCase
         $again   = $this->offer($session->tokens->refreshToken);
         $pending = $this->recordedEvent(PrincipalChoiceRequired::class)->context;
 
-        self::assertSame(IdentifierCoercion::stringify($session->device->getDeviceIdentifier()), $pending->deviceId);
+        self::assertSame(IdentifierCoercion::stringify($session->record->getSessionIdentifier()), $pending->sessionId);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $pending->identityId);
         self::assertNull($pending->principal);
         self::assertNull($pending->principalMorphClass);
         self::assertNull($pending->principalId);
 
-        $continued = $this->sessions(self::GUARD)->choose($again, $first)->session;
+        self::assertNull(DB::table('authentication_sessions')->where('id', $session->record->getKey())->value('revoked_at'));
 
-        self::assertNotNull($continued);
-        self::assertFalse($continued->deviceCreated);
-        self::assertTrue($continued->device->is($session->device)); // @phpstan-ignore method.notFound
+        $this->recordEvents([SessionRevoked::class]);
 
-        $other = $this->sessions(self::GUARD)->choose($this->offer($continued->tokens->refreshToken), $second)->session;
+        $replaced = $this->sessions(self::GUARD)->choose($again, $first)->session;
+
+        self::assertNotNull($replaced);
+        self::assertFalse($replaced->record->is($session->record)); // @phpstan-ignore method.notFound
+        self::assertSame('superseded', DB::table('authentication_sessions')->where('id', $session->record->getKey())->value('revoked_reason'));
+        self::assertSame(IdentifierCoercion::stringify($session->record->getSessionIdentifier()), $this->recordedEvent(SessionRevoked::class)->context->sessionId);
+
+        $this->recordEvents([SessionRevoked::class]);
+
+        $other = $this->sessions(self::GUARD)->choose($this->offer($replaced->tokens->refreshToken), $second)->session;
 
         self::assertNotNull($other);
-        self::assertTrue($other->deviceCreated);
-        self::assertSame(2, DB::table('devices')->count());
+        self::assertFalse($other->record->is($replaced->record)); // @phpstan-ignore method.notFound
+        self::assertNull(DB::table('authentication_sessions')->where('id', $replaced->record->getKey())->value('revoked_at'));
+        self::assertTrue($this->sessions(self::GUARD)->discard($this->offer($replaced->tokens->refreshToken)));
+        self::assertNull(DB::table('authentication_sessions')->where('id', $replaced->record->getKey())->value('revoked_at'));
+        self::assertNotContains(SessionRevoked::class, $this->recordedClasses());
+        self::assertSame(3, DB::table('authentication_sessions')->count());
     }
 
     /**
@@ -930,7 +943,7 @@ final class ChoosesPrincipalsTest extends TestCase
         }
 
         self::assertSame([SignedIn::class], $this->recordedClasses());
-        self::assertSame(1, DB::table('devices')->count());
+        self::assertSame(1, DB::table('authentication_sessions')->count());
         self::assertCount(2, $limiter->released);
     }
 
@@ -969,7 +982,7 @@ final class ChoosesPrincipalsTest extends TestCase
 
         self::assertSame([], $this->recordedClasses());
         self::assertCount(0, $limiter->released);
-        self::assertSame(0, DB::table('devices')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->count());
         self::assertSame(1, PendingSignIn::query()->count());
 
         DB::beginTransaction();
@@ -982,7 +995,7 @@ final class ChoosesPrincipalsTest extends TestCase
 
         self::assertSame([SignedIn::class], $this->recordedClasses());
         self::assertCount(2, $limiter->released);
-        self::assertSame(1, DB::table('devices')->count());
+        self::assertSame(1, DB::table('authentication_sessions')->count());
         self::assertSame(0, PendingSignIn::query()->count());
     }
 
@@ -1013,14 +1026,14 @@ final class ChoosesPrincipalsTest extends TestCase
         self::assertSame('membership', $context->principalMorphClass);
         self::assertSame(ActivatableTenant::class, $context->tenantMorphClass);
         self::assertSame(IdentifierCoercion::stringify($first->tenant_id), $context->tenantId);
-        self::assertSame('membership', DB::table('devices')->value('principal_type'));
+        self::assertSame('membership', DB::table('authentication_sessions')->value('principal_type'));
     }
 
     /**
      * A bind listener that throws fails a switch after it was written, but
      * `PrincipalSwitched` was dispatched before the bind, so the switch is
      * reported; inside a caller's transaction it waits for the commit, and a
-     * rollback withdraws it and leaves the device as it was.
+     * rollback withdraws it and leaves the session as it was.
      *
      * @return void
      *
@@ -1034,7 +1047,7 @@ final class ChoosesPrincipalsTest extends TestCase
 
         self::assertNotNull($session);
 
-        $before = (array) DB::table('devices')->sole();
+        $before = (array) DB::table('authentication_sessions')->sole();
 
         Event::listen(PrincipalAssigned::class, static function (): never {
             throw new \RuntimeException('listener failed');
@@ -1050,18 +1063,18 @@ final class ChoosesPrincipalsTest extends TestCase
         DB::rollBack();
 
         self::assertSame([], $this->recordedClasses());
-        self::assertEquals($before, (array) DB::table('devices')->sole());
+        self::assertEquals($before, (array) DB::table('authentication_sessions')->sole());
 
         self::assertSame('listener failed', $this->failedSwitch($session->tokens->refreshToken, $second));
         self::assertSame([PrincipalSwitched::class], $this->recordedClasses());
         self::assertTrue($this->recordedEvent(PrincipalSwitched::class)->context->principal?->is($second)); // @phpstan-ignore method.notFound
-        self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify(DB::table('devices')->value('principal_id')));
+        self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify(DB::table('authentication_sessions')->value('principal_id')));
     }
 
     /**
      * Inside a caller's transaction that catches a switch's throwing bind
      * listener and commits, `PrincipalSwitched` follows the commit, once, and
-     * the device stays switched.
+     * the session stays switched.
      *
      * @return void
      *
@@ -1090,7 +1103,7 @@ final class ChoosesPrincipalsTest extends TestCase
 
         self::assertSame([PrincipalSwitched::class], $this->recordedClasses());
         self::assertTrue($this->recordedEvent(PrincipalSwitched::class)->context->principal?->is($second)); // @phpstan-ignore method.notFound
-        self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify(DB::table('devices')->value('principal_id')));
+        self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify(DB::table('authentication_sessions')->value('principal_id')));
     }
 
     /**

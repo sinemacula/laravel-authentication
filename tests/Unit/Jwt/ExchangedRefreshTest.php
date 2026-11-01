@@ -11,7 +11,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
-use Tests\Unit\Stubs\StubDevice;
+use Tests\Unit\Stubs\StubSession;
 
 /**
  * Unit tests for the `ExchangedRefresh` immutable result DTO.
@@ -31,7 +31,7 @@ final class ExchangedRefreshTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /**
-     * The constructor exposes the supplied identity, principal, device, and
+     * The constructor exposes the supplied identity, principal, session, and
      * token result via public readonly fields.
      *
      * @return void
@@ -44,14 +44,14 @@ final class ExchangedRefreshTest extends TestCase
         /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Principal $principal */
         $principal = \Mockery::mock(Principal::class);
 
-        $device = new StubDevice;
-        $tokens = new TokenPair('access-token', 'refresh-token');
+        $session = new StubSession;
+        $tokens  = new TokenPair('access-token', 'refresh-token');
 
-        $result = new ExchangedRefresh($identity, $principal, $device, $tokens);
+        $result = new ExchangedRefresh($identity, $principal, $session, $tokens);
 
         self::assertSame($identity, $result->identity);
         self::assertSame($principal, $result->principal);
-        self::assertSame($device, $result->device);
+        self::assertSame($session, $result->record);
         self::assertSame($tokens, $result->tokens);
     }
 }

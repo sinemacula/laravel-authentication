@@ -17,11 +17,11 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
-use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordReset;
+use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasswordReset;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
-use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Sessions\RevocationScope;
+use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use Tests\Concerns\ChangesIdentifiers;
@@ -33,7 +33,7 @@ use Tests\TestCase;
  * identifier changes: every bulk revocation of the identity, whichever method
  * or listener runs it, cancels them, since a change link needs no session and
  * would otherwise let whoever requested it from an ended session move the
- * account to an identifier of theirs. Revoking one device, or a principal's
+ * account to an identifier of theirs. Revoking one session, or a principal's
  * sessions, keeps them.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -41,7 +41,7 @@ use Tests\TestCase;
  *
  * @internal
  */
-#[CoversClass(DeviceRevocations::class)]
+#[CoversClass(RevocationWriter::class)]
 #[CoversClass(RevocationScope::class)]
 #[CoversClass(PendingChanges::class)]
 #[CoversClass(SessionService::class)]
@@ -94,17 +94,17 @@ final class EndedSessionsCancelChangesTest extends TestCase
         };
 
         $listener = static function (SessionService $sessions, ChangeableIdentity $identity): void {
-            Event::listen(PasswordReset::class, RevokeDevicesOnPasswordReset::class);
+            Event::listen(PasswordReset::class, RevokeSessionsOnPasswordReset::class);
 
             event(new PasswordReset($identity));
         };
 
-        $revokeAll = static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->revokeDevices($identity, RevocationReason::REVOKED);
+        $revokeAll = static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->revokeSessions($identity, RevocationReason::REVOKED);
 
         yield from [
             'signing out everywhere'                 => [$everywhere(false)],
             'signing out everywhere but this client' => [$everywhere(true)],
-            'revoking every device'                  => [$revokeAll],
+            'revoking every session'                 => [$revokeAll],
             'a password changed'                     => [static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->passwordChanged($identity)],
             'a password reset'                       => [static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->passwordReset($identity)],
             'a factor removed'                       => [static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->factorRemoved($identity)],
@@ -130,7 +130,7 @@ final class EndedSessionsCancelChangesTest extends TestCase
     {
         $identity = self::seedChangeable(self::EMAIL, self::PHONE);
         $other    = self::seedChangeable('grace@example.test');
-        $link     = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::device(self::seedDevice($identity)), 'email.confirm')->link();
+        $link     = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::session(self::seedSession($identity)), 'email.confirm')->link();
 
         self::assertIsString($link);
         self::assertTrue($this->changes('admin')->requestByCode($identity, 'phone', self::NEW_PHONE, Reauthentication::confirmedAt($this->now))->isSent());
@@ -154,14 +154,14 @@ final class EndedSessionsCancelChangesTest extends TestCase
     public static function provideNarrowRevocations(): iterable
     {
         yield from [
-            'revoking one device'              => ['revokeDevice'],
-            'revoking a principal\'s sessions' => ['revokePrincipalDevices'],
+            'revoking one session'             => ['revokeSession'],
+            'revoking a principal\'s sessions' => ['revokePrincipalSessions'],
             'the principal deactivated'        => ['principalDeactivated'],
         ];
     }
 
     /**
-     * Revoking one device, or the sessions acting as one of the identity's
+     * Revoking one session, or the sessions acting as one of the identity's
      * principals, leaves its other sessions, and with them its pending change,
      * which its link still makes.
      *
@@ -174,20 +174,20 @@ final class EndedSessionsCancelChangesTest extends TestCase
     public function testARevocationOfLessThanEverySessionKeepsTheChange(string $revocation): void
     {
         $identity = self::seedChangeable();
-        $device   = self::seedDevice($identity);
-        $link     = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::device($device), 'email.confirm')->link();
+        $session  = self::seedSession($identity);
+        $link     = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::session($session), 'email.confirm')->link();
 
         self::assertIsString($link);
 
         $sessions = Auth::sessions('web');
 
         match ($revocation) {
-            'revokeDevice'           => $sessions->revokeDevice($identity, $device->getKey(), RevocationReason::REVOKED),
-            'revokePrincipalDevices' => $sessions->revokePrincipalDevices($identity, RevocationReason::REVOKED),
-            default                  => $sessions->principalDeactivated($identity),
+            'revokeSession'           => $sessions->revokeSession($identity, $session->getKey(), RevocationReason::REVOKED),
+            'revokePrincipalSessions' => $sessions->revokePrincipalSessions($identity, RevocationReason::REVOKED),
+            default                   => $sessions->principalDeactivated($identity),
         };
 
-        self::assertNotNull($device->fresh()?->revoked_at);
+        self::assertNotNull($session->fresh()?->revoked_at);
         self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByLink(Request::create($link)));
     }
 

@@ -18,11 +18,10 @@ use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
-use SineMacula\Laravel\Authentication\Contracts\Device;
-use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
-use SineMacula\Laravel\Authentication\Contracts\EloquentDeviceOrigin;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSessionOrigin;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierNormalizer;
@@ -30,6 +29,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\EventContext;
@@ -81,7 +81,7 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `Device` declares exactly the read surface the guards, the refresh
+     * `Session` declares exactly the read surface the guards, the refresh
      * exchange, the session service, and the package events depend on: the
      * identifier, last use, both refresh digests and the rotation time, both
      * deadlines, the revocation, and the guard and sign-in method that started
@@ -89,11 +89,10 @@ final class ContractDeclarationTest extends TestCase
      *
      * @return void
      */
-    public function testDeviceContractDeclaresExactlyItsReadSurface(): void
+    public function testSessionContractDeclaresExactlyItsReadSurface(): void
     {
         self::assertSame([
             'getAbsoluteExpiresAt',
-            'getDeviceIdentifier',
             'getGuard',
             'getIdleExpiresAt',
             'getLastUsedAt',
@@ -103,39 +102,40 @@ final class ContractDeclarationTest extends TestCase
             'getRefreshRotatedAt',
             'getRevokedAt',
             'getRevokedReason',
+            'getSessionIdentifier',
             'getSignInIdentifierType',
             'getSignInMethod',
             'getSignedInAt',
-        ], self::declaredMethods(Device::class));
+        ], self::declaredMethods(Session::class));
     }
 
     /**
-     * `EloquentDevice` extends the generic `Device` contract with the relation
-     * and column-name accessors required by refresh persistence paths.
+     * `EloquentSession` extends the generic `Session` contract with the
+     * relation and column-name accessors required by refresh persistence paths.
      *
      * @return void
      */
-    public function testEloquentDeviceExtendsDevice(): void
+    public function testEloquentSessionExtendsSession(): void
     {
         self::assertContains(
-            Device::class,
-            (new \ReflectionClass(EloquentDevice::class))->getInterfaceNames(),
+            Session::class,
+            (new \ReflectionClass(EloquentSession::class))->getInterfaceNames(),
         );
         self::assertContains(
-            EloquentDeviceOrigin::class,
-            (new \ReflectionClass(EloquentDevice::class))->getInterfaceNames(),
+            EloquentSessionOrigin::class,
+            (new \ReflectionClass(EloquentSession::class))->getInterfaceNames(),
         );
     }
 
     /**
-     * `EloquentDevice` adds exactly the owner and principal relations and the
+     * `EloquentSession` adds exactly the owner and principal relations and the
      * column names the session creation, refresh, revocation, and last-use
      * writes need, besides those of the session's origin. The identifier has no
      * column name: it is always the primary key.
      *
      * @return void
      */
-    public function testEloquentDeviceContractDeclaresExactlyItsPersistenceHooks(): void
+    public function testEloquentSessionContractDeclaresExactlyItsPersistenceHooks(): void
     {
         self::assertSame([
             'authenticatable',
@@ -152,16 +152,16 @@ final class ContractDeclarationTest extends TestCase
             'getRevokedReasonName',
             'getSignedInAtName',
             'principal',
-        ], self::declaredMethods(EloquentDevice::class));
+        ], self::declaredMethods(EloquentSession::class));
     }
 
     /**
-     * `EloquentDeviceOrigin` declares exactly the column names of what a
-     * device's session started with, which the session service writes.
+     * `EloquentSessionOrigin` declares exactly the column names of what a
+     * session started with, which the session service writes.
      *
      * @return void
      */
-    public function testEloquentDeviceOriginDeclaresExactlyTheOriginColumns(): void
+    public function testEloquentSessionOriginDeclaresExactlyTheOriginColumns(): void
     {
         self::assertSame([
             'getClientNameName',
@@ -171,29 +171,29 @@ final class ContractDeclarationTest extends TestCase
             'getPlatformName',
             'getSignInIdentifierTypeName',
             'getSignInMethodName',
-        ], self::declaredMethods(EloquentDeviceOrigin::class));
+        ], self::declaredMethods(EloquentSessionOrigin::class));
     }
 
     /**
-     * `EloquentDevice::authenticatable()` and `principal()` must return MorphTo
-     * relations, and the persistence column-name accessors, its origin's
-     * included, must return strings.
+     * `EloquentSession::authenticatable()` and `principal()` must return
+     * MorphTo relations, and the persistence column-name accessors, its
+     * origin's included, must return strings.
      *
      * @return void
      */
-    public function testEloquentDeviceDeclaresExpectedReturnTypes(): void
+    public function testEloquentSessionDeclaresExpectedReturnTypes(): void
     {
         foreach (['authenticatable', 'principal'] as $relation) {
-            $relationReturn = (new \ReflectionMethod(EloquentDevice::class, $relation))->getReturnType();
+            $relationReturn = (new \ReflectionMethod(EloquentSession::class, $relation))->getReturnType();
             self::assertInstanceOf(\ReflectionNamedType::class, $relationReturn);
             self::assertSame(MorphTo::class, $relationReturn->getName());
         }
 
-        $persistence         = array_diff(self::declaredMethods(EloquentDevice::class), ['authenticatable', 'principal']);
-        $columnNameAccessors = [...$persistence, ...self::declaredMethods(EloquentDeviceOrigin::class)];
+        $persistence         = array_diff(self::declaredMethods(EloquentSession::class), ['authenticatable', 'principal']);
+        $columnNameAccessors = [...$persistence, ...self::declaredMethods(EloquentSessionOrigin::class)];
 
         foreach ($columnNameAccessors as $method) {
-            $returnType = (new \ReflectionMethod(EloquentDevice::class, $method))->getReturnType();
+            $returnType = (new \ReflectionMethod(EloquentSession::class, $method))->getReturnType();
             self::assertInstanceOf(\ReflectionNamedType::class, $returnType);
             self::assertSame('string', $returnType->getName());
         }
@@ -316,15 +316,15 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `HasDevices::devices()` must return an
+     * `HasSessions::sessions()` must return an
      * `Illuminate\Contracts\Database\Eloquent\Builder` so the guards'
-     * `resolveDeviceFromHint()` path can query through a uniform surface.
+     * `resolveSessionFromHint()` path can query through a uniform surface.
      *
      * @return void
      */
-    public function testHasDevicesDeclaresDevicesReturnType(): void
+    public function testHasSessionsDeclaresSessionsReturnType(): void
     {
-        $reflection = new \ReflectionMethod(HasDevices::class, 'devices');
+        $reflection = new \ReflectionMethod(HasSessions::class, 'sessions');
 
         $returnType = $reflection->getReturnType();
 
@@ -504,6 +504,27 @@ final class ContractDeclarationTest extends TestCase
         self::assertSame(['getTokensValidAfter', 'invalidateTokensIssuedBefore'], self::declaredMethods(HasTokensValidAfter::class));
         self::assertNotContains(HasTokensValidAfter::class, (new \ReflectionClass(Identity::class))->getInterfaceNames());
         self::assertNotContains(HasTokensValidAfter::class, (new \ReflectionClass(Principal::class))->getInterfaceNames());
+    }
+
+    /**
+     * No package contract names a method after a device: the record is a
+     * session everywhere.
+     *
+     * @return void
+     */
+    public function testNoContractNamesAMethodAfterADevice(): void
+    {
+        $contracts = glob(dirname(__DIR__, 3) . '/src/Contracts/*.php') ?: [];
+
+        self::assertNotEmpty($contracts);
+
+        foreach ($contracts as $file) {
+            $interface = 'SineMacula\Laravel\Authentication\Contracts\\' . basename($file, '.php');
+
+            foreach (self::declaredMethods($interface) as $method) {
+                self::assertStringNotContainsStringIgnoringCase('device', $method, $interface . '::' . $method);
+            }
+        }
     }
 
     /**

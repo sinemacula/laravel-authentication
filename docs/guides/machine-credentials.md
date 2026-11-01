@@ -3,7 +3,7 @@
 ## Non-human identities
 
 An API client or a service account is an identity of its own type: implement `Contracts\MachineIdentity` on its model
-(a marker that extends `Identity`). A non-human identity has no password, no interactive sign-in, no device and no
+(a marker that extends `Identity`). A non-human identity has no password, no interactive sign-in, no session and no
 refresh; it authenticates only with a credential issued to it, each bound to one principal in one tenant. The package
 enforces this at every entry point that verifies something:
 
@@ -11,7 +11,7 @@ enforces this at every entry point that verifies something:
 |--------------------------------------------------------------------|--------------------------------------------------------------|
 | A password check (`signIn('password')`, `attempt()`, `validate()`) | refused as `invalid_credentials`, no hash computed, no count |
 | Any other sign-in method, `start()`, `complete()`, `choose()`      | refused at admission as `machine_identity`                   |
-| A refresh or a switch of principal on a device it owns             | refused as `machine_identity`                                |
+| A refresh or a switch of principal on a session it owns            | refused as `machine_identity`                                |
 | A session's access token (`jwt` guard) naming it                   | refused as `machine_identity`                                |
 | `Auth::jwt()->issueAccessToken()` / `issueRefreshToken()`          | refused with a `LogicException`                              |
 | An `api_key` guard's `attempt()`                                   | refused as `method_not_allowed`: machines do not sign in     |
@@ -49,7 +49,7 @@ with the credential's scopes, so a scope grants nothing the principal could not 
 `[]` and `null` differ: `[]` is a credential that grants no scope, `null` is no credential limit at all. A
 `MachineIdentity` is never left without a ceiling, so binding one through the trusted `login()`, `setUser()` or
 `authenticateAs()` (Laravel's `actingAs()` in tests, say) gives it `[]`;
-`authenticateAs($identity, $principal, $device, $scopes)` gives it the scopes named instead (a test acting as a machine
+`authenticateAs($identity, $principal, $session, $scopes)` gives it the scopes named instead (a test acting as a machine
 with scopes, say; see [Testing](testing.md)), and refuses scopes for a human identity with an
 `InvalidArgumentException`. The scopes are also in every event's context (`$event->context->scopes`), with the
 credential's id in `credentialId`.
@@ -142,7 +142,7 @@ A malformed key, an unknown public part and a wrong secret are refused alike, an
 against a fixed digest so it costs the same as a wrong secret. A refused key dispatches one `AuthenticationFailed` (flow
 `api_key`, naming the key once one was found) and nothing else; an accepted key binds the owner and principal with the
 key's scopes (`Auth::scopes()`) as an authentication, not a sign-in: only `Authenticated` and `PrincipalAssigned` fire,
-with method `api_key`, the key's id in `credentialId` and its scopes. Keys carry no device and no refresh. The key's
+with method `api_key`, the key's id in `credentialId` and its scopes. Keys carry no session and no refresh. The key's
 last use is recorded at most once per `last_used_throttle_seconds`, with one conditional update. The guard counts no
 attempts: a secret this long cannot be guessed, and a write per refused request would cost the hot path more than it
 protects, so throttle the routes for that. A machine has no interactive sign-in: the guard's `attempt()` always fails
@@ -243,9 +243,9 @@ otherwise the token grants exactly those asked for. Every failure dispatches `Au
 as the id never reaches a listener, and the key once found) and a grant `ClientCredentialsGranted`, with the key and the
 scopes granted.
 
-The token is an access token of the guard with no device, the key's id in `cid` and its scopes in `scope`; it lives the
+The token is an access token of the guard with no session, the key's id in `cid` and its scopes in `scope`; it lives the
 guard's access lifetime, never past the key's expiry, and no refresh token is issued. On every request the bearer path
-reads its key by primary key (one query more than any device-less token) and requires it to be the guard's
+reads its key by primary key (one query more than any session-less token) and requires it to be the guard's
 (`credential_invalid`), not revoked (`credential_revoked`) and not expired (`credential_expired`); the subject must be a
 machine (`credential_invalid`), and the key's owner, principal and tenant must still be what loaded
 (`principal_mismatch`, `credential_invalid`). Revoking the key, or the end of its rotation's overlap, so ends its tokens

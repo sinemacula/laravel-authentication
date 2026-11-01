@@ -14,19 +14,19 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
-use Tests\Concerns\InteractsWithDevices;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
-use Tests\Integration\Fixtures\UnreachableDevice;
-use Tests\Integration\Fixtures\UnreachableDeviceIdentity;
+use Tests\Integration\Fixtures\UnreachableSession;
+use Tests\Integration\Fixtures\UnreachableSessionIdentity;
 use Tests\TestCase;
 
 /**
  * A database that cannot be reached surfaces as a server error on refresh and
- * on bearer requests, not as an unknown device.
+ * on bearer requests, not as an unknown session.
  *
- * The device model lives on a connection whose database does not exist, so the
- * device lookup fails while connecting, and an outage must not read as an
- * unknown device (a silent sign-out, or a 401 for every request).
+ * The session model lives on a connection whose database does not exist, so the
+ * session lookup fails while connecting, and an outage must not read as an
+ * unknown session (a silent sign-out, or a 401 for every request).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -37,13 +37,13 @@ use Tests\TestCase;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardDatabaseFailureIntegrationTest extends TestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
     /** @var string Connection whose database cannot be opened. */
     private const string UNREACHABLE_CONNECTION = 'unreachable';
 
-    /** @var string Well-formed id of the device the token names. */
-    private const string DEVICE_ID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
+    /** @var string Well-formed id of the session the token names. */
+    private const string SESSION_ID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
 
     /**
      * Create the identity table.
@@ -84,16 +84,16 @@ final class JwtGuardDatabaseFailureIntegrationTest extends TestCase
      *
      * @throws \Random\RandomException
      */
-    public function testRefreshPropagatesAConnectionFailureDuringDeviceLookup(): void
+    public function testRefreshPropagatesAConnectionFailureDuringSessionLookup(): void
     {
         config()->set('authentication.storage.connection', self::UNREACHABLE_CONNECTION);
         config()->set('authentication.rate_limits.connection', 'testing');
-        config()->set('authentication.device.model', UnreachableDevice::class);
+        config()->set('authentication.session.model', UnreachableSession::class);
 
-        $device = new UnreachableDevice;
-        $device->forceFill([...self::liveSession(), 'id' => self::DEVICE_ID]);
+        $session = new UnreachableSession;
+        $session->forceFill([...self::liveSession(), 'id' => self::SESSION_ID]);
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($device, 'rotation-id');
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, 'rotation-id');
 
         app()->instance('request', Request::create('/refresh', 'POST'));
 
@@ -115,15 +115,15 @@ final class JwtGuardDatabaseFailureIntegrationTest extends TestCase
      *
      * @throws \Random\RandomException
      */
-    public function testBearerAnswersAConnectionFailureDuringDeviceLookupWithAServerError(): void
+    public function testBearerAnswersAConnectionFailureDuringSessionLookupWithAServerError(): void
     {
-        $identity = new UnreachableDeviceIdentity;
+        $identity = new UnreachableSessionIdentity;
         $identity->forceFill(['email' => 'outage@example.test', 'password' => 'irrelevant'])->save();
 
-        $device = new UnreachableDevice;
-        $device->forceFill([...self::liveSession(), 'id' => self::DEVICE_ID]);
+        $session = new UnreachableSession;
+        $session->forceFill([...self::liveSession(), 'id' => self::SESSION_ID]);
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $device);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $session);
 
         Route::middleware('auth:api')->get('/me', static fn (): string => 'ok');
 
@@ -163,7 +163,7 @@ final class JwtGuardDatabaseFailureIntegrationTest extends TestCase
 
         $config->set('auth.providers.identities', [
             'driver' => 'model',
-            'model'  => UnreachableDeviceIdentity::class,
+            'model'  => UnreachableSessionIdentity::class,
         ]);
     }
 

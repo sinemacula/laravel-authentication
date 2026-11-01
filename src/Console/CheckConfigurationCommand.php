@@ -16,10 +16,9 @@ use SineMacula\Laravel\Authentication\Config\JwtGuards;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
-use SineMacula\Laravel\Authentication\Database\DeviceRetention;
+use SineMacula\Laravel\Authentication\Database\SessionRetention;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Delivery\DeliverySettings;
-use SineMacula\Laravel\Authentication\Devices\DeviceLookup;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenSettings;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeSettings;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
@@ -28,6 +27,7 @@ use SineMacula\Laravel\Authentication\Passkeys\PasskeySignIn;
 use SineMacula\Laravel\Authentication\Passkeys\RelyingParty;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptLimits;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
@@ -50,8 +50,8 @@ use Symfony\Component\Console\Attribute\AsCommand;
  * allows `api_key`, and with the package's policy that its settings are valid),
  * and every flow's rate limits. The package-wide settings are reported as
  * `[storage]` (the storage connection and the rate limits connection, each a
- * connection name configured in `database.connections`, or none), `[device]`
- * (while a `jwt` guard is configured: the device model, which must live on the
+ * connection name configured in `database.connections`, or none), `[session]`
+ * (while a `jwt` guard is configured: the session model, which must live on the
  * storage connection, and the pruning retention), `[sign_in]` (the pending
  * sign-in lifetime), `[passwords]` (the password policy settings), `[codes]`
  * (the one-time code settings and key, a sender bound when a guard allows a
@@ -85,7 +85,7 @@ final class CheckConfigurationCommand extends Command
     protected $signature = 'authentication:check {--guard=* : Check only these guards}';
 
     /** @var string The console command description. */
-    protected $description = 'Check the configuration of every jwt and api_key guard and the device model';
+    protected $description = 'Check the configuration of every jwt and api_key guard and the session model';
 
     /**
      * Check the configuration and report each problem, or that there is none.
@@ -138,11 +138,11 @@ final class CheckConfigurationCommand extends Command
 
     /**
      * The package-wide checks, by what they check: the connections the
-     * package's tables live on, the device model and how long pruning keeps a
-     * device (only while a `jwt` guard, which keeps device sessions, is
-     * configured), the lifetime of a pending sign-in (a further factor or a
-     * principal choice), the API key settings and the identifier change
-     * settings, each of which otherwise fails only when it is first used.
+     * package's tables live on, the session model and how long pruning keeps a
+     * session (only while a `jwt` guard, which keeps sessions, is configured),
+     * the lifetime of a pending sign-in (a further factor or a principal
+     * choice), the API key settings and the identifier change settings, each of
+     * which otherwise fails only when it is first used.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @param  list<string>  $checked
@@ -150,12 +150,12 @@ final class CheckConfigurationCommand extends Command
      */
     private function packageChecks(ConfigRepository $config, array $checked): array
     {
-        $device = JwtGuards::names($config) === [] ? [] : [
-            'device' => [
+        $session = JwtGuards::names($config) === [] ? [] : [
+            'session' => [
                 static function (): void {
-                    DeviceLookup::model();
+                    SessionLookup::model();
                 },
-                static fn (): int => DeviceRetention::days(),
+                static fn (): int => SessionRetention::days(),
             ],
         ];
 
@@ -164,7 +164,7 @@ final class CheckConfigurationCommand extends Command
                 static fn (): ?string => self::configuredConnection($config, StorageConnection::name()),
                 static fn (): ?string => self::configuredConnection($config, StorageConnection::forRateLimits()),
             ],
-            ...$device,
+            ...$session,
             'sign_in' => [
                 static fn (): int => (new PendingSignIns($config))->ttlSeconds(),
             ],

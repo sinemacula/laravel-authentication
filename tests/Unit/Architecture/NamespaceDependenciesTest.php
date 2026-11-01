@@ -45,31 +45,31 @@ final class NamespaceDependenciesTest extends TestCase
 
     /** @var array<string, array{from: non-empty-list<string>, except: list<string>, forbids: non-empty-list<string>, allows: list<string>}> The rules, by what each holds. */
     private const array RULES = [
-        'models name nothing of tokens, sessions or guards' => [
+        'models name nothing of tokens, the session service or guards' => [
             'from'    => ['Models'],
             'except'  => [],
             'forbids' => ['Jwt', 'Sessions', 'Guards'],
             'allows'  => [],
         ],
-        'storage, configuration and attempt limiting name nothing of tokens, sessions or guards' => [
+        'storage, configuration and attempt limiting name nothing of tokens, the session service or guards' => [
             'from'    => ['Config', 'Database', 'RateLimiting'],
             'except'  => [],
             'forbids' => ['Jwt', 'Sessions', 'Guards'],
             'allows'  => [],
         ],
-        'identifiers, factors, scopes, resolvers, providers, casts, delivery and verification name nothing of tokens, sessions or guards' => [
+        'identifiers, factors, scopes, resolvers, providers, casts, delivery and verification name nothing of tokens, the session service or guards' => [
             'from'    => ['Casts', 'Delivery', 'Factors', 'Identifiers', 'Providers', 'Resolvers', 'Scopes', 'Verification'],
             'except'  => [],
             'forbids' => ['Jwt', 'Sessions', 'Guards'],
             'allows'  => [],
         ],
-        'admission, devices and the support helpers name nothing of tokens, sessions or guards' => [
-            'from'    => ['Admission', 'Devices', 'Support'],
+        'admission, the session records and the support helpers name nothing of tokens, the session service or guards' => [
+            'from'    => ['Admission', 'SessionRecords', 'Support'],
             'except'  => [],
             'forbids' => ['Jwt', 'Sessions', 'Guards'],
             'allows'  => [],
         ],
-        'the guard context names nothing of guards, sessions or tokens' => [
+        'the guard context names nothing of guards, the session service or tokens' => [
             'from'    => ['Runtime'],
             'except'  => [],
             'forbids' => ['Guards', 'Sessions', 'Jwt'],
@@ -81,13 +81,13 @@ final class NamespaceDependenciesTest extends TestCase
             'forbids' => ['Guards'],
             'allows'  => [],
         ],
-        'sessions name no guard' => [
+        'the session service names no guard' => [
             'from'    => ['Sessions'],
             'except'  => [],
             'forbids' => ['Guards'],
             'allows'  => [],
         ],
-        'the guards name nothing of sessions but the revocations, the password sign-in method and the credential attempt' => [
+        'the guards name nothing of the session service but the revocations, the password sign-in method and the credential attempt' => [
             'from'    => ['Guards'],
             'except'  => [],
             'forbids' => ['Sessions'],
@@ -105,13 +105,13 @@ final class NamespaceDependenciesTest extends TestCase
             'forbids' => ['Guards'],
             'allows'  => [],
         ],
-        'tokens, API keys and client credentials name nothing of sessions but the sign-in request' => [
+        'tokens, API keys and client credentials name nothing of the session service but the sign-in request' => [
             'from'    => ['Jwt', 'ApiKeys', 'ClientCredentials'],
             'except'  => [],
             'forbids' => ['Sessions'],
             'allows'  => ['Sessions\SignInRequest'],
         ],
-        'the HTTP helpers name nothing of sessions or guards' => [
+        'the HTTP helpers name nothing of the session service or guards' => [
             'from'    => ['Http'],
             'except'  => [],
             'forbids' => ['Sessions', 'Guards'],
@@ -268,10 +268,10 @@ final class NamespaceDependenciesTest extends TestCase
              */
             final class Example
             {
-                use Concerns\ManagesDevices;
+                use Concerns\ManagesSessions;
 
-                /** @var \SineMacula\Laravel\Authentication\Models\Device */
-                private $device;
+                /** @var \SineMacula\Laravel\Authentication\Models\Session */
+                private $session;
 
                 public function run(): void
                 {
@@ -304,8 +304,8 @@ final class NamespaceDependenciesTest extends TestCase
             'Http\ClientContext',
             'Jwt\TokenLifetimes',
             'Jwt\issue',
-            'Models\Device',
-            'Sessions\Concerns\ManagesDevices',
+            'Models\Session',
+            'Sessions\Concerns\ManagesSessions',
             'Sessions\SessionWriter',
             'Support\helper',
         ], $names);
@@ -335,7 +335,7 @@ final class NamespaceDependenciesTest extends TestCase
 
                 final class Example
                 {
-                    use Concerns\HasDevices;
+                    use Concerns\HasSessions;
                 }
             }
 
@@ -356,7 +356,7 @@ final class NamespaceDependenciesTest extends TestCase
             'Database\AfterCommit',
             'Guards',
             'Jwt\TokenLifetimes',
-            'Models\Concerns\HasDevices',
+            'Models\Concerns\HasSessions',
             'Sessions\SessionService',
         ], $names);
     }
@@ -392,7 +392,7 @@ final class NamespaceDependenciesTest extends TestCase
                 public function run(): void
                 {
                     new Auth\Jwt\TokenLifetimes;
-                    new auth\Sessions\DeviceProof;
+                    new auth\Sessions\ProvenSessions;
                     new GUARDING\JwtGuard;
                     new tokens\JwtKeyring;
                     new \sinemacula\laravel\authentication\jwt\MachineTokens;
@@ -410,7 +410,7 @@ final class NamespaceDependenciesTest extends TestCase
             'Jwt',
             'Jwt\JwtKeyring',
             'Jwt\TokenLifetimes',
-            'Sessions\DeviceProof',
+            'Sessions\ProvenSessions',
             'jwt\MachineTokens',
             'sessions\SessionService',
         ], $names);
@@ -421,7 +421,7 @@ final class NamespaceDependenciesTest extends TestCase
             'Models\Example names Jwt',
             'Models\Example names Jwt\JwtKeyring',
             'Models\Example names Jwt\TokenLifetimes',
-            'Models\Example names Sessions\DeviceProof',
+            'Models\Example names Sessions\ProvenSessions',
             'Models\Example names jwt\MachineTokens',
             'Models\Example names sessions\SessionService',
         ], self::violations(['Models\Example' => $names], ['models'], [], ['JWT', 'Sessions', 'Guards'], []));

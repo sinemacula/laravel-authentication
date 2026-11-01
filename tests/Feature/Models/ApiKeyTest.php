@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Models\ApiKey;
-use Tests\Integration\Fixtures\SeparateConnectionDevice;
+use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\TestCase;
 
 /**
@@ -44,8 +44,8 @@ final class ApiKeyTest extends TestCase
 
     /**
      * The model reads its table from the configuration and its connection from
-     * the storage connection, each time it is built; a device model on another
-     * connection does not move it, since keys have no device sessions.
+     * the storage connection, each time it is built; a session model on another
+     * connection does not move it, since keys have no sessions.
      *
      * @return void
      */
@@ -57,7 +57,7 @@ final class ApiKeyTest extends TestCase
 
         self::assertSame('machine_keys', (new ApiKey)->getTable());
 
-        Config::set('authentication.device.model', SeparateConnectionDevice::class);
+        Config::set('authentication.session.model', SeparateConnectionSession::class);
 
         self::assertNull((new ApiKey)->getConnectionName());
 

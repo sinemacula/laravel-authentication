@@ -62,7 +62,7 @@ final class JwtGuardFailureBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Malformed bearer tokens should fail before any provider or device query.
+     * Malformed bearer tokens should fail before any provider or session query.
      *
      * @return void
      */

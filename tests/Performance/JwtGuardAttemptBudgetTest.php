@@ -13,8 +13,8 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
-use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Concerns\InteractsWithDevices;
+use SineMacula\Laravel\Authentication\Models\Session;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Integration\Fixtures\Coexist3dIdentity;
 use Tests\Integration\Fixtures\Coexist3dPrincipal;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -22,7 +22,7 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 /**
  * Query-budget and timing contracts for credential sign-in through `attempt()`:
  * the reads each outcome costs, including the pinned principal's owner re-read
- * and the pinned device lookup, the writes of the shipped attempt limits, and
+ * and the pinned session lookup, the writes of the shipped attempt limits, and
  * the timebox that keeps a failed attempt as slow as an unknown identifier.
  *
  * Every attempt first reserves a slot on the identifier's and the IP address's
@@ -43,12 +43,12 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 #[CoversClass(AbstractGuard::class)]
 final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
     /** @var string Shared plaintext password for the seeded fixtures. */
     private const string PASSWORD = 'correct horse battery staple';
 
-    /** @var string Guard over the 2D identity that owns devices. */
+    /** @var string Guard over the 2D identity that owns sessions. */
     private const string TWO_D_GUARD = 'api';
 
     /** @var string Guard over the 3D identity and its principals. */
@@ -216,8 +216,8 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A pinned live device costs one read on top of the identity, plus the
-     * first-use timestamp write besides the limits; a pinned revoked device
+     * A pinned live session costs one read on top of the identity, plus the
+     * first-use timestamp write besides the limits; a pinned revoked session
      * costs the same reads, writes only its reservations, the account's
      * included, and fails the attempt.
      *
@@ -225,21 +225,21 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
      *
      * @throws \Throwable
      */
-    public function testAttemptWithPinnedDeviceUsesTwoReads(): void
+    public function testAttemptWithPinnedSessionUsesTwoReads(): void
     {
         $identity = $this->seedIdentity();
-        $device   = $this->seedDevice($identity);
+        $session  = $this->seedSession($identity);
 
         $guard = $this->freshGuard(self::TWO_D_GUARD);
 
-        self::assertTrue($this->assertQueryBudget(2, 10, fn (): bool => $guard->attempt($this->credentials($identity->email), null, $device)));
-        self::assertSame($device->getKey(), $guard->device()?->getDeviceIdentifier());
+        self::assertTrue($this->assertQueryBudget(2, 10, fn (): bool => $guard->attempt($this->credentials($identity->email), null, $session)));
+        self::assertSame($session->getKey(), $guard->session()?->getSessionIdentifier());
 
-        Device::query()->whereKey($device->getKey())->update(['revoked_at' => $this->now]);
+        Session::query()->whereKey($session->getKey())->update(['revoked_at' => $this->now]);
 
         $guard = $this->freshGuard(self::TWO_D_GUARD);
 
-        self::assertFalse($this->assertQueryBudget(2, 3, fn (): bool => $guard->attempt($this->credentials($identity->email), null, $device)));
+        self::assertFalse($this->assertQueryBudget(2, 3, fn (): bool => $guard->attempt($this->credentials($identity->email), null, $session)));
     }
 
     /**
@@ -479,15 +479,15 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Persist a live device for the 2D identity.
+     * Persist a live session for the 2D identity.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private function seedDevice(IntegrationIdentity $identity): Device
+    private function seedSession(IntegrationIdentity $identity): Session
     {
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => IntegrationIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
@@ -495,7 +495,7 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
             'principal_id'         => (string) $identity->getKey(), // @phpstan-ignore cast.string
         ])->save();
 
-        return $device;
+        return $session;
     }
 
     /**

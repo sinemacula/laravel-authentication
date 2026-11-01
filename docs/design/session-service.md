@@ -3,7 +3,7 @@
 ## Purpose
 
 This note records how a JWT guard's session service (`Auth::sessions($guard)`) turns a sign-in into a session: the
-checks it runs and their order, how it creates a device or continues one a client proves it holds, and what it
+checks it runs and their order, how it creates a session and revokes the one a client proves it holds, and what it
 dispatches when. It is the one place a session starts, so every sign-in method, and every external verifier that calls
 `start()`, ends in the same checks.
 
@@ -13,10 +13,10 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   `AuthenticationFailed` (flow `sign_in`). A concealed reason (`account_rate_limited`, `code_expired`, `code_exhausted`,
   `passkey_counter_regressed`) reaches only the event; the result says `invalid_credentials`, with no wait. Exceptions
   are reserved for misconfiguration (an unknown method, a method that refuses with a reason that is not a sign-in method
-  reason, an identity that is not an Eloquent model or does not implement `HasDevices`, an invalid device model, an
-  `UnresolvableIdentityException`) and server errors. An identity without `HasDevices` is refused before it is admitted
+  reason, an identity that is not an Eloquent model or does not implement `HasSessions`, an invalid session model, an
+  `UnresolvableIdentityException`) and server errors. An identity without `HasSessions` is refused before it is admitted
   (in `signIn()`, after its slot was taken; in `start()` and `complete()`, before anything is written), because a bearer
-  token names a device the guard can only find through that relation, so the session's access token would never
+  token names a session the guard can only find through that relation, so the session's access token would never
   authenticate. A `MachineIdentity` is the exception: it is let through to admission, which refuses it as a result
   (`machine_identity`), since a non-human identity has no session whatever it implements.
 - No event ever receives the sign-in input. `Attempting` and `Failed` carry only `[type => identifier]` (or
@@ -29,8 +29,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   identifier type before any principal is resolved (`admitIdentifier()`; the package's finds the identifier verified
   where the guard requires it), the principal (the context's pin, verified like an `attempt()` pin, else the resolver's
   default) and its tenant must be active, and the application policy must admit them with the method's identifier type;
-  a password is rehashed; the proof of a device is checked; the additional-factor policy is asked; the session is
-  written, recording the method and its identifier type on the device, or a pending sign-in is issued. Only a success
+  a password is rehashed; the proof of a session is checked; the additional-factor policy is asked; the session is
+  written, recording the method and its identifier type on the session, or a pending sign-in is issued. Only a success
   gives the slots back, those the method took on the accounts it checked included; a pending sign-in keeps them all,
   with their windows, until `complete()` starts its session. The slots are written on `rate_limits.connection`, outside
   the session's own transaction but not outside a transaction the caller opened on that connection: with the default
@@ -55,7 +55,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   admitted sign-in or a choice, rehashes after it, continues to a session, a pending factor or a choice, and gives its
   slots back after the bind.
 - `start()` reloads the identity through the guard's provider and requires the same class and key (`identity_unknown`),
-  then runs the method check, the admission with no identifier type, the device proof, the factor policy and the write.
+  then runs the method check, the admission with no identifier type, the session proof, the factor policy and the write.
   It takes no slot and runs in no timebox: nothing is guessed. The principal is given as the argument or on the
   context, never both. A machine credential kind (`SignInMethodManager::CREDENTIAL_METHODS`) as the method is an
   `InvalidArgumentException` before anything else: a session recorded under `client_credentials` would pass for a
@@ -63,21 +63,28 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - One `$now` per call, cut to the second, is used for the deadlines, the last use and every token's `iat`. The deadlines
   come from the application policy's lifetimes for the guard (`ApplicationPolicy::lifetimes($guard)`), which with the
   shipped policy are the guard's token service's (see `application-policy.md`).
-- A session is written in one transaction on the device's connection: the device first, then both tokens, so any
-  failure while issuing rolls the device back. Only the digest of the rotation id is stored.
-- A refresh token proves a device only when it is the device's current rotation id, validly signed for the guard
-  (`parseRefreshProof()`: every `parse()` check except expiry), and the device, read from the writer, is owned by the
-  identity, records this guard and the same principal, and is not revoked. Anything else is no proof: a new device,
-  nothing failed, revoked or reported.
-- Continuing a proven device is one compare-and-swap on the row exactly as it was proven (digest, owner, principal, not
-  revoked). It restarts both deadlines, sets a new rotation id with no previous one, and records the method, the last
-  use and the client's description when given; it keeps the guard, owner, principal and creation details. A swap that
-  misses reconsiders the sign-in without the device, factor policy included: it creates a device, or issues a pending
-  sign-in when the factor policy now asks for one; it never retries.
-- After the session's transaction, `DeviceCreated` (new devices only) and `SignedIn` are scheduled on the commit of the
-  device's connection, and a completion's or a choice's slot give-back on the pending row's, and only then is the guard
-  bound, with the usual immediate bind events: a bind listener that throws cannot withhold them, and they never fire for
-  a rolled-back session. The order holds by construction: `SessionEstablishment` writes the session (or issues the
+- Every sign-in creates a new session (D15): a new key, a new rotation id, both deadlines from `$now`. A session is
+  written in one transaction on the session's connection: the revocation of a proven session first, then the new
+  session, then both tokens, so any failure while issuing rolls the new session and the revocation back. Only the digest
+  of the rotation id is stored.
+- A refresh token proves a session only when it is the session's current rotation id, validly signed for the guard
+  (`parseRefreshProof()`: every `parse()` check except expiry), and the session, read from the writer, is owned by the
+  identity, records this guard and the same principal, and is not revoked. Anything else is no proof: a new session,
+  nothing failed, revoked or reported. The IP address, user agent, client name and platform never count. The proof is
+  the client's device key in this package's reading of D15: possession of the previous session's credential, the only
+  one a client holds; no other key material exists. Passing it in `SignInContext::$refreshToken` is the application's
+  opt-in (D21).
+- Replacing a proven session (`SessionWriter::replace()`) revokes it with one compare-and-swap on the row exactly as it
+  was proven (digest, owner, principal, guard, not revoked), writing `revoked_at`, the reason `superseded` and null
+  digests as any revocation does, then inserts the new session as `create()` does, except that a client name or platform
+  the sign-in does not give is the proven session's. The proven row keeps everything else. A swap that misses
+  reconsiders the sign-in without the session, factor policy included: it creates a session and revokes nothing, or
+  issues a pending sign-in when the factor policy now asks for one; it never retries.
+- After the session's transaction, `SessionRevoked` (`superseded`, for a replaced session), `SessionCreated` and
+  `SignedIn` are scheduled, in that order and in one callback, on the commit of the session's connection, and a
+  completion's or a choice's slot give-back on the pending row's, and only then is the guard bound, with the usual
+  immediate bind events: a bind listener that throws cannot withhold them, and they never fire for a rolled-back
+  session. The order holds by construction: `SessionEstablishment` writes the session (or issues the
   pending sign-in), asks the factor policy and schedules those reports, and never binds; the service binds the guard,
   through `login()` on the `Contracts\GuardBinding` it was given, only once establishment has returned a signed-in
   result, and `signIn()` gives its slots back after that bind.
@@ -90,9 +97,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - The principals an identity may choose from, the choice a sign-in without a default waits on, and finding a live choice
   are `PrincipalChoices`' (see `principal-choice-and-switch.md`); the service routes a sign-in to it and binds a chosen
   session as it binds any other.
-- Ending sessions is not the service's own: `signOut()`, `signOutEverywhere()`, `revokeDevice()`, `revokeDevices()`,
-  `revokePrincipalDevices()` and the security-change methods delegate to `SessionRevocations` (see
-  `device-lifecycle.md`), on the guard's context, with the guard as the `Contracts\GuardBinding` the two sign-out calls
+- Ending sessions is not the service's own: `signOut()`, `signOutEverywhere()`, `revokeSession()`, `revokeSessions()`,
+  `revokePrincipalSessions()` and the security-change methods delegate to `SessionRevocations` (see
+  `session-lifecycle.md`), on the guard's context, with the guard as the `Contracts\GuardBinding` the two sign-out calls
   read and forget. The guard's `logout()` and the password writer use the same revocations without a session service.
 - Refreshing is the service's too, beside switching principal: `refresh()` and `refreshFromRequest()` delegate to
   `SessionRefresh`, which runs the refresh exchange the service builds on the guard's context and token service,
@@ -104,23 +111,25 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 
 ## Success Path
 
-- A new device: `Attempting`, then, once committed (at once with no transaction open on the device's connection),
-  `DeviceCreated` and `SignedIn` (`deviceCreated: true`), then `Validated`, `Login`, `Authenticated`,
-  `PrincipalAssigned`, `DeviceAuthenticated`. Inside a caller's transaction the bind events come first and the pair
-  follows its commit. The device's last use is the sign-in, so the shipped last-use listener writes nothing more.
-- A continued device: the same, without `DeviceCreated`, and `SignedIn` with `deviceCreated: false`.
+- A sign-in: `Attempting`, then, once committed (at once with no transaction open on the session's connection),
+  `SessionCreated` and `SignedIn`, then `Validated`, `Login`, `Authenticated`, `PrincipalAssigned`,
+  `SessionAuthenticated`. Inside a caller's transaction the bind events come first and the pair follows its commit. The
+  session's last use is the sign-in, so the shipped last-use listener writes nothing more.
+- A sign-in that replaces a proven session: the same, with `SessionRevoked` (`superseded`) for the proven session just
+  before `SessionCreated`. Its context has the guard, the sign-in's client, the identity, principal and tenant the
+  sign-in admitted, the proven session and the method it records.
 - `start()`: the same without `Attempting`.
-- A sign-in held for a further factor: `Attempting` (not from `start()`), then, once the pending sign-in is committed
-  on its connection, `AdditionalFactorRequired` (a context of guard, identity, principal, tenant, proven device, method
-  and client, and the expiry; never the token), and nothing bound. Its completion follows the new or continued device
-  path without `Attempting`; its discard emits `Failed` and `AuthenticationFailed` (`additional_factor_failed`, the
-  method, the discarding client, the identity when the provider still returns it), and a token that discards nothing
-  emits nothing.
+- A sign-in held for a further factor: `Attempting` (not from `start()`), then, once the pending sign-in is committed on
+  its connection, `AdditionalFactorRequired` (a context of guard, identity, principal, tenant, proven session, method
+  and client, and the expiry; never the token), nothing bound and nothing revoked. Its completion follows the sign-in
+  path without `Attempting`, replacing the proven session only if it is still unchanged then; its discard emits `Failed`
+  and `AuthenticationFailed` (`additional_factor_failed`, the method, the discarding client, the identity when the
+  provider still returns it), and a token that discards nothing emits nothing.
 
 ## Failure / Edge Cases
 
 - A required additional factor starts no session: the service stores a pending sign-in (the digest of a single-use,
-  guard-bound token's secret, who, as whom, how, from which client, the proven device and the digest it was proven
+  guard-bound token's secret, who, as whom, how, from which client, the proven session and the digest it was proven
   against, the windows of the attempt-limit slots the sign-in took, and an expiry from
   `authentication.sign_in.pending_ttl_seconds`) and returns its token. The token is not a JWT, so no guard authenticates
   a request or a refresh with it. The slots stay taken until the pending sign-in completes, the one the method's check
@@ -135,22 +144,27 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   `DELETE` on its id, digest and unexpired `expires_at` that only one completion can win, checks it again (method,
   activity, tenant, `admitIdentifier()` and `admit()` with the stored identifier type; not the factor policy), and
   writes the session in the same transaction; a failed check still uses it up. Every lookup failure is
-  `pending_invalid`. A completion runs in the completing request's client: its events and the device's last use carry
-  that client, while a device it creates records the client the sign-in came from as its creation.
+  `pending_invalid`. A completion runs in the completing request's client: its events and the session's last use carry
+  that client, while a session it creates records the client the sign-in came from as its creation.
 - A sign-in that names no principal, for an identity whose resolver has no default but which has eligible principals,
   waits for a choice instead of failing: a pending sign-in of purpose `principal_choice`, with no principal and the
   sign-in's slots, reported by `PrincipalChoiceRequired`. `pending()` and `complete()` never take a choice token. See
   `principal-choice-and-switch.md`.
 - Inside a caller's transaction the service's transaction is a savepoint: the guard is bound at once, the lifecycle
-  events wait for the caller's commit, and a rollback withdraws them with the device while the guard stays bound. Do not
-  roll back around a sign-in.
-- A listener that throws on a bind event propagates after the session committed: the device exists and the pair is lost,
-  but `DeviceCreated` and `SignedIn` were already dispatched (or, inside a caller's transaction, wait for its commit)
-  and a completion's slots are given back. A listener that throws on `DeviceCreated` or `SignedIn` with no transaction
-  open propagates before the bind: the session stands, the guard is not bound, and `SignedIn` is not dispatched after a
-  throwing `DeviceCreated`.
-- A device continued by a sign-in makes the earlier refresh tokens of the device replays (see
-  `refresh-rotation-and-replay.md`).
+  events wait for the caller's commit, and a rollback withdraws them with the session while the guard stays bound. Do
+  not roll back around a sign-in.
+- A listener that throws on a bind event propagates after the session committed: the session exists and the pair is
+  lost, but `SessionCreated` and `SignedIn` were already dispatched (or, inside a caller's transaction, wait for its
+  commit) and a completion's slots are given back. A listener that throws on `SessionCreated` or `SignedIn` with no
+  transaction open propagates before the bind: the session stands, the guard is not bound, and `SignedIn` is not
+  dispatched after a throwing `SessionCreated`.
+- A session replaced by a sign-in is revoked: its access tokens stop at once and its refresh tokens are refused as
+  `session_revoked`, so they cannot touch the new session (see `refresh-rotation-and-replay.md`). A listener on its
+  `SessionRevoked` that throws stops `SessionCreated` and `SignedIn` and reaches the caller, while both rows stand.
+- Two sign-ins presenting the same proof: the compare-and-swap lets one revoke the session; the other is reconsidered
+  without the proof and creates a session revoking nothing. A refresh that rotates the session first makes the sign-in's
+  swap miss; a sign-in that commits first makes the refresh fail as `session_revoked`. A bulk revocation racing a
+  sign-in is not synchronised (see `session-lifecycle.md`).
 - A crafted client name or platform is stored cleaned (`SignInContext`), so it cannot fail the insert.
 
 ## Implementation Anchors
@@ -167,10 +181,11 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   (`src/Guards/Concerns/SignsInWithCredentials.php`).
 - `src/Sessions/SignInRequest.php` (`reserveAccountAttempt()`) and `src/RateLimiting/AccountAttempts.php`: the slots a
   sign-in's method takes on the accounts it checks, held with the sign-in's own.
-- `src/Sessions/SessionWriter.php`: `create()`, `continueOn()` and the compare-and-swap.
-- `src/Sessions/DeviceProof.php`, `src/Jwt/JwtTokenService.php` (`parseRefreshProof()`), `src/Devices/DeviceLookup.php`.
+- `src/Sessions/SessionWriter.php`: `create()`, `replace()` and the compare-and-swap.
+- `src/Sessions/ProvenSessions.php`, `src/Jwt/JwtTokenService.php` (`parseRefreshProof()`),
+  `src/SessionRecords/SessionLookup.php`.
 - `src/Sessions/PendingSignIns.php` and `src/Models/PendingSignIn.php`: issuing, finding and consuming pending sign-ins.
-- `src/Sessions/SessionPreconditions.php`: the `HasDevices` refusal, and `start()`'s one-principal rule and
+- `src/Sessions/SessionPreconditions.php`: the `HasSessions` refusal, and `start()`'s one-principal rule and
   reloaded-identity check.
 - `src/Admission/SignInAdmission.php`, shared with `attempt()`; `src/Admission/PinnedPrincipal.php`.
 - `src/Database/AfterCommit.php`, shared with the refresh exchange's revocation report.
@@ -186,12 +201,12 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - `tests/Feature/AuthManagerTest.php`: the service built per call on the guard's context, binding and token service
 - `tests/Feature/Sessions/SessionRefreshTest.php`, `tests/Unit/Sessions/RefreshResultTest.php`: the refresh, its events
   and bind, and every refusal returned
-- `tests/Feature/Sessions/SessionRevocationsTest.php`, `tests/Feature/Sessions/ManagesDevicesTest.php`,
+- `tests/Feature/Sessions/SessionRevocationsTest.php`, `tests/Feature/Sessions/ManagesSessionsTest.php`,
   `tests/Feature/Sessions/RevokesOnSecurityChangesTest.php`: the revocations on their own and through the service
 - `tests/Feature/Sessions/SessionRoutesTest.php`: the documented sign-in and further-factor routes over HTTP, through
   `Auth::sessions()`, with tokens checked through `auth:api`
 - `tests/Integration/Sessions/SessionServiceTest.php`
-- `tests/Feature/Sessions/DeviceProofTest.php`, `tests/Feature/Sessions/SessionWriterTest.php`
+- `tests/Feature/Sessions/ProvenSessionsTest.php`, `tests/Feature/Sessions/SessionWriterTest.php`
 - `tests/Feature/Sessions/PendingSignInsTest.php`, `tests/Integration/Sessions/PendingFactorSessionServiceTest.php`
 - `tests/Integration/Sessions/ReplicaPendingSignInsTest.php`: pending sign-ins read from the writer
 - `tests/Unit/Sessions/SessionPreconditionsTest.php`
@@ -200,7 +215,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - `tests/Integration/Migration/PendingSignInsTableSchemaTest.php`
 - `tests/Performance/SessionServiceQueryBudgetTest.php`
 - `tests/Feature/Contracts/EventSequenceTest.php`, `tests/Integration/Contracts/EventSequenceTest.php`: the event
-  sequence of every sign-in, completion, choice and discard, and around the device connection's transaction
+  sequence of every sign-in, completion, choice and discard, and around the session connection's transaction
 
 ## Change Triggers
 
@@ -208,9 +223,10 @@ Update this note when any of the following change:
 
 - the order of the checks, or which of them count an attempt or run in the timebox
 - which steps `Sessions\CredentialAttempt` shares between `signIn()` and `attempt()`
-- what proves a device, or what continuing one writes or keeps
+- what proves a session, or what replacing one writes, keeps or revokes
 - what the session's transaction contains, or when the guard is bound, or what builds the service
-- when `DeviceCreated`, `SignedIn` and `AdditionalFactorRequired` are dispatched, or what they carry
+- when `SessionRevoked` (`superseded`), `SessionCreated`, `SignedIn` and `AdditionalFactorRequired` are dispatched, or
+  what they carry
 - what reaches the events from the sign-in input
 - what a pending sign-in stores, how long it lives, what finds it, or what completing it checks
 - which of its methods it delegates to `SessionRevocations`, or what of the guard those need

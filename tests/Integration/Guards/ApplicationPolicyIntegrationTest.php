@@ -20,7 +20,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 use Tests\Concerns\InteractsWithTypedPrincipals;
 use Tests\Fixtures\Sessions\GuardSessions;
@@ -62,7 +62,7 @@ final class ApplicationPolicyIntegrationTest extends TestCase
     /** @var string Password of seeded identities. */
     private const string PASSWORD = 'secret';
 
-    /** @var string Plaintext rotation id of seeded devices. */
+    /** @var string Plaintext rotation id of seeded sessions. */
     private const string ROTATION_ID = 'application-rotation';
 
     /**
@@ -153,9 +153,9 @@ final class ApplicationPolicyIntegrationTest extends TestCase
     }
 
     /**
-     * A device stamped from the policy's lifetimes for the guard gets the
-     * guard's session, and a refresh of it returns an access token on the
-     * guard's access lifetime, never past the absolute deadline.
+     * A session stamped from the policy's lifetimes for the guard takes the
+     * guard's absolute lifetime, and a refresh of it returns an access token on
+     * the guard's access lifetime, never past the absolute deadline.
      *
      * @return void
      *
@@ -171,8 +171,8 @@ final class ApplicationPolicyIntegrationTest extends TestCase
         self::assertInstanceOf(TypedIdentity::class, $identity);
         self::assertSame(Carbon::now()->addDay()->getTimestamp(), $absolute->getTimestamp());
 
-        $device = new Device;
-        $device->forceFill([
+        $record = new Session;
+        $record->forceFill([
             'principal_type'       => PrincipalReference::type($membership),
             'principal_id'         => PrincipalReference::id($membership),
             'authenticatable_type' => $identity->getMorphClass(),
@@ -185,7 +185,7 @@ final class ApplicationPolicyIntegrationTest extends TestCase
             'absolute_expires_at'  => $absolute,
         ])->save();
 
-        $refreshToken = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $membership);
+        $refreshToken = $this->tokens()->issueRefreshToken($record, self::ROTATION_ID, $membership);
         $refreshed    = Auth::manager()->guard(self::GUARD);
 
         self::assertInstanceOf(JwtGuard::class, $refreshed);

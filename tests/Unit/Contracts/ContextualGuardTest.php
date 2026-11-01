@@ -9,9 +9,9 @@ use Illuminate\Contracts\Auth\Guard as LaravelGuard;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 
 /**
@@ -62,7 +62,7 @@ final class ContextualGuardTest extends TestCase
         $expected = [
             'identity'  => Identity::class,
             'principal' => Principal::class,
-            'device'    => Device::class,
+            'session'   => Session::class,
             'tenant'    => Tenant::class,
             'scopes'    => 'array',
         ];
@@ -84,7 +84,7 @@ final class ContextualGuardTest extends TestCase
     }
 
     /**
-     * The contract declares `setPrincipal` and `setDevice` with a `static`
+     * The contract declares `setPrincipal` and `setSession` with a `static`
      * return type.
      *
      * @return void
@@ -93,7 +93,7 @@ final class ContextualGuardTest extends TestCase
     {
         $setters = [
             'setPrincipal' => Principal::class,
-            'setDevice'    => Device::class,
+            'setSession'   => Session::class,
         ];
 
         foreach ($setters as $method => $parameterType) {
@@ -147,11 +147,11 @@ final class ContextualGuardTest extends TestCase
         self::assertTrue($attemptParameters[1]->isDefaultValueAvailable());
         self::assertNull($attemptParameters[1]->getDefaultValue());
 
-        self::assertSame('device', $attemptParameters[2]->getName());
-        $deviceType = $attemptParameters[2]->getType();
-        self::assertInstanceOf(\ReflectionNamedType::class, $deviceType);
-        self::assertTrue($deviceType->allowsNull());
-        self::assertSame(Device::class, $deviceType->getName());
+        self::assertSame('session', $attemptParameters[2]->getName());
+        $sessionType = $attemptParameters[2]->getType();
+        self::assertInstanceOf(\ReflectionNamedType::class, $sessionType);
+        self::assertTrue($sessionType->allowsNull());
+        self::assertSame(Session::class, $sessionType->getName());
         self::assertTrue($attemptParameters[2]->isDefaultValueAvailable());
         self::assertNull($attemptParameters[2]->getDefaultValue());
 
@@ -179,11 +179,11 @@ final class ContextualGuardTest extends TestCase
         self::assertFalse($loginPrincipalType->allowsNull());
         self::assertSame(Principal::class, $loginPrincipalType->getName());
 
-        self::assertSame('device', $loginParameters[2]->getName());
-        $loginDeviceType = $loginParameters[2]->getType();
-        self::assertInstanceOf(\ReflectionNamedType::class, $loginDeviceType);
-        self::assertTrue($loginDeviceType->allowsNull());
-        self::assertSame(Device::class, $loginDeviceType->getName());
+        self::assertSame('session', $loginParameters[2]->getName());
+        $loginSessionType = $loginParameters[2]->getType();
+        self::assertInstanceOf(\ReflectionNamedType::class, $loginSessionType);
+        self::assertTrue($loginSessionType->allowsNull());
+        self::assertSame(Session::class, $loginSessionType->getName());
         self::assertTrue($loginParameters[2]->isDefaultValueAvailable());
         self::assertNull($loginParameters[2]->getDefaultValue());
 

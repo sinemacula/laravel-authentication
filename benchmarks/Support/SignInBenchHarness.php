@@ -20,7 +20,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
-use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
+use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
@@ -115,7 +115,7 @@ final class SignInBenchHarness
 
         BenchSchema::ensureIdentityTable('integration_identities');
         BenchSchema::ensureCodeIdentityTable();
-        BenchSchema::ensureDeviceTable();
+        BenchSchema::ensureSessionTable();
         BenchSchema::ensureRateLimitTable();
         BenchSchema::ensureOneTimeCodeTable();
 
@@ -124,7 +124,7 @@ final class SignInBenchHarness
     }
 
     /**
-     * Benchmark a password sign-in, which starts a session on a new device.
+     * Benchmark a password sign-in, which starts a new session.
      *
      * @return void
      */
@@ -135,7 +135,7 @@ final class SignInBenchHarness
 
     /**
      * Benchmark a sign-in by the one-time code sent to a phone number, which
-     * uses the code up and starts a session on a new device.
+     * uses the code up and starts a new session.
      *
      * @return void
      *
@@ -262,7 +262,7 @@ final class SignInBenchHarness
             $tokens,
             static fn (GuardContext $context): SessionRevocations => new SessionRevocations(
                 $context,
-                new DeviceRevocations(BenchDatabase::connectionResolver(), static fn (): null => null),
+                new RevocationWriter(BenchDatabase::connectionResolver(), static fn (): null => null),
                 Container::getInstance(),
             ),
             BenchRequest::refreshTransport(...),

@@ -5,27 +5,31 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Events\Enums;
 
 /**
- * Why a device was revoked, stored on the device row and carried on the
- * `DeviceRevoked` event.
+ * Why a session was revoked, stored on the session row and carried on the
+ * `SessionRevoked` event.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
 enum RevocationReason: string
 {
-    // A refresh token was presented whose rotation id is neither the device's
+    // A refresh token was presented whose rotation id is neither the session's
     // current one nor the previous one inside the grace window
     case ROTATION_REUSE = 'rotation_reuse';
 
-    // The device's own session signed out
+    // The session signed itself out
     case SIGNED_OUT = 'signed_out';
 
     // The identity or principal signed out of every session
     case SIGNED_OUT_EVERYWHERE = 'signed_out_everywhere';
 
-    // The application revoked the device (from a list of devices, an
+    // The application revoked the session (from a list of sessions, an
     // administrator)
     case REVOKED = 'revoked';
+
+    // A sign-in that proved, with the session's refresh token, that it holds
+    // the session replaced it with a new one
+    case SUPERSEDED = 'superseded';
 
     // The identity's password was changed: `passwordChanged()`
     case PASSWORD_CHANGED = 'password_changed';
@@ -39,11 +43,11 @@ enum RevocationReason: string
     // The identity was deactivated: `identityDeactivated()`
     case IDENTITY_DEACTIVATED = 'identity_deactivated';
 
-    // The principal the device's session acts as was deactivated:
+    // The principal the session acts as was deactivated:
     // `principalDeactivated()`
     case PRINCIPAL_DEACTIVATED = 'principal_deactivated';
 
-    // The tenant the device's principal acts within was deactivated:
+    // The tenant the session's principal acts within was deactivated:
     // `tenantDeactivated()`
     case TENANT_DEACTIVATED = 'tenant_deactivated';
 }

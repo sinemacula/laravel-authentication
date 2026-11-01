@@ -124,9 +124,9 @@ final class MachineCredentialRequestsTest extends TestCase
         [$robot, $first]  = $this->machineKey('robot@example.test', ['invoices:read']);
         [$other, $second] = $this->machineKey('other@example.test', ['reports']);
 
-        $this->me($first, 'machine')->assertExactJson(['identity' => $robot, 'principal' => $robot, 'device' => null, 'tenant' => null, 'scopes' => ['invoices:read']]);
+        $this->me($first, 'machine')->assertExactJson(['identity' => $robot, 'principal' => $robot, 'session' => null, 'tenant' => null, 'scopes' => ['invoices:read']]);
         $this->me(null, 'machine')->assertExactJson(self::guest());
-        $this->me($second, 'machine')->assertExactJson(['identity' => $other, 'principal' => $other, 'device' => null, 'tenant' => null, 'scopes' => ['reports']]);
+        $this->me($second, 'machine')->assertExactJson(['identity' => $other, 'principal' => $other, 'session' => null, 'tenant' => null, 'scopes' => ['reports']]);
     }
 
     /**
@@ -317,10 +317,10 @@ final class MachineCredentialRequestsTest extends TestCase
     /**
      * What a guard reports for a guest.
      *
-     * @return array{identity: null, principal: null, device: null, tenant: null, scopes: null}
+     * @return array{identity: null, principal: null, session: null, tenant: null, scopes: null}
      */
     private static function guest(): array
     {
-        return ['identity' => null, 'principal' => null, 'device' => null, 'tenant' => null, 'scopes' => null];
+        return ['identity' => null, 'principal' => null, 'session' => null, 'tenant' => null, 'scopes' => null];
     }
 }

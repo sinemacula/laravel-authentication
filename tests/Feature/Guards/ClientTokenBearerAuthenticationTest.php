@@ -70,7 +70,7 @@ final class ClientTokenBearerAuthenticationTest extends TestCase
             Route::middleware('auth:' . $guard)->get("/{$guard}/me", static fn (): array => [
                 'identity' => Auth::guard($guard)->id(),
                 'scopes'   => Auth::manager()->guard($guard) instanceof JwtGuard ? Auth::manager()->guard($guard)->scopes() : null,
-                'device'   => Auth::manager()->guard($guard) instanceof JwtGuard ? Auth::manager()->guard($guard)->device() : null,
+                'session'  => Auth::manager()->guard($guard) instanceof JwtGuard ? Auth::manager()->guard($guard)->session() : null,
             ]);
         }
 
@@ -93,8 +93,9 @@ final class ClientTokenBearerAuthenticationTest extends TestCase
     }
 
     /**
-     * A client token binds its machine with the scopes it grants and no device,
-     * as an authentication reporting `client_credentials`, its key and scopes.
+     * A client token binds its machine with the scopes it grants and no
+     * session, as an authentication reporting `client_credentials`, its key and
+     * scopes.
      *
      * @return void
      *
@@ -108,7 +109,7 @@ final class ClientTokenBearerAuthenticationTest extends TestCase
 
         $this->machineEvents = [];
 
-        $this->bearer('/m2m/me', $token)->assertOk()->assertExactJson(['identity' => $machine->getKey(), 'scopes' => ['write'], 'device' => null]);
+        $this->bearer('/m2m/me', $token)->assertOk()->assertExactJson(['identity' => $machine->getKey(), 'scopes' => ['write'], 'session' => null]);
 
         self::assertSame([Authenticated::class, PrincipalAssigned::class], $this->machineEventClasses());
 

@@ -26,7 +26,7 @@ use Tests\Fixtures\Passkeys\VirtualAuthenticator;
  * and the insert that creates the counter). An answer reads its challenge and
  * deletes it, reads the passkey by its digest, and moves the count with one
  * compare-and-set. A sign-in also takes and gives back its IP and account
- * slots, loads the owner once, and writes the device once.
+ * slots, loads the owner once, and writes the session once.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -109,7 +109,7 @@ final class PasskeyQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A passkey sign-in reads the challenge, the passkey and the owner once
-     * each; it writes the challenge's delete, the count, the device, and its
+     * each; it writes the challenge's delete, the count, the session, and its
      * limits (the IP and account counters taken on fresh windows and given
      * back).
      *

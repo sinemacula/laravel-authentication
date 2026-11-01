@@ -16,20 +16,20 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
-use SineMacula\Laravel\Authentication\Contracts\Device as DeviceContract;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
+use SineMacula\Laravel\Authentication\Contracts\Session as SessionContract;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
-use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Concerns\InteractsWithDevices;
+use SineMacula\Laravel\Authentication\Models\Session;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
@@ -39,7 +39,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  *
  * Boots a Testbench application with a `jwt` guard, then exercises the
  * lifecycle points (`attempt()`, bearer authentication, and refresh) where
- * `PrincipalAssigned`, `DeviceAuthenticated`, and `Refreshed` are expected to
+ * `PrincipalAssigned`, `SessionAuthenticated`, and `Refreshed` are expected to
  * fire. Verifies each event carries the expected payload and that they dispatch
  * via Laravel's standard event dispatcher (so consumers can subscribe via
  * `Event::listen`).
@@ -53,13 +53,13 @@ use Tests\Unit\Stubs\StubPrincipal;
  *
  * @internal
  */
-#[CoversClass(DeviceAuthenticated::class)]
+#[CoversClass(SessionAuthenticated::class)]
 #[CoversClass(PrincipalAssigned::class)]
 #[CoversClass(Refreshed::class)]
 #[CoversClass(RefreshTokenExchange::class)]
 final class CustomEventsIntegrationTest extends TestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
     /** @var string The name of the jwt-driven guard under test. */
     private const string JWT_GUARD = 'api';
@@ -80,7 +80,7 @@ final class CustomEventsIntegrationTest extends TestCase
     private Carbon $now;
 
     /**
-     * Create the identity table, freeze time, seed a user, and seed a device
+     * Create the identity table, freeze time, seed a user, and seed a session
      * the jwt guard can bind and refresh against.
      *
      * @return void
@@ -162,21 +162,21 @@ final class CustomEventsIntegrationTest extends TestCase
 
     /**
      * A successful JWT authentication whose token carries a `did` claim binds a
-     * device and dispatches exactly one `DeviceAuthenticated` event carrying
-     * the guard name and device.
+     * session and dispatches exactly one `SessionAuthenticated` event carrying
+     * the guard name and session.
      *
      * @return void
      */
-    public function testDeviceAuthenticatedFiresWhenDeviceIsBound(): void
+    public function testSessionAuthenticatedFiresWhenSessionIsBound(): void
     {
         // Fake the event BEFORE any guard resolution so the guard captures the
         // faked dispatcher in its constructor.
-        Event::fake([DeviceAuthenticated::class]);
+        Event::fake([SessionAuthenticated::class]);
 
         $user = $this->freshSeededUser();
 
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
@@ -188,7 +188,7 @@ final class CustomEventsIntegrationTest extends TestCase
         $token = $this->encodeAccessToken([
             'sub' => $user->getKey(),
             'pid' => $user->getKey(),
-            'did' => $device->getKey(),
+            'did' => $session->getKey(),
         ]);
 
         $this->swapRequestWithBearerToken($token);
@@ -197,12 +197,12 @@ final class CustomEventsIntegrationTest extends TestCase
 
         self::assertNotNull($resolved);
 
-        Event::assertDispatched(DeviceAuthenticated::class, 1);
-        Event::assertDispatched(DeviceAuthenticated::class, function (DeviceAuthenticated $event) use ($device): bool {
+        Event::assertDispatched(SessionAuthenticated::class, 1);
+        Event::assertDispatched(SessionAuthenticated::class, function (SessionAuthenticated $event) use ($session): bool {
 
             self::assertSame(self::JWT_GUARD, $event->context->guard);
-            self::assertInstanceOf(DeviceContract::class, $event->context->device);
-            self::assertSame($device->getKey(), $event->context->device->getDeviceIdentifier());
+            self::assertInstanceOf(SessionContract::class, $event->context->session);
+            self::assertSame($session->getKey(), $event->context->session->getSessionIdentifier());
 
             return true;
         });
@@ -210,11 +210,11 @@ final class CustomEventsIntegrationTest extends TestCase
 
     /**
      * A JWT authentication whose token has no `did` claim does not dispatch
-     * `DeviceAuthenticated`.
+     * `SessionAuthenticated`.
      *
      * @return void
      */
-    public function testDeviceAuthenticatedDoesNotFireWhenNoDeviceIsBound(): void
+    public function testSessionAuthenticatedDoesNotFireWhenNoSessionIsBound(): void
     {
         $user = $this->freshSeededUser();
 
@@ -225,11 +225,11 @@ final class CustomEventsIntegrationTest extends TestCase
 
         $this->swapRequestWithBearerToken($token);
 
-        Event::fake([DeviceAuthenticated::class]);
+        Event::fake([SessionAuthenticated::class]);
 
         self::assertNotNull(Auth::guard(self::JWT_GUARD)->user());
 
-        Event::assertNotDispatched(DeviceAuthenticated::class);
+        Event::assertNotDispatched(SessionAuthenticated::class);
     }
 
     /**
@@ -246,8 +246,8 @@ final class CustomEventsIntegrationTest extends TestCase
 
         $plainRotationId = 'stored-rotation-id';
 
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
@@ -258,7 +258,7 @@ final class CustomEventsIntegrationTest extends TestCase
 
         $refreshToken = JWT::encode(
             [
-                'did' => $device->getKey(),
+                'did' => $session->getKey(),
                 'jti' => $plainRotationId,
                 'iat' => $this->now->getTimestamp(),
                 'exp' => $this->now->getTimestamp() + 3600,
@@ -330,8 +330,8 @@ final class CustomEventsIntegrationTest extends TestCase
     {
         $user = $this->freshSeededUser();
 
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
@@ -354,14 +354,14 @@ final class CustomEventsIntegrationTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $guard);
         self::assertNotNull($tokens);
-        self::assertTrue(GuardSessions::of($guard)->refresh($tokens->issueRefreshToken($device, 'stored-rotation-id', $user))->isRefreshed());
+        self::assertTrue(GuardSessions::of($guard)->refresh($tokens->issueRefreshToken($session, 'stored-rotation-id', $user))->isRefreshed());
 
         self::assertSame([
             'AuthenticationFailed:api',
             'Refreshed:api',
             'SignedIn:api',
             'PrincipalAssigned:api',
-            'DeviceAuthenticated:api',
+            'SessionAuthenticated:api',
         ], $captured);
     }
 

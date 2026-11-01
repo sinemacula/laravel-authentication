@@ -21,9 +21,9 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PasskeyUsed;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyAssertions;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyCredentials;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyOwner;
@@ -110,7 +110,7 @@ final class PasskeySignInTest extends TestCase
     }
 
     /**
-     * A passkey's assertion signs its owner in on a new device recorded as a
+     * A passkey's assertion signs its owner in on a new session recorded as a
      * `passkey` sign-in with no identifier type; the passkey records the new
      * count and its use, `PasskeyUsed` reports it with the passkey's id before
      * `SignedIn`, the challenge is used up, and `Attempting` names no
@@ -140,9 +140,9 @@ final class PasskeySignInTest extends TestCase
         self::assertSame([$passkey->id, (string) $identity->id], [$used->context->credentialId, $used->context->identityId]);
         self::assertSame([self::CLIENT_IP, self::CLIENT_AGENT], [$used->context->client->ip, $used->context->client->userAgent]);
 
-        $device = Device::query()->sole();
+        $session = Session::query()->sole();
 
-        self::assertSame(['passkey', null], [$device->sign_in_method, $device->sign_in_identifier_type]);
+        self::assertSame(['passkey', null], [$session->sign_in_method, $session->sign_in_identifier_type]);
 
         $stored = Passkey::query()->sole();
 
@@ -536,7 +536,7 @@ final class PasskeySignInTest extends TestCase
         $this->recordEvents([AuthenticationFailed::class, PasskeyUsed::class, SignedIn::class]);
 
         $this->assertFailed($this->signInWithPasskey(), FailureReason::INVALID_CREDENTIALS, FailureReason::PASSKEY_COUNTER_REGRESSED);
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
     }
 
     /**

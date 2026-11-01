@@ -22,7 +22,7 @@ use SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
@@ -163,7 +163,7 @@ final class EmailCodeSignInTest extends TestCase
 
         self::assertTrue($result->isSignedIn());
         self::assertTrue($identity->is($result->session?->identity));
-        self::assertSame(['email_code', 'email'], [$result->session?->method, Device::query()->sole()->sign_in_identifier_type]);
+        self::assertSame(['email_code', 'email'], [$result->session?->method, Session::query()->sole()->sign_in_identifier_type]);
     }
 
     /**
@@ -320,7 +320,7 @@ final class EmailCodeSignInTest extends TestCase
         self::assertSame(0, $this->sender->count());
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->signIn(self::CODE, self::LOOK_ALIKE, 'lookalike')->reason);
         self::assertNotNull(DB::table('one_time_codes')->value('consumed_at'));
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
         self::assertSame(0, self::counterHits('sign_in', 'per_account', AccountAttempts::account($holder)));
 
         $this->codeService('lookalike')->send('email_code', ['email' => self::EMAIL]);
@@ -380,7 +380,7 @@ final class EmailCodeSignInTest extends TestCase
 
         self::assertSame(0, $this->sender->count());
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->signIn(self::CODE, self::LOOK_ALIKE)->reason);
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
     }
 
     /**

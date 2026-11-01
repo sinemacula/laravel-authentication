@@ -34,7 +34,7 @@ use SineMacula\Laravel\Authentication\Scopes\Scopes;
  * A `jwt` guard's OAuth 2.0 client credentials exchange (RFC 6749 section 4.4),
  * `Auth::clientCredentials($guard)`: a non-human identity's API key, presented
  * as a client id (its public part) and secret, exchanged for a short-lived
- * access token of the guard. No device is created and no refresh token issued.
+ * access token of the guard. No session is created and no refresh token issued.
  *
  * In order: the guard's application must list `client_credentials`
  * (`unauthorized_client`); the IP address must not have used up its failures

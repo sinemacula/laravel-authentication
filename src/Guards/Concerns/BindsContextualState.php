@@ -6,19 +6,19 @@ namespace SineMacula\Laravel\Authentication\Guards\Concerns;
 
 use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Validated;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
-use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 
 /**
- * Holds the identity -> principal -> device triple bound to a guard, with the
+ * Holds the identity -> principal -> session triple bound to a guard, with the
  * credential that authenticated it and the scopes that credential grants, and
  * exposes accessors plus setters that fire the contextual events. Each event
  * carries the whole bound context, set before it is dispatched, with the
@@ -47,8 +47,8 @@ trait BindsContextualState
     /** @var ?\SineMacula\Laravel\Authentication\Contracts\Principal Principal bound to the guard, if any. */
     protected ?Principal $principal = null;
 
-    /** @var ?\SineMacula\Laravel\Authentication\Contracts\Device Device bound to the guard, if any. */
-    protected ?Device $device = null;
+    /** @var ?\SineMacula\Laravel\Authentication\Contracts\Session Session bound to the guard, if any. */
+    protected ?Session $session = null;
 
     /** @var ?string Identifier of the credential (an API key) that authenticated the bound identity, if any. */
     protected ?string $credentialId = null;
@@ -85,17 +85,17 @@ trait BindsContextualState
     }
 
     /**
-     * Return the pinned device, if any, resolving the request on first access.
+     * Return the pinned session, if any, resolving the request on first access.
      *
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Session
      *
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function device(): ?Device
+    public function session(): ?Session
     {
         $this->user();
 
-        return $this->device;
+        return $this->session;
     }
 
     /**
@@ -169,42 +169,41 @@ trait BindsContextualState
 
         $this->principal = $principal;
 
-        $this->context->dispatch(new PrincipalAssigned($this->boundContext(self::boundTenant($principal), $this->device?->getSignInMethod())));
+        $this->context->dispatch(new PrincipalAssigned($this->boundContext(self::boundTenant($principal), $this->session?->getSignInMethod())));
 
         return $this;
     }
 
     /**
-     * Bind the active device for the current request and fire the
-     * `DeviceAuthenticated` custom event.
+     * Bind the active session for the current request and fire the
+     * `SessionAuthenticated` custom event.
      *
-     * The request is resolved first, so the device replaces the one the
+     * The request is resolved first, so the session replaces the one the
      * request's credential binds instead of being replaced by it on the next
      * access.
      *
-     * A trusted bind, like `login()`: the device is bound as given, with no
-     * check that it belongs to the identity, is not revoked, or has a session
-     * that has not ended. A device taken from request input must be proven to
-     * be one of the identity's live devices first, as `attempt()` does for the
-     * device pinned on it. The event carries the tenant the bound principal
-     * names, or none when it cannot be loaded, and the method the device's
-     * session records.
+     * A trusted bind, like `login()`: the session is bound as given, with no
+     * check that it belongs to the identity, is not revoked, or has not ended.
+     * A session taken from request input must be proven to be one of the
+     * identity's live sessions first, as `attempt()` does for the session
+     * pinned on it. The event carries the tenant the bound principal names, or
+     * none when it cannot be loaded, and the method the session records.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return static
      *
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function setDevice(Device $device): static
+    public function setSession(Session $session): static
     {
         $this->user();
 
-        $this->device = $device;
+        $this->session = $session;
 
         $tenant = $this->principal === null ? null : self::boundTenant($this->principal);
 
-        $this->context->dispatch(new DeviceAuthenticated($this->boundContext($tenant, $device->getSignInMethod())));
+        $this->context->dispatch(new SessionAuthenticated($this->boundContext($tenant, $session->getSignInMethod())));
 
         return $this;
     }
@@ -218,20 +217,20 @@ trait BindsContextualState
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?string  $method
      * @return void
      */
-    public function loginVerified(Identity $identity, Principal $principal, ?Device $device, ?Tenant $tenant, ?string $method): void
+    public function loginVerified(Identity $identity, Principal $principal, ?Session $session, ?Tenant $tenant, ?string $method): void
     {
         $this->context->dispatch(new Validated($this->context->name(), $identity));
 
-        $this->bindVerifiedContext($identity, $principal, $device, $tenant, $method, true);
+        $this->bindVerifiedContext($identity, $principal, $session, $tenant, $method, true);
     }
 
     /**
-     * Clear identity, principal, device and credential state without firing
+     * Clear identity, principal, session and credential state without firing
      * events. The caller dispatches any events.
      *
      * @return void
@@ -240,7 +239,7 @@ trait BindsContextualState
     {
         $this->identity     = null;
         $this->principal    = null;
-        $this->device       = null;
+        $this->session      = null;
         $this->credentialId = null;
         $this->scopes       = null;
     }
@@ -287,14 +286,14 @@ trait BindsContextualState
     /**
      * Bind the whole triple, with the credential that authenticated it and the
      * scopes it grants, then dispatch Laravel's `Authenticated`,
-     * `PrincipalAssigned` and, with a device, `DeviceAuthenticated`, all
+     * `PrincipalAssigned` and, with a session, `SessionAuthenticated`, all
      * describing it, so a listener on any of them sees the complete context.
      * Bound without a credential's scopes, a human identity is not limited
      * (`null`) and a non-human one is limited to none (`[]`).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?string  $method
      * @param  ?string  $credentialId
@@ -304,7 +303,7 @@ trait BindsContextualState
     private function bindContext(
         Identity $identity,
         Principal $principal,
-        ?Device $device,
+        ?Session $session,
         ?Tenant $tenant,
         ?string $method,
         #[\SensitiveParameter]
@@ -313,7 +312,7 @@ trait BindsContextualState
     ): void {
         $this->identity     = $identity;
         $this->principal    = $principal;
-        $this->device       = $device;
+        $this->session      = $session;
         $this->credentialId = $credentialId;
         $this->scopes       = $scopes ?? ($identity instanceof MachineIdentity ? [] : null);
 
@@ -322,11 +321,11 @@ trait BindsContextualState
         $this->context->dispatch(new Authenticated($this->context->name(), $identity));
         $this->context->dispatch(new PrincipalAssigned($context));
 
-        if ($device === null) {
+        if ($session === null) {
             return;
         }
 
-        $this->context->dispatch(new DeviceAuthenticated($context));
+        $this->context->dispatch(new SessionAuthenticated($context));
     }
 
     /**
@@ -344,7 +343,7 @@ trait BindsContextualState
             $this->identity,
             $this->principal,
             $tenant,
-            $this->device,
+            $this->session,
             $method,
             credentialId: $this->credentialId,
             scopes: $this->scopes,

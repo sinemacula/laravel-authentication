@@ -10,7 +10,7 @@ use Illuminate\Contracts\Auth\Guard;
  * Contextual guard contract.
  *
  * Extends Laravel's `Guard` with the package's contextual surface (identity,
- * principal, device, tenant, scopes, principal/device setters, contextual
+ * principal, session, tenant, scopes, principal/session setters, contextual
  * `attempt` and `login`). Like `user()`, the accessors and setters resolve the
  * current request on first access, at most once per request.
  *
@@ -20,7 +20,7 @@ use Illuminate\Contracts\Auth\Guard;
 interface ContextualGuard extends Guard
 {
     /**
-     * Contextual attempt with optional principal and device pinning.
+     * Contextual attempt with optional principal and session pinning.
      *
      * Signature diverges from Laravel's `StatefulGuard::attempt()`: the second
      * and third parameters are contextual pins, not a remember-me flag. This
@@ -29,26 +29,26 @@ interface ContextualGuard extends Guard
      *
      * @param  array<string, mixed>  $credentials
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return bool
      *
      * @imperative
      */
-    public function attempt(#[\SensitiveParameter] array $credentials, ?Principal $principal = null, ?Device $device = null): bool;
+    public function attempt(#[\SensitiveParameter] array $credentials, ?Principal $principal = null, ?Session $session = null): bool;
 
     /**
-     * Bind a fully resolved identity, principal, and optional device.
+     * Bind a fully resolved identity, principal, and optional session.
      *
      * The trusted entry point: the arguments are bound as given, so the caller
-     * must already have proven that the principal and device belong to the
+     * must already have proven that the principal and session belong to the
      * identity.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return void
      */
-    public function login(Identity $identity, Principal $principal, ?Device $device = null): void;
+    public function login(Identity $identity, Principal $principal, ?Session $session = null): void;
 
     /**
      * Return the authenticated identity, if any, resolving the request on first
@@ -71,13 +71,13 @@ interface ContextualGuard extends Guard
     public function principal(): ?Principal;
 
     /**
-     * Return the pinned device, if any, resolving the request on first access.
+     * Return the pinned session, if any, resolving the request on first access.
      *
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Session
      *
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function device(): ?Device;
+    public function session(): ?Session;
 
     /**
      * Return the tenant the active principal acts within, if any, resolving the
@@ -130,20 +130,20 @@ interface ContextualGuard extends Guard
     public function setPrincipal(Principal $principal): static;
 
     /**
-     * Bind the active device for the current request, resolving the request
-     * first so it replaces the device the request's credential binds rather
+     * Bind the active session for the current request, resolving the request
+     * first so it replaces the session the request's credential binds rather
      * than being replaced by it.
      *
-     * A trusted bind, like `login()`: the device is bound as given, with no
-     * check that it belongs to the identity, is not revoked, or has a session
-     * that has not ended. A device taken from request input must be proven to
-     * be one of the identity's live devices first, as `attempt()` does for the
-     * device pinned on it.
+     * A trusted bind, like `login()`: the session is bound as given, with no
+     * check that it belongs to the identity, is not revoked, or has not ended.
+     * A session taken from request input must be proven to be one of the
+     * identity's live sessions first, as `attempt()` does for the session
+     * pinned on it.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return static
      *
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function setDevice(Device $device): static;
+    public function setSession(Session $session): static;
 }

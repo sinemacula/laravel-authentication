@@ -13,7 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
  * 3D principal fixture that records, through `ProvidesTokensValidAfter`, when
- * the access tokens issued without a device for it become valid, owned by an
+ * the access tokens issued without a session for it become valid, owned by an
  * `AccessOnlyMember`, in the `cutoff_memberships` table the test creates.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

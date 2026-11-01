@@ -30,7 +30,7 @@ use SineMacula\Laravel\Authentication\Runtime\GuardContext;
  * Laravel's `Failed` and then the exchange's `AuthenticationFailed`, and is
  * answered with its reason, `rate_limited` with the wait. A successful one
  * schedules `Refreshed` and `SignedIn` (a refresh) for once the rotation is
- * committed on the device's connection, and only then binds the guard as a
+ * committed on the session's connection, and only then binds the guard as a
  * sign-in (`Validated`, `Login` and the bind events), with the tenant and the
  * sign-in method the exchange established, so a bind listener that throws
  * cannot withhold the report of a rotation already written.
@@ -98,16 +98,16 @@ final readonly class SessionRefresh
 
         $this->report($outcome, $client);
 
-        $this->binding->loginVerified($outcome->identity, $outcome->principal, $outcome->device, $outcome->tenant, $outcome->method);
+        $this->binding->loginVerified($outcome->identity, $outcome->principal, $outcome->record, $outcome->tenant, $outcome->method);
 
-        return RefreshResult::refreshed(new SignedInSession($outcome->identity, $outcome->principal, $outcome->device, $outcome->tokens, (string) $outcome->method, false));
+        return RefreshResult::refreshed(new SignedInSession($outcome->identity, $outcome->principal, $outcome->record, $outcome->tokens, (string) $outcome->method));
     }
 
     /**
      * Refresh with the refresh token the request carries, read through the
      * guard's refresh token transport: `null`, dispatching nothing, when the
      * request carries none; a refusal of the transport's, after `Attempting`,
-     * `Failed` and `AuthenticationFailed`, touching no device; otherwise
+     * `Failed` and `AuthenticationFailed`, touching no session; otherwise
      * `refresh()` with the token, its result saying where it was read from.
      *
      * @return ?\SineMacula\Laravel\Authentication\Sessions\RefreshResult
@@ -153,10 +153,10 @@ final readonly class SessionRefresh
     }
 
     /**
-     * Dispatch `Refreshed` and then `SignedIn` (a refresh, on the device it
-     * continued) once the rotation is committed on the device's own connection:
-     * at once when it has no open transaction, on its commit otherwise, and
-     * never when it rolls back.
+     * Dispatch `Refreshed` and then `SignedIn` (a refresh, on the session it
+     * continued) once the rotation is committed on the session's own
+     * connection: at once when it has no open transaction, on its commit
+     * otherwise, and never when it rolls back.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh  $refreshed
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -164,11 +164,11 @@ final readonly class SessionRefresh
      */
     private function report(ExchangedRefresh $refreshed, ClientContext $client): void
     {
-        $context = new EventContext($this->context->name(), $client, $refreshed->identity, $refreshed->principal, $refreshed->tenant, $refreshed->device, $refreshed->method);
+        $context = new EventContext($this->context->name(), $client, $refreshed->identity, $refreshed->principal, $refreshed->tenant, $refreshed->record, $refreshed->method);
 
-        $this->afterCommit->run($refreshed->device, function () use ($context): void {
+        $this->afterCommit->run($refreshed->record, function () use ($context): void {
             $this->context->dispatch(new Refreshed($context));
-            $this->context->dispatch(new SignedIn($context, false, true));
+            $this->context->dispatch(new SignedIn($context, true));
         });
     }
 }

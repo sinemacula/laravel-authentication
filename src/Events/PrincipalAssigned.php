@@ -8,7 +8,7 @@ namespace SineMacula\Laravel\Authentication\Events;
  * Dispatched when a principal is bound to a guard during authentication, after
  * Laravel's `Authenticated`. The whole context is bound before either is
  * dispatched, so a listener that reads the guard sees the identity, principal
- * and device the event reports.
+ * and session the event reports.
  *
  * @api
  *

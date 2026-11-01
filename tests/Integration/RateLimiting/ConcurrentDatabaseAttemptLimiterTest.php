@@ -103,7 +103,7 @@ final class ConcurrentDatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * Failures racing for one device are each counted once.
+     * Failures racing for one session are each counted once.
      *
      * @return void
      */

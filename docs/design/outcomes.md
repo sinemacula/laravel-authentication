@@ -30,8 +30,8 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
   success case (`IdentifierChangeOutcome::CHANGED`, `VerificationOutcome::VERIFIED`,
   `VerificationLinkOutcome::VERIFIED`), so matching on the enum, not on a type, tells success from refusal.
 - **`bool` only for "did this call change something"** on an idempotent operation (`discard()`, `signOut()`,
-  `revokeDevice()`, `apiKeys()->revoke()`, `passkeys()->remove()`, `identifierChanges()->cancel()`), and `int` for how
-  many it changed (`signOutEverywhere()`, `revokeDevices()`, the security-change methods). `false` and `0` are not
+  `revokeSession()`, `apiKeys()->revoke()`, `passkeys()->remove()`, `identifierChanges()->cancel()`), and `int` for how
+  many it changed (`signOutEverywhere()`, `revokeSessions()`, the security-change methods). `false` and `0` are not
   refusals: the thing was already as asked.
 - **No union of a success type with a failure type** in a return, and no enum of another seam's outcomes mixed with a
   failure reason: one type answers every outcome.
@@ -46,9 +46,9 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
 - Success is a named outcome: `isSignedIn()`, `isRefreshed()`, `isSwitched()`, `isSent()`, `isReset()`, `isSet()`,
   `isGranted()`, `isRegistered()`, `isVerified()`, or the enum's success case. Its payload (the session, the passkey's
   summary, the code's expiry) is read only once the predicate or the case says it is there.
-- `sessions()->refresh()` and `refreshFromRequest()` answer a `RefreshResult`: refreshed with the session on the same
-  device and its rotated `TokenPair`, or failed with the exchange's or the transport's reason, `rate_limited` with
-  `retryAfter`; one read from the request says where its token came from (`source`).
+- `sessions()->refresh()` and `refreshFromRequest()` answer a `RefreshResult`: refreshed on the same session, with its
+  rotated `TokenPair`, or failed with the exchange's or the transport's reason, `rate_limited` with `retryAfter`; one
+  read from the request says where its token came from (`source`).
 - `passkeys()->verifyFactor()` answers a `PasskeyFactorResult`: verified with the passkey's summary as its use left it,
   or failed with the reason (not concealed: the caller already holds the identity).
 - `passkeys()->register()` answers a `PasskeyRegistration`: `registered` with the passkey's summary, or

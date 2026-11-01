@@ -8,7 +8,7 @@ use Illuminate\Database\Capsule\Manager as Capsule;
 
 /**
  * Proof, at set-up, that a benchmarked path reaches the outcome it is named
- * for, so a fixture that drifts (a device recording another guard, a token the
+ * for, so a fixture that drifts (a session recording another guard, a token the
  * guard now rejects) fails the run instead of timing a rejection in the path's
  * place.
  *

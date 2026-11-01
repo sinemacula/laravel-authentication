@@ -17,8 +17,8 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
-use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Concerns\InteractsWithDevices;
+use SineMacula\Laravel\Authentication\Models\Session;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
@@ -41,7 +41,7 @@ use Tests\Unit\Stubs\StubTenant;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
     /** @var string Guard name used by all refresh continuity tests. */
     private const string GUARD = 'api';
@@ -114,8 +114,8 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
 
         $plainRotationId = 'stored-rotation-id';
 
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
@@ -128,7 +128,7 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
 
         $guard  = $this->freshGuard();
         $result = GuardSessions::of($guard)->refresh(
-            $jwt->issueRefreshToken($device, $plainRotationId, $staffPrincipal),
+            $jwt->issueRefreshToken($session, $plainRotationId, $staffPrincipal),
         )->session?->tokens;
 
         self::assertInstanceOf(TokenPair::class, $result);

@@ -25,7 +25,7 @@ use SineMacula\Laravel\Authentication\Passwords\PasswordResult;
 final class PasswordResultTest extends TestCase
 {
     /**
-     * A password set reports how many devices its flow revoked and no
+     * A password set reports how many sessions its flow revoked and no
      * violation; one rejected reports its violations, nothing revoked.
      *
      * @return void

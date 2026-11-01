@@ -13,19 +13,19 @@ use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
-use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
-use Tests\Integration\Fixtures\SeparateConnectionDevice;
-use Tests\Unit\Stubs\PlainDeviceFixture;
+use SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException;
+use Tests\Integration\Fixtures\SeparateConnectionSession;
+use Tests\Unit\Stubs\PlainSessionFixture;
 use Tests\Unit\Stubs\StubAlternateGuardScopedPrincipalResolver;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
-use Tests\Unit\Stubs\StubBareDevice;
+use Tests\Unit\Stubs\StubBareSession;
 use Tests\Unit\Stubs\StubIdentity;
 
 /**
  * Feature tests for JWT guard factory validation and shared principal-resolver
  * validation on `AuthenticationServiceProvider`.
  *
- * Covers the JWT driver's device-model pre-checks and the guard-local
+ * Covers the JWT driver's session-model pre-checks and the guard-local
  * `principal_resolver` override validation path.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -96,19 +96,19 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
     }
 
     /**
-     * JWT guards fail fast when `authentication.device.model` is empty instead
-     * of constructing a guard whose refresh path cannot resolve devices.
+     * JWT guards fail fast when `authentication.session.model` is empty instead
+     * of constructing a guard whose refresh path cannot resolve sessions.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testJwtGuardRejectsEmptyConfiguredDeviceModel(): void
+    public function testJwtGuardRejectsEmptyConfiguredSessionModel(): void
     {
-        config()->set('authentication.device.model', '');
+        config()->set('authentication.session.model', '');
 
-        $this->expectException(InvalidDeviceModelConfigurationException::class);
-        $this->expectExceptionMessage('authentication.device.model');
+        $this->expectException(InvalidSessionModelConfigurationException::class);
+        $this->expectExceptionMessage('authentication.session.model');
 
         AuthenticationServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
             'driver'   => 'jwt',
@@ -117,20 +117,20 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
     }
 
     /**
-     * JWT guards require the configured device model to satisfy the explicit
-     * Eloquent-backed persistence boundary, not just the generic `Device`
+     * JWT guards require the configured session model to satisfy the explicit
+     * Eloquent-backed persistence boundary, not just the generic `Session`
      * contract.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testJwtGuardRejectsConfiguredDeviceModelOutsideEloquentBoundary(): void
+    public function testJwtGuardRejectsConfiguredSessionModelOutsideEloquentBoundary(): void
     {
-        config()->set('authentication.device.model', StubBareDevice::class);
+        config()->set('authentication.session.model', StubBareSession::class);
 
-        $this->expectException(InvalidDeviceModelConfigurationException::class);
-        $this->expectExceptionMessage(StubBareDevice::class);
+        $this->expectException(InvalidSessionModelConfigurationException::class);
+        $this->expectExceptionMessage(StubBareSession::class);
 
         AuthenticationServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
             'driver'   => 'jwt',
@@ -139,19 +139,19 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
     }
 
     /**
-     * Plain-object device fixtures remain valid event/token payloads, but they
-     * are rejected when misconfigured as the persisted JWT device model.
+     * Plain-object session fixtures remain valid event/token payloads, but they
+     * are rejected when misconfigured as the persisted JWT session model.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testJwtGuardRejectsPlainDeviceFixtureAsConfiguredDeviceModel(): void
+    public function testJwtGuardRejectsPlainSessionFixtureAsConfiguredSessionModel(): void
     {
-        config()->set('authentication.device.model', PlainDeviceFixture::class);
+        config()->set('authentication.session.model', PlainSessionFixture::class);
 
-        $this->expectException(InvalidDeviceModelConfigurationException::class);
-        $this->expectExceptionMessage(PlainDeviceFixture::class);
+        $this->expectException(InvalidSessionModelConfigurationException::class);
+        $this->expectExceptionMessage(PlainSessionFixture::class);
 
         AuthenticationServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
             'driver'   => 'jwt',
@@ -160,7 +160,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
     }
 
     /**
-     * JWT guards fail fast when the configured device model names a connection
+     * JWT guards fail fast when the configured session model names a connection
      * other than the storage connection, where its sessions are written with
      * the package's other rows in one transaction; once the storage connection
      * is that connection, the guard is built.
@@ -169,22 +169,22 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testJwtGuardRejectsADeviceModelOffTheStorageConnection(): void
+    public function testJwtGuardRejectsASessionModelOffTheStorageConnection(): void
     {
         config()->set('auth.guards.custom_jwt', ['driver' => 'jwt', 'provider' => 'identities']);
-        config()->set('authentication.device.model', SeparateConnectionDevice::class);
+        config()->set('authentication.session.model', SeparateConnectionSession::class);
 
         try {
             AuthenticationServiceProvider::createJwtGuard($this->app, 'custom_jwt', ['driver' => 'jwt', 'provider' => 'identities']);
 
-            self::fail('Expected the device model to be refused.');
-        } catch (InvalidDeviceModelConfigurationException $exception) {
-            $expected = 'the device model is on [device_store], the storage connection is [' . config()->string('database.default') . '].';
+            self::fail('Expected the session model to be refused.');
+        } catch (InvalidSessionModelConfigurationException $exception) {
+            $expected = 'the session model is on [session_store], the storage connection is [' . config()->string('database.default') . '].';
 
             self::assertStringContainsString($expected, $exception->getMessage());
         }
 
-        config()->set('authentication.storage.connection', SeparateConnectionDevice::CONNECTION);
+        config()->set('authentication.storage.connection', SeparateConnectionSession::CONNECTION);
 
         self::assertSame('custom_jwt', AuthenticationServiceProvider::createJwtGuard($this->app, 'custom_jwt', ['driver' => 'jwt', 'provider' => 'identities'])->getName());
     }

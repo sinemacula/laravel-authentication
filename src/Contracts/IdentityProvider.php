@@ -14,8 +14,8 @@ use Illuminate\Contracts\Auth\UserProvider;
  * framework user provider.
  *
  * The JWT guard resolves bearer identities with `retrieveById()` and the `sub`
- * claim, and on refresh reloads the device's owner with `retrieveById()` and
- * the owner key stored on the device row, so the provider's scoping applies to
+ * claim, and on refresh reloads the session's owner with `retrieveById()` and
+ * the owner key stored on the session row, so the provider's scoping applies to
  * both.
  *
  * Identity lookups decide authentication, so an implementation must read from

@@ -9,15 +9,15 @@ use Illuminate\Foundation\Testing\DatabaseTransactionsManager as TestingTransact
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
-use Tests\Concerns\InteractsWithDevices;
-use Tests\Integration\Fixtures\SeparateConnectionDevice;
+use Tests\Concerns\InteractsWithSessionRecords;
+use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\TestCase;
-use Tests\Unit\Stubs\StubDevice;
+use Tests\Unit\Stubs\StubSession;
 
 /**
- * Feature tests for work deferred until a device's connection commits, against
- * real transactions on whichever engine the suite runs on, and a device kept on
- * a second connection.
+ * Feature tests for work deferred until a session's connection commits, against
+ * real transactions on whichever engine the suite runs on, and a session kept
+ * on a second connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -27,10 +27,10 @@ use Tests\Unit\Stubs\StubDevice;
 #[CoversClass(AfterCommit::class)]
 final class AfterCommitTest extends TestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
     /**
-     * Create the device table.
+     * Create the session table.
      *
      * @return void
      */
@@ -39,18 +39,18 @@ final class AfterCommitTest extends TestCase
     {
         parent::setUp();
 
-        self::createDeviceTable('stub_devices');
+        self::createSessionRecordTable('stub_sessions');
     }
 
     /**
-     * Drop the device table.
+     * Drop the session table.
      *
      * @return void
      */
     #[\Override]
     protected function tearDown(): void
     {
-        DB::statement('drop table if exists stub_devices');
+        DB::statement('drop table if exists stub_sessions');
 
         parent::tearDown();
     }
@@ -64,13 +64,13 @@ final class AfterCommitTest extends TestCase
     {
         $calls = new \ArrayObject;
 
-        $this->afterCommit()->run($this->device(), self::counter($calls));
+        $this->afterCommit()->run($this->record(), self::counter($calls));
 
         self::assertCount(1, $calls);
     }
 
     /**
-     * Inside a transaction on the device's connection, deferred work waits for
+     * Inside a transaction on the session's connection, deferred work waits for
      * that transaction to commit, including an outer one it is nested in, and
      * never runs when the transaction is rolled back.
      *
@@ -78,16 +78,16 @@ final class AfterCommitTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testWaitsForTheDeviceConnectionsTransaction(): void
+    public function testWaitsForTheSessionConnectionsTransaction(): void
     {
-        $device = $this->device();
-        $calls  = new \ArrayObject;
-        $count  = self::counter($calls);
+        $session = $this->record();
+        $calls   = new \ArrayObject;
+        $count   = self::counter($calls);
 
         DB::beginTransaction();
         DB::beginTransaction();
 
-        $this->afterCommit()->run($device, $count);
+        $this->afterCommit()->run($session, $count);
 
         DB::commit();
 
@@ -99,7 +99,7 @@ final class AfterCommitTest extends TestCase
 
         DB::beginTransaction();
 
-        $this->afterCommit()->run($device, $count);
+        $this->afterCommit()->run($session, $count);
 
         DB::rollBack();
 
@@ -107,7 +107,7 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
-     * Work deferred inside a nested transaction on the device's connection is
+     * Work deferred inside a nested transaction on the session's connection is
      * dropped when that nested transaction is rolled back, even though the
      * outer transaction it was nested in later commits.
      *
@@ -117,13 +117,13 @@ final class AfterCommitTest extends TestCase
      */
     public function testDropsWorkRolledBackWithANestedTransaction(): void
     {
-        $device = $this->device();
-        $calls  = new \ArrayObject;
+        $session = $this->record();
+        $calls   = new \ArrayObject;
 
         DB::beginTransaction();
         DB::beginTransaction();
 
-        $this->afterCommit()->run($device, self::counter($calls));
+        $this->afterCommit()->run($session, self::counter($calls));
 
         DB::rollBack();
         DB::commit();
@@ -143,7 +143,7 @@ final class AfterCommitTest extends TestCase
      */
     public function testIgnoresTheTransactionWrappingATest(): void
     {
-        $device      = $this->device();
+        $session     = $this->record();
         $calls       = new \ArrayObject;
         $count       = self::counter($calls);
         $manager     = new TestingTransactionsManager([null]);
@@ -154,13 +154,13 @@ final class AfterCommitTest extends TestCase
         $connection->beginTransaction();
 
         try {
-            $afterCommit->run($device, $count);
+            $afterCommit->run($session, $count);
 
             self::assertCount(1, $calls);
 
             DB::beginTransaction();
 
-            $afterCommit->run($device, $count);
+            $afterCommit->run($session, $count);
 
             self::assertCount(1, $calls);
 
@@ -175,8 +175,8 @@ final class AfterCommitTest extends TestCase
 
     /**
      * A transaction open on another connection neither delays nor cancels work
-     * deferred for a device on its own connection, whether it is the only
-     * transaction or opened inside one on the device's connection.
+     * deferred for a session on its own connection, whether it is the only
+     * transaction or opened inside one on the session's connection.
      *
      * @return void
      *
@@ -184,13 +184,13 @@ final class AfterCommitTest extends TestCase
      */
     public function testIgnoresTransactionsOnOtherConnections(): void
     {
-        $device = new SeparateConnectionDevice;
-        $calls  = new \ArrayObject;
-        $count  = self::counter($calls);
+        $session = new SeparateConnectionSession;
+        $calls   = new \ArrayObject;
+        $count   = self::counter($calls);
 
         DB::beginTransaction();
 
-        $this->afterCommit()->run($device, $count);
+        $this->afterCommit()->run($session, $count);
 
         self::assertCount(1, $calls);
 
@@ -198,12 +198,12 @@ final class AfterCommitTest extends TestCase
 
         self::assertCount(1, $calls);
 
-        $separate = DB::connection(SeparateConnectionDevice::CONNECTION);
+        $separate = DB::connection(SeparateConnectionSession::CONNECTION);
 
         $separate->beginTransaction();
         DB::beginTransaction();
 
-        $this->afterCommit()->run($device, $count);
+        $this->afterCommit()->run($session, $count);
 
         DB::rollBack();
 
@@ -224,12 +224,12 @@ final class AfterCommitTest extends TestCase
      */
     public function testRunsAtOnceWithoutATransactionsManager(): void
     {
-        $device = $this->device();
-        $calls  = new \ArrayObject;
+        $session = $this->record();
+        $calls   = new \ArrayObject;
 
         DB::beginTransaction();
 
-        (new AfterCommit(static fn (): null => null))->run($device, self::counter($calls));
+        (new AfterCommit(static fn (): null => null))->run($session, self::counter($calls));
 
         DB::rollBack();
 
@@ -237,7 +237,7 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
-     * Add the second connection a device can be kept on.
+     * Add the second connection a session can be kept on.
      *
      * @param  mixed  $app
      * @return void
@@ -250,7 +250,7 @@ final class AfterCommitTest extends TestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = app(ConfigRepository::class);
 
-        $config->set('database.connections.' . SeparateConnectionDevice::CONNECTION, ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
+        $config->set('database.connections.' . SeparateConnectionSession::CONNECTION, ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
     }
 
     /**
@@ -277,15 +277,15 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
-     * Persist a live device and load it back.
+     * Persist a live session and load it back.
      *
-     * @return \Tests\Unit\Stubs\StubDevice
+     * @return \Tests\Unit\Stubs\StubSession
      */
-    private function device(): StubDevice
+    private function record(): StubSession
     {
-        $device = new StubDevice;
-        $device->forceFill(self::liveSession())->save();
+        $session = new StubSession;
+        $session->forceFill(self::liveSession())->save();
 
-        return StubDevice::query()->findOrFail($device->id);
+        return StubSession::query()->findOrFail($session->id);
     }
 }

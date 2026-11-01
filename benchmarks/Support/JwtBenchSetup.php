@@ -5,7 +5,7 @@ declare(strict_types = 1);
 namespace Benchmarks\Support;
 
 use Illuminate\Config\Repository as ConfigRepository;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
  * Shared configuration for the JWT bearer benchmarks.
@@ -25,9 +25,9 @@ final class JwtBenchSetup
         return new ConfigRepository([
             'database'       => ['default' => BenchDatabase::CONNECTION],
             'authentication' => [
-                'device' => [
-                    'model'                      => Device::class,
-                    'table'                      => 'devices',
+                'session' => [
+                    'model'                      => Session::class,
+                    'table'                      => 'authentication_sessions',
                     'last_used_throttle_seconds' => 60,
                 ],
                 'timebox' => [

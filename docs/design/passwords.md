@@ -37,7 +37,7 @@ cooldown, invalidation), with no new table. Laravel's pieces are reused where th
 the `Password` validation rule, and the default link delivery, Laravel's `ResetPassword` notification through
 `CanResetPassword::sendPasswordResetNotification($token)` with its `createUrlUsing()` and `toMailUsing()` hooks.
 Laravel's `Illuminate\Auth\Events\PasswordReset` is not dispatched (in Laravel it is the application controller's event);
-`RevokeDevicesOnPasswordReset` stays for applications that keep Laravel's broker.
+`RevokeSessionsOnPasswordReset` stays for applications that keep Laravel's broker.
 
 Laravel's own breached-password seam was assessed too: `Password::uncompromised()` asks the container's
 `Illuminate\Contracts\Validation\UncompromisedVerifier`, whose default `NotPwnedVerifier::search()` catches every
@@ -78,7 +78,7 @@ only duplicate them.
   `authentication:check` reports it under `[passwords]`.
 - `set()` is a trusted call: the caller authorises the change and chooses the `PasswordFlow` on the server. A
   `MachineIdentity` never gets a password (`InvalidArgumentException`); an identity that is not an Eloquent model, a
-  change or reset of an identity not stored, and a device to keep on any flow but a change are misconfigurations. A
+  change or reset of an identity not stored, and a session to keep on any flow but a change are misconfigurations. A
   registration sets only a first password: on a stored identity its `UPDATE` matches the row only while the password
   column is `null` or empty, so it can never replace a password without ending the sessions a change ends.
 - A password that breaks the policy writes nothing and dispatches nothing. Only a password that passes is hashed with
@@ -88,7 +88,7 @@ only duplicate them.
 - A new password outdates every reset link and code still waiting for the identity, whatever the flow, and a change or a
   reset, which end sessions, outdates its sign-in codes too, and their revocation cancels its pending identifier changes
   (a registration ends no session and leaves them): the same transaction invalidates them (`OutdatedProofs`,
-  `DeviceRevocations`), so a link or code someone
+  `RevocationWriter`), so a link or code someone
   else obtained earlier (a forwarded mail, a mailbox read while it was compromised) cannot take the account back after
   its owner recovers it, through any guard whose provider can return the identity. A guard whose provider reads another
   table binds its links and codes to the identities there, so they are kept (`JwtGuards::namesFor()`).
@@ -104,8 +104,8 @@ only duplicate them.
    - a stored identity: one query-builder `UPDATE` of the password column (and `updated_at` when the model keeps
      timestamps) on its row by key without scopes, and for a registration only while the column is `null` or empty; 0
      rows is a `LogicException`. No other dirty attribute is saved or
-     discarded and no model event fires, so `RevokeDevicesOnPasswordChange` neither sees the write nor undoes the device
-     a change kept. The model is given the hash with `forceFill()` and `syncOriginalAttributes()`.
+     discarded and no model event fires, so `RevokeSessionsOnPasswordChange` neither sees the write nor undoes the
+     session a change kept. The model is given the hash with `forceFill()` and `syncOriginalAttributes()`.
    - an unsaved identity (registration only): `forceFill()->save()`; a save a model event cancels is a `LogicException`.
    - `OutdatedProofs::invalidate()`: one `DELETE` on the codes' table of the reset link and code bindings, and for a
      change or a reset the sign-in code bindings, of every `jwt` guard whose provider can return the identity (its
@@ -119,11 +119,11 @@ only duplicate them.
      invalidate, since a reset of it would fail the same way, but an `InvalidArgumentException` (a normaliser that
      cannot be built) fails the write closed.
    - `CHANGE`: `SessionRevocations::passwordChanged($identity, $except)`; `RESET`: `passwordReset($identity)` (every
-     guard's devices, the identity's "tokens valid after" cutoff moved, pending sign-ins ended and, for a
+     guard's sessions, the identity's "tokens valid after" cutoff moved, pending sign-ins ended and, for a
      `HasChangeableIdentifiers` identity, its pending identifier changes deleted by key, for every type with a
      registered normaliser, their events after their commit; see the identifier changes note); `REGISTRATION`: nothing.
    - `PasswordSet($context, $flow)` queued on the identity connection's commit; the context names the guard, the client,
-     the identity and, for a change, the device kept.
+     the identity and, for a change, the session kept.
 4. `PasswordResult::set($revoked)`.
 
 ## Reset requests (`sendResetLink()`, `sendResetCode()`)
@@ -184,11 +184,11 @@ code to `OneTimeCodeSender` with the purpose `password_reset`; anyone else gets 
 - Policy failure: `PasswordResult::rejected($violations)`; nothing counted, written or dispatched.
 - Breached service down: reported once per check; `reject` gives `breach_check_unavailable`, `allow` passes.
 - Row deleted between load and write: the `UPDATE` matches nothing, the `LogicException` rolls the transaction back, and
-  no device is revoked.
+  no session is revoked.
 - Caller transaction rolled back: the hash, the cutoff and the revocations roll back with it and no event is dispatched.
-- An identity on another connection than the devices (the storage connection): the bulk revocation commits on the
-  storage connection inside the identity's transaction; a failure after it (a throwing `DeviceRevoked` listener, say)
-  rolls the password and the cutoff back but leaves the devices revoked. More is ended, never less, and calling again
+- An identity on another connection than the sessions (the storage connection): the bulk revocation commits on the
+  storage connection inside the identity's transaction; a failure after it (a throwing `SessionRevoked` listener, say)
+  rolls the password and the cutoff back but leaves the sessions revoked. More is ended, never less, and calling again
   finishes the job.
 - Laravel's `Password` rule in a form accepts a breached password, and a bcrypt password over 72 bytes or holding a null
   character; `set()` refuses
@@ -205,7 +205,7 @@ code to `OneTimeCodeSender` with the purpose `password_reset`; anyone else gets 
 - A new request between a reset's read and its consume: the new issuance replaced the row, so the consume matches
   nothing and the reset is `invalid`.
 - A failure after the proof is accepted (a revocation statement failing, say) or a caller's rollback: one transaction,
-  so the proof, the password, the cutoff and the devices roll back together, and no event is dispatched.
+  so the proof, the password, the cutoff and the sessions roll back together, and no event is dispatched.
 - An identity on another connection than the storage connection: refused with a `LogicException`, since the proof and
   the change could not commit as one; `authentication:check` warns about such a guard, as it does about a non-`email`
   password identifier while Laravel's notification is the sender.

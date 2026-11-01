@@ -91,8 +91,8 @@ request for a code looks the same whether or not anyone has the identifier, and 
 - The worker runs the job: live issuance; recipient found and eligible; `OneTimeCodeSender::send(OneTimeCodeMessage)`.
 - `Auth::sessions('mobile')->signIn('phone_code', ['phone' => ..., 'code' => ...])`: the session service's
   `Attempting`, method check and `sign_in` reservation; `CodeSignIn::authenticate()` (lookup, account reservation,
-  `OneTimeCodes::check()`: `SELECT`, counting `UPDATE`, using `UPDATE`); admission, factor policy, device and tokens as
-  for a password, with `phone_code` recorded on the device.
+  `OneTimeCodes::check()`: `SELECT`, counting `UPDATE`, using `UPDATE`); admission, factor policy, session and tokens as
+  for a password, with `phone_code` recorded on the session.
 - `sendVerification($identity, 'phone')` then `verify($identity, 'phone', $code)`: the same issue, delivery and check
   for the verification binding, then `IdentifierVerifier::verify()` and `IdentifierVerified` once committed;
   `VerificationOutcome::VERIFIED`.

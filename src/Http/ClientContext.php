@@ -7,7 +7,7 @@ namespace SineMacula\Laravel\Authentication\Http;
 use Illuminate\Http\Request;
 
 /**
- * The client a request came from, as the package stores it on a device: its IP
+ * The client a request came from, as the package stores it on a session: its IP
  * address and its user agent.
  *
  * Both come from the client and are made safe to store rather than trusted: an
@@ -19,7 +19,7 @@ use Illuminate\Http\Request;
  * PDO a value is cut short at the first one. A value that is missing, invalid,
  * or empty after cleaning is `null`.
  *
- * The package records last use with it; code that creates a device should
+ * The package records last use with it; code that creates a session should
  * record `created_ip` and `created_user_agent` through it too, from
  * `fromRequest()` or the constructor.
  *

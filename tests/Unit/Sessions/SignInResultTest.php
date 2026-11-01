@@ -10,7 +10,7 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -46,9 +46,9 @@ final class SignInResultTest extends TestCase
     {
         $identity  = \Mockery::mock(Identity::class);
         $principal = \Mockery::mock(Principal::class);
-        $device    = \Mockery::mock(Model::class, EloquentDevice::class);
+        $record    = \Mockery::mock(Model::class, EloquentSession::class);
         $tokens    = new TokenPair('access', 'refresh');
-        $session   = new SignedInSession($identity, $principal, $device, $tokens, 'password', true);
+        $session   = new SignedInSession($identity, $principal, $record, $tokens, 'password');
         $result    = SignInResult::signedIn($session);
 
         self::assertSame(SignInStatus::SIGNED_IN, $result->status);
@@ -62,10 +62,26 @@ final class SignInResultTest extends TestCase
 
         self::assertSame($identity, $session->identity);
         self::assertSame($principal, $session->principal);
-        self::assertSame($device, $session->device);
+        self::assertSame($record, $session->record);
         self::assertSame($tokens, $session->tokens);
         self::assertSame('password', $session->method);
-        self::assertTrue($session->deviceCreated);
+    }
+
+    /**
+     * A started session says nothing about whether it is new: every sign-in
+     * creates one, so the session carries exactly who, as whom, its record, its
+     * tokens and how.
+     *
+     * @return void
+     */
+    public function testASignedInSessionCarriesNoCreationFlag(): void
+    {
+        $parameters = (new \ReflectionMethod(SignedInSession::class, '__construct'))->getParameters();
+
+        self::assertSame(
+            ['identity', 'principal', 'record', 'tokens', 'method'],
+            array_map(static fn (\ReflectionParameter $parameter): string => $parameter->getName(), $parameters),
+        );
     }
 
     /**

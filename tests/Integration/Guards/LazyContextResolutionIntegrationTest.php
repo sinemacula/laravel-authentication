@@ -16,8 +16,8 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Concerns\InteractsWithDevices;
+use SineMacula\Laravel\Authentication\Models\Session;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -27,7 +27,7 @@ use Tests\TestCase;
  * On a route without authentication middleware, the first call to `Auth::id()`
  * or to any contextual accessor resolves the bearer token, as Laravel's own
  * guards do, instead of returning `null` until something calls `user()`. A
- * principal or device pinned before that first access stays pinned.
+ * principal or session pinned before that first access stays pinned.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -38,7 +38,7 @@ use Tests\TestCase;
 #[CoversClass(JwtGuard::class)]
 final class LazyContextResolutionIntegrationTest extends TestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
     /**
      * Create the tenant, member, and membership tables.
@@ -99,7 +99,7 @@ final class LazyContextResolutionIntegrationTest extends TestCase
             'id'        => ['id'],
             'identity'  => ['identity'],
             'principal' => ['principal'],
-            'device'    => ['device'],
+            'session'   => ['session'],
             'tenant'    => ['tenant'],
         ];
     }
@@ -116,13 +116,13 @@ final class LazyContextResolutionIntegrationTest extends TestCase
     #[DataProvider('provideAccessors')]
     public function testAccessorResolvesBearerTokenWhenCalledFirst(string $accessor): void
     {
-        [$member, $membership, $tenant, $device] = $this->seedContext();
+        [$member, $membership, $tenant, $session] = $this->seedContext();
 
         $manager = app('auth');
 
         assert($manager instanceof AuthManager);
 
-        $token = $manager->jwt('api')->issueAccessToken($member, $membership, $device);
+        $token = $manager->jwt('api')->issueAccessToken($member, $membership, $session);
 
         Route::get('/first-call', static function () use ($accessor): array {
 
@@ -134,7 +134,7 @@ final class LazyContextResolutionIntegrationTest extends TestCase
                 'id'        => $manager->id(),
                 'identity'  => $manager->identity()?->getAuthIdentifier(),
                 'principal' => $manager->principal()?->getPrincipalIdentifier(),
-                'device'    => $manager->device()?->getDeviceIdentifier(),
+                'session'   => $manager->session()?->getSessionIdentifier(),
                 default     => $manager->tenant()?->getTenantIdentifier(),
             }];
         });
@@ -143,7 +143,7 @@ final class LazyContextResolutionIntegrationTest extends TestCase
             'id'        => $member->getKey(),
             'identity'  => $member->getKey(),
             'principal' => $membership->getKey(),
-            'device'    => $device->getKey(),
+            'session'   => $session->getKey(),
             'tenant'    => $tenant->getKey(),
         ];
 
@@ -153,9 +153,9 @@ final class LazyContextResolutionIntegrationTest extends TestCase
     }
 
     /**
-     * A principal and device pinned on a route without `auth` middleware,
+     * A principal and session pinned on a route without `auth` middleware,
      * before anything resolved the request, stay pinned: the bearer token is
-     * resolved first and the pins replace its principal and device.
+     * resolved first and the pins replace its principal and session.
      *
      * @return void
      *
@@ -163,32 +163,32 @@ final class LazyContextResolutionIntegrationTest extends TestCase
      */
     public function testPinsSetBeforeFirstAccessAreNotReplacedByTheBearerToken(): void
     {
-        [$member, $membership, $tenant, $device] = $this->seedContext();
+        [$member, $membership, $tenant, $session] = $this->seedContext();
 
         $otherMembership = new ActivatableTenantMembership;
         $otherMembership->forceFill(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()])->save();
 
-        $otherDevice = $device->replicate();
-        $otherDevice->save();
+        $otherSession = $session->replicate();
+        $otherSession->save();
 
         $manager = app('auth');
 
         assert($manager instanceof AuthManager);
 
-        $token = $manager->jwt('api')->issueAccessToken($member, $membership, $device);
+        $token = $manager->jwt('api')->issueAccessToken($member, $membership, $session);
 
-        Route::get('/pin-first', static function () use ($otherMembership, $otherDevice): array {
+        Route::get('/pin-first', static function () use ($otherMembership, $otherSession): array {
 
             $guard = app('auth')->guard('api');
 
             assert($guard instanceof JwtGuard);
 
-            $guard->setPrincipal($otherMembership)->setDevice($otherDevice);
+            $guard->setPrincipal($otherMembership)->setSession($otherSession);
 
             return [
                 'identity'  => $guard->identity()?->getAuthIdentifier(),
                 'principal' => $guard->principal()?->getPrincipalIdentifier(),
-                'device'    => $guard->device()?->getDeviceIdentifier(),
+                'session'   => $guard->session()?->getSessionIdentifier(),
             ];
         });
 
@@ -197,7 +197,7 @@ final class LazyContextResolutionIntegrationTest extends TestCase
             ->assertExactJson([
                 'identity'  => $member->getKey(),
                 'principal' => $otherMembership->getKey(),
-                'device'    => $otherDevice->getKey(),
+                'session'   => $otherSession->getKey(),
             ]);
     }
 
@@ -205,15 +205,15 @@ final class LazyContextResolutionIntegrationTest extends TestCase
      * A `Login` listener that reads the guard while `attempt()` signs another
      * member in, on a route without `auth` middleware whose request carries a
      * bearer token, does not resolve that token: the member signing in is bound
-     * with no device rather than with the bearer's.
+     * with no session rather than with the bearer's.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testLoginListenerReadingTheGuardDoesNotBindTheBearerTokensDevice(): void
+    public function testLoginListenerReadingTheGuardDoesNotBindTheBearerTokensSession(): void
     {
-        [$bearer, $bearerMembership, $tenant, $bearerDevice] = $this->seedContext();
+        [$bearer, $bearerMembership, $tenant, $bearerSession] = $this->seedContext();
 
         $member = new ActivatableTenantMember;
         $member->forceFill(['email' => 'signing-in@example.test', 'password' => app(Hasher::class)->make('secret')])->save();
@@ -225,7 +225,7 @@ final class LazyContextResolutionIntegrationTest extends TestCase
 
         assert($manager instanceof AuthManager);
 
-        $token = $manager->jwt('api')->issueAccessToken($bearer, $bearerMembership, $bearerDevice);
+        $token = $manager->jwt('api')->issueAccessToken($bearer, $bearerMembership, $bearerSession);
 
         Event::listen(Login::class, static function (): void {
             app('auth')->guard('api')->id();
@@ -241,7 +241,7 @@ final class LazyContextResolutionIntegrationTest extends TestCase
                 'signed_in' => $guard->attempt(['email' => 'signing-in@example.test', 'password' => 'secret']),
                 'identity'  => $guard->identity()?->getAuthIdentifier(),
                 'principal' => $guard->principal()?->getPrincipalIdentifier(),
-                'device'    => $guard->device()?->getDeviceIdentifier(),
+                'session'   => $guard->session()?->getSessionIdentifier(),
             ];
         });
 
@@ -251,7 +251,7 @@ final class LazyContextResolutionIntegrationTest extends TestCase
                 'signed_in' => true,
                 'identity'  => $member->getKey(),
                 'principal' => $membership->getKey(),
-                'device'    => null,
+                'session'   => null,
             ]);
     }
 
@@ -284,13 +284,13 @@ final class LazyContextResolutionIntegrationTest extends TestCase
     }
 
     /**
-     * Persist a member with a membership in a tenant and a device.
+     * Persist a member with a membership in a tenant and a session.
      *
      * @formatter:off
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
-     * @return array{0: \Tests\Integration\Fixtures\ActivatableTenantMember, 1: \Tests\Integration\Fixtures\ActivatableTenantMembership, 2: \Tests\Integration\Fixtures\ActivatableTenant, 3: \SineMacula\Laravel\Authentication\Models\Device}
+     * @return array{0: \Tests\Integration\Fixtures\ActivatableTenantMember, 1: \Tests\Integration\Fixtures\ActivatableTenantMembership, 2: \Tests\Integration\Fixtures\ActivatableTenant, 3: \SineMacula\Laravel\Authentication\Models\Session}
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -307,8 +307,8 @@ final class LazyContextResolutionIntegrationTest extends TestCase
         $membership = new ActivatableTenantMembership;
         $membership->forceFill(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()])->save();
 
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => ActivatableTenantMember::class,
             'authenticatable_id'   => (string) $member->getKey(), // @phpstan-ignore cast.string
@@ -316,6 +316,6 @@ final class LazyContextResolutionIntegrationTest extends TestCase
             'principal_id'         => (string) $membership->getKey(), // @phpstan-ignore cast.string
         ])->save();
 
-        return [$member, $membership, $tenant, $device];
+        return [$member, $membership, $tenant, $session];
     }
 }

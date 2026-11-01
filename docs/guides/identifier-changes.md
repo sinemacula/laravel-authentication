@@ -56,9 +56,10 @@ the index the check is best effort and a race can leave two identities with one 
 recently: within `identifier_changes.recent_authentication_seconds` (900 by default), from the second it names, and
 never from the future.
 
-- `Reauthentication::device($device)`: the session the change is made from. Read again on the write connection, it
-  must be one of the identity's own live sessions of the guard (not revoked, deadlines not passed), signed in within
-  the window. A refresh or a principal switch does not renew it; a fresh sign-in does.
+- `Reauthentication::session($session)`: the session the change is made from. Read again on the write connection, it
+  must be one of the identity's own live sessions of the guard (not revoked, deadlines not passed), signed in within the
+  window. A refresh or a principal switch does not renew it. A fresh sign-in starts a new session, signed in now, and a
+  session it replaced is revoked, so it no longer proves anything.
 - `Reauthentication::password($password)`: the identity's current password, checked in the guard's credential timebox
   against the identity read again through the guard's provider. It counts against the identity's account and the IP
   address under the `sign_in` limits, and a correct one is given back. A guard whose application does not allow the
@@ -66,11 +67,11 @@ never from the future.
 - `Reauthentication::confirmedAt($at)`: a further factor, or another proof your code verified, at `$at`. It is trusted,
   as `start()` is: never build it from a time the client sent.
 
-An identity that signs in only with codes or passkeys reauthenticates by signing in again on the device it changes from.
-A token with no device (in [access-only mode](installation.md#access-only-mode-no-devices-no-refresh), or any access
-token without a `did`) has no session to offer, so `Auth::device()` is `null` there and the request must ask for another
-proof. The first route below takes the password whenever one is sent, so a session signed in longer ago than the window
-can confirm it instead of signing in again, and the device's recent sign-in otherwise.
+An identity that signs in only with codes or passkeys reauthenticates by signing in again and making the change from the
+new session. A token with no session (in [access-only mode](installation.md#access-only-mode-no-sessions-no-refresh), or
+any access token without a `did`) has none to offer, so `Auth::session()` is `null` there and the request must ask for
+another proof. The first route below takes the password whenever one is sent, so a session signed in longer ago than the
+window can confirm it instead of signing in again, and the session's recent sign-in otherwise.
 
 **Requesting.** `requestByCode()` sends a code to the new identifier, delivered after commit by a queued job through
 your `OneTimeCodeSender` with the purpose `change_identifier` (the message's `identifier` is the new one);
@@ -79,10 +80,10 @@ your `OneTimeCodeSender` with the purpose `change_identifier` (the message's `id
 the current one; whether another identity holds it is not checked here, so the answer says nothing about it. Requests
 are limited by `rate_limits.identifier_change`, counted on the new identifier, on the identity and on the IP address. A
 request checks the proof, the new identifier and the limits first, on the identity's row read again; then, in one
-transaction that locks that row (and the proving device's row, for a device proof), it checks again that the proof
+transaction that locks that row (and the proving session's row, for a session proof), it checks again that the proof
 stands and that the identifier is not the current one, and writes the change. A refusal there gives the
 `identifier_change` slots back. So a password change or a reset racing a request proven by the old password, and a
-revocation of the device that proves one, come either before the check under the lock, which then fails, or after the
+revocation of the session that proves one, come either before the check under the lock, which then fails, or after the
 change is written, which they then cancel. A `confirmedAt()` proof, and a password proof racing a revocation that leaves
 the password as it is, are not serialised. The current identifier is read from the row as locked. The limits are counted
 before the transaction, never inside it, so no counter's row stays locked until its commit: on MySQL, two transactions
@@ -95,11 +96,11 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeRe
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 
 Route::middleware('auth:api')->post('/email/change', function (Request $request) {
-    $input  = $request->validate(['email' => ['required', 'email'], 'password' => ['nullable', 'string']]);
-    $device = Auth::device();
-    $proof  = match (true) {
+    $input   = $request->validate(['email' => ['required', 'email'], 'password' => ['nullable', 'string']]);
+    $session = Auth::session();
+    $proof   = match (true) {
         isset($input['password']) => Reauthentication::password($input['password']),
-        $device !== null          => Reauthentication::device($device),
+        $session !== null         => Reauthentication::session($session),
         default                   => null,
     };
 
@@ -144,12 +145,12 @@ default), and a change proven by code no longer than its code works (`codes.ttl_
 reports the change waiting through this guard (its new identifier and times) and `cancel($identity, $type)` drops it,
 locking the identity's row first, as a request and a confirmation do, so the three wait for each other. Ending the
 identity's sessions in bulk drops every change it has waiting, of each type and through each guard, in the same
-transaction: `signOutEverywhere()`, `revokeDevices()` and the security-change methods that end an identity's sessions
+transaction: `signOutEverywhere()`, `revokeSessions()` and the security-change methods that end an identity's sessions
 (see [Revoking on security changes](sessions.md#revoking-on-security-changes)), so also a change or a reset of the
 password through `Auth::passwords()->set()`, a reset by link or code, and the listeners that call them. A link needs no
 session, so one requested from a session that ended could otherwise still move the account to an address of the
-requester's. Revoking one device, ending a principal's sessions and a registration keep them. Prune expired changes with
-`php artisan model:prune --model="SineMacula\Laravel\Authentication\Models\IdentifierChange"`.
+requester's. Revoking one session, ending a principal's sessions and a registration keep them. Prune expired changes
+with `php artisan model:prune --model="SineMacula\Laravel\Authentication\Models\IdentifierChange"`.
 
 **Confirming.** `confirmByCode($identity, $type, $code)` takes the code; `confirmByLink($request)` takes the request to
 the link's address, which needs no session (the link names the identity, signed). Each acts only on a change requested

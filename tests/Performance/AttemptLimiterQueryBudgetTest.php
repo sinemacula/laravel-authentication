@@ -138,12 +138,12 @@ final class AttemptLimiterQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A refresh of a device from an IP address.
+     * A refresh of a session from an IP address.
      *
      * @return \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject
      */
     private function refresh(): AttemptSubject
     {
-        return new AttemptSubject(self::GUARD, AttemptFlow::REFRESH, 'device-1', null, '203.0.113.7');
+        return new AttemptSubject(self::GUARD, AttemptFlow::REFRESH, 'session-1', null, '203.0.113.7');
     }
 }

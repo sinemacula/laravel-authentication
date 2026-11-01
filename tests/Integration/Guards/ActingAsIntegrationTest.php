@@ -98,7 +98,7 @@ final class ActingAsIntegrationTest extends TestCase
         self::assertSame($second->getKey(), Auth::identity()?->getAuthIdentifier());
         self::assertSame($secondMembership->getKey(), Auth::principal()?->getPrincipalIdentifier());
         self::assertSame($secondMembership->tenant_id, $this->actingTenantIdentifier());
-        self::assertNull(Auth::device());
+        self::assertNull(Auth::session());
     }
 
     /**

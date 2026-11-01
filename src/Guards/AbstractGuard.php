@@ -13,13 +13,13 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
 use SineMacula\Laravel\Authentication\Contracts\HasGuardContext;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
@@ -237,10 +237,10 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * Bind an authenticated identity to the guard with its default principal.
      *
      * The trusted bind behind Laravel's `actingAs()`. The previous identity's
-     * principal and device are cleared and the resolver's default principal for
-     * the new identity is bound, so the guard never pairs one identity with
-     * another's principal or device. Use `login()` to bind a specific principal
-     * or a device.
+     * principal and session are cleared and the resolver's default principal
+     * for the new identity is bound, so the guard never pairs one identity with
+     * another's principal or session. Use `login()` to bind a specific
+     * principal or a session.
      *
      * Throws an `InvalidArgumentException` when the identity has no default
      * principal. An `UnresolvableIdentityException` from the resolver, for a
@@ -273,7 +273,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
 
     /**
      * Sign in with credentials through the password sign-in method, optionally
-     * pinning a specific principal and device on success.
+     * pinning a specific principal and session on success.
      *
      * The application policy must allow the `password` method, and the attempt
      * takes one slot from the identifier's and the IP address's sign-in limits
@@ -290,22 +290,22 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * admit the identity as the principal, and the additional-factor policy
      * must not ask for a further factor: `attempt()` cannot hand out a pending
      * sign-in, so a required factor fails it (use the session service's
-     * `signIn()`). No device is created.
+     * `signIn()`). No session is created.
      *
      * Pins are verified, not trusted, because callers may take them from
      * request input: the principal must resolve through the resolver's hinted
-     * path to the same principal of the same class, and the device must be one
-     * of the identity's own devices of this guard that is not revoked and whose
-     * session has not ended (a device of another guard, or of none, counts as
-     * missing). The resolved instances are bound, and a pin that fails either
-     * check fails the attempt.
+     * path to the same principal of the same class, and the session must be one
+     * of the identity's own sessions of this guard that is not revoked and has
+     * not ended (a session of another guard, or of none, counts as missing).
+     * The resolved instances are bound, and a pin that fails either check fails
+     * the attempt.
      *
      * A failure fires Laravel's `Failed`, carrying the account the credentials
      * named when there is one, and then `AuthenticationFailed` with the reason.
      *
      * @param  array<string, mixed>  $credentials
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return bool
      *
      * @throws \Throwable
@@ -313,7 +313,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * @imperative
      */
     #[\Override]
-    public function attempt(#[\SensitiveParameter] array $credentials, ?Principal $principal = null, ?Device $device = null): bool
+    public function attempt(#[\SensitiveParameter] array $credentials, ?Principal $principal = null, ?Session $session = null): bool
     {
         $this->lastRetrievedUser = null;
 
@@ -322,14 +322,14 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
         $password   = self::signInCollaborator(PasswordSignIn::class);
         $identifier = $password->identifier($this->context->name(), $credentials);
         $client     = $this->context->client();
-        $outcome    = $this->signInWithCredentials($password, $credentials, $principal, $device, $client);
+        $outcome    = $this->signInWithCredentials($password, $credentials, $principal, $session, $client);
 
         if ($outcome instanceof Refused) {
 
             $this->fireFailedEvent($this->lastRetrievedUser, $credentials);
 
             $this->context->dispatch(new AuthenticationFailed(
-                new EventContext($this->context->name(), $client, $outcome->identity, $outcome->principal, $outcome->tenant, $outcome->device, PasswordSignIn::NAME),
+                new EventContext($this->context->name(), $client, $outcome->identity, $outcome->principal, $outcome->tenant, $outcome->session, PasswordSignIn::NAME),
                 AuthenticationFlow::SIGN_IN,
                 $outcome->reason,
                 $identifier,
@@ -341,59 +341,59 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
 
         // Validated fired when the password was accepted; bind directly and
         // skip login() to avoid double-dispatching.
-        $this->bindVerifiedContext($outcome->identity, $outcome->principal, $outcome->device, $outcome->tenant, PasswordSignIn::NAME, true);
+        $this->bindVerifiedContext($outcome->identity, $outcome->principal, $outcome->session, $outcome->tenant, PasswordSignIn::NAME, true);
 
         return true;
     }
 
     /**
-     * Bind a fully resolved identity, principal, and optional device, firing
+     * Bind a fully resolved identity, principal, and optional session, firing
      * `Validated` and `Login` around the bind.
      *
      * Public, trusted entry point for callers that validated the identity
-     * out-of-band (refresh, OAuth, SSO): the principal and device are bound as
+     * out-of-band (refresh, OAuth, SSO): the principal and session are bound as
      * given, without the ownership checks `attempt()` applies to its pins.
      * Paths that already fired `Validated` (as `attempt()` does once the
      * password sign-in method accepts the credentials) call
      * `bindVerifiedContext()` directly to avoid firing it twice.
      *
      * Previously bound state is cleared first so callers cannot inherit a stale
-     * device from a prior login on the same instance. The events carry the
+     * session from a prior login on the same instance. The events carry the
      * tenant the principal names (none when it cannot be loaded) and, with a
-     * device, the sign-in method its session records.
+     * session, the sign-in method the session records.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return void
      *
      * @throws \LogicException
      */
     #[\Override]
-    public function login(Identity $identity, Principal $principal, ?Device $device = null): void
+    public function login(Identity $identity, Principal $principal, ?Session $session = null): void
     {
         $this->fireValidatedEvent($identity);
 
-        $this->bindAuthenticationLifecycle($identity, $principal, $device);
+        $this->bindAuthenticationLifecycle($identity, $principal, $session);
     }
 
     /**
-     * Bind a fully resolved identity, principal, and optional device as the
+     * Bind a fully resolved identity, principal, and optional session as the
      * request's authentication rather than as a sign-in: only `Authenticated`,
-     * `PrincipalAssigned` and, with a device, `DeviceAuthenticated` fire, with
-     * no `Validated` and no `Login`.
+     * `PrincipalAssigned` and, with a session, `SessionAuthenticated` fire,
+     * with no `Validated` and no `Login`.
      *
-     * A trusted entry point, like `login()`: the principal and device are bound
-     * as given, without ownership, activity or revocation checks, so the caller
-     * must have proven them. Previously bound state is cleared first, and the
-     * request is settled, so its own credential is not resolved afterwards. A
-     * non-human identity (`MachineIdentity`) is limited to the scopes given, as
-     * if a credential granted them (`[]`, none, when no list is given); only a
-     * machine identity takes scopes.
+     * A trusted entry point, like `login()`: the principal and session are
+     * bound as given, without ownership, activity or revocation checks, so the
+     * caller must have proven them. Previously bound state is cleared first,
+     * and the request is settled, so its own credential is not resolved
+     * afterwards. A non-human identity (`MachineIdentity`) is limited to the
+     * scopes given, as if a credential granted them (`[]`, none, when no list
+     * is given); only a machine identity takes scopes.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?list<string>  $scopes
      * @return void
      *
@@ -401,11 +401,11 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * @throws \LogicException
      */
     #[\Override]
-    public function authenticateAs(Identity $identity, Principal $principal, ?Device $device = null, ?array $scopes = null): void
+    public function authenticateAs(Identity $identity, Principal $principal, ?Session $session = null, ?array $scopes = null): void
     {
         self::assertScopable($identity, $scopes);
 
-        $this->bindVerifiedContext($identity, $principal, $device, self::boundTenant($principal), $device?->getSignInMethod(), false, null, $scopes);
+        $this->bindVerifiedContext($identity, $principal, $session, self::boundTenant($principal), $session?->getSignInMethod(), false, null, $scopes);
     }
 
     /**
@@ -432,7 +432,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
     }
 
     /**
-     * Forget the identity, principal and device bound to the guard, with no
+     * Forget the identity, principal and session bound to the guard, with no
      * event, and keep the guard signed out for the rest of the request instead
      * of resolving the request's credential again, as Laravel's
      * `GuardHelpers::forgetUser()` does for its guards.
@@ -526,18 +526,18 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
 
     /**
      * Bind as a sign-in, with the tenant the principal names and the sign-in
-     * method the device records.
+     * method the session records.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return void
      *
      * @throws \LogicException
      */
-    protected function bindAuthenticationLifecycle(Identity $identity, Principal $principal, ?Device $device = null): void
+    protected function bindAuthenticationLifecycle(Identity $identity, Principal $principal, ?Session $session = null): void
     {
-        $this->bindVerifiedContext($identity, $principal, $device, self::boundTenant($principal), $device?->getSignInMethod(), true);
+        $this->bindVerifiedContext($identity, $principal, $session, self::boundTenant($principal), $session?->getSignInMethod(), true);
     }
 
     /**
@@ -551,12 +551,12 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      *
      * An explicit bind settles the request: a `Login` listener that reads the
      * guard before the identity is set gets no identity rather than resolving
-     * the request's own credential, whose device would otherwise stay bound to
+     * the request's own credential, whose session would otherwise stay bound to
      * the identity signing in.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?string  $method
      * @param  bool  $signIn
@@ -567,7 +567,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
     protected function bindVerifiedContext(
         Identity $identity,
         Principal $principal,
-        ?Device $device,
+        ?Session $session,
         ?Tenant $tenant,
         ?string $method,
         bool $signIn,
@@ -583,6 +583,6 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
             $this->context->dispatch(new Login($this->context->name(), $identity, false));
         }
 
-        $this->bindContext($identity, $principal, $device, $tenant, $method, $credentialId, $scopes);
+        $this->bindContext($identity, $principal, $session, $tenant, $method, $credentialId, $scopes);
     }
 }

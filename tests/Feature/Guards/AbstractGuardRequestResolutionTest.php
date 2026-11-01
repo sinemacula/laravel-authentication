@@ -194,7 +194,7 @@ final class AbstractGuardRequestResolutionTest extends AbstractGuardTestCase
     /**
      * A second `login()` on the guard clears the first sign-in before it fires
      * `Login`: a listener that reads the guard mid-bind sees none of the first
-     * sign-in's identity, principal or device.
+     * sign-in's identity, principal or session.
      *
      * @return void
      */
@@ -210,10 +210,10 @@ final class AbstractGuardRequestResolutionTest extends AbstractGuardTestCase
                     return;
                 }
 
-                $seen[] = [$guard->user(), $guard->principal(), $guard->device()];
+                $seen[] = [$guard->user(), $guard->principal(), $guard->session()];
             });
 
-        $guard->login($this->mockIdentity(), $this->mockPrincipal(), $this->mockDevice());
+        $guard->login($this->mockIdentity(), $this->mockPrincipal(), $this->mockSession());
 
         $identity = $this->mockIdentity();
 

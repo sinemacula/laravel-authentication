@@ -9,14 +9,14 @@ use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordChange;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasswordChange;
+use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * 2D identity fixture over `integration_identities`, with devices of the
+ * 2D identity fixture over `integration_identities`, with sessions of the
  * shipped model, that registers the password-change observer through
  * `#[ObservedBy]`: the observer is registered only when the model first boots.
  *
@@ -29,8 +29,8 @@ use SineMacula\Laravel\Authentication\Models\Device;
  *
  * @internal
  */
-#[ObservedBy(RevokeDevicesOnPasswordChange::class)]
-final class AttributeObservedIdentity extends Model implements HasDevices, Identity, Principal
+#[ObservedBy(RevokeSessionsOnPasswordChange::class)]
+final class AttributeObservedIdentity extends Model implements HasSessions, Identity, Principal
 {
     use ActsAsPrincipal, Authenticatable;
 
@@ -41,14 +41,14 @@ final class AttributeObservedIdentity extends Model implements HasDevices, Ident
     protected $guarded = [];
 
     /**
-     * The identity's devices of the shipped model.
+     * The identity's sessions of the shipped model.
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
     #[\Override]
-    public function devices(): Builder
+    public function sessions(): Builder
     {
-        return Device::query()
+        return Session::query()
             ->where('authenticatable_type', self::class)
             ->where('authenticatable_id', (string) $this->getKey()); // @phpstan-ignore cast.string
     }

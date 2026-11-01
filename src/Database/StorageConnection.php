@@ -12,12 +12,12 @@ use Illuminate\Support\Facades\Config;
  * write, and the one the shipped migrations create the tables on, so the two
  * cannot disagree.
  *
- * Devices, pending sign-ins, one-time codes, passkeys, passkey challenges, API
+ * Sessions, pending sign-ins, one-time codes, passkeys, passkey challenges, API
  * keys and identifier changes live on `authentication.storage.connection`
  * (`null` or empty for the default connection). They are kept together because
  * a session, the completion of a pending sign-in, a password reset and an
  * identifier change each write several of them in one transaction, which two
- * connections cannot commit as one; a device model on another connection is
+ * connections cannot commit as one; a session model on another connection is
  * refused rather than splitting one. The attempt counters live on
  * `authentication.rate_limits.connection` when it names one, so they can stay
  * out of those transactions, and on the storage connection otherwise.

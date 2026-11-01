@@ -11,7 +11,7 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 /**
  * Feature tests for `AbstractGuard::setUser()`: it replaces the whole
  * contextual state and binds the new identity's default principal, so one
- * identity is never paired with another's principal or device.
+ * identity is never paired with another's principal or session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -64,16 +64,16 @@ final class AbstractGuardSetUserTest extends AbstractGuardTestCase
     }
 
     /**
-     * `setUser()` after a `login()` with a device clears that device and the
+     * `setUser()` after a `login()` with a session clears that session and the
      * previous principal.
      *
      * @return void
      */
-    public function testSetUserClearsThePreviousIdentitysPrincipalAndDevice(): void
+    public function testSetUserClearsThePreviousIdentitysPrincipalAndSession(): void
     {
         $guard = $this->makeGuard();
 
-        $guard->login($this->mockIdentity(), $this->mockPrincipal(), $this->mockDevice());
+        $guard->login($this->mockIdentity(), $this->mockPrincipal(), $this->mockSession());
 
         $identity  = $this->mockIdentity();
         $principal = $this->mockPrincipal();
@@ -84,7 +84,7 @@ final class AbstractGuardSetUserTest extends AbstractGuardTestCase
 
         self::assertSame($identity, $guard->identity());
         self::assertSame($principal, $guard->principal());
-        self::assertNull($guard->device());
+        self::assertNull($guard->session());
     }
 
     /**

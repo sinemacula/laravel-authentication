@@ -14,9 +14,9 @@ use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Codes\CodeService;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
@@ -55,7 +55,7 @@ final class ManagerServicesRequestsTest extends TestCase
     use InteractsWithCodeIdentities, ServesRequestsThroughOctane;
 
     /** @var list<class-string<\SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent>> The session lifecycle events each request records. */
-    private const array LIFECYCLE = [SignedIn::class, Refreshed::class, PrincipalSwitched::class, DeviceRevoked::class];
+    private const array LIFECYCLE = [SignedIn::class, Refreshed::class, PrincipalSwitched::class, SessionRevoked::class];
 
     /** @var string The code the engine issues first. */
     private const string CODE = '135790';
@@ -160,12 +160,12 @@ final class ManagerServicesRequestsTest extends TestCase
 
         $this->serve(self::octaneRequest('GET', '/members/me', bearer: $access))->assertExactJson(['principal' => null]);
 
-        self::assertSame(['203.0.113.1', 'signed_out'], [DB::table('devices')->value('created_ip'), DB::table('devices')->value('revoked_reason')]);
+        self::assertSame(['203.0.113.1', 'signed_out'], [DB::table('authentication_sessions')->value('created_ip'), DB::table('authentication_sessions')->value('revoked_reason')]);
         self::assertSame([
             [['SignedIn', '203.0.113.1']],
             [['SignedIn', '203.0.113.2'], ['Refreshed', '203.0.113.2']],
             [['PrincipalSwitched', '203.0.113.3']],
-            [['DeviceRevoked', '203.0.113.4']],
+            [['SessionRevoked', '203.0.113.4']],
         ], $this->eventsRecordedByEachRequest());
     }
 

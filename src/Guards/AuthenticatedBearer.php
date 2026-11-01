@@ -28,7 +28,7 @@ final readonly class AuthenticatedBearer
      */
     public function __construct(
 
-        /** The identity, principal, tenant and device the token admitted. */
+        /** The identity, principal, tenant and session the token admitted. */
         public Admitted $admitted,
 
         /** The API key a client credentials token was exchanged for, if it was. */
@@ -41,13 +41,12 @@ final readonly class AuthenticatedBearer
 
     /**
      * The method the request reports: `client_credentials` for a client
-     * credentials token, otherwise the one the device's session records, if
-     * any.
+     * credentials token, otherwise the one the session records, if any.
      *
      * @return ?string
      */
     public function method(): ?string
     {
-        return $this->credentialId === null ? $this->admitted->device?->getSignInMethod() : ClientCredentialsExchange::METHOD;
+        return $this->credentialId === null ? $this->admitted->session?->getSignInMethod() : ClientCredentialsExchange::METHOD;
     }
 }

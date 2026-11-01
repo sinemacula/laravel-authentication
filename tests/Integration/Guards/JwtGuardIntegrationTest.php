@@ -20,8 +20,8 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Concerns\InteractsWithDevices;
+use SineMacula\Laravel\Authentication\Models\Session;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
@@ -37,7 +37,7 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardIntegrationTest extends TestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
     /** @var string */
     private const string JWT_SECRET = 'integration-secret-with-at-least-32-bytes!';
@@ -210,7 +210,7 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
-     * An authenticated request exposes the resolved principal and device
+     * An authenticated request exposes the resolved principal and session
      * through the `AuthManager` contextual accessors.
      *
      * @return void
@@ -219,8 +219,8 @@ final class JwtGuardIntegrationTest extends TestCase
     {
         $user = $this->seedUser();
 
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
@@ -232,7 +232,7 @@ final class JwtGuardIntegrationTest extends TestCase
         $token = $this->encodeAccessToken([
             'sub' => (string) $user->getKey(), // @phpstan-ignore cast.string
             'pid' => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'did' => $device->getKey(),
+            'did' => $session->getKey(),
             'iat' => $this->now->getTimestamp(),
             'exp' => $this->now->getTimestamp() + 600,
         ]);
@@ -244,8 +244,8 @@ final class JwtGuardIntegrationTest extends TestCase
 
             return [
                 'principal_present' => $manager->principal() !== null,
-                'device_present'    => $manager->device()    !== null,
-                'device_key'        => $manager->device()?->getDeviceIdentifier(),
+                'session_present'   => $manager->session()   !== null,
+                'session_key'       => $manager->session()?->getSessionIdentifier(),
             ];
         });
 
@@ -254,24 +254,24 @@ final class JwtGuardIntegrationTest extends TestCase
         $response->assertOk();
         $response->assertJson([
             'principal_present' => true,
-            'device_present'    => true,
-            'device_key'        => $device->getKey(),
+            'session_present'   => true,
+            'session_key'       => $session->getKey(),
         ]);
     }
 
     /**
-     * A bearer token carrying a `did` still resolves the device from storage
+     * A bearer token carrying a `did` still resolves the session from storage
      * and can therefore trigger the debounced `last_used_at` write on the
-     * persisted device row.
+     * persisted session row.
      *
      * @return void
      */
-    public function testBearerAuthWithDeviceRecordsItsLastUse(): void
+    public function testBearerAuthWithSessionRecordsItsLastUse(): void
     {
         $user = $this->seedUser();
 
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
@@ -282,7 +282,7 @@ final class JwtGuardIntegrationTest extends TestCase
         $token = $this->encodeAccessToken([
             'sub' => (string) $user->getKey(), // @phpstan-ignore cast.string
             'pid' => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'did' => $device->getKey(),
+            'did' => $session->getKey(),
             'iat' => $this->now->getTimestamp(),
             'exp' => $this->now->getTimestamp() + 600,
         ]);
@@ -293,29 +293,29 @@ final class JwtGuardIntegrationTest extends TestCase
 
         $response->assertOk();
 
-        $fresh = Device::query()->findOrFail($device->getKey());
+        $fresh = Session::query()->findOrFail($session->getKey());
 
-        assert($fresh instanceof Device);
+        assert($fresh instanceof Session);
 
         self::assertInstanceOf(Carbon::class, $fresh->last_used_at);
         self::assertTrue($this->now->equalTo($fresh->last_used_at));
     }
 
     /**
-     * Revoking a device ends its session at once: an access token naming the
-     * device is rejected exactly as if the device were missing, and its refresh
-     * token no longer rotates.
+     * Revoking a session ends it at once: an access token naming the session is
+     * rejected exactly as if the session were missing, and its refresh token no
+     * longer rotates.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testRevokingDeviceBlocksRefreshAndExistingAccessToken(): void
+    public function testRevokingSessionBlocksRefreshAndExistingAccessToken(): void
     {
         $user = $this->seedUser();
 
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
@@ -327,23 +327,23 @@ final class JwtGuardIntegrationTest extends TestCase
         $accessToken = $this->encodeAccessToken([
             'sub' => (string) $user->getKey(), // @phpstan-ignore cast.string
             'pid' => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'did' => $device->getKey(),
+            'did' => $session->getKey(),
             'iat' => $this->now->getTimestamp(),
             'exp' => $this->now->getTimestamp() + 600,
         ]);
 
         $manager      = $this->freshAuthManager();
-        $refreshToken = $manager->jwt('api')->issueRefreshToken($device, 'stored-rotation-id');
+        $refreshToken = $manager->jwt('api')->issueRefreshToken($session, 'stored-rotation-id');
 
-        Device::query()
-            ->whereKey($device->getKey())
+        Session::query()
+            ->whereKey($session->getKey())
             ->update(['revoked_at' => $this->now]);
 
-        Route::middleware(self::AUTH_MIDDLEWARE)->get('/revoked-device', static fn (): string => 'ok');
+        Route::middleware(self::AUTH_MIDDLEWARE)->get('/revoked-session', static fn (): string => 'ok');
 
         $response = $this->withHeaders([
             'Authorization' => self::BEARER_PREFIX . $accessToken,
-        ])->getJson('/revoked-device');
+        ])->getJson('/revoked-session');
 
         $response->assertStatus(401);
 

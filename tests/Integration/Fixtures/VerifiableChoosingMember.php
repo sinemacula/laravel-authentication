@@ -7,12 +7,12 @@ namespace Tests\Integration\Fixtures;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
  * 3D identity fixture, like `ChoosingMember`, with no default membership, that
@@ -29,7 +29,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
  *
  * @internal
  */
-final class VerifiableChoosingMember extends Model implements HasDevices, HasPrincipals, HasVerifiableIdentifiers, Identity
+final class VerifiableChoosingMember extends Model implements HasPrincipals, HasSessions, HasVerifiableIdentifiers, Identity
 {
     use Authenticatable;
 
@@ -64,14 +64,14 @@ final class VerifiableChoosingMember extends Model implements HasDevices, HasPri
     }
 
     /**
-     * Eloquent relation builder for the member's devices.
+     * Eloquent relation builder for the member's sessions.
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
     #[\Override]
-    public function devices(): Builder
+    public function sessions(): Builder
     {
-        return Device::query()
+        return Session::query()
             ->where('authenticatable_type', self::class)
             ->where('authenticatable_id', (string) $this->id);
     }

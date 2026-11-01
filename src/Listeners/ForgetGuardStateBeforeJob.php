@@ -15,7 +15,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
  * A queue worker keeps one application for every job it runs and forgets only
  * scoped instances between them, so a guard a job bound (through `login()`,
  * `setUser()` or `actingAs()`) would still be bound, with its identity,
- * principal and device, in the next job. Before each job this resets every
+ * principal and session, in the next job. Before each job this resets every
  * package guard already resolved to the current request, as an HTTP request
  * does; it creates no guard and registers no rebinding callback.
  *

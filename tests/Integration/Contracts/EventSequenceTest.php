@@ -18,12 +18,12 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
-use SineMacula\Laravel\Authentication\Events\DeviceCreated;
+use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -63,14 +63,14 @@ final class EventSequenceTest extends TestCase
         'Validated api i1',
         'Login api i1',
         'Authenticated api i1',
-        'PrincipalAssigned api i1/p1/d1',
-        'DeviceAuthenticated api i1/p1/d1',
+        'PrincipalAssigned api i1/p1/s1',
+        'SessionAuthenticated api i1/p1/s1',
     ];
 
-    /** @var list<string> The events that report a sign-in's session on a new device. */
+    /** @var list<string> The events that report a sign-in's new session. */
     private const array REPORT = [
-        'DeviceCreated api i1/p1/d1',
-        'SignedIn api new i1/p1/d1',
+        'SessionCreated api i1/p1/s1',
+        'SignedIn api new i1/p1/s1',
     ];
 
     /**
@@ -118,7 +118,7 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * Inside a transaction on the device's connection, a sign-in binds at once
+     * Inside a transaction on the session's connection, a sign-in binds at once
      * and reports its session when the transaction commits; its slots are given
      * back.
      *
@@ -141,8 +141,8 @@ final class EventSequenceTest extends TestCase
 
         self::assertSame(['Attempting api', ...self::BIND, ...self::REPORT], $this->recordedSequence());
         self::assertSame([0, 0], self::slotsTaken());
-        self::assertSame(1, Device::query()->count());
-        self::assertSame('d1', $this->nameOfDevice(Device::query()->sole()));
+        self::assertSame(1, Session::query()->count());
+        self::assertSame('s1', $this->nameOfSession(Session::query()->sole()));
     }
 
     /**
@@ -167,7 +167,7 @@ final class EventSequenceTest extends TestCase
 
         self::assertSame(['Attempting api', ...self::BIND], $this->recordedSequence());
         self::assertSame([0, 0], self::slotsTaken());
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
         self::assertTrue($guard->hasUser());
     }
 
@@ -185,7 +185,7 @@ final class EventSequenceTest extends TestCase
         $refresh = $session->tokens->refreshToken;
         $guard   = $this->freshGuard();
 
-        $this->nameDevices($session->device);
+        $this->nameSessions($session->record);
         $this->recordSequence();
 
         DB::beginTransaction();
@@ -217,8 +217,8 @@ final class EventSequenceTest extends TestCase
         self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => self::sessionsOf($guard)->signIn('password', self::credentials())));
         self::assertSame(['Attempting api', ...self::REPORT, 'Validated api i1', 'Login api i1'], $this->recordedSequence());
         self::assertSame([1, 1], self::slotsTaken());
-        self::assertSame(1, Device::query()->count());
-        self::assertSame('d1', $this->nameOfDevice(Device::query()->sole()));
+        self::assertSame(1, Session::query()->count());
+        self::assertSame('s1', $this->nameOfSession(Session::query()->sole()));
         self::assertFalse($guard->hasUser());
     }
 
@@ -245,7 +245,7 @@ final class EventSequenceTest extends TestCase
         self::assertSame([...self::REPORT, 'Validated api i1', 'Login api i1', 'Authenticated api i1'], $this->recordedSequence());
         self::assertSame([0, 0], self::slotsTaken());
         self::assertSame(0, PendingSignIn::query()->count());
-        self::assertSame('d1', $this->nameOfDevice(Device::query()->sole()));
+        self::assertSame('s1', $this->nameOfSession(Session::query()->sole()));
     }
 
     /**
@@ -266,8 +266,8 @@ final class EventSequenceTest extends TestCase
         self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => self::sessionsOf($guard)->signIn('password', self::credentials())));
         self::assertSame(['Attempting api', ...self::REPORT], $this->recordedSequence());
         self::assertSame([1, 1], self::slotsTaken());
-        self::assertSame(1, Device::query()->count());
-        self::assertSame('d1', $this->nameOfDevice(Device::query()->sole()));
+        self::assertSame(1, Session::query()->count());
+        self::assertSame('s1', $this->nameOfSession(Session::query()->sole()));
         self::assertFalse($guard->hasUser());
     }
 
@@ -292,8 +292,8 @@ final class EventSequenceTest extends TestCase
         self::assertSame(self::REPORT, $this->recordedSequence());
         self::assertSame([1, 1], self::slotsTaken());
         self::assertSame(0, PendingSignIn::query()->count());
-        self::assertSame(1, Device::query()->count());
-        self::assertSame('d1', $this->nameOfDevice(Device::query()->sole()));
+        self::assertSame(1, Session::query()->count());
+        self::assertSame('s1', $this->nameOfSession(Session::query()->sole()));
     }
 
     /**
@@ -310,7 +310,7 @@ final class EventSequenceTest extends TestCase
         $guard = $this->freshGuard();
 
         $this->recordSequence();
-        $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionCreated::class, SignedIn::class]);
 
         DB::beginTransaction();
 
@@ -323,8 +323,8 @@ final class EventSequenceTest extends TestCase
         DB::commit();
 
         self::assertSame(['Attempting api', ...self::BIND, ...self::REPORT], $this->recordedSequence());
-        self::assertSame([self::CLIENT_IP, self::CLIENT_IP], array_map(static fn (DeviceCreated|SignedIn $event): ?string => $event->context->client->ip, $this->recorded));
-        self::assertSame('d1', $this->nameOfDevice(Device::query()->sole()));
+        self::assertSame([self::CLIENT_IP, self::CLIENT_IP], array_map(static fn (SessionCreated|SignedIn $event): ?string => $event->context->client->ip, $this->recorded));
+        self::assertSame('s1', $this->nameOfSession(Session::query()->sole()));
     }
 
     /**
@@ -345,16 +345,16 @@ final class EventSequenceTest extends TestCase
 
         self::assertTrue($sessions->signIn('password', self::credentials())->isSignedIn());
 
-        Event::fake([DeviceCreated::class, SignedIn::class]);
+        Event::fake([SessionCreated::class, SignedIn::class]);
 
         DB::commit();
 
         self::assertSame(['Attempting api', ...self::BIND], $this->recordedSequence());
 
-        Event::assertDispatched(DeviceCreated::class, 1);
+        Event::assertDispatched(SessionCreated::class, 1);
         Event::assertDispatched(SignedIn::class, 1);
 
-        self::assertSame('d1', $this->nameOfDevice(Device::query()->sole()));
+        self::assertSame('s1', $this->nameOfSession(Session::query()->sole()));
     }
 
     /**
@@ -373,21 +373,21 @@ final class EventSequenceTest extends TestCase
 
         $this->recordSequence();
 
-        Event::listen('eloquent.creating: ' . Device::class, static function (): never {
+        Event::listen('eloquent.creating: ' . Session::class, static function (): never {
             throw new \RuntimeException('listener failed');
         });
 
         self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => $sessions->complete($token)));
         self::assertSame([], $this->recordedSequence());
         self::assertSame([1, 1], self::slotsTaken());
-        self::assertSame([1, 0], [PendingSignIn::query()->count(), Device::query()->count()]);
+        self::assertSame([1, 0], [PendingSignIn::query()->count(), Session::query()->count()]);
 
-        Event::forget('eloquent.creating: ' . Device::class);
+        Event::forget('eloquent.creating: ' . Session::class);
 
         self::assertTrue($sessions->complete($token)->isSignedIn());
         self::assertSame([...self::REPORT, ...self::BIND], $this->recordedSequence());
         self::assertSame([0, 0], self::slotsTaken());
-        self::assertSame('d1', $this->nameOfDevice(Device::query()->sole()));
+        self::assertSame('s1', $this->nameOfSession(Session::query()->sole()));
     }
 
     /**

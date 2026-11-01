@@ -11,13 +11,13 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Models\ApiKey;
-use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\IdentifierChange;
 use SineMacula\Laravel\Authentication\Models\OneTimeCode;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Models\RateLimit;
+use SineMacula\Laravel\Authentication\Models\Session;
 use Tests\TestCase;
 
 /**
@@ -109,8 +109,8 @@ final class StorageConnectionMigrationTest extends TestCase
             self::assertSame(self::COUNTERS, (new RateLimit)->getConnectionName());
             self::assertTrue(Schema::connection(self::COUNTERS)->hasTable('rate_limits'));
             self::assertFalse(Schema::connection(self::STORAGE)->hasTable('rate_limits'));
-            self::assertTrue(Schema::connection(self::STORAGE)->hasTable('devices'));
-            self::assertFalse(Schema::connection(self::COUNTERS)->hasTable('devices'));
+            self::assertTrue(Schema::connection(self::STORAGE)->hasTable('authentication_sessions'));
+            self::assertFalse(Schema::connection(self::COUNTERS)->hasTable('authentication_sessions'));
         } finally {
             $this->migrate('migrate:rollback');
         }
@@ -145,7 +145,7 @@ final class StorageConnectionMigrationTest extends TestCase
             Schema::connection(self::CHOSEN)->dropIfExists('migrations');
         }
 
-        self::assertFalse(Schema::connection(self::CHOSEN)->hasTable('devices'));
+        self::assertFalse(Schema::connection(self::CHOSEN)->hasTable('authentication_sessions'));
     }
 
     /**
@@ -194,7 +194,7 @@ final class StorageConnectionMigrationTest extends TestCase
     private static function models(): array
     {
         return [
-            'devices'            => new Device,
+            'sessions'           => new Session,
             'pending sign-ins'   => new PendingSignIn,
             'rate limits'        => new RateLimit,
             'one-time codes'     => new OneTimeCode,

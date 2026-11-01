@@ -38,7 +38,7 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
  * guard that is not a jwt guard, an identity that cannot change identifiers, a
  * type it cannot change, malformed settings, no notifier, a link route that
  * cannot carry a change link, and an identity on another connection than the
- * devices.
+ * sessions.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -471,7 +471,7 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * An identity stored on another connection than the devices, the codes and
+     * An identity stored on another connection than the sessions, the codes and
      * the pending changes cannot have a change confirmed in one transaction, so
      * none is requested or confirmed.
      *

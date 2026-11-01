@@ -108,7 +108,7 @@ final class IdentifierVerifierTest extends TestCase
             && $event->context->client                                                                                           === $client);
 
         self::assertFalse(Auth::guard(self::GUARD)->hasUser());
-        self::assertSame(0, DB::table('devices')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->count());
     }
 
     /**

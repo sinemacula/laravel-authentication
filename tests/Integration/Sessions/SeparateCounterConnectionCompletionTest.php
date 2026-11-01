@@ -16,12 +16,12 @@ use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
-use SineMacula\Laravel\Authentication\Events\DeviceCreated;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
-use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -132,14 +132,14 @@ final class SeparateCounterConnectionCompletionTest extends TestCase
 
         self::assertSame([2, 2, 2], $this->hits($identity));
         self::assertSame(1, PendingSignIn::query()->count());
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
 
         self::assertTrue($this->sessions()->complete($token)->isSignedIn());
         self::assertSame([1, 1, 1], $this->hits($identity));
 
         self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->complete($token)->reason);
         self::assertSame([1, 1, 1], $this->hits($identity));
-        self::assertSame(1, Device::query()->count());
+        self::assertSame(1, Session::query()->count());
     }
 
     /**
@@ -163,7 +163,7 @@ final class SeparateCounterConnectionCompletionTest extends TestCase
 
         self::assertSame([1, 1, 1], $this->hits($identity));
         self::assertSame(0, PendingSignIn::query()->count());
-        self::assertSame(1, Device::query()->count());
+        self::assertSame(1, Session::query()->count());
     }
 
     /**
@@ -181,7 +181,7 @@ final class SeparateCounterConnectionCompletionTest extends TestCase
         $token      = $this->pendingToken($identity);
         $exceptions = Exceptions::fake([QueryException::class]);
 
-        $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionCreated::class, SignedIn::class]);
         $this->makeCountersUnreachable();
 
         $result = DB::transaction(fn (): SignInResult => $this->sessions()->complete($token));
@@ -189,9 +189,9 @@ final class SeparateCounterConnectionCompletionTest extends TestCase
         $this->restoreCounters();
 
         self::assertTrue($result->isSignedIn());
-        self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertSame([2, 2, 2], $this->hits($identity));
-        self::assertSame(1, Device::query()->count());
+        self::assertSame(1, Session::query()->count());
         self::assertSame(0, PendingSignIn::query()->count());
         self::assertCount(1, $exceptions->reported());
 
@@ -216,7 +216,7 @@ final class SeparateCounterConnectionCompletionTest extends TestCase
         $signedIn   = 0;
         $callerRan  = false;
 
-        $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionCreated::class, SignedIn::class]);
 
         Event::listen(SignedIn::class, function () use (&$signedIn): void {
             if (++$signedIn !== 2) {
@@ -239,9 +239,9 @@ final class SeparateCounterConnectionCompletionTest extends TestCase
         });
 
         self::assertTrue($callerRan);
-        self::assertSame([DeviceCreated::class, SignedIn::class, DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame([SessionCreated::class, SignedIn::class, SessionCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertSame([2, 2, 2], $this->hits($identity));
-        self::assertSame(2, Device::query()->count());
+        self::assertSame(2, Session::query()->count());
         self::assertSame(0, PendingSignIn::query()->count());
         self::assertCount(1, $exceptions->reported());
     }
@@ -265,7 +265,7 @@ final class SeparateCounterConnectionCompletionTest extends TestCase
         $exceptions = Exceptions::fake([QueryException::class]);
         $callerRan  = false;
 
-        $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionCreated::class, SignedIn::class]);
         $this->makeCountersUnreachable();
 
         DB::transaction(function () use ($outer, $inner, &$callerRan): void {
@@ -284,9 +284,9 @@ final class SeparateCounterConnectionCompletionTest extends TestCase
         $this->restoreCounters();
 
         self::assertTrue($callerRan);
-        self::assertSame([DeviceCreated::class, SignedIn::class, DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame([SessionCreated::class, SignedIn::class, SessionCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertSame([3, 3, 3], $this->hits($identity));
-        self::assertSame(2, Device::query()->count());
+        self::assertSame(2, Session::query()->count());
         self::assertSame(0, PendingSignIn::query()->count());
         self::assertCount(2, $exceptions->reported());
     }

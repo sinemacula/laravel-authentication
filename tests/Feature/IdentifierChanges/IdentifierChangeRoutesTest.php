@@ -13,8 +13,8 @@ use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeRequestStatus;
@@ -219,13 +219,13 @@ final class IdentifierChangeRoutesTest extends TestCase
     {
         $input    = $request->validate(['email' => ['required', 'string'], 'password' => ['nullable', 'string']]); // @phpstan-ignore staticMethod.dynamicCall
         $identity = Auth::identity();
-        $device   = Auth::device();
+        $session  = Auth::session();
 
         abort_unless($identity instanceof Identity, 401);
 
         $proof = match (true) {
             is_string($input['password'] ?? null) => Reauthentication::password($input['password']),
-            $device instanceof Device             => Reauthentication::device($device),
+            $session instanceof Session           => Reauthentication::session($session),
             default                               => null,
         };
 

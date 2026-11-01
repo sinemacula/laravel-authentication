@@ -12,17 +12,17 @@ use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesIdentifierChanges;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\HasChangeableIdentifiers;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
  * 2D identity kept with the package's tables on the storage connection,
  * `package_store`, in the `stored_identities` table the test creates: a
  * normalised email address that can be changed, a password, a "tokens valid
- * after" cutoff, and devices of the shipped model.
+ * after" cutoff, and sessions of the shipped model.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -35,7 +35,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
  *
  * @internal
  */
-final class StoredIdentity extends Model implements HasChangeableIdentifiers, HasDevices, HasTokensValidAfter, Identity, Principal
+final class StoredIdentity extends Model implements HasChangeableIdentifiers, HasSessions, HasTokensValidAfter, Identity, Principal
 {
     use ActsAsPrincipal, Authenticatable, ProvidesIdentifierChanges, ProvidesTokensValidAfter;
 
@@ -52,14 +52,14 @@ final class StoredIdentity extends Model implements HasChangeableIdentifiers, Ha
     protected $guarded = [];
 
     /**
-     * The identity's devices of the shipped model.
+     * The identity's sessions of the shipped model.
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
     #[\Override]
-    public function devices(): Builder
+    public function sessions(): Builder
     {
-        return Device::query()
+        return Session::query()
             ->where('authenticatable_type', self::class)
             ->where('authenticatable_id', (string) $this->getKey()); // @phpstan-ignore cast.string
     }

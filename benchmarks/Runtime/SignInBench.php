@@ -13,9 +13,9 @@ use PhpBench\Attributes\Warmup;
  * PHPBench suite for sign-ins through the session service.
  *
  * Exercises a password sign-in and a sign-in by a one-time code, each starting
- * a session on a new device, and the check of a one-time code on its own. The
- * password is checked with a hasher that costs next to nothing, so the timings
- * are the package's own work rather than the password hash's.
+ * a new session, and the check of a one-time code on its own. The password is
+ * checked with a hasher that costs next to nothing, so the timings are the
+ * package's own work rather than the password hash's.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

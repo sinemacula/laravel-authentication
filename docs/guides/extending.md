@@ -3,14 +3,14 @@
 ## Extensibility
 
 Concrete classes in this package are `final` except `AuthManager` (the package's subclass of Laravel's manager), the
-shipped `Models\Device` model, and the extension points noted below. Extension is through **composition and DI**, not
+shipped `Models\Session` model, and the extension points noted below. Extension is through **composition and DI**, not
 inheritance:
 
 | Extension point                   | How                                                                                                              |
 |-----------------------------------|------------------------------------------------------------------------------------------------------------------|
 | Custom identity / principal model | Implement `Identity`, `Principal` (and optional capability interfaces)                                           |
-| Custom device model               | Implement `EloquentDevice`, use `ActsAsDevice` (and `PrunesDevices` to be pruned), on the storage connection     |
-| Ending device-less access tokens  | Implement `HasTokensValidAfter` on the identity or principal, or use `ProvidesTokensValidAfter`                  |
+| Custom session model              | Implement `EloquentSession`, use `ActsAsSession` (and `PrunesSessions` to be pruned), on the storage connection  |
+| Ending session-less access tokens | Implement `HasTokensValidAfter` on the identity or principal, or use `ProvidesTokensValidAfter`                  |
 | Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally                                                        |
 | Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                                                             |
 | Custom `auth` middleware          | Subclass `Http\Middleware\Authenticate` (non-final)                                                              |
@@ -36,7 +36,7 @@ different password scheme under a name of its own and allow that name in the app
 methods (`phone_code`, `email_code` and `passkey`) are reserved the same way, as are `api_key` and `client_credentials`,
 which an application lists for machine credentials and which never resolve to a sign-in method. Names are lower case
 (a letter, then letters, digits or underscores), and a method resolves only by the exact name it was registered under,
-so one method never has a second spelling for a guard to allow or a device to record.
+so one method never has a second spelling for a guard to allow or a session to record.
 
 An `AttemptLimiter` of your own counts a subject's `account` in one counter that every guard shares, held to each
 guard's `per_identifier` limit (and not counted where that limit is `null`), as well as the identifier's and the IP
@@ -286,17 +286,20 @@ seam has a default that works alone.
 
 - Bind `Contracts\AdditionalFactorPolicy` (the default, `NeverRequireAdditionalFactor`, never asks). It is asked about
   every admitted sign-in, from `signIn()` and `start()`, and again on a switch of principal, with the guard, identity,
-  principal, tenant, method, client and the device the client proved (see
+  principal, tenant, method, client and the session the client proved (see
   [Additional factors](signing-in.md#additional-factors)).
 - When it asks for a factor, the sign-in waits: `SignInResult::requiresFactor()` and its `PendingFactor` token, then
   `Auth::sessions()->pending()`, `complete()` or `discard()` once the factor is verified or fails. `attempt()` cannot
   wait, so it fails as `additional_factor_required`.
-- A factor removed ends the identity's other sessions: `Auth::sessions()->factorRemoved($identity, Auth::device())`.
+- A factor removed ends the identity's other sessions: `Auth::sessions()->factorRemoved($identity, Auth::session())`.
 - Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity)` and `verifyFactor()`, which count and
   report nothing: the factor's outcome is the factor package's to limit and report. `verifyFactor()` answers a
   `PasskeyFactorResult` (see [Using passkeys](signing-in.md#using-passkeys)), never `null`.
-- Factor state is the factor package's, keyed by the device id (`Auth::device()?->getDeviceIdentifier()`, the `did`
-  every session token carries); the device records none.
+- A factor package's credentials and enrolments are its own. Authentication proofs belong on the session in this
+  package, which does not record them yet, so for now anything a factor package keeps about a session is its own,
+  keyed by the session id (`Auth::session()?->getSessionIdentifier()`, the `did` every session token carries),
+  and does not survive a sign-in: every sign-in starts a new session with a new id, and the session the client proved
+  (`AdditionalFactorContext::$provenSession`) is revoked, so nothing kept about it transfers to the new one.
 - A factor the factor package has just verified proves a recent authentication before an identifier change:
   `Reauthentication::confirmedAt($verifiedAt)` (see [Changing identifiers](identifier-changes.md)).
 - When every sign-in requires a further factor, a password is no longer the only factor, and `passwords.min_length`
@@ -335,14 +338,14 @@ $passed = $result->isVerified();   // else $result->reason
 - For an assertion the package should verify itself, implement `Contracts\SignInMethod`, register it with
   `SignInMethodManager::extend()` and sign in through `signIn()`, which adds the limits and the timebox (see
   [Writing a sign-in method](signing-in.md#writing-a-sign-in-method)).
-- Either way the device records the method, so the application can stop allowing it and its sessions stop
+- Either way the session records the method, so the application can stop allowing it and its sessions stop
   refreshing.
 
 ### Audit (`laravel-audit-log`)
 
 - Every package event implements `Contracts\AuthenticationEvent` and carries one `Events\EventContext`, so one listener
   records them all from its snapshot (`toArray()`): when, the guard, the client, the identity, principal and tenant by
-  morph class and identifier, the device's identifier, the method, and the credential and its scopes, never a secret.
+  morph class and identifier, the session's identifier, the method, and the credential and its scopes, never a secret.
   The snapshot survives a queue whatever was deleted meanwhile, so a queued audit listener can take the event as it is
   (see [Events](events.md#events)).
 - Events that report a write are dispatched once it commits on the written row's connection, and never for a rolled-back

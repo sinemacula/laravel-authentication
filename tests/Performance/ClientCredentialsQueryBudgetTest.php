@@ -20,7 +20,7 @@ use Tests\Concerns\InteractsWithMachineCredentials;
  * path of its tokens: an exchange costs the limiter's check, the key and its
  * owner, and the last-use write; a refused client the same lookups and its
  * counted failure, with no password hashing either way; and a client token
- * costs one query more than any device-less access token, its key read by its
+ * costs one query more than any session-less access token, its key read by its
  * primary key.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -108,13 +108,13 @@ final class ClientCredentialsQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A client token costs the key, read by its primary key, and its owner, one
-     * query more than a device-less access token, and writes nothing.
+     * query more than a session-less access token, and writes nothing.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testAClientTokenCostsOneQueryMoreThanADevicelessToken(): void
+    public function testAClientTokenCostsOneQueryMoreThanASessionlessToken(): void
     {
         $machine = $this->seedMachine();
         $issued  = $this->apiKeys('m2m')->issue($machine, $machine);

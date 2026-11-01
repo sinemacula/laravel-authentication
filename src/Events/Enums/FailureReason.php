@@ -27,11 +27,11 @@ enum FailureReason: string
     case INVALID_CREDENTIALS = 'invalid_credentials';
 
     // The application does not allow the sign-in method, or no longer allows
-    // the method that started the device's session (or the device records none)
+    // the method that started the session (or the session records none)
     case METHOD_NOT_ALLOWED = 'method_not_allowed';
 
-    // The identifier, the device or the IP address has used up its attempts for
-    // now
+    // The identifier, the session or the IP address has used up its attempts
+    // for now
     case RATE_LIMITED = 'rate_limited';
 
     // The account the identifier found has used up its attempts for now; only
@@ -39,7 +39,7 @@ enum FailureReason: string
     case ACCOUNT_RATE_LIMITED = 'account_rate_limited';
 
     // The guard's identity provider does not return the identity, or not the
-    // device's exact owner
+    // session's exact owner
     case IDENTITY_UNKNOWN = 'identity_unknown';
 
     // The identity's `isActive()` returned false
@@ -66,8 +66,8 @@ enum FailureReason: string
     // is not
     case IDENTIFIER_UNVERIFIED = 'identifier_unverified';
 
-    // The pinned device is not one of the identity's live devices
-    case DEVICE_MISMATCH = 'device_mismatch';
+    // The pinned session is not one of the identity's live sessions
+    case SESSION_MISMATCH = 'session_mismatch';
 
     // A further factor is required, which only signIn() can ask for
     case ADDITIONAL_FACTOR_REQUIRED = 'additional_factor_required';
@@ -87,34 +87,34 @@ enum FailureReason: string
     // is of another type, guard, issuer or audience
     case TOKEN_INVALID = 'token_invalid';
 
-    // A token issued without a device was issued at or before the identity's or
-    // the principal's "tokens valid after" time
+    // A token issued without a session was issued at or before the identity's
+    // or the principal's "tokens valid after" time
     case ISSUED_BEFORE_CUTOFF = 'issued_before_cutoff';
 
-    // The device id is not a key of the device model, or names no device
-    case DEVICE_UNKNOWN = 'device_unknown';
+    // The session id is not a key of the session model, or names no session
+    case SESSION_UNKNOWN = 'session_unknown';
 
-    // The device belongs to another guard's sessions, or to none; not revoked
-    case DEVICE_GUARD_MISMATCH = 'device_guard_mismatch';
+    // The session belongs to another guard, or to none; not revoked
+    case SESSION_GUARD_MISMATCH = 'session_guard_mismatch';
 
-    // The device is marked revoked
-    case DEVICE_REVOKED = 'device_revoked';
+    // The session is marked revoked
+    case SESSION_REVOKED = 'session_revoked';
 
-    // The device's idle or absolute deadline is reached, or missing
+    // The session's idle or absolute deadline is reached, or missing
     case SESSION_EXPIRED = 'session_expired';
 
-    // The token was issued for a principal the device no longer acts as
-    case DEVICE_PRINCIPAL_MISMATCH = 'device_principal_mismatch';
+    // The token was issued for a principal the session no longer acts as
+    case SESSION_PRINCIPAL_MISMATCH = 'session_principal_mismatch';
 
     // A rotated refresh token was presented: neither the current rotation id
-    // nor the previous one inside the grace window; the device is revoked
+    // nor the previous one inside the grace window; the session is revoked
     case ROTATION_REUSE = 'rotation_reuse';
 
-    // The device's security state changed while the token was being rotated and
-    // the token is still the current one; the client may retry
+    // The session's security state changed while the token was being rotated
+    // and the token is still the current one; the client may retry
     case ROTATION_CONFLICT = 'rotation_conflict';
 
-    // The device holds no refresh credential, so a replay cannot be told
+    // The session holds no refresh credential, so a replay cannot be told
     // apart; not revoked
     case REFRESH_KEY_MISSING = 'refresh_key_missing';
 
@@ -141,7 +141,7 @@ enum FailureReason: string
     case PASSKEY_COUNTER_REGRESSED = 'passkey_counter_regressed';
 
     // A non-human identity tried an interactive sign-in, a session, a switch, a
-    // refresh or a device's token
+    // refresh or a session's token
     case MACHINE_IDENTITY = 'machine_identity';
 
     // The API key or client credential is malformed, unknown, has the wrong

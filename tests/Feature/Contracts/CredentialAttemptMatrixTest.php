@@ -16,8 +16,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
@@ -192,9 +192,9 @@ final class CredentialAttemptMatrixTest extends TestCase
             'account'     => 'consumed',
         ]];
 
-        yield 'pinned device mismatch' => ['pinned device mismatch', [
+        yield 'pinned session mismatch' => ['pinned session mismatch', [
             'result'      => 'false',
-            'events'      => ['Attempting api', 'Validated api i1', 'Failed api i1', 'AuthenticationFailed api sign_in:device_mismatch i1/p1/-'],
+            'events'      => ['Attempting api', 'Validated api i1', 'Failed api i1', 'AuthenticationFailed api sign_in:session_mismatch i1/p1/-'],
             'timebox'     => 'padded',
             'rehashed'    => false,
             'reservation' => 'consumed',
@@ -259,14 +259,14 @@ final class CredentialAttemptMatrixTest extends TestCase
 
         $this->record($case, $arranged['subject']);
 
-        $result = self::answerOf(static fn (): string => $guard->attempt($arranged['credentials'], $arranged['principal'], $arranged['device']) ? 'true' : 'false');
+        $result = self::answerOf(static fn (): string => $guard->attempt($arranged['credentials'], $arranged['principal'], $arranged['session']) ? 'true' : 'false');
 
         self::assertSame($row, $this->observed($result, $arranged['subject'], $box, $limiter));
     }
 
     /**
      * Rows of `[case, row]`: what the session service's `signIn('password')`
-     * does in each case. A pinned device is `attempt()`'s alone.
+     * does in each case. A pinned session is `attempt()`'s alone.
      *
      * @return iterable<string, array{0: string, 1: array{result: string, events: list<string>, timebox: string, rehashed: bool, reservation: string, account: string}}>
      */
@@ -366,13 +366,13 @@ final class CredentialAttemptMatrixTest extends TestCase
             'result' => 'signed_in',
             'events' => [
                 'Attempting api',
-                'DeviceCreated api i1/p1/d1',
-                'SignedIn api new i1/p1/d1',
+                'SessionCreated api i1/p1/s1',
+                'SignedIn api new i1/p1/s1',
                 'Validated api i1',
                 'Login api i1',
                 'Authenticated api i1',
-                'PrincipalAssigned api i1/p1/d1',
-                'DeviceAuthenticated api i1/p1/d1',
+                'PrincipalAssigned api i1/p1/s1',
+                'SessionAuthenticated api i1/p1/s1',
             ],
             'timebox'     => 'cut short',
             'rehashed'    => true,
@@ -382,7 +382,7 @@ final class CredentialAttemptMatrixTest extends TestCase
 
         yield 'throwing Validated listener' => ['throwing Validated listener', [
             'result'      => self::THREW,
-            'events'      => ['Attempting api', 'DeviceCreated api i1/p1/d1', 'SignedIn api new i1/p1/d1', 'Validated api i1'],
+            'events'      => ['Attempting api', 'SessionCreated api i1/p1/s1', 'SignedIn api new i1/p1/s1', 'Validated api i1'],
             'timebox'     => 'cut short',
             'rehashed'    => true,
             'reservation' => 'consumed',
@@ -391,7 +391,7 @@ final class CredentialAttemptMatrixTest extends TestCase
 
         yield 'throwing Login listener' => ['throwing Login listener', [
             'result'      => self::THREW,
-            'events'      => ['Attempting api', 'DeviceCreated api i1/p1/d1', 'SignedIn api new i1/p1/d1', 'Validated api i1', 'Login api i1'],
+            'events'      => ['Attempting api', 'SessionCreated api i1/p1/s1', 'SignedIn api new i1/p1/s1', 'Validated api i1', 'Login api i1'],
             'timebox'     => 'cut short',
             'rehashed'    => true,
             'reservation' => 'consumed',
@@ -464,7 +464,7 @@ final class CredentialAttemptMatrixTest extends TestCase
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  string  $case
-     * @return array{guard: string, credentials: array<string, string>, principal: ?\SineMacula\Laravel\Authentication\Contracts\Principal, device: ?\SineMacula\Laravel\Authentication\Contracts\Device, subject: \Illuminate\Database\Eloquent\Model}
+     * @return array{guard: string, credentials: array<string, string>, principal: ?\SineMacula\Laravel\Authentication\Contracts\Principal, session: ?\SineMacula\Laravel\Authentication\Contracts\Session, subject: \Illuminate\Database\Eloquent\Model}
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -473,7 +473,7 @@ final class CredentialAttemptMatrixTest extends TestCase
     private function arrange(string $case): array
     {
         $subject  = $this->seedSubject($case);
-        $arranged = ['guard' => 'api', 'credentials' => self::credentials(), 'principal' => null, 'device' => null];
+        $arranged = ['guard' => 'api', 'credentials' => self::credentials(), 'principal' => null, 'session' => null];
 
         $arranged = match ($case) {
             'invalid password'          => [...$arranged, 'credentials' => ['email' => 'ada@example.test', 'password' => 'not the password']],
@@ -482,7 +482,7 @@ final class CredentialAttemptMatrixTest extends TestCase
             'machine identity'          => [...$arranged, 'guard' => 'machines', 'credentials' => self::credentials('machine@example.test')],
             'no default principal'      => [...$arranged, 'guard' => 'choosers', 'credentials' => self::credentials('chooser@example.test')],
             'pinned principal mismatch' => [...$arranged, 'principal' => $this->seedIdentity('grace@example.test')],
-            'pinned device mismatch'    => [...$arranged, 'principal' => $subject, 'device' => $this->anotherIdentitysDevice()],
+            'pinned session mismatch'   => [...$arranged, 'principal' => $subject, 'session' => $this->anotherIdentitysSession()],
             default                     => $arranged,
         };
 
@@ -654,12 +654,12 @@ final class CredentialAttemptMatrixTest extends TestCase
     }
 
     /**
-     * Sign another identity in, so a device exists that the identity signing in
-     * does not own.
+     * Sign another identity in, so a session exists that the identity signing
+     * in does not own.
      *
-     * @return \SineMacula\Laravel\Authentication\Contracts\Device
+     * @return \SineMacula\Laravel\Authentication\Contracts\Session
      */
-    private function anotherIdentitysDevice(): Device
+    private function anotherIdentitysSession(): Session
     {
         $this->seedIdentity('grace@example.test');
 
@@ -667,7 +667,7 @@ final class CredentialAttemptMatrixTest extends TestCase
 
         self::assertNotNull($session);
 
-        return $session->device;
+        return $session->record;
     }
 
     /**

@@ -9,15 +9,15 @@ use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesTokensValidAfter;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
  * 2D identity on the default connection that records a "tokens valid after"
- * cutoff, in the `cutoff_identities` table the test creates, and whose devices
- * are `SeparateConnectionDevice` rows on their own connection.
+ * cutoff, in the `cutoff_identities` table the test creates, and whose sessions
+ * are `SeparateConnectionSession` rows on their own connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -28,7 +28,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  *
  * @internal
  */
-final class SeparateConnectionCutoffIdentity extends Model implements HasDevices, HasTokensValidAfter, Identity, Principal
+final class SeparateConnectionCutoffIdentity extends Model implements HasSessions, HasTokensValidAfter, Identity, Principal
 {
     use ActsAsPrincipal, Authenticatable, ProvidesTokensValidAfter;
 
@@ -39,14 +39,14 @@ final class SeparateConnectionCutoffIdentity extends Model implements HasDevices
     protected $guarded = [];
 
     /**
-     * The identity's devices, on the devices' own connection.
+     * The identity's sessions, on the sessions' own connection.
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
     #[\Override]
-    public function devices(): Builder
+    public function sessions(): Builder
     {
-        return $this->morphMany(SeparateConnectionDevice::class, 'authenticatable');
+        return $this->morphMany(SeparateConnectionSession::class, 'authenticatable');
     }
 
     /**

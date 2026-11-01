@@ -13,8 +13,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Codes\IssuedCode;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\PasswordSet;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Passwords\Enums\ResetStatus;
 use SineMacula\Laravel\Authentication\Passwords\ResetResult;
@@ -94,7 +94,7 @@ final class ConcurrentResetSubmissionsTest extends TestCase
 
     /**
      * A failure after the password is written (the pending sign-ins cannot be
-     * ended) rolls the token, the password, the cutoff and the devices back
+     * ended) rolls the token, the password, the cutoff and the sessions back
      * together, reports nothing, and propagates.
      *
      * @return void
@@ -109,7 +109,7 @@ final class ConcurrentResetSubmissionsTest extends TestCase
 
         $token = $this->requestLink();
 
-        $this->recordEvents([PasswordSet::class, DeviceRevoked::class, SignedOutEverywhere::class]);
+        $this->recordEvents([PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class]);
 
         Schema::drop('pending_sign_ins');
 
@@ -124,7 +124,7 @@ final class ConcurrentResetSubmissionsTest extends TestCase
 
         self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) $identity->password));
         self::assertNull($identity->tokens_valid_after);
-        self::assertNull(DB::table('devices')->value('revoked_at'));
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
         self::assertNull(DB::table('one_time_codes')->value('consumed_at'));
         self::assertSame([], $this->recordedClasses());
     }
@@ -145,7 +145,7 @@ final class ConcurrentResetSubmissionsTest extends TestCase
 
         $token = $this->requestLink();
 
-        $this->recordEvents([PasswordSet::class, DeviceRevoked::class, SignedOutEverywhere::class]);
+        $this->recordEvents([PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class]);
 
         DB::beginTransaction();
 
@@ -155,7 +155,7 @@ final class ConcurrentResetSubmissionsTest extends TestCase
 
         self::assertSame([], $this->recordedClasses());
         self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) PasswordIdentity::query()->sole()->password));
-        self::assertNull(DB::table('devices')->value('revoked_at'));
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
         self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
     }
 

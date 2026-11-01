@@ -21,7 +21,7 @@ use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
@@ -29,8 +29,8 @@ use Tests\TestCase;
  * End-to-end tests for refreshing with the token a request carries, through a
  * route on a real database: each guard reads its token from the sources it
  * lists and no other, a token carried twice or a cookie sent cross-site is
- * refused without touching the device, and the result says where the token came
- * from.
+ * refused without touching the session, and the result says where the token
+ * came from.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -175,7 +175,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
 
     /**
      * A request the transport refuses is answered with its reason and reported
-     * as a failed refresh, and leaves the device as it was: its token still
+     * as a failed refresh, and leaves the session as it was: its token still
      * refreshes once sent the one allowed way.
      *
      * @param  string  $guard
@@ -188,10 +188,10 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
      * @throws \Throwable
      */
     #[DataProvider('provideRefusals')]
-    public function testARefusedRequestLeavesTheDeviceAsItWas(string $guard, bool $body, array $headers, bool $cookie, FailureReason $reason): void
+    public function testARefusedRequestLeavesTheSessionAsItWas(string $guard, bool $body, array $headers, bool $cookie, FailureReason $reason): void
     {
         $token  = $this->signIn($guard);
-        $before = Device::query()->sole()->getAttributes();
+        $before = Session::query()->sole()->getAttributes();
 
         $this->recordEvents([AuthenticationFailed::class]);
 
@@ -206,7 +206,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
         self::assertSame(AuthenticationFlow::REFRESH, $failure->flow);
         self::assertSame($reason, $failure->reason);
         self::assertSame($guard, $failure->context->guard);
-        self::assertSame($before, Device::query()->sole()->getAttributes());
+        self::assertSame($before, Session::query()->sole()->getAttributes());
 
         $allowed = $guard === 'admin'
             ? $this->refresh($guard, '', [], ['Origin' => 'http://localhost', 'X-Requested-With' => 'XMLHttpRequest'], $token)
@@ -243,7 +243,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     public function testACookiePlantedBesideTheBrowsersOwnIsAConflict(string $planted): void
     {
         $token  = $this->signIn('admin');
-        $before = Device::query()->sole()->getAttributes();
+        $before = Session::query()->sole()->getAttributes();
 
         $this->recordEvents([AuthenticationFailed::class, Refreshed::class]);
 
@@ -254,7 +254,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
             ->assertJson(['reason' => FailureReason::REFRESH_TOKEN_CONFLICT->value]);
 
         self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
-        self::assertSame($before, Device::query()->sole()->getAttributes());
+        self::assertSame($before, Session::query()->sole()->getAttributes());
 
         $this->refresh('admin', '', [], ['Origin' => 'http://localhost', 'X-Requested-With' => 'XMLHttpRequest', 'Cookie' => self::COOKIE . '=' . $token], $token)
             ->assertOk()
@@ -316,7 +316,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
      * headers a browser sends on its own, so it is refused as cross-site; and a
      * guard told to take `Content-Type` for its custom header, or
      * `Content_Type`, which Symfony reads as the same header, fails closed
-     * before the token is read, leaving the device as it was.
+     * before the token is read, leaving the session as it was.
      *
      * @return void
      *
@@ -325,7 +325,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     public function testAFormRequestCannotStandInForTheCustomHeader(): void
     {
         $token  = $this->signIn('admin');
-        $before = Device::query()->sole()->getAttributes();
+        $before = Session::query()->sole()->getAttributes();
         $form   = ['Origin' => 'http://localhost', 'Content-Type' => 'application/x-www-form-urlencoded'];
 
         $this->refresh('admin', '', ['remember' => '1'], $form, $token)
@@ -339,7 +339,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
 
             self::assertInstanceOf(\InvalidArgumentException::class, $refused->exception);
             self::assertStringContainsString('`refresh_token.cookie.csrf_header` must be a custom header', $refused->exception->getMessage());
-            self::assertSame($before, Device::query()->sole()->getAttributes());
+            self::assertSame($before, Session::query()->sole()->getAttributes());
         }
     }
 

@@ -4,7 +4,7 @@
 
 [project]
 project_name = "sinemacula/laravel-authentication"
-project_description = "Contextual, stateless authentication primitives for Laravel — Identity, Principal, and Device — fully compatible with the standard Auth facade, middleware, Blade directives, and authentication events."
+project_description = "Contextual, stateless authentication primitives for Laravel — Identity, Principal, and Session — fully compatible with the standard Auth facade, middleware, Blade directives, and authentication events."
 copyright = "Sine Macula Limited"
 
 [language]

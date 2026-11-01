@@ -13,8 +13,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 /**
  * Minimal 2D identity used by the access-only integration test.
  *
- * Deliberately does NOT implement `HasDevices` or touch the shipped `Device`
- * model, verifying the package works end-to-end without the devices migration
+ * Deliberately does NOT implement `HasSessions` or touch the shipped `Session`
+ * model, verifying the package works end-to-end without the sessions migration
  * present.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

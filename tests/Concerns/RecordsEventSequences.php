@@ -14,12 +14,12 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Event;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
-use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PasswordSet;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 
@@ -28,17 +28,17 @@ use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
  * each: the event, the guard, what the event says happened (a failure's flow
  * and reason, a revocation's reason, how a session was signed into, the
  * principal a switch left, a password's flow) and the identity, principal and
- * device it concerns.
+ * session it concerns.
  *
  * The events recorded are every package event (one listener on the
  * `AuthenticationEvent` contract) and Laravel's `Attempting`, `Validated`,
  * `Login`, `Authenticated`, `Failed` and `Logout`, the only Laravel auth events
- * the package dispatches. A test names the identities, principals and devices
+ * the package dispatches. A test names the identities, principals and sessions
  * it expects (`i1`, `p1`, `d1`, ..., with `-` for none) before it records, so a
  * name in a line says which of them the event carried; a key the test did not
- * name takes the next name of its kind when it first appears (a device the flow
- * creates, or one it should not have carried), and keeps it from one flow to
- * the next.
+ * name takes the next name of its kind when it first appears (a session the
+ * flow creates, or one it should not have carried), and keeps it from one flow
+ * to the next.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -50,8 +50,8 @@ trait RecordsEventSequences
     /** @var list<string> The lines recorded since recording last began. */
     private array $sequence = [];
 
-    /** @var array{identity: array<string, string>, principal: array<string, string>, device: array<string, string>} The name given to each key, by kind. */
-    private array $names = ['identity' => [], 'principal' => [], 'device' => []];
+    /** @var array{identity: array<string, string>, principal: array<string, string>, session: array<string, string>} The name given to each key, by kind. */
+    private array $names = ['identity' => [], 'principal' => [], 'session' => []];
 
     /** @var bool Whether the recording listeners are registered. */
     private bool $recording = false;
@@ -111,30 +111,30 @@ trait RecordsEventSequences
     }
 
     /**
-     * Name the devices `d1`, `d2`, ... in the order given, before any event
+     * Name the sessions `d1`, `d2`, ... in the order given, before any event
      * names them.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  ...$devices
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  ...$sessions
      * @return void
      */
-    protected function nameDevices(Device ...$devices): void
+    protected function nameSessions(Session ...$sessions): void
     {
-        foreach ($devices as $device) {
-            $this->nameOfDevice($device);
+        foreach ($sessions as $session) {
+            $this->nameOfSession($session);
         }
     }
 
     /**
-     * The name the device was given, or the next name of a device if it has
-     * none yet: a device a flow created is named when an event first carries
+     * The name the session was given, or the next name of a session if it has
+     * none yet: a session a flow created is named when an event first carries
      * it.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return string
      */
-    protected function nameOfDevice(Device $device): string
+    protected function nameOfSession(Session $session): string
     {
-        return $this->nameOf('device', 'device', self::keyOf($device->getDeviceIdentifier()));
+        return $this->nameOf('session', 'session', self::keyOf($session->getSessionIdentifier()));
     }
 
     /**
@@ -171,7 +171,7 @@ trait RecordsEventSequences
 
     /**
      * Describe a package event: the event, the guard, what it says happened,
-     * and the identity, principal and device of its context.
+     * and the identity, principal and session of its context.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent  $event
      * @return string
@@ -201,16 +201,16 @@ trait RecordsEventSequences
         return match (true) {
             $event instanceof PrincipalSwitched    => 'from:' . $this->nameOf('principal', $event->previousPrincipalMorphClass, $event->previousPrincipalId),
             $event instanceof AuthenticationFailed => $event->flow->value . ':' . $event->reason->value,
-            $event instanceof DeviceRevoked        => $event->reason->value,
+            $event instanceof SessionRevoked       => $event->reason->value,
             $event instanceof SignedOutEverywhere  => $event->reason->value . ':' . $event->revoked,
-            $event instanceof SignedIn             => $event->refresh ? 'refresh' : ($event->deviceCreated ? 'new' : 'continued'),
+            $event instanceof SignedIn             => $event->refresh ? 'refresh' : 'new',
             $event instanceof PasswordSet          => $event->flow->value,
             default                                => null,
         };
     }
 
     /**
-     * The names of the context's identity, principal and device.
+     * The names of the context's identity, principal and session.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
      * @return string
@@ -220,7 +220,7 @@ trait RecordsEventSequences
         return implode('/', [
             $this->nameOf('identity', $context->identityMorphClass, $context->identityId),
             $this->nameOf('principal', $context->principalMorphClass, $context->principalId),
-            $this->nameOf('device', 'device', $context->deviceId),
+            $this->nameOf('session', 'session', $context->sessionId),
         ]);
     }
 
@@ -249,7 +249,7 @@ trait RecordsEventSequences
     /**
      * The name of the key of the kind, given on its first appearance.
      *
-     * @param  'device'|'identity'|'principal'  $kind
+     * @param  'identity'|'principal'|'session'  $kind
      * @param  ?string  $type
      * @param  ?string  $id
      * @return string

@@ -29,7 +29,7 @@ use Carbon\CarbonInterface;
 trait ProvidesTokensValidAfter
 {
     /**
-     * Return the time at or before which access tokens issued without a device
+     * Return the time at or before which access tokens issued without a session
      * are rejected, or `null` when there is none.
      *
      * @return ?\Carbon\CarbonInterface

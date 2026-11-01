@@ -22,7 +22,7 @@ use Tests\TestCase;
  * Feature tests holding the code sign-in methods to the rule that a non-human
  * identity has no interactive sign-in: a machine is never sent a code, but one
  * that holds the right code for its verified phone number or email address is
- * still refused at admission, with no session and no device.
+ * still refused at admission, and no session is started.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -82,7 +82,7 @@ final class MachineCodeSignInTest extends TestCase
     /**
      * The code a machine's verified identifier was issued proves the
      * identifier, and admission then refuses the machine as `machine_identity`:
-     * no device and no pending sign-in.
+     * no session and no pending sign-in.
      *
      * @param  string  $method
      * @param  string  $type
@@ -109,7 +109,7 @@ final class MachineCodeSignInTest extends TestCase
         self::assertSame([FailureReason::MACHINE_IDENTITY, AuthenticationFlow::SIGN_IN, $method], [$failure->reason, $failure->flow, $failure->context->method]);
         self::assertTrue($machine->is($failure->context->identity));
         self::assertNotNull(DB::table('one_time_codes')->value('consumed_at'));
-        self::assertSame(0, DB::table('devices')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->count());
         self::assertSame(0, DB::table('pending_sign_ins')->count());
     }
 

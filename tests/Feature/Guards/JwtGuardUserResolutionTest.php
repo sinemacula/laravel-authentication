@@ -17,18 +17,18 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Database\PinningConnectionResolver;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
-use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\BearerAuthentication;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
-use Tests\Concerns\InteractsWithDevices;
-use Tests\Unit\Stubs\StubDevice;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubModel;
+use Tests\Unit\Stubs\StubSession;
 
 /**
  * Feature tests for the bearer-token `user()` resolution path on `JwtGuard`.
@@ -45,13 +45,13 @@ use Tests\Unit\Stubs\StubModel;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
-    /** @var string Well-formed id of the device the token names. */
-    private const string DEVICE_ID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
+    /** @var string Well-formed id of the session the token names. */
+    private const string SESSION_ID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
 
-    /** @var string Well-formed id that names no stored device. */
-    private const string MISSING_DEVICE_ID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f71';
+    /** @var string Well-formed id that names no stored session. */
+    private const string MISSING_SESSION_ID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f71';
 
     /**
      * A request with no Authorization header returns null from `user()` without
@@ -606,9 +606,9 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: when the token carries a `did` hint but the device lookup
+     * Fail-closed: when the token carries a `did` hint but the session lookup
      * fails, `user()` returns null rather than silently binding the identity
-     * with no device.
+     * with no session.
      *
      * @return void
      *
@@ -616,7 +616,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserRejectsTokenWhenDidHintCannotBeResolved(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::MISSING_DEVICE_ID]);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::MISSING_SESSION_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -626,15 +626,15 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->andReturnSelf();
         $builder->shouldReceive('getModel')
             ->once()
-            ->andReturn(new StubDevice);
+            ->andReturn(new StubSession);
         $builder->shouldReceive('find')
             ->once()
-            ->with(self::MISSING_DEVICE_ID)
+            ->with(self::MISSING_SESSION_ID)
             ->andReturnNull();
 
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
         $identity = \Mockery::mock(StubIdentity::class)->makePartial();
-        $identity->shouldReceive('devices')
+        $identity->shouldReceive('sessions')
             ->once()
             ->andReturn($builder);
 
@@ -656,25 +656,25 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-1')
             ->andReturn($principal);
 
-        $this->expectRejection(FailureReason::DEVICE_UNKNOWN);
+        $this->expectRejection(FailureReason::SESSION_UNKNOWN);
 
         self::assertNull($guard->user());
     }
 
     /**
-     * Fail-closed: a `did` naming a revoked device is rejected as
-     * `device_revoked`, from the single lookup that loaded it, attributed to
-     * the resolved identity and the device.
+     * Fail-closed: a `did` naming a revoked session is rejected as
+     * `session_revoked`, from the single lookup that loaded it, attributed to
+     * the resolved identity and the session.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testUserRejectsTokenWhenDidHintNamesRevokedDevice(): void
+    public function testUserRejectsTokenWhenDidHintNamesRevokedSession(): void
     {
-        $device = new StubDevice([...self::liveSession(self::GUARD_NAME), 'id' => self::DEVICE_ID, 'revoked_at' => $this->now]);
+        $session = new StubSession([...self::liveSession(self::GUARD_NAME), 'id' => self::SESSION_ID, 'revoked_at' => $this->now]);
 
-        $this->assertDidHintIsRejected($device, FailureReason::DEVICE_REVOKED);
+        $this->assertDidHintIsRejected($session, FailureReason::SESSION_REVOKED);
     }
 
     /**
@@ -694,8 +694,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: a `did` naming a device whose session has ended is rejected
-     * as `session_expired`, from the single lookup that loaded it, whatever the
+     * Fail-closed: a `did` naming a session that has ended is rejected as
+     * `session_expired`, from the single lookup that loaded it, whatever the
      * token's own expiry.
      *
      * @param  ?int  $idleIn
@@ -705,10 +705,10 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     #[DataProvider('provideEndedSessions')]
-    public function testUserRejectsTokenWhenDidHintNamesDeviceWhoseSessionHasEnded(?int $idleIn, ?int $absoluteIn): void
+    public function testUserRejectsTokenWhenDidHintNamesSessionThatHasEnded(?int $idleIn, ?int $absoluteIn): void
     {
-        $this->assertDidHintIsRejected(new StubDevice([
-            'id'                  => self::DEVICE_ID,
+        $this->assertDidHintIsRejected(new StubSession([
+            'id'                  => self::SESSION_ID,
             'guard'               => self::GUARD_NAME,
             'revoked_at'          => null,
             'idle_expires_at'     => $idleIn     === null ? null : $this->now->copy()->addSeconds($idleIn),
@@ -717,7 +717,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A `did` naming a device loaded without its revocation column is reported
+     * A `did` naming a session loaded without its revocation column is reported
      * as a misconfiguration rather than read as "not revoked", so no user is
      * bound.
      *
@@ -725,23 +725,23 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testUserReportsDidHintNamingDeviceLoadedWithoutItsRevocation(): void
+    public function testUserReportsDidHintNamingSessionLoadedWithoutItsRevocation(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::DEVICE_ID]);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::SESSION_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
         $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('useWritePdo')->andReturnSelf();
-        $builder->shouldReceive('getModel')->andReturn(new StubDevice);
+        $builder->shouldReceive('getModel')->andReturn(new StubSession);
         $builder->shouldReceive('find')
             ->once()
-            ->with(self::DEVICE_ID)
-            ->andReturn(new StubDevice([...self::liveSession(self::GUARD_NAME), 'id' => self::DEVICE_ID]));
+            ->with(self::SESSION_ID)
+            ->andReturn(new StubSession([...self::liveSession(self::GUARD_NAME), 'id' => self::SESSION_ID]));
 
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
         $identity = \Mockery::mock(StubIdentity::class)->makePartial();
-        $identity->shouldReceive('devices')->andReturn($builder);
+        $identity->shouldReceive('sessions')->andReturn($builder);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getTenant')->andReturnNull();
@@ -764,17 +764,17 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A `did` looked up through a `devices()` relation over a model that is not
-     * an `EloquentDevice` is reported as the misconfiguration it is, before the
-     * relation is queried, rather than read as an unknown device.
+     * A `did` looked up through a `sessions()` relation over a model that is
+     * not an `EloquentSession` is reported as the misconfiguration it is,
+     * before the relation is queried, rather than read as an unknown session.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testUserReportsADevicesRelationOverAModelThatIsNotADevice(): void
+    public function testUserReportsASessionsRelationOverAModelThatIsNotASession(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::DEVICE_ID]);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::SESSION_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -785,7 +785,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
         $identity = \Mockery::mock(StubIdentity::class)->makePartial();
-        $identity->shouldReceive('devices')->andReturn($builder);
+        $identity->shouldReceive('sessions')->andReturn($builder);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getTenant')->andReturnNull();
@@ -799,7 +799,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         try {
             $guard->user();
 
-            self::fail('The devices relation over another model should have been reported.');
+            self::fail('The sessions relation over another model should have been reported.');
         } catch (\LogicException $exception) {
             self::assertStringContainsString('must query a model that implements', $exception->getMessage());
         }
@@ -808,7 +808,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * The identity's devices relation is built while reads are pinned to the
+     * The identity's sessions relation is built while reads are pinned to the
      * write connection, so a relation that queries while it is built cannot
      * read a lagging replica.
      *
@@ -816,9 +816,9 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testUserBuildsTheDevicesRelationWithReadsPinnedToTheWriteConnection(): void
+    public function testUserBuildsTheSessionsRelationWithReadsPinnedToTheWriteConnection(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::DEVICE_ID]);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::SESSION_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -829,16 +829,16 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('useWritePdo')->andReturnSelf();
-        $builder->shouldReceive('getModel')->andReturn(new StubDevice);
+        $builder->shouldReceive('getModel')->andReturn(new StubSession);
         $builder->shouldReceive('find')
-            ->with(self::DEVICE_ID)
-            ->andReturn(new StubDevice([...self::liveSession(self::GUARD_NAME, $principal), 'id' => self::DEVICE_ID, 'revoked_at' => null]));
+            ->with(self::SESSION_ID)
+            ->andReturn(new StubSession([...self::liveSession(self::GUARD_NAME, $principal), 'id' => self::SESSION_ID, 'revoked_at' => null]));
 
         $resolvers = [];
 
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
         $identity = \Mockery::mock(StubIdentity::class)->makePartial();
-        $identity->shouldReceive('devices')
+        $identity->shouldReceive('sessions')
             ->once()
             ->andReturnUsing(static function () use ($builder, &$resolvers): Builder {
                 $resolvers[] = Model::getConnectionResolver();
@@ -858,15 +858,15 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A `did` that cannot be a key of the identity's device model is rejected
-     * as `device_unknown` without querying the devices relation, attributed to
-     * the resolved identity and principal and to the id the token named.
+     * A `did` that cannot be a key of the identity's session model is rejected
+     * as `session_unknown` without querying the sessions relation, attributed
+     * to the resolved identity and principal and to the id the token named.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testUserRejectsMalformedDidHintWithoutQueryingDevices(): void
+    public function testUserRejectsMalformedDidHintWithoutQueryingSessions(): void
     {
         $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => 'not-a-uuid']);
 
@@ -878,12 +878,12 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->andReturnSelf();
         $builder->shouldReceive('getModel')
             ->once()
-            ->andReturn(new StubDevice);
+            ->andReturn(new StubSession);
         $builder->shouldNotReceive('find');
 
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
         $identity = \Mockery::mock(StubIdentity::class)->makePartial();
-        $identity->shouldReceive('devices')
+        $identity->shouldReceive('sessions')
             ->once()
             ->andReturn($builder);
 
@@ -905,25 +905,25 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-1')
             ->andReturn($principal);
 
-        $this->expectRejection(FailureReason::DEVICE_UNKNOWN, static fn (EventContext $context): bool => $context->identity === $identity
-            && $context->principal                                                                                          === $principal
-            && $context->device                                                                                             === null
-            && $context->deviceId                                                                                           === 'not-a-uuid');
+        $this->expectRejection(FailureReason::SESSION_UNKNOWN, static fn (EventContext $context): bool => $context->identity === $identity
+            && $context->principal                                                                                           === $principal
+            && $context->session                                                                                             === null
+            && $context->sessionId                                                                                           === 'not-a-uuid');
 
         self::assertNull($guard->user());
     }
 
     /**
      * A database error while looking up a well-formed `did` propagates as a
-     * server error instead of reading as a missing device.
+     * server error instead of reading as a missing session.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testUserPropagatesDatabaseErrorFromDeviceLookup(): void
+    public function testUserPropagatesDatabaseErrorFromSessionLookup(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::DEVICE_ID]);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::SESSION_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -935,15 +935,15 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->andReturnSelf();
         $builder->shouldReceive('getModel')
             ->once()
-            ->andReturn(new StubDevice);
+            ->andReturn(new StubSession);
         $builder->shouldReceive('find')
             ->once()
-            ->with(self::DEVICE_ID)
+            ->with(self::SESSION_ID)
             ->andThrow($failure);
 
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
         $identity = \Mockery::mock(StubIdentity::class)->makePartial();
-        $identity->shouldReceive('devices')
+        $identity->shouldReceive('sessions')
             ->once()
             ->andReturn($builder);
 
@@ -975,7 +975,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     /**
      * When the `did` fail-closed branch rejects a token after `sub` already
      * resolved, the failure carries that resolved identity and principal, and
-     * the device id the token named, for attribution.
+     * the session id the token named, for attribution.
      *
      * @return void
      *
@@ -983,7 +983,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserAttributesTheFailureToTheResolvedIdentityWhenDidHintCannotBeResolved(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::MISSING_DEVICE_ID]);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::MISSING_SESSION_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -993,15 +993,15 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->andReturnSelf();
         $builder->shouldReceive('getModel')
             ->once()
-            ->andReturn(new StubDevice);
+            ->andReturn(new StubSession);
         $builder->shouldReceive('find')
             ->once()
-            ->with(self::MISSING_DEVICE_ID)
+            ->with(self::MISSING_SESSION_ID)
             ->andReturnNull();
 
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
         $identity = \Mockery::mock(StubIdentity::class)->makePartial();
-        $identity->shouldReceive('devices')
+        $identity->shouldReceive('sessions')
             ->once()
             ->andReturn($builder);
 
@@ -1023,19 +1023,19 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-1')
             ->andReturn($principal);
 
-        $this->expectRejection(FailureReason::DEVICE_UNKNOWN, static fn (EventContext $context): bool => $context->identity === $identity
-            && $context->principal                                                                                          === $principal
-            && $context->device                                                                                             === null
-            && $context->deviceId                                                                                           === self::MISSING_DEVICE_ID
-            && $context->guard                                                                                              === self::GUARD_NAME);
+        $this->expectRejection(FailureReason::SESSION_UNKNOWN, static fn (EventContext $context): bool => $context->identity === $identity
+            && $context->principal                                                                                           === $principal
+            && $context->session                                                                                             === null
+            && $context->sessionId                                                                                           === self::MISSING_SESSION_ID
+            && $context->guard                                                                                               === self::GUARD_NAME);
 
         self::assertNull($guard->user());
     }
 
     /**
      * A valid token whose claims include `sub`, `pid`, and `did` results in the
-     * guard binding the identity, principal, and device and dispatching only
-     * `Authenticated`, `PrincipalAssigned` and `DeviceAuthenticated`: a
+     * guard binding the identity, principal, and session and dispatching only
+     * `Authenticated`, `PrincipalAssigned` and `SessionAuthenticated`: a
      * request's token is an authentication, not a sign-in, so no `Attempting`,
      * `Validated` or `Login`.
      *
@@ -1043,9 +1043,9 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testUserBindsIdentityPrincipalAndDeviceFromValidToken(): void
+    public function testUserBindsIdentityPrincipalAndSessionFromValidToken(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::DEVICE_ID]);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::SESSION_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -1057,7 +1057,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->once()
             ->andReturnTrue();
 
-        $device = new StubDevice([...self::liveSession(self::GUARD_NAME, $principal), 'id' => self::DEVICE_ID, 'revoked_at' => null]);
+        $session = new StubSession([...self::liveSession(self::GUARD_NAME, $principal), 'id' => self::SESSION_ID, 'revoked_at' => null]);
 
         $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('useWritePdo')
@@ -1065,15 +1065,15 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->andReturnSelf();
         $builder->shouldReceive('getModel')
             ->once()
-            ->andReturn(new StubDevice);
+            ->andReturn(new StubSession);
         $builder->shouldReceive('find')
             ->once()
-            ->with(self::DEVICE_ID)
-            ->andReturn($device);
+            ->with(self::SESSION_ID)
+            ->andReturn($session);
 
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
         $identity = \Mockery::mock(StubIdentity::class)->makePartial();
-        $identity->shouldReceive('devices')
+        $identity->shouldReceive('sessions')
             ->once()
             ->andReturn($builder);
 
@@ -1097,20 +1097,20 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         self::assertNotNull($guard->user());
         self::assertSame($identity, $guard->identity());
         self::assertSame($principal, $guard->principal());
-        self::assertSame($device, $guard->device());
+        self::assertSame($session, $guard->session());
 
-        self::assertSame([Authenticated::class, PrincipalAssigned::class, DeviceAuthenticated::class], $dispatched);
+        self::assertSame([Authenticated::class, PrincipalAssigned::class, SessionAuthenticated::class], $dispatched);
     }
 
     /**
      * A valid token without a `did` claim binds identity + principal and does
-     * NOT fire `DeviceAuthenticated`.
+     * NOT fire `SessionAuthenticated`.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testUserSkipsDeviceWhenNoDidClaimPresent(): void
+    public function testUserSkipsSessionWhenNoDidClaimPresent(): void
     {
         $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
 
@@ -1146,24 +1146,24 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         self::assertSame($identity, $guard->user());
         self::assertSame($principal, $guard->principal());
-        self::assertNull($guard->device());
-        self::assertNotContains(DeviceAuthenticated::class, $dispatched);
+        self::assertNull($guard->session());
+        self::assertNotContains(SessionAuthenticated::class, $dispatched);
     }
 
     /**
-     * Assert a bearer token whose `did` names the supplied device is rejected
+     * Assert a bearer token whose `did` names the supplied session is rejected
      * for the reason from the single lookup that loaded it, attributed to the
-     * resolved identity and the device.
+     * resolved identity and the session.
      *
-     * @param  \Tests\Unit\Stubs\StubDevice  $device
+     * @param  \Tests\Unit\Stubs\StubSession  $session
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    private function assertDidHintIsRejected(StubDevice $device, FailureReason $reason): void
+    private function assertDidHintIsRejected(StubSession $session, FailureReason $reason): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::DEVICE_ID]);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::SESSION_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -1173,15 +1173,15 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->andReturnSelf();
         $builder->shouldReceive('getModel')
             ->once()
-            ->andReturn(new StubDevice);
+            ->andReturn(new StubSession);
         $builder->shouldReceive('find')
             ->once()
-            ->with(self::DEVICE_ID)
-            ->andReturn($device);
+            ->with(self::SESSION_ID)
+            ->andReturn($session);
 
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
         $identity = \Mockery::mock(StubIdentity::class)->makePartial();
-        $identity->shouldReceive('devices')
+        $identity->shouldReceive('sessions')
             ->once()
             ->andReturn($builder);
 
@@ -1203,10 +1203,10 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-1')
             ->andReturn($principal);
 
-        $this->expectRejection($reason, static fn (EventContext $context): bool => $context->identity === $identity && $context->device === $device);
+        $this->expectRejection($reason, static fn (EventContext $context): bool => $context->identity === $identity && $context->session === $session);
 
         self::assertNull($guard->user());
-        self::assertNull($guard->device());
+        self::assertNull($guard->session());
     }
 
     /**

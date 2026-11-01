@@ -81,7 +81,7 @@ final readonly class OneTimeCodes
      *
      * @throws \InvalidArgumentException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      *
      * @phpstan-impure
      */
@@ -104,7 +104,7 @@ final readonly class OneTimeCodes
      *
      * @throws \InvalidArgumentException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      *
      * @phpstan-impure
      */
@@ -126,7 +126,7 @@ final readonly class OneTimeCodes
      *
      * @throws \InvalidArgumentException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      *
      * @phpstan-impure
      */
@@ -285,7 +285,7 @@ final readonly class OneTimeCodes
      * @return int|\SineMacula\Laravel\Authentication\Codes\IssuedCode
      *
      * @throws \InvalidArgumentException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      *
      * @phpstan-impure
      */

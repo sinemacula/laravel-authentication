@@ -41,9 +41,9 @@ use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
-use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
+use SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
@@ -53,7 +53,7 @@ use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
-use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
+use SineMacula\Laravel\Authentication\Listeners\RecordSessionUsage;
 use SineMacula\Laravel\Authentication\Listeners\TrackCredentialAttempts;
 use SineMacula\Laravel\Authentication\Passkeys\WebAuthn;
 use SineMacula\Laravel\Authentication\Passwords\NoBreachedPasswordCheck;
@@ -66,7 +66,7 @@ use SineMacula\Laravel\Authentication\Scopes\AcceptAnyScope;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use Symfony\Component\HttpFoundation\Response;
-use Tests\Integration\Fixtures\SeparateConnectionDevice;
+use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 use Tests\Unit\Stubs\StubGuardScopedPrincipalResolver;
 use Tests\Unit\Stubs\StubReplacementPrincipalResolver;
@@ -185,31 +185,31 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * A `jwt` guard fails fast when the device model names a connection other
+     * A `jwt` guard fails fast when the session model names a connection other
      * than the storage connection, where its sessions are written with the
      * package's other rows.
      *
      * @return void
      */
-    public function testJwtGuardRejectsADeviceModelOffTheStorageConnection(): void
+    public function testJwtGuardRejectsASessionModelOffTheStorageConnection(): void
     {
-        config()->set('authentication.device.model', SeparateConnectionDevice::class);
+        config()->set('authentication.session.model', SeparateConnectionSession::class);
 
-        $this->expectException(InvalidDeviceModelConfigurationException::class);
+        $this->expectException(InvalidSessionModelConfigurationException::class);
         $this->expectExceptionMessage('must live on the storage connection');
 
         app('auth')->guard('api');
     }
 
     /**
-     * An `api_key` guard does not read the device model, since keys have no
-     * device sessions: it is built whatever the device model is.
+     * An `api_key` guard does not read the session model, since keys have no
+     * sessions: it is built whatever the session model is.
      *
      * @return void
      */
-    public function testApiKeyGuardIgnoresTheDeviceModel(): void
+    public function testApiKeyGuardIgnoresTheSessionModel(): void
     {
-        config()->set('authentication.device.model', '');
+        config()->set('authentication.session.model', '');
 
         self::assertInstanceOf(ApiKeyGuard::class, app('auth')->guard('keys'));
     }
@@ -245,22 +245,22 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The `DeviceAuthenticated` event listener is registered with the
-     * dispatcher and resolves to the package `RecordDeviceUsage` invokable
+     * The `SessionAuthenticated` event listener is registered with the
+     * dispatcher and resolves to the package `RecordSessionUsage` invokable
      * listener class.
      *
      * @return void
      */
-    public function testDeviceAuthenticatedListenerIsRegistered(): void
+    public function testSessionAuthenticatedListenerIsRegistered(): void
     {
-        self::assertTrue(Event::hasListeners(DeviceAuthenticated::class));
+        self::assertTrue(Event::hasListeners(SessionAuthenticated::class));
 
-        $listeners = Event::getRawListeners()[DeviceAuthenticated::class] ?? [];
+        $listeners = Event::getRawListeners()[SessionAuthenticated::class] ?? [];
 
         self::assertContains(
-            RecordDeviceUsage::class,
+            RecordSessionUsage::class,
             $listeners,
-            'RecordDeviceUsage must be registered as a listener for DeviceAuthenticated.',
+            'RecordSessionUsage must be registered as a listener for SessionAuthenticated.',
         );
     }
 
@@ -305,7 +305,7 @@ final class AuthenticationServiceProviderTest extends TestCase
         $manager = app('auth');
 
         self::assertNull($manager->principal());
-        self::assertNull($manager->device());
+        self::assertNull($manager->session());
         self::assertNull($manager->tenant());
     }
 
@@ -747,13 +747,14 @@ final class AuthenticationServiceProviderTest extends TestCase
 
     /**
      * `mergeConfigFrom` exposes the package config defaults at runtime - the
-     * `device.table` default of `'devices'` is the canonical assertion.
+     * `session.table` default of `'authentication_sessions'` is the canonical
+     * assertion.
      *
      * @return void
      */
     public function testPackageConfigIsMergedIntoConfigRepository(): void
     {
-        self::assertSame('devices', config('authentication.device.table'));
+        self::assertSame('authentication_sessions', config('authentication.session.table'));
     }
 
     /**
@@ -804,7 +805,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The migrations tag publishes every shipped migration (devices, pending
+     * The migrations tag publishes every shipped migration (sessions, pending
      * sign-ins, rate limits, one-time codes, passkeys, passkey challenges and
      * API keys), from the package to the application's migrations, under their
      * own file names.
@@ -820,16 +821,23 @@ final class AuthenticationServiceProviderTest extends TestCase
             $paths[(string) realpath($from)] = $to;
         }
 
-        self::assertSame([
-            realpath($source . '2026_04_06_000000_create_devices_table.php')            => database_path('migrations/2026_04_06_000000_create_devices_table.php'),
-            realpath($source . '2026_04_06_000001_create_pending_sign_ins_table.php')   => database_path('migrations/2026_04_06_000001_create_pending_sign_ins_table.php'),
-            realpath($source . '2026_04_06_000002_create_rate_limits_table.php')        => database_path('migrations/2026_04_06_000002_create_rate_limits_table.php'),
-            realpath($source . '2026_04_06_000003_create_one_time_codes_table.php')     => database_path('migrations/2026_04_06_000003_create_one_time_codes_table.php'),
-            realpath($source . '2026_04_06_000004_create_passkeys_table.php')           => database_path('migrations/2026_04_06_000004_create_passkeys_table.php'),
-            realpath($source . '2026_04_06_000005_create_passkey_challenges_table.php') => database_path('migrations/2026_04_06_000005_create_passkey_challenges_table.php'),
-            realpath($source . '2026_04_06_000006_create_api_keys_table.php')           => database_path('migrations/2026_04_06_000006_create_api_keys_table.php'),
-            realpath($source . '2026_04_06_000007_create_identifier_changes_table.php') => database_path('migrations/2026_04_06_000007_create_identifier_changes_table.php'),
-        ], $paths);
+        $expected   = [];
+        $migrations = [
+            '2026_04_06_000000_create_authentication_sessions_table.php',
+            '2026_04_06_000001_create_pending_sign_ins_table.php',
+            '2026_04_06_000002_create_rate_limits_table.php',
+            '2026_04_06_000003_create_one_time_codes_table.php',
+            '2026_04_06_000004_create_passkeys_table.php',
+            '2026_04_06_000005_create_passkey_challenges_table.php',
+            '2026_04_06_000006_create_api_keys_table.php',
+            '2026_04_06_000007_create_identifier_changes_table.php',
+        ];
+
+        foreach ($migrations as $migration) {
+            $expected[(string) realpath($source . $migration)] = database_path('migrations/' . $migration);
+        }
+
+        self::assertSame($expected, $paths);
     }
 
     /**

@@ -9,7 +9,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Database\SharedConnection;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\SeparateConnectionCutoffIdentity;
-use Tests\Integration\Fixtures\SeparateConnectionDevice;
+use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\TestCase;
 
 /**
@@ -43,25 +43,25 @@ final class SharedConnectionTest extends TestCase
 
         self::assertNull(SharedConnection::mismatch(new IntegrationIdentity, self::config()));
 
-        config()->set('authentication.storage.connection', SeparateConnectionDevice::CONNECTION);
+        config()->set('authentication.storage.connection', SeparateConnectionSession::CONNECTION);
 
-        $identity = (new IntegrationIdentity)->setConnection(SeparateConnectionDevice::CONNECTION);
+        $identity = (new IntegrationIdentity)->setConnection(SeparateConnectionSession::CONNECTION);
 
         self::assertNull(SharedConnection::mismatch($identity, self::config()));
     }
 
     /**
      * An identity on another connection is refused, naming the flow, the model
-     * and both connections, whatever connection the device model names.
+     * and both connections, whatever connection the session model names.
      *
      * @return void
      */
     public function testAnIdentityOnAnotherConnectionIsRefused(): void
     {
-        config()->set('authentication.storage.connection', SeparateConnectionDevice::CONNECTION);
+        config()->set('authentication.storage.connection', SeparateConnectionSession::CONNECTION);
 
         $expected = SeparateConnectionCutoffIdentity::class . ' must be on the storage connection (`authentication.storage.connection`):'
-            . ' the identity is on [testing], the package\'s tables on [device_store].';
+            . ' the identity is on [testing], the package\'s tables on [session_store].';
 
         self::assertSame($expected, SharedConnection::mismatch(new SeparateConnectionCutoffIdentity, self::config()));
 

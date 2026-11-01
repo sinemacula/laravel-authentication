@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This note describes how an application's tests act as an identity, a principal or a device's session on a package
+This note describes how an application's tests act as an identity, a principal or a session on a package
 guard, how that context survives the requests a test sends through the HTTP kernel, how it ends, what the bound-context
 assertions compare, and the fakes the package ships for its delivery contracts.
 
@@ -27,7 +27,7 @@ assertions compare, and the fakes the package ships for its delivery contracts.
 - A queued job a worker runs starts signed out (`ForgetGuardStateBeforeJob` calls `setRequest()` directly, not through
   a rebinding); the next request the test sends is acted as again.
 - The assertions read the guard through its public accessors, so the first one on a request resolves it as application
-  code would. Identity, principal, tenant and device match when both are absent, when they are the same instance, or
+  code would. Identity, principal, tenant and session match when both are absent, when they are the same instance, or
   when they are of the same class with identifiers that are equal as strings. Scopes and type compare exactly.
 - Laravel's `actingAs()` is unchanged: it binds through `setUser()` for code running in the test, and a request through
   the kernel starts over.
@@ -40,27 +40,27 @@ assertions compare, and the fakes the package ships for its delivery contracts.
 
 ## Success Path
 
-1. `actingAsIdentity()`, `actingAsPrincipal()` or `actingOnDevice()` resolves the package guard named (or the default),
-   works out the identity, principal and device (and, for a machine, the scopes the test names), and hands them to the
+1. `actingAsIdentity()`, `actingAsPrincipal()` or `actingOnSession()` resolves the package guard named (or the default),
+   works out the identity, principal and session (and, for a machine, the scopes the test names), and hands them to the
    container's `Testing\ActingContext`.
 2. The context binds them at once through `authenticateAs()` (which refuses scopes for a human, so nothing is kept),
    then stores them for the guard and registers its `request` rebinding callback for that guard instance once.
 3. Each request the test sends rebinds `request`: the guard resets, then the callback binds the context again
-   (`Authenticated`, `PrincipalAssigned` and, with a device, `DeviceAuthenticated`, as a bearer request).
-4. `actingOnDevice()` reads the device's owner key and principal columns without a query, loads the owner through the
-   guard's provider and checks it is the exact owner (`DeviceOwnership::isOwner()`), and resolves the recorded principal
-   through the guard's resolver with the recorded identifier as the hint, checking it is the one recorded
-   (`PrincipalReference::isRecordedOn()`); a device recording no principal acts as the owner's default one. The guard
-   is the one the device records unless the test names it.
+   (`Authenticated`, `PrincipalAssigned` and, with a session, `SessionAuthenticated`, as a bearer request).
+4. `actingOnSession()` reads the session's owner key and principal columns without a query, loads the owner through the
+   guard's provider and checks it is the exact owner (`SessionOwnership::isOwner()`), and resolves the recorded
+   principal through the guard's resolver with the recorded identifier as the hint, checking it is the one recorded
+   (`PrincipalReference::isRecordedOn()`); a session recording no principal acts as the owner's default one. The guard
+   is the one the session records unless the test names it.
 
 ## Failure / Edge Cases
 
 - A guard of another driver (Laravel's `session`) is refused with an `InvalidArgumentException` naming it.
 - `actingAsIdentity()` without a principal, for an identity with no default one, throws an `InvalidArgumentException`,
   as `setUser()` does.
-- `actingOnDevice()` throws an `InvalidArgumentException` when a guard is named that the device does not record, when
-  the guard's provider does not find the device's exact owner (no owner key, a missing row, another model type), or
-  when the guard's resolver does not resolve the principal the device records.
+- `actingOnSession()` throws an `InvalidArgumentException` when a guard is named that the session does not record, when
+  the guard's provider does not find the session's exact owner (no owner key, a missing row, another model type), or
+  when the guard's resolver does not resolve the principal the session records.
 - Acting ends on `stopActing()` (which also signs the guard out for the rest of the current request) and on Laravel's
   `Logout` for the guard, which `logout()`, `Auth::sessions()->signOut()` and so a sign-out endpoint dispatch. The
   listener is registered on the application's dispatcher, so a test that fakes `Logout` (`Event::fake()` with no list)
@@ -96,5 +96,5 @@ assertions compare, and the fakes the package ships for its delivery contracts.
 
 - A change to how guards are created or rebound to a request (`wireGuardRebinds()`, `setRequest()`), or to
   `authenticateAs()`.
-- A new package guard driver, or a change to how a device records its owner or principal.
+- A new package guard driver, or a change to how a session records its owner or principal.
 - A new delivery or checker contract whose fake belongs in the testing surface.

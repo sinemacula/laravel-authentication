@@ -20,17 +20,17 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
-use SineMacula\Laravel\Authentication\Devices\OwnedDevice;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
-use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\BearerAuthentication;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
@@ -51,7 +51,7 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(BearerAuthentication::class)]
-#[CoversClass(OwnedDevice::class)]
+#[CoversClass(OwnedSession::class)]
 #[CoversClass(JwtGuard::class)]
 final class BearerAuthenticationTest extends TestCase
 {
@@ -65,7 +65,7 @@ final class BearerAuthenticationTest extends TestCase
         Failed::class,
         Authenticated::class,
         PrincipalAssigned::class,
-        DeviceAuthenticated::class,
+        SessionAuthenticated::class,
         SignedIn::class,
         AuthenticationFailed::class,
     ];
@@ -114,9 +114,9 @@ final class BearerAuthenticationTest extends TestCase
 
     /**
      * A valid access token authenticates the request with exactly
-     * `Authenticated`, `PrincipalAssigned` and `DeviceAuthenticated`, which
-     * carry the guard, the request's client, the identity, the device and the
-     * method its session records.
+     * `Authenticated`, `PrincipalAssigned` and `SessionAuthenticated`, which
+     * carry the guard, the request's client, the identity, the session and the
+     * method it records.
      *
      * @return void
      *
@@ -131,15 +131,15 @@ final class BearerAuthenticationTest extends TestCase
 
         $this->bearer($session->tokens->accessToken)->assertOk()->assertJson(['identity' => $identity->getKey()]);
 
-        self::assertSame([Authenticated::class, PrincipalAssigned::class, DeviceAuthenticated::class], $this->recordedClasses());
+        self::assertSame([Authenticated::class, PrincipalAssigned::class, SessionAuthenticated::class], $this->recordedClasses());
 
-        $context = $this->recordedEvent(DeviceAuthenticated::class)->context;
+        $context = $this->recordedEvent(SessionAuthenticated::class)->context;
 
         self::assertSame('api', $context->guard);
         self::assertSame('198.51.100.20', $context->client->ip);
         self::assertSame('Bearer/1.0', $context->client->userAgent);
         self::assertSame((string) $identity->getKey(), $context->identityId); // @phpstan-ignore cast.string
-        self::assertSame($session->device->getKey(), $context->deviceId);
+        self::assertSame($session->record->getKey(), $context->sessionId);
         self::assertSame('password', $context->method);
         self::assertSame($context, $this->recordedEvent(PrincipalAssigned::class)->context);
     }
@@ -219,48 +219,48 @@ final class BearerAuthenticationTest extends TestCase
 
             self::assertNotNull($tokens);
 
-            return $tokens->issueAccessToken($identity, $other, $session->device);
+            return $tokens->issueAccessToken($identity, $other, $session->record);
         }, FailureReason::PRINCIPAL_MISMATCH];
-        yield 'a deleted device' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
-            Device::query()->whereKey($session->device->getKey())->delete();
+        yield 'a deleted session' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
+            Session::query()->whereKey($session->record->getKey())->delete();
 
             return null;
-        }, FailureReason::DEVICE_UNKNOWN];
-        yield 'a device of another guard' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
-            Device::query()->whereKey($session->device->getKey())->update(['guard' => 'admin']);
+        }, FailureReason::SESSION_UNKNOWN];
+        yield 'a session of another guard' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
+            Session::query()->whereKey($session->record->getKey())->update(['guard' => 'admin']);
 
             return null;
-        }, FailureReason::DEVICE_GUARD_MISMATCH];
-        yield 'a revoked device' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
-            Device::query()->whereKey($session->device->getKey())->update(['revoked_at' => Carbon::now(), 'revoked_reason' => 'revoked']);
+        }, FailureReason::SESSION_GUARD_MISMATCH];
+        yield 'a revoked session' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
+            Session::query()->whereKey($session->record->getKey())->update(['revoked_at' => Carbon::now(), 'revoked_reason' => 'revoked']);
 
             return null;
-        }, FailureReason::DEVICE_REVOKED];
+        }, FailureReason::SESSION_REVOKED];
         yield 'an ended session' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
-            Device::query()->whereKey($session->device->getKey())->update(['idle_expires_at' => Carbon::now()]);
+            Session::query()->whereKey($session->record->getKey())->update(['idle_expires_at' => Carbon::now()]);
 
             return null;
         }, FailureReason::SESSION_EXPIRED];
-        yield 'a device acting as another principal' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
-            Device::query()->whereKey($session->device->getKey())->update(['principal_id' => 'another-principal']);
+        yield 'a session acting as another principal' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
+            Session::query()->whereKey($session->record->getKey())->update(['principal_id' => 'another-principal']);
 
             return null;
-        }, FailureReason::DEVICE_PRINCIPAL_MISMATCH];
-        yield 'a device acting as no principal' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
-            Device::query()->whereKey($session->device->getKey())->update(['principal_type' => null, 'principal_id' => null]);
+        }, FailureReason::SESSION_PRINCIPAL_MISMATCH];
+        yield 'a session acting as no principal' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
+            Session::query()->whereKey($session->record->getKey())->update(['principal_type' => null, 'principal_id' => null]);
 
             return null;
-        }, FailureReason::DEVICE_PRINCIPAL_MISMATCH];
-        yield 'a revoked device acting as another principal' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
-            Device::query()->whereKey($session->device->getKey())->update(['principal_id' => 'another-principal', 'revoked_at' => Carbon::now()]);
+        }, FailureReason::SESSION_PRINCIPAL_MISMATCH];
+        yield 'a revoked session acting as another principal' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
+            Session::query()->whereKey($session->record->getKey())->update(['principal_id' => 'another-principal', 'revoked_at' => Carbon::now()]);
 
             return null;
-        }, FailureReason::DEVICE_REVOKED];
+        }, FailureReason::SESSION_REVOKED];
         yield 'a principal switch after the token was issued' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
-            Device::query()->whereKey($session->device->getKey())->update(['principal_switched_at' => Carbon::now()->addSecond()]);
+            Session::query()->whereKey($session->record->getKey())->update(['principal_switched_at' => Carbon::now()->addSecond()]);
 
             return null;
-        }, FailureReason::DEVICE_PRINCIPAL_MISMATCH];
+        }, FailureReason::SESSION_PRINCIPAL_MISMATCH];
     }
 
     /**
@@ -298,21 +298,21 @@ final class BearerAuthenticationTest extends TestCase
     }
 
     /**
-     * A device failure is attributed to the identity, the principal and the
-     * device the rows hold, with the method the device's session records; a
-     * missing device keeps the id the token named.
+     * A session failure is attributed to the identity, the principal and the
+     * session the rows hold, with the method the session records; a missing
+     * session keeps the id the token named.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testADeviceFailureCarriesTheContextItEstablished(): void
+    public function testASessionFailureCarriesTheContextItEstablished(): void
     {
-        $identity = $this->seedIdentity();
-        $session  = $this->signedIn();
-        $deviceId = $session->device->getKey();
+        $identity  = $this->seedIdentity();
+        $session   = $this->signedIn();
+        $sessionId = $session->record->getKey();
 
-        Device::query()->whereKey($deviceId)->update(['revoked_at' => Carbon::now(), 'revoked_reason' => 'revoked']);
+        Session::query()->whereKey($sessionId)->update(['revoked_at' => Carbon::now(), 'revoked_reason' => 'revoked']);
 
         $this->recordEvents([AuthenticationFailed::class]);
 
@@ -320,7 +320,7 @@ final class BearerAuthenticationTest extends TestCase
 
         $revoked = $this->recordedEvent(AuthenticationFailed::class)->context;
 
-        Device::query()->whereKey($deviceId)->delete();
+        Session::query()->whereKey($sessionId)->delete();
 
         $this->recordEvents([AuthenticationFailed::class]);
 
@@ -330,20 +330,20 @@ final class BearerAuthenticationTest extends TestCase
 
         self::assertSame((string) $identity->getKey(), $revoked->identityId); // @phpstan-ignore cast.string
         self::assertSame((string) $identity->getKey(), $revoked->principalId); // @phpstan-ignore cast.string
-        self::assertSame($deviceId, $revoked->device?->getDeviceIdentifier());
+        self::assertSame($sessionId, $revoked->session?->getSessionIdentifier());
         self::assertSame('password', $revoked->method);
-        self::assertNull($missing->device);
-        self::assertSame($deviceId, $missing->deviceId);
+        self::assertNull($missing->session);
+        self::assertSame($sessionId, $missing->sessionId);
         self::assertNull($missing->method);
     }
 
     /**
      * A switch away from a principal and back again does not revive the tokens
      * issued to it before the first switch: each switch is recorded on the
-     * device, and a token issued before the last one is rejected as
-     * `device_principal_mismatch` even though the device records its principal
-     * again. A token issued in the second of the switch back is accepted, as
-     * the switch's own tokens are.
+     * session, and a token issued before the last one is rejected as
+     * `session_principal_mismatch` even though the session records its
+     * principal again. A token issued in the second of the switch back is
+     * accepted, as the switch's own tokens are.
      *
      * @return void
      *
@@ -351,33 +351,33 @@ final class BearerAuthenticationTest extends TestCase
      */
     public function testSwitchingAwayAndBackDoesNotReviveEarlierTokens(): void
     {
-        $identity = $this->seedIdentity();
-        $session  = $this->signedIn();
-        $deviceId = $session->device->getKey();
-        $recorded = Device::query()->findOrFail($deviceId)->only(['principal_type', 'principal_id']);
-        $earlier  = $session->tokens->accessToken;
+        $identity  = $this->seedIdentity();
+        $session   = $this->signedIn();
+        $sessionId = $session->record->getKey();
+        $recorded  = Session::query()->findOrFail($sessionId)->only(['principal_type', 'principal_id']);
+        $earlier   = $session->tokens->accessToken;
 
         $this->moveClocksTo(Carbon::now()->addMinute());
 
-        Device::query()->whereKey($deviceId)->update(['principal_type' => 'membership', 'principal_id' => 'another-principal', 'principal_switched_at' => Carbon::now()]);
+        Session::query()->whereKey($sessionId)->update(['principal_type' => 'membership', 'principal_id' => 'another-principal', 'principal_switched_at' => Carbon::now()]);
 
         $this->bearer($earlier)->assertUnauthorized();
 
         $this->moveClocksTo(Carbon::now()->addMinute());
 
-        Device::query()->whereKey($deviceId)->update([...$recorded, 'principal_switched_at' => Carbon::now()]);
+        Session::query()->whereKey($sessionId)->update([...$recorded, 'principal_switched_at' => Carbon::now()]);
 
         $this->recordEvents([AuthenticationFailed::class]);
 
         $this->bearer($earlier)->assertUnauthorized();
 
-        self::assertSame(FailureReason::DEVICE_PRINCIPAL_MISMATCH, $this->recordedEvent(AuthenticationFailed::class)->reason);
+        self::assertSame(FailureReason::SESSION_PRINCIPAL_MISMATCH, $this->recordedEvent(AuthenticationFailed::class)->reason);
 
         $tokens = Auth::jwt('api');
 
         self::assertNotNull($tokens);
 
-        $this->bearer($tokens->issueAccessToken($identity, $identity, Device::query()->findOrFail($deviceId)))->assertOk();
+        $this->bearer($tokens->issueAccessToken($identity, $identity, Session::query()->findOrFail($sessionId)))->assertOk();
     }
 
     /**
@@ -430,7 +430,7 @@ final class BearerAuthenticationTest extends TestCase
     }
 
     /**
-     * Sign the seeded identity in on a new device of the `api` guard.
+     * Sign the seeded identity in on a new session of the `api` guard.
      *
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
@@ -441,7 +441,7 @@ final class BearerAuthenticationTest extends TestCase
         $session = $this->sessions()->signIn('password', self::credentials())->session;
 
         self::assertNotNull($session);
-        self::assertSame(1, DB::table('devices')->count());
+        self::assertSame(1, DB::table('authentication_sessions')->count());
 
         return $session;
     }

@@ -87,7 +87,7 @@ final readonly class PasskeyService
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Symfony\Component\Serializer\Exception\ExceptionInterface
      */
     public function registrationOptions(Identity $identity, string $userName, ?string $displayName = null): CeremonyOptions
@@ -191,7 +191,7 @@ final readonly class PasskeyService
      * @throws \Illuminate\Http\Exceptions\ThrottleRequestsException
      * @throws \InvalidArgumentException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Symfony\Component\Serializer\Exception\ExceptionInterface
      */
     public function signInOptions(?ClientContext $client = null): CeremonyOptions
@@ -217,7 +217,7 @@ final readonly class PasskeyService
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Symfony\Component\Serializer\Exception\ExceptionInterface
      */
     public function factorOptions(Identity $identity): CeremonyOptions
@@ -295,7 +295,7 @@ final readonly class PasskeyService
      * Returns whether this call removed it, and only then dispatches
      * `PasskeyRemoved`, once the removal is committed. Ending the identity's
      * sessions when it loses a factor is the optional
-     * `RevokeDevicesOnPasskeyRemoval` listener's.
+     * `RevokeSessionsOnPasskeyRemoval` listener's.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $passkeyId
@@ -333,7 +333,7 @@ final readonly class PasskeyService
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Symfony\Component\Serializer\Exception\ExceptionInterface
      */
     private function assertionOptions(ChallengePurpose $purpose, RelyingParty $rp, (Identity&Model)|null $owner, array $allow): CeremonyOptions

@@ -28,7 +28,7 @@ enum Claims: string
     case JWT_ID        = 'jti';
     case TYPE          = 'typ';
     case PRINCIPAL_ID  = 'pid';
-    case DEVICE_ID     = 'did';
+    case SESSION_ID    = 'did';
     case GUARD         = 'grd';
     case CREDENTIAL_ID = 'cid';
     case SCOPE         = 'scope';

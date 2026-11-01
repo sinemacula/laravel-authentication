@@ -30,14 +30,14 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
  * End-to-end tests for idle and absolute session lifetimes on the shipped
- * devices table: a refresh moves the idle deadline forward but never past the
+ * sessions table: a refresh moves the idle deadline forward but never past the
  * absolute deadline, which never moves; tokens mirror the deadlines; and a
  * session past either deadline is over on every path, the bearer path, sign-in
  * pins, and refresh, whatever its tokens say.
@@ -59,7 +59,7 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversTrait(VerifiesPinnedContext::class)]
 final class SessionLifetimeIntegrationTest extends TestCase
 {
-    /** @var string Plaintext rotation id of the device's first refresh token. */
+    /** @var string Plaintext rotation id of the session's first refresh token. */
     private const string ROTATION_ID = 'first-rotation-id';
 
     /** @var string Password of the seeded identity. */
@@ -94,8 +94,8 @@ final class SessionLifetimeIntegrationTest extends TestCase
             $blueprint->timestamps();
         });
 
-        Route::middleware('auth:api')->get('/me', static fn (): array => ['device' => Auth::device()?->getDeviceIdentifier()]);
-        Route::middleware('auth:' . self::BRIEF)->get('/brief', static fn (): array => ['device' => Auth::device()?->getDeviceIdentifier()]);
+        Route::middleware('auth:api')->get('/me', static fn (): array => ['session' => Auth::session()?->getSessionIdentifier()]);
+        Route::middleware('auth:' . self::BRIEF)->get('/brief', static fn (): array => ['session' => Auth::session()?->getSessionIdentifier()]);
     }
 
     /**
@@ -115,8 +115,8 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * A device created with deadlines stamped from the guard's lifetimes can be
-     * issued for straight away, without a reload: `forceFill()` keeps the
+     * A session created with deadlines stamped from the guard's lifetimes can
+     * be issued for straight away, without a reload: `forceFill()` keeps the
      * deadlines in the model's attributes. The refresh token expires at the
      * idle deadline and the access token after the access lifetime.
      *
@@ -124,16 +124,16 @@ final class SessionLifetimeIntegrationTest extends TestCase
      *
      * @throws \Random\RandomException
      */
-    public function testDeviceStampedFromTheGuardLifetimesCanBeIssuedForAtOnce(): void
+    public function testSessionStampedFromTheGuardLifetimesCanBeIssuedForAtOnce(): void
     {
-        [$identity, $device] = $this->signIn();
+        [$identity, $session] = $this->signIn();
 
-        $refresh = $this->claims($this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity), TokenType::REFRESH);
-        $access  = $this->claims($this->tokens()->issueAccessToken($identity, $identity, $device), TokenType::ACCESS);
+        $refresh = $this->claims($this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity), TokenType::REFRESH);
+        $access  = $this->claims($this->tokens()->issueAccessToken($identity, $identity, $session), TokenType::ACCESS);
 
         self::assertSame($this->signedInAt->getTimestamp() + 3600, $refresh[Claims::EXPIRES_AT->value]);
         self::assertSame($this->signedInAt->getTimestamp() + 300, $access[Claims::EXPIRES_AT->value]);
-        self::assertSame($this->signedInAt->getTimestamp() + 36000, $this->stored($device)->getAbsoluteExpiresAt()?->getTimestamp());
+        self::assertSame($this->signedInAt->getTimestamp() + 36000, $this->stored($session)->getAbsoluteExpiresAt()?->getTimestamp());
     }
 
     /**
@@ -150,7 +150,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * A device stamped from the guard's lifetimes is issued for up to the last
+     * A session stamped from the guard's lifetimes is issued for up to the last
      * second before its idle deadline, with the token expiring at that
      * deadline; from the deadline on, issuing through `Auth::jwt()` refuses.
      *
@@ -162,24 +162,24 @@ final class SessionLifetimeIntegrationTest extends TestCase
     #[DataProvider('provideTokenTypes')]
     public function testNoTokenIsIssuedFromTheSecondTheIdleDeadlineIsReached(TokenType $type): void
     {
-        [$identity, $device] = $this->signIn();
+        [$identity, $session] = $this->signIn();
 
         $idle = $this->signedInAt->copy()->addHour();
 
         $this->moveClockTo($idle->copy()->subSecond());
 
-        self::assertSame($idle->getTimestamp(), $this->claims($this->issue($type, $identity, $device), $type)[Claims::EXPIRES_AT->value]);
+        self::assertSame($idle->getTimestamp(), $this->claims($this->issue($type, $identity, $session), $type)[Claims::EXPIRES_AT->value]);
 
         $this->moveClockTo($idle);
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Cannot issue a token for a device whose session has ended or that has no idle and absolute deadlines.');
+        $this->expectExceptionMessage('Cannot issue a token for a session that has ended or that has no idle and absolute deadlines.');
 
-        $this->issue($type, $identity, $device);
+        $this->issue($type, $identity, $session);
     }
 
     /**
-     * A device loaded without its deadline columns cannot be issued for: the
+     * A session loaded without its deadline columns cannot be issued for: the
      * missing deadline is reported rather than read as "no session" or as a
      * live one.
      *
@@ -189,11 +189,11 @@ final class SessionLifetimeIntegrationTest extends TestCase
      * @throws \Random\RandomException
      */
     #[DataProvider('provideTokenTypes')]
-    public function testIssuingReportsADeviceLoadedWithoutItsDeadlines(TokenType $type): void
+    public function testIssuingReportsASessionLoadedWithoutItsDeadlines(TokenType $type): void
     {
-        [$identity, $device] = $this->signIn();
+        [$identity, $session] = $this->signIn();
 
-        $partial = Device::query()->select(['id', 'authenticatable_type', 'authenticatable_id'])->findOrFail($device->getKey());
+        $partial = Session::query()->select(['id', 'authenticatable_type', 'authenticatable_id'])->findOrFail($session->getKey());
 
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('its `idle_expires_at` attribute is not loaded');
@@ -212,9 +212,9 @@ final class SessionLifetimeIntegrationTest extends TestCase
      */
     public function testRefreshMovesTheIdleDeadlineAndKeepsTheAbsoluteDeadline(): void
     {
-        [$identity, $device] = $this->signIn();
+        [$identity, $session] = $this->signIn();
 
-        $token = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $token = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity);
 
         $later = $this->signedInAt->copy()->addMinutes(40);
 
@@ -224,7 +224,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
         self::assertNotNull($pair);
 
-        $stored = $this->stored($device);
+        $stored = $this->stored($session);
 
         self::assertSame($later->getTimestamp() + 3600, $stored->getIdleExpiresAt()?->getTimestamp());
         self::assertSame($this->signedInAt->getTimestamp() + 36000, $stored->getAbsoluteExpiresAt()?->getTimestamp());
@@ -245,10 +245,10 @@ final class SessionLifetimeIntegrationTest extends TestCase
      */
     public function testAccessTokensNeverOutliveAnIdleLifetimeShorterThanTheirOwn(): void
     {
-        [$identity, $device] = $this->signIn(self::BRIEF);
+        [$identity, $session] = $this->signIn(self::BRIEF);
 
-        $access  = $this->tokens(self::BRIEF)->issueAccessToken($identity, $identity, $device);
-        $refresh = $this->tokens(self::BRIEF)->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $access  = $this->tokens(self::BRIEF)->issueAccessToken($identity, $identity, $session);
+        $refresh = $this->tokens(self::BRIEF)->issueRefreshToken($session, self::ROTATION_ID, $identity);
         $idle    = $this->signedInAt->getTimestamp() + 120;
 
         self::assertSame($idle, $this->claims($access, TokenType::ACCESS, self::BRIEF)[Claims::EXPIRES_AT->value]);
@@ -258,7 +258,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
         $this->moveClockTo($refreshedAt);
 
-        $this->bearer($access, '/brief')->assertOk()->assertExactJson(['device' => $device->getKey()]);
+        $this->bearer($access, '/brief')->assertOk()->assertExactJson(['session' => $session->getKey()]);
 
         $pair = GuardSessions::of($this->guard(self::BRIEF))->refresh($refresh)->session?->tokens;
 
@@ -267,7 +267,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
         $this->moveClockTo($refreshedAt->copy()->addSeconds(119));
 
-        $this->bearer($pair->accessToken, '/brief')->assertOk()->assertExactJson(['device' => $device->getKey()]);
+        $this->bearer($pair->accessToken, '/brief')->assertOk()->assertExactJson(['session' => $session->getKey()]);
 
         $this->moveClockTo($refreshedAt->copy()->addSeconds(120));
 
@@ -286,10 +286,10 @@ final class SessionLifetimeIntegrationTest extends TestCase
      */
     public function testRefreshNeverExtendsTheSessionPastItsAbsoluteDeadline(): void
     {
-        [$identity, $device] = $this->signIn();
+        [$identity, $session] = $this->signIn();
 
         $absolute = $this->signedInAt->copy()->addHours(10);
-        $token    = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $token    = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity);
 
         foreach (range(50, 550, 50) as $minutes) {
 
@@ -309,8 +309,8 @@ final class SessionLifetimeIntegrationTest extends TestCase
         $pair = GuardSessions::of($this->guard())->refresh($token)->session?->tokens;
 
         self::assertNotNull($pair);
-        self::assertSame($absolute->getTimestamp(), $this->stored($device)->getIdleExpiresAt()?->getTimestamp());
-        self::assertSame($absolute->getTimestamp(), $this->stored($device)->getAbsoluteExpiresAt()?->getTimestamp());
+        self::assertSame($absolute->getTimestamp(), $this->stored($session)->getIdleExpiresAt()?->getTimestamp());
+        self::assertSame($absolute->getTimestamp(), $this->stored($session)->getAbsoluteExpiresAt()?->getTimestamp());
         self::assertSame($absolute->getTimestamp(), $this->claims($pair->refreshToken, TokenType::REFRESH)[Claims::EXPIRES_AT->value]);
         self::assertSame($absolute->getTimestamp(), $this->claims($pair->accessToken, TokenType::ACCESS)[Claims::EXPIRES_AT->value]);
 
@@ -339,8 +339,8 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
     /**
      * A refresh at or after either deadline fails with `session_expired`,
-     * writes nothing, and does not revoke the device: expiry is not revocation.
-     * One second earlier, the same refresh succeeds.
+     * writes nothing, and does not revoke the session: expiry is not
+     * revocation. One second earlier, the same refresh succeeds.
      *
      * @param  int  $idleIn
      * @param  int  $absoluteIn
@@ -353,15 +353,15 @@ final class SessionLifetimeIntegrationTest extends TestCase
     #[DataProvider('provideDeadlineBoundaries')]
     public function testRefreshFailsFromTheSecondEitherDeadlineIsReached(int $idleIn, int $absoluteIn, int $refreshIn, bool $succeeds): void
     {
-        [$identity, $device] = $this->signIn();
+        [$identity, $session] = $this->signIn();
 
-        $this->setDeadlines($device, $this->signedInAt->copy()->addSeconds($idleIn), $this->signedInAt->copy()->addSeconds($absoluteIn));
+        $this->setDeadlines($session, $this->signedInAt->copy()->addSeconds($idleIn), $this->signedInAt->copy()->addSeconds($absoluteIn));
 
-        $token = $this->tokens()->issueRefreshToken($this->stored($device), self::ROTATION_ID, $identity);
+        $token = $this->tokens()->issueRefreshToken($this->stored($session), self::ROTATION_ID, $identity);
 
         $this->moveClockTo($this->signedInAt->copy()->addSeconds($refreshIn));
 
-        $before = $this->storedRow($device);
+        $before = $this->storedRow($session);
 
         if ($succeeds) {
             self::assertNotNull(GuardSessions::of($this->guard())->refresh($token)->session);
@@ -370,35 +370,35 @@ final class SessionLifetimeIntegrationTest extends TestCase
         }
 
         self::assertSame(FailureReason::SESSION_EXPIRED, $this->refreshFailure($token));
-        self::assertSame($before, $this->storedRow($device));
-        self::assertNull($this->stored($device)->getRevokedAt());
+        self::assertSame($before, $this->storedRow($session));
+        self::assertNull($this->stored($session)->getRevokedAt());
     }
 
     /**
-     * An access token naming a device whose session has ended is rejected
-     * through the middleware at once, even while the token itself has not
-     * expired: shortening a deadline cuts access immediately.
+     * An access token naming a session that has ended is rejected through the
+     * middleware at once, even while the token itself has not expired:
+     * shortening a deadline cuts access immediately.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testBearerRejectsADeviceWhoseSessionHasEnded(): void
+    public function testBearerRejectsASessionThatHasEnded(): void
     {
-        [$identity, $device] = $this->signIn();
+        [$identity, $session] = $this->signIn();
 
-        $token = $this->tokens()->issueAccessToken($identity, $identity, $device);
+        $token = $this->tokens()->issueAccessToken($identity, $identity, $session);
 
-        $this->bearer($token)->assertOk()->assertExactJson(['device' => $device->getKey()]);
+        $this->bearer($token)->assertOk()->assertExactJson(['session' => $session->getKey()]);
 
-        $this->setDeadlines($device, $this->signedInAt, $this->signedInAt->copy()->addHours(10));
+        $this->setDeadlines($session, $this->signedInAt, $this->signedInAt->copy()->addHours(10));
 
         $this->bearer($token)->assertUnauthorized();
     }
 
     /**
      * JWT leeway never stretches a session: an access token past its expiry but
-     * inside the leeway still parses, yet is rejected once its device's
+     * inside the leeway still parses, yet is rejected once its session's
      * absolute deadline has passed.
      *
      * @return void
@@ -407,13 +407,13 @@ final class SessionLifetimeIntegrationTest extends TestCase
      */
     public function testLeewayDoesNotOutliveTheAbsoluteDeadline(): void
     {
-        [$identity, $device] = $this->signIn();
+        [$identity, $session] = $this->signIn();
 
         $absolute = $this->signedInAt->copy()->addMinutes(2);
 
-        $this->setDeadlines($device, $absolute, $absolute);
+        $this->setDeadlines($session, $absolute, $absolute);
 
-        $token = $this->tokens()->issueAccessToken($identity, $identity, $this->stored($device));
+        $token = $this->tokens()->issueAccessToken($identity, $identity, $this->stored($session));
 
         self::assertSame($absolute->getTimestamp(), $this->claims($token, TokenType::ACCESS)[Claims::EXPIRES_AT->value]);
 
@@ -425,23 +425,23 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * A device whose session has ended cannot be pinned on sign-in.
+     * A session that has ended cannot be pinned on sign-in.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testAttemptCannotPinADeviceWhoseSessionHasEnded(): void
+    public function testAttemptCannotPinASessionThatHasEnded(): void
     {
-        [$identity, $device] = $this->signIn();
+        [$identity, $session] = $this->signIn();
 
         $credentials = ['email' => $identity->email, 'password' => self::PASSWORD];
 
-        self::assertTrue($this->guard()->attempt($credentials, null, $device));
+        self::assertTrue($this->guard()->attempt($credentials, null, $session));
 
-        $this->setDeadlines($device, $this->signedInAt->copy()->addHour(), $this->signedInAt);
+        $this->setDeadlines($session, $this->signedInAt->copy()->addHour(), $this->signedInAt);
 
-        self::assertFalse($this->guard()->attempt($credentials, null, $device));
+        self::assertFalse($this->guard()->attempt($credentials, null, $session));
     }
 
     /**
@@ -458,21 +458,21 @@ final class SessionLifetimeIntegrationTest extends TestCase
      */
     public function testRotationConflictsWhenADeadlineMovesBeforeItCommits(): void
     {
-        [$identity, $device] = $this->signIn();
+        [$identity, $session] = $this->signIn();
 
-        $token     = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $token     = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity);
         $shortened = $this->signedInAt->copy()->addHours(2);
 
-        $this->beforeTheRotation(fn () => $this->setDeadlines($device, $this->signedInAt->copy()->addHour(), $shortened));
+        $this->beforeTheRotation(fn () => $this->setDeadlines($session, $this->signedInAt->copy()->addHour(), $shortened));
 
         self::assertSame(FailureReason::ROTATION_CONFLICT, $this->refreshFailure($token));
-        self::assertNull($this->stored($device)->getRevokedAt());
-        self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), $this->stored($device)->getRefreshKey());
+        self::assertNull($this->stored($session)->getRevokedAt());
+        self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), $this->stored($session)->getRefreshKey());
 
         $pair = GuardSessions::of($this->guard())->refresh($token)->session?->tokens;
 
         self::assertNotNull($pair);
-        self::assertSame($shortened->getTimestamp(), $this->stored($device)->getAbsoluteExpiresAt()?->getTimestamp());
+        self::assertSame($shortened->getTimestamp(), $this->stored($session)->getAbsoluteExpiresAt()?->getTimestamp());
         self::assertSame($this->signedInAt->getTimestamp() + 3600, $this->claims($pair->refreshToken, TokenType::REFRESH)[Claims::EXPIRES_AT->value]);
     }
 
@@ -517,12 +517,12 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * Persist an identity and sign it in on a new device, stamped with the
-     * guard's lifetimes as an application does before the device is created by
+     * Persist an identity and sign it in on a new session, stamped with the
+     * guard's lifetimes as an application does before the session is created by
      * the package.
      *
      * @param  string  $guard
-     * @return array{0: \Tests\Unit\Stubs\StubPrincipal, 1: \SineMacula\Laravel\Authentication\Models\Device}
+     * @return array{0: \Tests\Unit\Stubs\StubPrincipal, 1: \SineMacula\Laravel\Authentication\Models\Session}
      */
     private function signIn(string $guard = 'api'): array
     {
@@ -535,9 +535,9 @@ final class SessionLifetimeIntegrationTest extends TestCase
         $lifetimes = $this->tokens($guard)->lifetimes();
         $absolute  = $lifetimes->absoluteDeadline(Carbon::now());
 
-        $device = new Device(['client_name' => 'Phone', 'platform' => 'iOS']);
+        $session = new Session(['client_name' => 'Phone', 'platform' => 'iOS']);
 
-        $device->forceFill([
+        $session->forceFill([
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'principal_type'       => $identity->getMorphClass(),
@@ -550,20 +550,20 @@ final class SessionLifetimeIntegrationTest extends TestCase
             'absolute_expires_at'  => $absolute,
         ])->save();
 
-        return [$identity, $device];
+        return [$identity, $session];
     }
 
     /**
-     * Overwrite a device's deadlines on the row.
+     * Overwrite a session's deadlines on the row.
      *
-     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @param  \Carbon\CarbonInterface  $idle
      * @param  \Carbon\CarbonInterface  $absolute
      * @return void
      */
-    private function setDeadlines(Device $device, CarbonInterface $idle, CarbonInterface $absolute): void
+    private function setDeadlines(Session $session, CarbonInterface $idle, CarbonInterface $absolute): void
     {
-        Device::query()->whereKey($device->getKey())->update([
+        Session::query()->whereKey($session->getKey())->update([
             'idle_expires_at'     => $idle,
             'absolute_expires_at' => $absolute,
         ]);
@@ -625,21 +625,21 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * Issue a token of the given type for the device through the `api` guard's
+     * Issue a token of the given type for the session through the `api` guard's
      * token service.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
      * @param  \Tests\Unit\Stubs\StubPrincipal  $identity
-     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @return string
      *
      * @throws \Random\RandomException
      */
-    private function issue(TokenType $type, StubPrincipal $identity, Device $device): string
+    private function issue(TokenType $type, StubPrincipal $identity, Session $session): string
     {
         return $type === TokenType::ACCESS
-            ? $this->tokens()->issueAccessToken($identity, $identity, $device)
-            : $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
+            ? $this->tokens()->issueAccessToken($identity, $identity, $session)
+            : $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity);
     }
 
     /**
@@ -660,25 +660,25 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * Reload a device from the database.
+     * Reload a session from the database.
      *
-     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private function stored(Device $device): Device
+    private function stored(Session $session): Session
     {
-        return Device::query()->whereKey($device->getKey())->firstOrFail();
+        return Session::query()->whereKey($session->getKey())->firstOrFail();
     }
 
     /**
-     * Read a device's raw row.
+     * Read a session's raw row.
      *
-     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @return array<string, mixed>
      */
-    private function storedRow(Device $device): array
+    private function storedRow(Session $session): array
     {
-        return (array) DB::table('devices')->where('id', $device->getKey())->first();
+        return (array) DB::table('authentication_sessions')->where('id', $session->getKey())->first();
     }
 
     /**

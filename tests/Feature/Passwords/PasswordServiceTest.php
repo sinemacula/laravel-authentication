@@ -25,14 +25,14 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\PasswordSet;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Exceptions\BreachedPasswordCheckUnavailableException;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordChange;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasswordChange;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordViolation;
 use SineMacula\Laravel\Authentication\Passwords\PasswordPolicy;
@@ -52,9 +52,9 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
 /**
  * Feature tests of `Auth::passwords()`: the policy and its Laravel rule, and
  * setting a password at a registration, a change and a reset through the
- * package's guards, against the shipped device table, with the sessions each
+ * package's guards, against the shipped session table, with the sessions each
  * flow ends, the event it reports, the refusals, and a change made over HTTP
- * from a signed-in device.
+ * from a signed-in session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -147,7 +147,7 @@ final class PasswordServiceTest extends TestCase
         self::assertSame(PasswordFlow::REGISTRATION, $event->flow);
         self::assertSame($event->context, $event->context());
         self::assertSame(['web', self::CLIENT_IP, (string) $identity->id], [$event->context->guard, $event->context->client->ip, $event->context->identityId]);
-        self::assertNull($event->context->device);
+        self::assertNull($event->context->session);
     }
 
     /**
@@ -190,7 +190,7 @@ final class PasswordServiceTest extends TestCase
 
         self::assertIsString($stored);
         self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, $stored));
-        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
         self::assertSame(self::NOW, $identity->refresh()->updated_at?->format('Y-m-d H:i:s'));
         self::assertNull($identity->fresh()?->tokens_valid_after);
     }
@@ -210,7 +210,7 @@ final class PasswordServiceTest extends TestCase
         $stored   = (string) $identity->password;
 
         $this->signInWithPassword();
-        $this->recordEvents([PasswordSet::class, DeviceRevoked::class]);
+        $this->recordEvents([PasswordSet::class, SessionRevoked::class]);
 
         try {
             $this->passwords()->set($identity->fresh() ?? $identity, self::NEW_PASSWORD, PasswordFlow::REGISTRATION);
@@ -222,7 +222,7 @@ final class PasswordServiceTest extends TestCase
         }
 
         self::assertSame($stored, DB::table('password_identities')->value('password'));
-        self::assertNull(DB::table('devices')->value('revoked_at'));
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
         self::assertSame([], $this->recordedClasses());
     }
 
@@ -247,35 +247,35 @@ final class PasswordServiceTest extends TestCase
 
     /**
      * A change ends every session of the identity, through every guard whose
-     * provider returns it, except the device it was made from; moves the
-     * identity's cutoff; and reports `PasswordSet` with the device kept, after
-     * each `DeviceRevoked` and the `SignedOutEverywhere`.
+     * provider returns it, except the session it was made from; moves the
+     * identity's cutoff; and reports `PasswordSet` with the session kept, after
+     * each `SessionRevoked` and the `SignedOutEverywhere`.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAChangeKeepsOnlyTheDeviceItWasMadeFrom(): void
+    public function testAChangeKeepsOnlyTheSessionItWasMadeFrom(): void
     {
         $identity = self::seedPasswordIdentity();
-        $kept     = $this->signInWithPassword('web')->device;
+        $kept     = $this->signInWithPassword('web')->record;
 
         $this->signInWithPassword('web');
         $this->signInWithPassword('admin');
-        $this->recordEvents([DeviceRevoked::class, SignedOutEverywhere::class, PasswordSet::class]);
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class]);
 
         $result = $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, $kept);
 
         self::assertSame([true, 2], [$result->set, $result->revoked]);
-        self::assertSame([$kept->getKey()], DB::table('devices')->whereNull('revoked_at')->pluck('id')->all());
-        self::assertSame(['password_changed', 'password_changed'], DB::table('devices')->whereNotNull('revoked_at')->pluck('revoked_reason')->all());
+        self::assertSame([$kept->getKey()], DB::table('authentication_sessions')->whereNull('revoked_at')->pluck('id')->all());
+        self::assertSame(['password_changed', 'password_changed'], DB::table('authentication_sessions')->whereNotNull('revoked_at')->pluck('revoked_reason')->all());
         self::assertSame(self::NOW, $identity->fresh()?->tokens_valid_after?->format('Y-m-d H:i:s'));
-        self::assertSame([DeviceRevoked::class, DeviceRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $this->recordedClasses());
+        self::assertSame([SessionRevoked::class, SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $this->recordedClasses());
 
         $event = $this->recordedEvent(PasswordSet::class);
 
         self::assertSame(PasswordFlow::CHANGE, $event->flow);
-        self::assertSame($kept, $event->context->device);
+        self::assertSame($kept, $event->context->session);
     }
 
     /**
@@ -296,7 +296,7 @@ final class PasswordServiceTest extends TestCase
         $result = $this->passwords('admin')->set($identity, self::NEW_PASSWORD, PasswordFlow::RESET);
 
         self::assertSame([true, 2], [$result->set, $result->revoked]);
-        self::assertSame(['password_reset', 'password_reset'], DB::table('devices')->pluck('revoked_reason')->all());
+        self::assertSame(['password_reset', 'password_reset'], DB::table('authentication_sessions')->pluck('revoked_reason')->all());
         self::assertSame(self::NOW, $identity->fresh()?->tokens_valid_after?->format('Y-m-d H:i:s'));
         self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, (string) $identity->refresh()->password));
     }
@@ -317,14 +317,14 @@ final class PasswordServiceTest extends TestCase
         $before   = $identity->password;
 
         $this->signInWithPassword();
-        $this->recordEvents([PasswordSet::class, DeviceRevoked::class, SignedOutEverywhere::class]);
+        $this->recordEvents([PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class]);
 
         $result = $this->passwords()->set($identity, 'too short', PasswordFlow::RESET);
 
         self::assertSame([false, [PasswordViolation::TOO_SHORT, PasswordViolation::NUMBERS], 0], [$result->set, $result->violations, $result->revoked]);
         self::assertSame($before, $identity->fresh()?->password);
         self::assertSame($before, $identity->password);
-        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
         self::assertSame([], $this->recordedClasses());
     }
 
@@ -458,7 +458,7 @@ final class PasswordServiceTest extends TestCase
         $before     = $identity->password;
 
         $this->signInWithPassword();
-        $this->recordEvents([PasswordSet::class, DeviceRevoked::class, SignedOutEverywhere::class]);
+        $this->recordEvents([PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class]);
 
         $for = static fn (PasswordFlow $flow): PasswordIdentity => $flow === PasswordFlow::REGISTRATION ? $registered : $identity;
         $set = fn (PasswordFlow $flow, string $password): PasswordResult => $this->passwords()->set($for($flow), $password, $flow);
@@ -480,7 +480,7 @@ final class PasswordServiceTest extends TestCase
         }
 
         self::assertSame([$before, null], [$identity->fresh()?->password, $registered->fresh()?->password]);
-        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
         self::assertSame([], $this->recordedClasses());
     }
 
@@ -514,7 +514,7 @@ final class PasswordServiceTest extends TestCase
      * The helper's write is one query-builder update of the password column:
      * another attribute left dirty on the model is neither saved nor discarded,
      * and no model event fires, so the optional observer does not revoke the
-     * device the change kept.
+     * session the change kept.
      *
      * @return void
      *
@@ -522,10 +522,10 @@ final class PasswordServiceTest extends TestCase
      */
     public function testOnlyThePasswordIsWrittenAndNoObserverSeesIt(): void
     {
-        PasswordIdentity::observe(RevokeDevicesOnPasswordChange::class);
+        PasswordIdentity::observe(RevokeSessionsOnPasswordChange::class);
 
         $identity = self::seedPasswordIdentity();
-        $kept     = $this->signInWithPassword()->device;
+        $kept     = $this->signInWithPassword()->record;
 
         $identity->nickname = 'Countess';
 
@@ -536,7 +536,7 @@ final class PasswordServiceTest extends TestCase
         self::assertSame(['nickname'], array_keys($identity->getDirty()));
         self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, (string) $identity->password));
         self::assertSame($identity->password, $identity->getOriginal('password'));
-        self::assertNull(DB::table('devices')->value('revoked_at'));
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
     }
 
     /**
@@ -567,15 +567,15 @@ final class PasswordServiceTest extends TestCase
                 \LogicException::class,
                 PasswordIdentity::class . ' is not stored yet: only a registration may set the password of a new identity.',
             ],
-            'a device kept by a reset' => [
-                static fn (PasswordService $passwords): PasswordResult => $passwords->set(self::seedPasswordIdentity(), self::NEW_PASSWORD, PasswordFlow::RESET, new Device),
+            'a session kept by a reset' => [
+                static fn (PasswordService $passwords): PasswordResult => $passwords->set(self::seedPasswordIdentity(), self::NEW_PASSWORD, PasswordFlow::RESET, new Session),
                 \InvalidArgumentException::class,
-                'A device to keep signed in is for a change of password, not a reset.',
+                'A session to keep signed in is for a change of password, not a reset.',
             ],
-            'a device kept by a registration' => [
-                static fn (PasswordService $passwords): PasswordResult => $passwords->set(new PasswordIdentity, self::NEW_PASSWORD, PasswordFlow::REGISTRATION, new Device),
+            'a session kept by a registration' => [
+                static fn (PasswordService $passwords): PasswordResult => $passwords->set(new PasswordIdentity, self::NEW_PASSWORD, PasswordFlow::REGISTRATION, new Session),
                 \InvalidArgumentException::class,
-                'A device to keep signed in is for a change of password, not a registration.',
+                'A session to keep signed in is for a change of password, not a registration.',
             ],
             'a guard that is not a jwt guard' => [
                 static fn (): PasswordService => Auth::passwords('session'),
@@ -654,7 +654,7 @@ final class PasswordServiceTest extends TestCase
         $identity = self::seedPasswordIdentity();
 
         $this->signInWithPassword();
-        $this->recordEvents([PasswordSet::class, DeviceRevoked::class]);
+        $this->recordEvents([PasswordSet::class, SessionRevoked::class]);
 
         DB::table('password_identities')->delete();
 
@@ -665,7 +665,7 @@ final class PasswordServiceTest extends TestCase
             self::assertSame(PasswordIdentity::class . " {$identity->id} is no longer stored, so no password was set.", $exception->getMessage());
         }
 
-        self::assertNull(DB::table('devices')->value('revoked_at'));
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
         self::assertSame([], $this->recordedClasses());
     }
 
@@ -687,7 +687,7 @@ final class PasswordServiceTest extends TestCase
 
         self::seedPasswordIdentity(attributes: ['password' => $hash]);
 
-        $this->recordEvents([PasswordSet::class, DeviceRevoked::class]);
+        $this->recordEvents([PasswordSet::class, SessionRevoked::class]);
 
         $session = $this->sessions('web')->signIn('password', ['email' => 'ada@example.test', 'password' => $legacy])->session;
         $stored  = (string) PasswordIdentity::query()->sole()->password;
@@ -701,14 +701,14 @@ final class PasswordServiceTest extends TestCase
 
     /**
      * A change of password over HTTP, as an application's route makes it: the
-     * signed-in device stays signed in and its token keeps working, while the
+     * signed-in session stays signed in and its token keeps working, while the
      * identity's other session is ended and its token refused.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAChangeOverHttpKeepsTheRequestsDevice(): void
+    public function testAChangeOverHttpKeepsTheRequestsSession(): void
     {
         self::seedPasswordIdentity();
 
@@ -722,7 +722,7 @@ final class PasswordServiceTest extends TestCase
 
             assert($identity !== null);
 
-            $result     = Auth::passwords('web')->set($identity, $request->string('password')->value(), PasswordFlow::CHANGE, Auth::device());
+            $result     = Auth::passwords('web')->set($identity, $request->string('password')->value(), PasswordFlow::CHANGE, Auth::session());
             $violations = array_map(static fn (PasswordViolation $violation): string => $violation->value, $result->violations);
 
             return ['set' => $result->set, 'violations' => $violations, 'revoked' => $result->revoked];
@@ -743,7 +743,7 @@ final class PasswordServiceTest extends TestCase
      * The documented password change route, over HTTP: a wrong current password
      * sets nothing and keeps its sign-in slots, taken before the transaction; a
      * right one sets the new password, ends the identity's other session, keeps
-     * the request's device and gives the slots back. The identity's row is
+     * the request's session and gives the slots back. The identity's row is
      * locked as the transaction starts, the current password is checked against
      * it without looking the identity up by its address, and no counter is
      * written inside the transaction.

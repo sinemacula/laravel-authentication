@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Model;
  * Pins authentication reads to the write connection.
  *
  * Every read that decides authentication, activity, replay, or revocation
- * (device, identity, and principal lookups) must see the primary's current
+ * (session, identity, and principal lookups) must see the primary's current
  * state. A read replica can lag behind a revocation, a deactivation, or a
  * refresh rotation, so a lookup served from it can admit a credential the
  * primary has already rejected. `query()` routes one query the package builds;

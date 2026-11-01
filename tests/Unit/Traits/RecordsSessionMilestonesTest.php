@@ -7,12 +7,12 @@ namespace Tests\Unit\Traits;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Concerns\RecordsSessionMilestones;
-use Tests\Unit\Stubs\StubDevice;
-use Tests\Unit\Stubs\StubUncastDevice;
+use Tests\Unit\Stubs\StubSession;
+use Tests\Unit\Stubs\StubUncastSession;
 
 /**
- * Unit tests for the accessors behind when a device's session started and when
- * it last switched the principal it acts as.
+ * Unit tests for the accessors behind when a session started and when it last
+ * switched the principal it acts as.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -30,16 +30,16 @@ final class RecordsSessionMilestonesTest extends TestCase
      */
     public function testReadsTheRecordedTimes(): void
     {
-        $device = (new StubUncastDevice)->forceFill(['signed_in_at' => '2026-04-06 12:00:00', 'principal_switched_at' => '2026-04-06 12:05:00']);
-        $never  = (new StubUncastDevice)->forceFill(['signed_in_at' => '2026-04-06 12:00:00', 'principal_switched_at' => null]);
+        $session = (new StubUncastSession)->forceFill(['signed_in_at' => '2026-04-06 12:00:00', 'principal_switched_at' => '2026-04-06 12:05:00']);
+        $never   = (new StubUncastSession)->forceFill(['signed_in_at' => '2026-04-06 12:00:00', 'principal_switched_at' => null]);
 
-        self::assertSame('2026-04-06 12:00:00', $device->getSignedInAt()?->format('Y-m-d H:i:s'));
-        self::assertSame('2026-04-06 12:05:00', $device->getPrincipalSwitchedAt()?->format('Y-m-d H:i:s'));
+        self::assertSame('2026-04-06 12:00:00', $session->getSignedInAt()?->format('Y-m-d H:i:s'));
+        self::assertSame('2026-04-06 12:05:00', $session->getPrincipalSwitchedAt()?->format('Y-m-d H:i:s'));
         self::assertNull($never->getPrincipalSwitchedAt());
     }
 
     /**
-     * A device loaded without its start time is reported rather than read as a
+     * A session loaded without its start time is reported rather than read as a
      * session with no start.
      *
      * @return void
@@ -49,12 +49,12 @@ final class RecordsSessionMilestonesTest extends TestCase
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('`signed_in_at`');
 
-        (new StubDevice)->getSignedInAt();
+        (new StubSession)->getSignedInAt();
     }
 
     /**
-     * A device loaded without its switch time is reported rather than read as a
-     * session that never switched.
+     * A session loaded without its switch time is reported rather than read as
+     * a session that never switched.
      *
      * @return void
      */
@@ -63,7 +63,7 @@ final class RecordsSessionMilestonesTest extends TestCase
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('getPrincipalSwitchedAtName()');
 
-        (new StubDevice)->getPrincipalSwitchedAt();
+        (new StubSession)->getPrincipalSwitchedAt();
     }
 
     /**
@@ -73,9 +73,9 @@ final class RecordsSessionMilestonesTest extends TestCase
      */
     public function testNamesTheShippedColumns(): void
     {
-        $device = new StubDevice;
+        $session = new StubSession;
 
-        self::assertSame('signed_in_at', $device->getSignedInAtName());
-        self::assertSame('principal_switched_at', $device->getPrincipalSwitchedAtName());
+        self::assertSame('signed_in_at', $session->getSignedInAtName());
+        self::assertSame('principal_switched_at', $session->getPrincipalSwitchedAtName());
     }
 }

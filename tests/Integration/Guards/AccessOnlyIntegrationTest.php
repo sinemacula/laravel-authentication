@@ -22,10 +22,10 @@ use Tests\Integration\Fixtures\AccessOnlyIdentity;
 
 /**
  * Verifies the "access-only" usage pattern: the package works end-to-end with
- * no devices migration, no Device contract implementation, and no refresh-token
- * flow. Consumers who only need access tokens without device binding or refresh
- * can skip the devices table entirely, while the bearer path still rehydrates
- * the persisted identity through the configured provider.
+ * no sessions migration, no Session contract implementation, and no
+ * refresh-token flow. Consumers who only need access tokens without session
+ * binding or refresh can skip the sessions table entirely, while the bearer
+ * path still rehydrates the persisted identity through the configured provider.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -46,8 +46,8 @@ final class AccessOnlyIntegrationTest extends TestCase
     private const string GUARD = 'api';
 
     /**
-     * Provision only the identity table; deliberately do not create the devices
-     * table or any other package-owned schema.
+     * Provision only the identity table; deliberately do not create the
+     * sessions table or any other package-owned schema.
      *
      * @return void
      */
@@ -66,16 +66,16 @@ final class AccessOnlyIntegrationTest extends TestCase
     }
 
     /**
-     * Issuing an access token with `null` device produces a JWT whose `did`
-     * claim is explicitly null, so the bearer path sees no usable device hint
-     * and still resolves identity + principal without needing a devices table.
+     * Issuing an access token with `null` session produces a JWT whose `did`
+     * claim is explicitly null, so the bearer path sees no usable session hint
+     * and still resolves identity + principal without needing a sessions table.
      * The identity is still loaded through the configured provider.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testAccessTokenFlowSucceedsWithoutDevice(): void
+    public function testAccessTokenFlowSucceedsWithoutSession(): void
     {
         $user = $this->seedUser();
 
@@ -85,9 +85,9 @@ final class AccessOnlyIntegrationTest extends TestCase
         $claims = $jwtService->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
-        self::assertArrayHasKey(Claims::DEVICE_ID->value, $claims);
-        self::assertNull($claims[Claims::DEVICE_ID->value] ?? null);
-        self::assertFalse(Schema::hasTable('devices'));
+        self::assertArrayHasKey(Claims::SESSION_ID->value, $claims);
+        self::assertNull($claims[Claims::SESSION_ID->value] ?? null);
+        self::assertFalse(Schema::hasTable('authentication_sessions'));
 
         $request = Request::create('/me', 'GET');
         $request->headers->set('Authorization', 'Bearer ' . $token);
@@ -96,21 +96,22 @@ final class AccessOnlyIntegrationTest extends TestCase
         /** @var \SineMacula\Laravel\Authentication\Guards\JwtGuard $guard */
         $guard = app('auth')->guard(self::GUARD);
 
-        self::assertTrue($guard->check(), 'Bearer verification must succeed without a device.');
+        self::assertTrue($guard->check(), 'Bearer verification must succeed without a session.');
         self::assertSame($user->getAuthIdentifier(), $guard->id());
         self::assertNotNull($guard->identity());
         self::assertNotNull($guard->principal());
-        self::assertNull($guard->device());
-        self::assertFalse(Schema::hasTable('devices'));
+        self::assertNull($guard->session());
+        self::assertFalse(Schema::hasTable('authentication_sessions'));
     }
 
     /**
      * A token that forges a non-null `did` against an access-only identity must
-     * fail closed even though the deployment has no `devices` table.
+     * fail closed even though the deployment has no `authentication_sessions`
+     * table.
      *
      * @return void
      */
-    public function testForgedDeviceHintFailsClosedWithoutDevicesTable(): void
+    public function testForgedSessionHintFailsClosedWithoutSessionsTable(): void
     {
         $user = $this->seedUser();
         $now  = time();
@@ -118,7 +119,7 @@ final class AccessOnlyIntegrationTest extends TestCase
         $token = JWT::encode([
             'sub' => (string) $user->getAuthIdentifier(), // @phpstan-ignore cast.string
             'pid' => (string) $user->getAuthIdentifier(), // @phpstan-ignore cast.string
-            'did' => 'forged-device-id',
+            'did' => 'forged-session-id',
             'iat' => $now,
             'exp' => $now + 900,
             'typ' => TokenType::ACCESS->value,
@@ -126,7 +127,7 @@ final class AccessOnlyIntegrationTest extends TestCase
             'jti' => 'access-token-id',
         ], self::JWT_SECRET, 'HS256', self::JWT_KID);
 
-        self::assertFalse(Schema::hasTable('devices'));
+        self::assertFalse(Schema::hasTable('authentication_sessions'));
 
         $request = Request::create('/me', 'GET');
         $request->headers->set('Authorization', 'Bearer ' . $token);
@@ -138,12 +139,12 @@ final class AccessOnlyIntegrationTest extends TestCase
 
         self::assertFalse(
             $guard->check(),
-            'Bearer verification must fail closed when a token claims a device for an access-only identity.',
+            'Bearer verification must fail closed when a token claims a session for an access-only identity.',
         );
         self::assertNull($guard->identity());
         self::assertNull($guard->principal());
-        self::assertNull($guard->device());
-        self::assertFalse(Schema::hasTable('devices'));
+        self::assertNull($guard->session());
+        self::assertFalse(Schema::hasTable('authentication_sessions'));
     }
 
     /**
@@ -160,7 +161,7 @@ final class AccessOnlyIntegrationTest extends TestCase
     }
 
     /**
-     * Do not run the package's shipped devices migration; the test asserts the
+     * Do not run the package's shipped sessions migration; the test asserts the
      * package works without it.
      *
      * @return void

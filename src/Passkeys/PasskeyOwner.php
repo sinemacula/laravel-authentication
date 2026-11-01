@@ -12,7 +12,7 @@ use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * Who a passkey or a ceremony belongs to, recorded as devices record their
+ * Who a passkey or a ceremony belongs to, recorded as sessions record their
  * owner: the identity's morph class and its key as a string, so a passkey can
  * only be registered for, listed for and used by an Eloquent identity, and is
  * found again through the guard's provider only as that very model.

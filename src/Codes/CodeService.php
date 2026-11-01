@@ -91,7 +91,7 @@ final readonly class CodeService
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     public function send(string $method, #[\SensitiveParameter] array $input, ?ClientContext $client = null): CodeRequest
     {
@@ -128,7 +128,7 @@ final readonly class CodeService
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     public function sendVerification(Identity $identity, string $type, ?ClientContext $client = null): CodeRequest
     {
@@ -194,7 +194,7 @@ final readonly class CodeService
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     private function issue(CodeBinding $binding, EventContext $context, ?string $given, ?Identity $identity = null): CodeRequest
     {

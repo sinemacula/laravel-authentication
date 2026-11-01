@@ -11,8 +11,8 @@ use Illuminate\Events\Dispatcher;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\PasswordSet;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -71,7 +71,7 @@ final class PasswordWriterTest extends TestCase
 
     /**
      * A reset inside a transaction the caller rolls back leaves the old
-     * password, every device live and the cutoff unset, and reports nothing.
+     * password, every session live and the cutoff unset, and reports nothing.
      *
      * @return void
      *
@@ -83,7 +83,7 @@ final class PasswordWriterTest extends TestCase
 
         $this->signInWithPassword('web');
         $this->signInWithPassword('admin');
-        $this->recordEvents([PasswordSet::class, DeviceRevoked::class, SignedOutEverywhere::class]);
+        $this->recordEvents([PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class]);
 
         DB::beginTransaction();
 
@@ -97,7 +97,7 @@ final class PasswordWriterTest extends TestCase
         self::assertNotNull($stored);
         self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) $stored->password));
         self::assertNull($stored->tokens_valid_after);
-        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
         self::assertSame([], $this->recordedClasses());
     }
 
@@ -112,10 +112,10 @@ final class PasswordWriterTest extends TestCase
     public function testTheReportsWaitForTheCallersCommit(): void
     {
         $identity = self::seedPasswordIdentity();
-        $kept     = $this->signInWithPassword('web')->device;
+        $kept     = $this->signInWithPassword('web')->record;
 
         $this->signInWithPassword('admin');
-        $this->recordEvents([PasswordSet::class, DeviceRevoked::class, SignedOutEverywhere::class]);
+        $this->recordEvents([PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class]);
 
         DB::transaction(function () use ($identity, $kept): void {
             Auth::passwords('web')->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE, $kept);
@@ -123,8 +123,8 @@ final class PasswordWriterTest extends TestCase
             self::assertSame([], $this->recordedClasses());
         });
 
-        self::assertSame([DeviceRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $this->recordedClasses());
-        self::assertSame(1, DB::table('devices')->whereNull('revoked_at')->count());
+        self::assertSame([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $this->recordedClasses());
+        self::assertSame(1, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
     }
 
     /**
@@ -167,7 +167,7 @@ final class PasswordWriterTest extends TestCase
     public function testThePasswordSetAndTheRevocationsReachTheDispatcherBoundAtTheCommit(): void
     {
         $identity = self::seedPasswordIdentity();
-        $kept     = $this->signInWithPassword('web')->device;
+        $kept     = $this->signInWithPassword('web')->record;
 
         $this->signInWithPassword('admin');
 
@@ -175,13 +175,13 @@ final class PasswordWriterTest extends TestCase
         $swapped  = new Dispatcher(app());
         $received = [];
 
-        foreach ([PasswordSet::class, DeviceRevoked::class, SignedOutEverywhere::class] as $class) {
+        foreach ([PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class] as $class) {
             $swapped->listen($class, static function (object $event) use (&$received): void {
                 $received[] = $event::class;
             });
         }
 
-        $this->recordEvents([PasswordSet::class, DeviceRevoked::class, SignedOutEverywhere::class]);
+        $this->recordEvents([PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class]);
 
         DB::transaction(static function () use ($identity, $kept, $guard, $swapped): void {
             self::assertSame(1, Auth::passwords('web')->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE, $kept)->revoked);
@@ -190,7 +190,7 @@ final class PasswordWriterTest extends TestCase
         });
 
         self::assertSame([], $this->recordedClasses());
-        self::assertSame([DeviceRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $received);
+        self::assertSame([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $received);
     }
 
     /**

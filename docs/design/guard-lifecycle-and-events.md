@@ -16,25 +16,25 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   (case-insensitive) are always removed, plus any fragment in `authentication.events.redacted_credential_keys`. The
   identifier and every other key are kept.
 - `Validated` means the identity has already been accepted by credentials or by an upstream mechanism such as a refresh
-  token or an external identity provider. It does not guarantee that principal or device resolution will succeed
+  token or an external identity provider. It does not guarantee that principal or session resolution will succeed
   afterwards.
 - `Login` is fired before `Authenticated` to mirror Laravel's first-party guard ordering.
 - A flow that writes a session and then binds it (the session service's sign-in, `complete()`, `choose()` and
-  `switchPrincipal()`, and `refresh()`) schedules the lifecycle events that report the write (`DeviceCreated`,
-  `SignedIn`, `Refreshed`, `PrincipalSwitched`) on the device connection's commit before it binds, so a bind listener
-  that throws (on `Validated`, `Login`, `Authenticated`, `PrincipalAssigned` or `DeviceAuthenticated`) cannot withhold
+  `switchPrincipal()`, and `refresh()`) schedules the lifecycle events that report the write (`SessionCreated`,
+  `SignedIn`, `Refreshed`, `PrincipalSwitched`) on the session connection's commit before it binds, so a bind listener
+  that throws (on `Validated`, `Login`, `Authenticated`, `PrincipalAssigned` or `SessionAuthenticated`) cannot withhold
   them; its exception still reaches the caller. With no transaction open on that connection they are therefore
   dispatched before the bind events, and a listener on them reads the event's context, not the guard, which is not yet
   bound to the new session (a switch's listener would see the previous principal); inside a transaction they follow its
   commit and the bind events come first. A lifecycle listener that throws propagates as any listener does, and with no
   transaction open stops the bind.
-- A bind sets the identity, principal and device before it dispatches anything after `Login`: `Authenticated`,
-  `PrincipalAssigned` and `DeviceAuthenticated` all describe the whole bound context (see `event-model.md`).
-- `DeviceAuthenticated` is emitted only when a non-null device is bound.
-- Rebinding clears any previously cached identity, principal, and device state before the new lifecycle begins.
+- A bind sets the identity, principal and session before it dispatches anything after `Login`: `Authenticated`,
+  `PrincipalAssigned` and `SessionAuthenticated` all describe the whole bound context (see `event-model.md`).
+- `SessionAuthenticated` is emitted only when a non-null session is bound.
+- Rebinding clears any previously cached identity, principal, and session state before the new lifecycle begins.
 - A guard follows later container rebinds of the `events` dispatcher (and, without a guard-local override, of the
   `PrincipalResolver`) through its context, which the refresh exchange of a session service built for it reads too, so
-  an `Event::fake()` made after the guard resolved receives the exchange's `DeviceRevoked` as well as the guard's own
+  an `Event::fake()` made after the guard resolved receives the exchange's `SessionRevoked` as well as the guard's own
   events.
 - Under Octane each request runs in a sandbox of the booted application, and Octane's `FlushAuthenticationState` hands
   the shared auth manager that sandbox and forgets its guards, so each request resolves the package guards again from
@@ -47,35 +47,34 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   rejected token fires its `AuthenticationFailed` once. `setRequest()` starts over, an explicit `login()`, `attempt()`,
   or `setUser()` still binds after a failed resolution, and after `logout()` the guard stays signed out for the rest of
   the request. A successful `login()`, `attempt()` or refresh settles the request before it fires `Login`, so a listener
-  that reads the guard mid-bind never resolves the request's own token and leaves its device bound to the identity
+  that reads the guard mid-bind never resolves the request's own token and leaves its session bound to the identity
   signing in. Nothing is persisted: there is no cross-request cache, and every bearer and refresh request reads the
-  identity, principal, tenant, and device live, from the write connection.
-- `id()`, `identity()`, `principal()`, `device()`, and `tenant()` go through `user()`, so the first access on a request
+  identity, principal, tenant, and session live, from the write connection.
+- `id()`, `identity()`, `principal()`, `session()`, and `tenant()` go through `user()`, so the first access on a request
   authenticates it even on a route without `auth` middleware, as Laravel's own guards do. `setPrincipal()` and
-  `setDevice()` resolve the request first too, so a principal or device set before the first access replaces the one the
-  request's token binds instead of being replaced by it. They are trusted binds, like `login()`: they check neither
-  ownership nor activity, nor a device's revocation or session deadlines, so a caller verifies what it passes them
-  first.
+  `setSession()` resolve the request first too, so a principal or session set before the first access replaces the one
+  the request's token binds instead of being replaced by it. They are trusted binds, like `login()`: they check neither
+  ownership nor activity, nor a session's revocation or deadlines, so a caller verifies what it passes them first.
 
 ## Success Path
 
-- `attempt()` emits `Attempting -> Validated -> Login -> Authenticated -> PrincipalAssigned -> DeviceAuthenticated?`.
+- `attempt()` emits `Attempting -> Validated -> Login -> Authenticated -> PrincipalAssigned -> SessionAuthenticated?`.
   It starts no session, so it never dispatches `SignedIn`, which reports the sessions the session service starts;
   Laravel's `Login` reports an `attempt()` sign-in.
-- The session service's `signIn()` emits `Attempting`, then, once the session's transaction is done, `DeviceCreated`
-  (new devices only) and `SignedIn` when the device's connection commits (at once with no transaction open there), and
-  binds through `login()` (`Validated -> Login -> Authenticated -> PrincipalAssigned -> DeviceAuthenticated`); `start()`
-  does the same without `Attempting` (see `session-service.md`). A sign-in held for a further factor binds nothing: it
-  emits `Attempting` (from `signIn()`) and then `AdditionalFactorRequired` once the pending sign-in commits.
-  `complete()` emits the `signIn()` sequence without `Attempting`; `discard()` emits `Failed` and then
-  `AuthenticationFailed` (`additional_factor_failed`).
+- The session service's `signIn()` emits `Attempting`, then, once the session's transaction is done, `SessionCreated`
+  and `SignedIn` when the session's connection commits (at once with no transaction open there), and binds through
+  `login()` (`Validated -> Login -> Authenticated -> PrincipalAssigned -> SessionAuthenticated`); `start()` does the
+  same without `Attempting` (see `session-service.md`). A sign-in held for a further factor binds nothing: it emits
+  `Attempting` (from `signIn()`) and then `AdditionalFactorRequired` once the pending sign-in commits. `complete()`
+  emits the `signIn()` sequence without `Attempting`; `discard()` emits `Failed` and then `AuthenticationFailed`
+  (`additional_factor_failed`).
 - A sign-in held for a choice of principal binds nothing either: `Attempting` (from `signIn()`) and then
   `PrincipalChoiceRequired` once the choice commits. `choose()` emits the `signIn()` sequence without `Attempting` (or
   holds the chosen principal for a factor); a discarded choice emits `Failed` and then `AuthenticationFailed`
   (`principal_choice_abandoned`).
-- `switchPrincipal()` is no sign-in: it dispatches `PrincipalSwitched` once the switch commits on the device's
-  connection, and binds through `authenticateAs()` (`Authenticated -> PrincipalAssigned -> DeviceAuthenticated`, no
-  `Validated` or `Login`); a refusal emits only `AuthenticationFailed` (flow `principal_switch`), with `DeviceRevoked`
+- `switchPrincipal()` is no sign-in: it dispatches `PrincipalSwitched` once the switch commits on the session's
+  connection, and binds through `authenticateAs()` (`Authenticated -> PrincipalAssigned -> SessionAuthenticated`, no
+  `Validated` or `Login`); a refusal emits only `AuthenticationFailed` (flow `principal_switch`), with `SessionRevoked`
   first for a replayed token.
 - Direct `login()` emits the same sequence without `Attempting`. This is the package's public entry point for
   out-of-band authentication such as refresh, OAuth, or SSO callbacks.
@@ -83,15 +82,15 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   for the identity and its default principal, without `Validated` or `Login`. An identity with no default principal is
   rejected with an `InvalidArgumentException` and the previous context is kept.
 - `authenticateAs()` is the trusted bind of an authentication that is not a sign-in: it clears the previous context,
-  settles the request, and emits `Authenticated -> PrincipalAssigned -> DeviceAuthenticated?` without `Validated` or
+  settles the request, and emits `Authenticated -> PrincipalAssigned -> SessionAuthenticated?` without `Validated` or
   `Login`.
 - Bearer `user()` resolution binds through `bindVerifiedContext()` without a sign-in, so a successful bearer request
-  emits only `Authenticated -> PrincipalAssigned -> DeviceAuthenticated?`, carrying the tenant the activity check
-  loaded and the method the device's session records (see `BearerAuthentication`).
+  emits only `Authenticated -> PrincipalAssigned -> SessionAuthenticated?`, carrying the tenant the activity check
+  loaded and the method the session records (see `BearerAuthentication`).
 - A successful refresh (the session service's `refresh()`) emits `Attempting`, then the package `Refreshed` and
-  `SignedIn` (`refresh` set) events once the rotation is committed on the device's connection (at once with no
+  `SignedIn` (`refresh` set) events once the rotation is committed on the session's connection (at once with no
   transaction open there), then `Validated` and the full bind
-  (`Login -> Authenticated -> PrincipalAssigned -> DeviceAuthenticated`), through the binding's `loginVerified()` with
+  (`Login -> Authenticated -> PrincipalAssigned -> SessionAuthenticated`), through the binding's `loginVerified()` with
   the tenant and sign-in method the exchange established. `refreshFromRequest()` emits the same once its transport has
   read the token; a request that carries none emits nothing, and one its transport refuses (`refresh_token_conflict`,
   `cross_site_request`, `token_invalid`) emits `Attempting`, `Failed` and `AuthenticationFailed` (flow `refresh`), as
@@ -104,7 +103,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   dispatched it and is skipped, so a session that request started stays bound and one it signed out stays signed out.
 - `logout()` resolves the request if nothing has yet, emits Laravel's `Logout` event only when an identity is bound,
   then clears contextual state. On a JWT guard it signs the session out through the guard's `SessionRevocations`, as
-  the session service's `signOut()` does: the bound persisted device is revoked first (`signed_out`, `DeviceRevoked`
+  the session service's `signOut()` does: the bound persisted session is revoked first (`signed_out`, `SessionRevoked`
   once committed), then `Logout`, then `forgetUser()` clears the state with no event and keeps the guard signed out for
   the rest of the request.
 
@@ -113,11 +112,11 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - No bearer token means there is nothing to attempt, so `JwtGuard::user()` returns `null` without firing auth events.
 - A rejected bearer token fires only `AuthenticationFailed` (flow `bearer`), once per request, with the first reason in
   this order: `token_invalid`; `identity_unknown`, `identity_inactive`; `principal_mismatch` (the `pid` does not resolve
-  to exactly that principal); `principal_inactive`, `tenant_inactive`; and for a token that names a device,
-  `device_unknown` (not one of the identity's own, or not a key of the device model), `device_guard_mismatch`,
-  `device_revoked`, `session_expired`, `device_principal_mismatch` (the device acts as another principal, or none, or
-  switched principal after the token was issued); a token that names no device is checked against the "tokens valid
-  after" times instead (`issued_before_cutoff`). Its context carries the identity, principal and device as far as they
+  to exactly that principal); `principal_inactive`, `tenant_inactive`; and for a token that names a session,
+  `session_unknown` (not one of the identity's own, or not a key of the session model), `session_guard_mismatch`,
+  `session_revoked`, `session_expired`, `session_principal_mismatch` (the session acts as another principal, or none, or
+  switched principal after the token was issued); a token that names no session is checked against the "tokens valid
+  after" times instead (`issued_before_cutoff`). Its context carries the identity, principal and session as far as they
   were found, and the `did` the token named.
 - A guest on a route that only package guards protect gets a JSON `401` whatever its `Accept` header: the package's
   `Http\Middleware\Authenticate` raises the `AuthenticationException` without evaluating Laravel's guest redirect, and
@@ -135,21 +134,21 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   timebox) and the attempt limiter must grant a slot for the configured identifier and the request's IP address
   (`rate_limited`, with the wait). Then, inside the credential timebox: the password (`invalid_credentials`),
   `Validated`, the identity, the principal and its tenant (activity and pins), the application policy's admission, the
-  pinned device (`device_mismatch`), the password rehash (`PasswordSignIn::rehash()`, honouring
+  pinned session (`session_mismatch`), the password rehash (`PasswordSignIn::rehash()`, honouring
   `hashing.rehash_on_login`; no other path writes a password), and the additional-factor policy, which `attempt()` can
-  only refuse (`additional_factor_required`) and is never told of a pinned device. Only a success gives its slot back.
+  only refuse (`additional_factor_required`) and is never told of a pinned session. Only a success gives its slot back.
   The method check and the slot, the account's slot and its refusal (`account_rate_limited`) and the give-back are the
   steps of `Sessions\CredentialAttempt`, which the session service's `signIn()` takes too, in its own order; what runs
   in the timebox, `Validated`, the pins, the rehash and the factor refusal are `attempt()`'s own (see
   `session-service.md`). `validate()` checks the credentials only, and still fires `Validated` when it accepts them.
-- A principal or device pinned on `attempt()` is verified, not trusted: the principal goes through the resolver's hinted
-  path and must come back as the same class with the same identifier (the bearer `pid` exact-match check) and be owned
-  by the authenticated identity (its `getIdentity()` is that identity), and the device must be found among the
-  identity's own `HasDevices` devices, of the same class, of this guard (a device of another guard, or of none, counts
-  as missing), not revoked, with a session that has not ended, and acting as the principal being bound. The owner
-  is read from the principal's stored key, ignoring an identity relation the resolver set and even when lazy loading is
-  prevented, and an owner that cannot be read fails the check. The resolved instances are bound; a failed check fails
-  the attempt. `login()`, `setPrincipal()`, and `setDevice()` stay trusted binds.
+- A principal or session pinned on `attempt()` is verified, not trusted: the principal goes through the resolver's
+  hinted path and must come back as the same class with the same identifier (the bearer `pid` exact-match check) and be
+  owned by the authenticated identity (its `getIdentity()` is that identity), and the session must be found among the
+  identity's own `HasSessions` sessions, of the same class, of this guard (a session of another guard, or of none,
+  counts as missing), not revoked, not ended, and acting as the principal being bound. The owner is read from the
+  principal's stored key, ignoring an identity relation the resolver set and even when lazy loading is prevented, and an
+  owner that cannot be read fails the check. The resolved instances are bound; a failed check fails the attempt.
+  `login()`, `setPrincipal()`, and `setSession()` stay trusted binds.
 - A successful credential check can still end in `Failed` if principal resolution later returns `null` or resolves a
   principal that is inactive or acts within an inactive tenant. That is why `Validated` is not the same thing as
   "fully bound".
@@ -167,16 +166,16 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   a model that is not a `Tenant` reports no tenant.
 - Failed refresh emits Laravel's standard `Attempting` and `Failed` events and then the package `AuthenticationFailed`
   (flow `refresh`) with a machine-readable reason; the exchange returns that event and the session service dispatches
-  it, and returns the reason in a failed `RefreshResult`. A refresh that revokes the device because its token was
-  replayed (`rotation_reuse`) also emits `DeviceRevoked`. It is dispatched only by the call that revoked the device,
-  never for one already revoked, and only once the revocation is committed on the device's own connection, so a
+  it, and returns the reason in a failed `RefreshResult`. A refresh that revokes the session because its token was
+  replayed (`rotation_reuse`) also emits `SessionRevoked`. It is dispatched only by the call that revoked the session,
+  never for one already revoked, and only once the revocation is committed on the session's own connection, so a
   rolled-back revocation is never reported. When that connection has no open transaction the revocation is committed at
-  once, and the order is `DeviceRevoked`, `Failed`, `AuthenticationFailed`, even if a transaction is open on another
-  connection, whose rollback does not withdraw it. Inside a transaction on the device's connection, `Failed` and
-  `AuthenticationFailed` come first and `DeviceRevoked` follows when that transaction commits. The transaction Laravel's
-  testing traits wrap around each test is not counted, as it never commits. `DeviceRevoked` reports only the revocations
-  the package makes (replay detection, sign-out, and the session service's revocations, see `device-lifecycle.md`): a
-  device an application revokes by writing `revoked_at` itself fires no event.
+  once, and the order is `SessionRevoked`, `Failed`, `AuthenticationFailed`, even if a transaction is open on another
+  connection, whose rollback does not withdraw it. Inside a transaction on the session's connection, `Failed` and
+  `AuthenticationFailed` come first and `SessionRevoked` follows when that transaction commits. The transaction
+  Laravel's testing traits wrap around each test is not counted, as it never commits. `SessionRevoked` reports only the
+  revocations the package makes (replay detection, sign-out, and the session service's revocations, see
+  `session-lifecycle.md`): a session an application revokes by writing `revoked_at` itself fires no event.
 - A rate-limited refresh emits `Attempting`, `Failed` and `AuthenticationFailed` (`rate_limited`, with `retryAfter`),
   and is returned as `rate_limited` with the same `retryAfter`, never thrown; the route answers it with a 429.
 - Verifying an identifier (`IdentifierVerifier::verify()`, behind `VerificationLinks::consume()`) never binds a guard or
@@ -186,11 +185,11 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   once, on the `identifier_verification` flow, and nothing else.
 - A grace retry (the previous rotation id, inside the grace window) is a successful refresh: it emits the same events
   as one that rotates, `Refreshed` included.
-- `DeviceAuthenticated` is coupled to the shipped `RecordDeviceUsage` listener, which records the time, IP address, and
-  user agent of the use, at most once per `authentication.device.last_used_throttle_seconds`. Only persisted
-  `EloquentDevice` instances participate in that write path. It records the client the event carries, the request
-  being served when the device was bound, so a long-running worker records the request it is serving, and the client
-  values are cleaned by `ClientContext` before they are stored.
+- `SessionAuthenticated` is coupled to the shipped `RecordSessionUsage` listener, which records the time, IP address,
+  and user agent of the use, at most once per `authentication.session.last_used_throttle_seconds`. Only persisted
+  `EloquentSession` instances participate in that write path. It records the client the event carries, the request being
+  served when the session was bound, so a long-running worker records the request it is serving, and the client values
+  are cleaned by `ClientContext` before they are stored.
 
 ## Implementation Anchors
 
@@ -204,32 +203,32 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `src/Sessions/Methods/PasswordSignIn.php` and `src/Admission/SignInAdmission.php`: the credential check and the
   activity, principal, tenant and application checks every sign-in shares.
 - `src/Admission/ActivationPolicy.php`: the opt-in identity, principal, and tenant activation checks.
-- `src/Guards/Concerns/BindsContextualState.php`: the resolving accessors, `setPrincipal()`, `setDevice()`,
+- `src/Guards/Concerns/BindsContextualState.php`: the resolving accessors, `setPrincipal()`, `setSession()`,
   `bindContext()`, `clearContextualState()`.
-- `src/Guards/Concerns/VerifiesPinnedContext.php`: the ownership checks for principals and devices pinned on
+- `src/Guards/Concerns/VerifiesPinnedContext.php`: the ownership checks for principals and sessions pinned on
   `attempt()`.
 - `src/Guards/JwtGuard.php`: `resolveUserFromRequest()`, `resolveBearerToken()`; `src/Sessions/SessionRefresh.php`:
   `refresh()`, `refreshFromRequest()`, `refuse()`, `report()`; `src/Guards/Concerns/BindsContextualState.php`:
   `loginVerified()`, the refresh's bind.
 - `src/AuthManager.php`: `forgetGuardState()`; `src/Listeners/ForgetGuardStateBeforeJob.php`.
-- `src/Guards/BearerAuthentication.php` and `src/Devices/OwnedDevice.php`: the bearer checks, their order and reasons,
-  and the device checks they share with the `attempt()` device pin; `src/Devices/IdentityDevices.php`: the device lookup
-  both use.
-- `src/AuthenticationServiceProvider.php`: listener registration for `DeviceAuthenticated`, `wireGuardRebinds()`, the
+- `src/Guards/BearerAuthentication.php` and `src/SessionRecords/OwnedSession.php`: the bearer checks, their order and
+  reasons, and the session checks they share with the `attempt()` session pin;
+  `src/SessionRecords/IdentitySessions.php`: the session lookup both use.
+- `src/AuthenticationServiceProvider.php`: listener registration for `SessionAuthenticated`, `wireGuardRebinds()`, the
   `auth` middleware binding, and the guest response render callback.
 - `src/Runtime/GuardContext.php`: the one copy of the guard's dispatcher, resolver and request, which the guard and the
   refresh exchange of its session service both read (see `guard-context.md`).
 - `src/Http/Middleware/Authenticate.php`, `src/Http/UnauthenticatedResponse.php`: the package guards' `401`;
   `src/Http/ConsumerMessages.php`: its translation.
-- `src/Listeners/RecordDeviceUsage.php` and `src/Http/ClientContext.php`: the last-use write for bound devices.
-- `src/Jwt/RefreshTokenExchange.php`: `revokeDevice()` and the `DeviceRevoked` dispatch, deferred to the device
-  connection's commit by `Database\AfterCommit::run()`; `src/Events/DeviceRevoked.php`.
+- `src/Listeners/RecordSessionUsage.php` and `src/Http/ClientContext.php`: the last-use write for bound sessions.
+- `src/Jwt/RefreshTokenExchange.php`: `revokeSession()` and the `SessionRevoked` dispatch, deferred to the session
+  connection's commit by `Database\AfterCommit::run()`; `src/Events/SessionRevoked.php`.
 
 ## Authoritative Tests
 
 - `tests/Feature/Contracts/EventSequenceTest.php`: the whole event sequence and the answer of every flow, from
   `attempt()` to the client credentials exchange
-- `tests/Integration/Contracts/EventSequenceTest.php`: the sequence when the device's connection commits or rolls back,
+- `tests/Integration/Contracts/EventSequenceTest.php`: the sequence when the session's connection commits or rolls back,
   when a bind or lifecycle listener throws (and what becomes of the attempt-limit slots), and when the request or the
   dispatcher is rebound before the commit
 - `tests/Feature/Contracts/CredentialAttemptMatrixTest.php`: every case of `attempt()` and of the session service's
@@ -253,7 +252,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testASignInHeldForAFactorReportsIt`, `testAFactorRequestIsReportedOnlyOnceItsPendingSignInCommits`,
   `testADiscardedPendingSignInCannotBeCompleted`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
-  `testUserBindsIdentityPrincipalAndDeviceFromValidToken`
+  `testUserBindsIdentityPrincipalAndSessionFromValidToken`
 - `tests/Feature/Guards/JwtGuardRefreshResolutionTest.php`
   `testRefreshDispatchesRefreshedAndSignedInBeforeTheBind`
 - `tests/Feature/Guards/JwtGuardTest.php`
@@ -294,7 +293,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `tests/Integration/Guards/LazyContextResolutionIntegrationTest.php`
   `testAccessorResolvesBearerTokenWhenCalledFirst`, `testPinsSetBeforeFirstAccessAreNotReplacedByTheBearerToken`
 - `tests/Integration/Guards/LazyContextResolutionIntegrationTest.php`
-  `testLoginListenerReadingTheGuardDoesNotBindTheBearerTokensDevice`
+  `testLoginListenerReadingTheGuardDoesNotBindTheBearerTokensSession`
 - `tests/Integration/Guards/RequestResolutionIntegrationTest.php`
   `testRejectedBearerTokenIsAttemptedOncePerRequest`, `testLogoutKeepsTheRequestSignedOut`
 - `tests/Integration/Guards/ActingAsIntegrationTest.php`
@@ -306,7 +305,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `tests/Feature/Http/LocalizedMessagesTest.php`
   `testThePackageMiddlewaresUnauthorizedIsInTheLocale`, `testLaravelsMiddlewaresUnauthorizedIsInTheLocale`
 - `tests/Integration/Guards/PinnedContextOwnershipIntegrationTest.php`
-  `testPrincipalOfAnotherClassWithTheSameIdentifierFailsTheAttempt`, `testAnotherMembersDeviceFailsTheAttempt`
+  `testPrincipalOfAnotherClassWithTheSameIdentifierFailsTheAttempt`, `testAnotherMembersSessionFailsTheAttempt`
 - `tests/Integration/Guards/PinnedContextOwnershipIntegrationTest.php`
   `testAnotherMembersMembershipFailsEvenWhenTheResolverIsNotScoped`
 - `tests/Integration/Guards/PinnedContextOwnershipIntegrationTest.php`
@@ -320,14 +319,14 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `tests/Feature/AuthenticationServiceProviderTest.php`
   `testJwtGuardRefreshExchangeTracksLaterEventDispatcherRebind`
 - `tests/Integration/Guards/RefreshReplayIntegrationTest.php`
-  `testReplayRevokesTheDeviceAndEndsItsAccessTokens`, `testRevocationIsReportedOnlyAfterCommit`
-- `tests/Integration/Guards/SeparateDeviceConnectionIntegrationTest.php`
+  `testReplayRevokesTheSessionAndEndsItsAccessTokens`, `testRevocationIsReportedOnlyAfterCommit`
+- `tests/Integration/Guards/SeparateSessionConnectionIntegrationTest.php`
   `testReplayIsReportedAtOnceWhateverAnotherConnectionsTransactionDoes`,
-  `testReplayInsideTheDeviceConnectionsTransactionIsReportedOnItsCommit`,
+  `testReplayInsideTheSessionConnectionsTransactionIsReportedOnItsCommit`,
   `testReplayRolledBackWithANestedTransactionIsNeverReported`
 - `tests/Integration/Guards/ReplayUnderDatabaseTransactionsIntegrationTest.php`
   `testReplayOutsideTheApplicationsTransactionsIsReportedAtOnce`
-- `tests/Integration/Guards/DeviceUsageIntegrationTest.php`
+- `tests/Integration/Guards/SessionUsageIntegrationTest.php`
   `testEachRequestRecordsItsOwnClientOutsideTheThrottleWindow`, `testRefreshRecordsTheClientItCameFrom`,
   `testCraftedUserAgentIsStoredCleaned`
 - `tests/Integration/Verification/IdentifierVerifierTest.php`
@@ -344,14 +343,14 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 Update this note when any of the following change:
 
 - the order or presence of `Attempting`, `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`, `PrincipalAssigned`,
-  `DeviceAuthenticated`, `Refreshed`, `AuthenticationFailed`, `AdditionalFactorRequired`, `PrincipalChoiceRequired`,
-  `PrincipalSwitched`, `DeviceRevoked`, or `IdentifierVerified`
+  `SessionAuthenticated`, `Refreshed`, `AuthenticationFailed`, `AdditionalFactorRequired`, `PrincipalChoiceRequired`,
+  `PrincipalSwitched`, `SessionRevoked`, or `IdentifierVerified`
 - the order of the sign-in policy checks in `attempt()`, or which of its steps it shares with `signIn()`
 - which credential keys are redacted from `Attempting` and `Failed`
 - the response a guest gets on a route protected by package guards
 - the decision that a bearer request binds without a sign-in and refresh as one
 - what `setUser()` binds
-- the listener or persistence behaviour attached to `DeviceAuthenticated`
+- the listener or persistence behaviour attached to `SessionAuthenticated`
 - how dispatcher and resolver rebinds reach the guard and the refresh exchange
 - which application (the one serving, or the one a collaborator was built with) the guards, the manager's services,
   the sign-in methods and the revoking listeners resolve from

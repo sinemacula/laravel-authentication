@@ -12,8 +12,8 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Concerns\InteractsWithDevices;
+use SineMacula\Laravel\Authentication\Models\Session;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Integration\Fixtures\Coexist3dIdentity;
 use Tests\Integration\Fixtures\Coexist3dPrincipal;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -33,7 +33,7 @@ use Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
     /** @var string Shared plaintext password for the seeded fixtures. */
     private const string TEST_PASSWORD = 'correct horse battery staple';
@@ -41,8 +41,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     /** @var string Guard name for 2D access-only bearer tests. */
     private const string ACCESS_ONLY_GUARD = 'access_only';
 
-    /** @var string Guard name for device-bearing bearer tests. */
-    private const string DEVICE_GUARD = 'device_api';
+    /** @var string Guard name for session-bearing bearer tests. */
+    private const string SESSION_GUARD = 'session_api';
 
     /** @var string Guard name for 3D principal-resolution tests. */
     private const string THREE_D_GUARD = 'api_3d';
@@ -136,7 +136,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A 2D bearer token with no usable device hint should only rehydrate the
+     * A 2D bearer token with no usable session hint should only rehydrate the
      * identity row.
      *
      * @return void
@@ -160,7 +160,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
             $authenticated = $guard->check();
             $guard->principal(); // @phpstan-ignore method.resultUnused
-            $guard->device(); // @phpstan-ignore method.resultUnused
+            $guard->session(); // @phpstan-ignore method.resultUnused
 
             return $authenticated;
         });
@@ -169,21 +169,21 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A bearer token with a valid device hint and a recent last use should do
-     * the identity read plus the device read, but no update.
+     * A bearer token with a valid session hint and a recent last use should do
+     * the identity read plus the session read, but no update.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testBearerPathWithDeviceHintAndFreshTimestampUsesTwoReadsAndNoWrites(): void
+    public function testBearerPathWithSessionHintAndFreshTimestampUsesTwoReadsAndNoWrites(): void
     {
-        $identity = $this->seedIntegrationIdentity('device-fresh@example.test');
+        $identity = $this->seedIntegrationIdentity('session-fresh@example.test');
 
-        $device = new Device;
-        $device->forceFill([
-            ...self::liveSession(self::DEVICE_GUARD),
+        $session = new Session;
+        $session->forceFill([
+            ...self::liveSession(self::SESSION_GUARD),
             'authenticatable_type' => IntegrationIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'principal_type'       => $identity->getMorphClass(),
@@ -192,18 +192,18 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
             'last_used_at'         => $this->now,
         ])->save();
 
-        $jwt = PackageAuth::jwt(self::DEVICE_GUARD);
+        $jwt = PackageAuth::jwt(self::SESSION_GUARD);
         self::assertNotNull($jwt);
 
-        $token = $jwt->issueAccessToken($identity, $identity, $device);
+        $token = $jwt->issueAccessToken($identity, $identity, $session);
 
-        $this->bindRequestWithBearer('/perf/device-fresh', $token);
+        $this->bindRequestWithBearer('/perf/session-fresh', $token);
 
-        $guard = $this->freshJwtGuard(self::DEVICE_GUARD);
+        $guard = $this->freshJwtGuard(self::SESSION_GUARD);
 
         $result = $this->assertQueryBudget(2, 0, static function () use ($guard): bool {
             $authenticated = $guard->check();
-            $guard->device(); // @phpstan-ignore method.resultUnused
+            $guard->session(); // @phpstan-ignore method.resultUnused
 
             return $authenticated;
         });
@@ -213,20 +213,20 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A last use outside the throttle window, or none, should add exactly one
-     * write to the mandatory identity + device reads.
+     * write to the mandatory identity + session reads.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testBearerPathWithDeviceHintAndStaleTimestampUsesTwoReadsAndOneWrite(): void
+    public function testBearerPathWithSessionHintAndStaleTimestampUsesTwoReadsAndOneWrite(): void
     {
-        $identity = $this->seedIntegrationIdentity('device-stale@example.test');
+        $identity = $this->seedIntegrationIdentity('session-stale@example.test');
 
-        $device = new Device;
-        $device->forceFill([
-            ...self::liveSession(self::DEVICE_GUARD),
+        $session = new Session;
+        $session->forceFill([
+            ...self::liveSession(self::SESSION_GUARD),
             'authenticatable_type' => IntegrationIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'principal_type'       => $identity->getMorphClass(),
@@ -235,18 +235,18 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
             'last_used_at'         => null,
         ])->save();
 
-        $jwt = PackageAuth::jwt(self::DEVICE_GUARD);
+        $jwt = PackageAuth::jwt(self::SESSION_GUARD);
         self::assertNotNull($jwt);
 
-        $token = $jwt->issueAccessToken($identity, $identity, $device);
+        $token = $jwt->issueAccessToken($identity, $identity, $session);
 
-        $this->bindRequestWithBearer('/perf/device-stale', $token);
+        $this->bindRequestWithBearer('/perf/session-stale', $token);
 
-        $guard = $this->freshJwtGuard(self::DEVICE_GUARD);
+        $guard = $this->freshJwtGuard(self::SESSION_GUARD);
 
         $result = $this->assertQueryBudget(2, 1, static function () use ($guard): bool {
             $authenticated = $guard->check();
-            $guard->device(); // @phpstan-ignore method.resultUnused
+            $guard->session(); // @phpstan-ignore method.resultUnused
 
             return $authenticated;
         });
@@ -375,14 +375,14 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
 
-        $config->set('auth.defaults.guard', self::DEVICE_GUARD);
+        $config->set('auth.defaults.guard', self::SESSION_GUARD);
 
         $config->set('auth.guards.' . self::ACCESS_ONLY_GUARD, [
             'driver'   => 'jwt',
             'provider' => 'access_only_identities',
         ]);
 
-        $config->set('auth.guards.' . self::DEVICE_GUARD, [
+        $config->set('auth.guards.' . self::SESSION_GUARD, [
             'driver'   => 'jwt',
             'provider' => 'integration_identities',
         ]);
@@ -417,7 +417,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
             'model'  => TenantAware3dIdentity::class,
         ]);
 
-        $config->set('authentication.device.last_used_throttle_seconds', 60);
+        $config->set('authentication.session.last_used_throttle_seconds', 60);
     }
 
     /**
@@ -438,7 +438,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Persist a 2D identity that also owns devices.
+     * Persist a 2D identity that also owns sessions.
      *
      * @param  string  $email
      * @return \Tests\Integration\Fixtures\IntegrationIdentity

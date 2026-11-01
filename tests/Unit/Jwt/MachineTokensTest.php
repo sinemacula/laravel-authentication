@@ -76,13 +76,13 @@ final class MachineTokensTest extends TestCase
             'a null credential'  => [['cid' => null, 'scope' => 'a'], null],
             'key and scopes'     => [['cid' => self::KEY_ID, 'scope' => 'a b'], [self::KEY_ID, ['a', 'b']]],
             'key and no scope'   => [['cid' => self::KEY_ID, 'scope' => ''], [self::KEY_ID, []]],
-            'a null device'      => [['cid' => self::KEY_ID, 'scope' => 'a', 'did' => null], [self::KEY_ID, ['a']]],
+            'a null session'     => [['cid' => self::KEY_ID, 'scope' => 'a', 'did' => null], [self::KEY_ID, ['a']]],
             'no scope'           => [['cid' => self::KEY_ID], false],
             'a non-string scope' => [['cid' => self::KEY_ID, 'scope' => 5], false],
             'a malformed scope'  => [['cid' => self::KEY_ID, 'scope' => ' a'], false],
             'not a uuid'         => [['cid' => 'key-1', 'scope' => 'a'], false],
             'a non-string key'   => [['cid' => 7, 'scope' => 'a'], false],
-            'a device'           => [['cid' => self::KEY_ID, 'scope' => 'a', 'did' => 'd-1'], false],
+            'a session'          => [['cid' => self::KEY_ID, 'scope' => 'a', 'did' => 'd-1'], false],
         ];
     }
 

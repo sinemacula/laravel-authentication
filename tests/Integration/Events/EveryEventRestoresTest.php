@@ -18,9 +18,6 @@ use SineMacula\Laravel\Authentication\Events\ApiKeyRevoked;
 use SineMacula\Laravel\Authentication\Events\ApiKeyRotated;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\ClientCredentialsGranted;
-use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
-use SineMacula\Laravel\Authentication\Events\DeviceCreated;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
@@ -36,10 +33,13 @@ use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\PrincipalChoiceRequired;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
+use SineMacula\Laravel\Authentication\Events\SessionCreated;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
@@ -51,7 +51,7 @@ use Tests\TestCase;
  * Integration test that every package event, whatever it carries beside its
  * context, survives a queue whose wait outlived the rows it names: it restores
  * as the same event, with no models, the whole snapshot of its context (when it
- * happened, who, as whom, within which tenant, on which device, how and from
+ * happened, who, as whom, within which tenant, on which session, how and from
  * where) and its own values as they were.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -119,9 +119,6 @@ final class EveryEventRestoresTest extends TestCase
             'ApiKeyRotated'             => [ApiKeyRotated::class, ['key-0']],
             'AuthenticationFailed'      => [AuthenticationFailed::class, [AuthenticationFlow::SIGN_IN, FailureReason::RATE_LIMITED, 'member@example.test', 30]],
             'ClientCredentialsGranted'  => [ClientCredentialsGranted::class, []],
-            'DeviceAuthenticated'       => [DeviceAuthenticated::class, []],
-            'DeviceCreated'             => [DeviceCreated::class, []],
-            'DeviceRevoked'             => [DeviceRevoked::class, [RevocationReason::SIGNED_OUT]],
             'IdentifierChangeRequested' => [IdentifierChangeRequested::class, ['email', 'new@example.test', $at]],
             'IdentifierChanged'         => [IdentifierChanged::class, ['email', 'old@example.test', 'new@example.test', $at]],
             'IdentifierVerified'        => [IdentifierVerified::class, ['email']],
@@ -133,6 +130,9 @@ final class EveryEventRestoresTest extends TestCase
             'PrincipalChoiceRequired'   => [PrincipalChoiceRequired::class, [$at]],
             'PrincipalSwitched'         => [PrincipalSwitched::class, [null, 'membership', '9']],
             'Refreshed'                 => [Refreshed::class, []],
+            'SessionAuthenticated'      => [SessionAuthenticated::class, []],
+            'SessionCreated'            => [SessionCreated::class, []],
+            'SessionRevoked'            => [SessionRevoked::class, [RevocationReason::SIGNED_OUT]],
             'SignedIn'                  => [SignedIn::class, [true, false]],
             'SignedOutEverywhere'       => [SignedOutEverywhere::class, [RevocationReason::SIGNED_OUT_EVERYWHERE, 3, $at]],
         ];
@@ -159,11 +159,11 @@ final class EveryEventRestoresTest extends TestCase
         self::assertNotNull($session);
 
         $client  = new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT);
-        $context = new EventContext('members', $client, $member, $membership, $tenant, $session->device, 'password', credentialId: 'key-1', scopes: ['read']);
+        $context = new EventContext('members', $client, $member, $membership, $tenant, $session->record, 'password', credentialId: 'key-1', scopes: ['read']);
         $event   = new $class($context, ...$arguments);
         $queued  = serialize($event);
 
-        Device::query()->delete();
+        Session::query()->delete();
         ActivatableTenantMembership::query()->delete();
         ActivatableTenantMember::query()->delete();
         ActivatableTenant::query()->forceDelete();
@@ -177,13 +177,13 @@ final class EveryEventRestoresTest extends TestCase
         self::assertNull($restored->identity);
         self::assertNull($restored->principal);
         self::assertNull($restored->tenant);
-        self::assertNull($restored->device);
+        self::assertNull($restored->session);
         self::assertSame($context->toArray(), $restored->toArray());
         self::assertSame('2026-04-06T12:00:00.250000Z', $restored->toArray()['occurred_at']);
         self::assertSame($member->getMorphClass(), $restored->identityMorphClass);
         self::assertSame($membership->getMorphClass(), $restored->principalMorphClass);
         self::assertSame($tenant->getMorphClass(), $restored->tenantMorphClass);
-        self::assertSame($session->device->getKey(), $restored->deviceId);
+        self::assertSame($session->record->getKey(), $restored->sessionId);
         self::assertEquals(self::ownValues($event), self::ownValues($copy));
     }
 

@@ -8,10 +8,10 @@ authorisation package decides what they allow.
 
 ## Invariants
 
-- A non-human identity implements `MachineIdentity`. It has no password, no interactive sign-in, no device and no
+- A non-human identity implements `MachineIdentity`. It has no password, no interactive sign-in, no session and no
   refresh: `PasswordSignIn` refuses it as `invalid_credentials` before any hash or account count; `SignInAdmission`
   refuses it first, as `machine_identity`, for every method and for `start()`, `complete()` and `choose()`;
-  `RefreshAdmission` refuses a device it owns (refresh and switch of principal); `BearerAuthentication` refuses a
+  `RefreshAdmission` refuses a session it owns (refresh and switch of principal); `BearerAuthentication` refuses a
   session token naming it; `JwtTokenService` issues it no session token (`LogicException`). It is never sent a one-time
   code, `Auth::codes()->sendVerification()` and `verify()` refuse it, and it can own no passkey
   (`InvalidArgumentException` from every passkey call that names an owner); a code it holds anyway, or a passkey whose
@@ -37,9 +37,9 @@ authorisation package decides what they allow.
 - A presented key costs one indexed lookup of its public part on the write connection and a constant-time digest
   comparison, against a fixed digest when no key matched; never a password hash.
 - A client credentials exchange (RFC 6749 section 4.4) takes a key of a `jwt` guard, its public part as the client id
-  and its secret as the client secret, and issues an access token of that guard with no device and no refresh token,
+  and its secret as the client secret, and issues an access token of that guard with no session and no refresh token,
   carrying the key's id (`cid`) and the granted scopes (`scope`), living the guard's access lifetime and never past the
-  key's expiry. A token with `cid` must carry `scope` and name no device, or `parse()` rejects it. The RFC 6749 5.1
+  key's expiry. A token with `cid` must carry `scope` and name no session, or `parse()` rejects it. The RFC 6749 5.1
   response carries `scope` only when the token grants at least one: RFC 6749 3.3 has no empty scope value, while the
   claim is `""` for none.
 - A client token is held to its key on every request (decided: reject at once rather than at token expiry): the key,
@@ -47,7 +47,7 @@ authorisation package decides what they allow.
   and `CredentialBinding` must hold for the loaded identity, principal and tenant. Revoking the key, or the end of a
   rotation's overlap, ends its tokens at the next request.
 - Keys live on the storage connection (`Database\StorageConnection`), like every other package table, not on a
-  connection the device model decides: an `api_key` guard never reads the device model, so an application whose only
+  connection the session model decides: an `api_key` guard never reads the session model, so an application whose only
   guards are `api_key` guards needs none configured. The guard fails when it is built on a storage connection setting
   that is not a connection name.
 - Every write to a key is one conditional statement on its own connection (rotation: a conditional update of the
@@ -129,7 +129,7 @@ authorisation package decides what they allow.
 
 - `src/Contracts/MachineIdentity.php`; `src/Admission/SignInAdmission.php`, `src/Sessions/Methods/PasswordSignIn.php`,
   `src/Sessions/SessionPreconditions.php`, `src/Jwt/RefreshAdmission.php`, `src/Guards/BearerAuthentication.php`,
-  `src/Jwt/JwtTokenService.php`, `src/Devices/DeviceOwnership.php`.
+  `src/Jwt/JwtTokenService.php`, `src/SessionRecords/SessionOwnership.php`.
 - `src/Scopes/Scopes.php`: `normalize()`, `parse()`, `format()`, `isSubset()`, `grantable()`.
 - `src/Contracts/ScopeRegistry.php`, `src/Scopes/AcceptAnyScope.php`, `src/Exceptions/InvalidScopeException.php`.
 - `src/Guards/Concerns/BindsContextualState.php`: `scopes()`, and the scopes a bind without a credential gets.

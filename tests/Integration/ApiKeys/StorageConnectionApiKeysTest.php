@@ -19,10 +19,10 @@ use Tests\TestCase;
 
 /**
  * End-to-end tests of API keys on a storage connection other than the default,
- * with no device model configured at all: the `api_key` guard, which keeps no
- * device sessions, is built and authenticates, and its keys are issued,
- * rotated, used and revoked on the storage connection, where the shipped
- * migrations created their table.
+ * with no session model configured at all: the `api_key` guard, which keeps no
+ * sessions, is built and authenticates, and its keys are issued, rotated, used
+ * and revoked on the storage connection, where the shipped migrations created
+ * their table.
  *
  * The storage connection is a second connection to the test database with a
  * table prefix of its own: a database of its own on SQLite, and prefixed tables
@@ -104,7 +104,7 @@ final class StorageConnectionApiKeysTest extends TestCase
     }
 
     /**
-     * Configure the machine guards with no device model, and put the package's
+     * Configure the machine guards with no session model, and put the package's
      * tables on a prefixed second connection to the test database.
      *
      * @param  mixed  $app
@@ -125,7 +125,7 @@ final class StorageConnectionApiKeysTest extends TestCase
 
         $config->set('database.connections.' . self::STORAGE, [...$config->array('database.connections.testing'), 'prefix' => 'store_']);
         $config->set('authentication.storage.connection', self::STORAGE);
-        $config->set('authentication.device.model', '');
+        $config->set('authentication.session.model', '');
     }
 
     /**

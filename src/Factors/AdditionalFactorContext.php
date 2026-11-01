@@ -4,9 +4,9 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Factors;
 
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 
@@ -14,11 +14,11 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
  * Everything an additional-factor policy decides on: the guard, who is signing
  * in and as which principal, how, and from which client.
  *
- * `$provenDevice` is set only when the client proved, with its current refresh
+ * `$provenSession` is set only when the client proved, with its current refresh
  * token, that it holds an existing session of this guard on the same identity
- * and principal, which the sign-in will then continue on. A policy that trusts
- * a device it has seen a factor on (keyed by the device identifier) can rely on
- * it. A device merely named by the caller never appears here.
+ * and principal, which the sign-in will then replace with a new session: the
+ * new session has a new identifier, and nothing a policy kept about the proven
+ * one transfers to it. A session merely named by the caller never appears here.
  *
  * @api
  *
@@ -38,7 +38,7 @@ final readonly class AdditionalFactorContext
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  ?string  $clientName
      * @param  ?string  $platform
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $provenDevice
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $provenSession
      */
     public function __construct(
 
@@ -66,7 +66,7 @@ final readonly class AdditionalFactorContext
         /** Platform the client reported, if any. */
         public ?string $platform,
 
-        /** Existing device of this guard, identity and principal the client proved it holds, if any. */
-        public ?Device $provenDevice,
+        /** Existing session of this guard, identity and principal the client proved it holds, if any. */
+        public ?Session $provenSession,
     ) {}
 }

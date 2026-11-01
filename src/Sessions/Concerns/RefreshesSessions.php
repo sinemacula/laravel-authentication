@@ -30,10 +30,10 @@ trait RefreshesSessions
      *
      * In order: Laravel's `Attempting`; the exchange, which fails as
      * `rate_limited` (with the wait in `retryAfter`) once too many refreshes
-     * have failed for the token's device or from the request's IP address, and
-     * otherwise judges the token, its device and the session's owner; on
+     * have failed for the token's session or from the request's IP address, and
+     * otherwise judges the token, its session and the session's owner; on
      * success `Refreshed` and `SignedIn` (with `refresh` set) are scheduled for
-     * once the rotation is committed on the device's connection, and then the
+     * once the rotation is committed on the session's connection, and then the
      * guard is bound to the session as a sign-in (`Validated`, `Login` and the
      * bind events). A refusal dispatches Laravel's `Failed` and then
      * `AuthenticationFailed` with the reason, and is returned, never thrown,
@@ -44,7 +44,7 @@ trait RefreshesSessions
      * the rotation and the new pair is lost; a binding listener's cannot
      * withhold `Refreshed`, which was scheduled first. A retry with the
      * presented token inside the grace window gets the current credential;
-     * after the window it is treated as a replay and revokes the device.
+     * after the window it is treated as a replay and revokes the session.
      *
      * For a token the caller read itself; never pass it one read from the
      * refresh cookie, whose cross-site checks only `refreshFromRequest()`
@@ -69,7 +69,7 @@ trait RefreshesSessions
      * (nothing was attempted). A token the transport refuses fails with its
      * reason (`refresh_token_conflict`, `cross_site_request`, `token_invalid`)
      * after `Attempting`, `Failed` and `AuthenticationFailed`, touching no
-     * device; otherwise it is `refresh()`. The result says where the token was
+     * session; otherwise it is `refresh()`. The result says where the token was
      * read from, so a cookie refresh can be answered with a cookie.
      *
      * @return ?\SineMacula\Laravel\Authentication\Sessions\RefreshResult

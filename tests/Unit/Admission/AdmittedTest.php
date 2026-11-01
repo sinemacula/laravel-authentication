@@ -8,9 +8,9 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 
 /**
@@ -27,23 +27,23 @@ final class AdmittedTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /**
-     * An admitted sign-in has no device until it is given one, and giving it
+     * An admitted sign-in has no session until it is given one, and giving it
      * one keeps the rest of its context and leaves the original unchanged.
      *
      * @return void
      */
-    public function testContinuingOnADeviceKeepsTheContext(): void
+    public function testContinuingOnASessionKeepsTheContext(): void
     {
         $admitted = new Admitted(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), \Mockery::mock(Tenant::class));
-        $device   = \Mockery::mock(Device::class);
+        $session  = \Mockery::mock(Session::class);
 
-        $continued = $admitted->on($device);
+        $continued = $admitted->on($session);
 
-        self::assertNull($admitted->device);
-        self::assertSame($device, $continued->device);
+        self::assertNull($admitted->session);
+        self::assertSame($session, $continued->session);
         self::assertSame($admitted->identity, $continued->identity);
         self::assertSame($admitted->principal, $continued->principal);
         self::assertSame($admitted->tenant, $continued->tenant);
-        self::assertNull($continued->on(null)->device);
+        self::assertNull($continued->on(null)->session);
     }
 }

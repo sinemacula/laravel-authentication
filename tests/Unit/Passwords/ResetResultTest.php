@@ -23,7 +23,7 @@ use SineMacula\Laravel\Authentication\Passwords\ResetResult;
 final class ResetResultTest extends TestCase
 {
     /**
-     * A reset carries the devices it revoked; a limited one the wait; a
+     * A reset carries the sessions it revoked; a limited one the wait; a
      * rejected one the violations; an invalid one nothing. Only a reset is
      * reset.
      *

@@ -24,11 +24,10 @@ use Tests\Integration\Fixtures\CutoffIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests of a principal's revocation scope: whether its sessions can
- * hold devices is decided by its owner as stored, read afresh, never by an
- * identity relation whoever loaded the principal set on it; an owner that
- * cannot be read does not stop its sessions being ended, and neither does
- * Eloquent strict mode.
+ * Feature tests of a principal's revocation scope: whether it has sessions is
+ * decided by its owner as stored, read afresh, never by an identity relation
+ * whoever loaded the principal set on it; an owner that cannot be read does not
+ * stop its sessions being ended, and neither does Eloquent strict mode.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -81,7 +80,7 @@ final class RevocationScopeTest extends TestCase
 
     /**
      * A membership whose identity relation was set to an identity that holds no
-     * devices still has its sessions revoked: its stored owner holds them, and
+     * sessions still has its sessions revoked: its stored owner holds them, and
      * the scope carries that owner.
      *
      * @return void
@@ -98,8 +97,8 @@ final class RevocationScopeTest extends TestCase
 
         $this->recordEvents([SignedOutEverywhere::class]);
 
-        self::assertSame(1, $this->sessions('members')->revokePrincipalDevices($membership, RevocationReason::REVOKED));
-        self::assertSame('revoked', DB::table('devices')->value('revoked_reason'));
+        self::assertSame(1, $this->sessions('members')->revokePrincipalSessions($membership, RevocationReason::REVOKED));
+        self::assertSame('revoked', DB::table('authentication_sessions')->value('revoked_reason'));
 
         $identity = $this->recorded[0]->context->identity ?? null;
 
@@ -109,8 +108,8 @@ final class RevocationScopeTest extends TestCase
 
     /**
      * A membership whose owner can no longer be read (its row deleted) still
-     * has its sessions revoked: an unreadable owner might hold devices, so they
-     * are looked for, and the scope carries no identity.
+     * has its sessions revoked: an unreadable owner might hold sessions, so
+     * they are looked for, and the scope carries no identity.
      *
      * @return void
      *
@@ -128,8 +127,8 @@ final class RevocationScopeTest extends TestCase
 
         $stored = ActivatableTenantMembership::query()->findOrFail($membership->getKey());
 
-        self::assertSame(1, $this->sessions('members')->revokePrincipalDevices($stored, RevocationReason::REVOKED));
-        self::assertSame(0, DB::table('devices')->whereNull('revoked_at')->count());
+        self::assertSame(1, $this->sessions('members')->revokePrincipalSessions($stored, RevocationReason::REVOKED));
+        self::assertSame(0, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
         self::assertNull($this->recordedEvent(SignedOutEverywhere::class)->context->identity);
         self::assertSame(1, $this->recordedEvent(SignedOutEverywhere::class)->revoked);
     }
@@ -159,7 +158,7 @@ final class RevocationScopeTest extends TestCase
 
         $this->recordEvents([SignedOutEverywhere::class]);
 
-        self::assertSame(1, $this->sessions('members')->revokePrincipalDevices($memberships->firstOrFail(), RevocationReason::REVOKED));
+        self::assertSame(1, $this->sessions('members')->revokePrincipalSessions($memberships->firstOrFail(), RevocationReason::REVOKED));
         self::assertTrue($membership->is($memberships->first()));
 
         $identity = $this->recordedEvent(SignedOutEverywhere::class)->context->identity;
@@ -183,7 +182,7 @@ final class RevocationScopeTest extends TestCase
 
         $this->recordEvents([SignedOutEverywhere::class]);
 
-        $this->sessions()->revokePrincipalDevices($identity, RevocationReason::REVOKED);
+        $this->sessions()->revokePrincipalSessions($identity, RevocationReason::REVOKED);
 
         self::assertSame($identity, $this->recordedEvent(SignedOutEverywhere::class)->context->identity);
     }
@@ -207,8 +206,8 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * Keeping the cutoff leaves the scope's devices, pending sign-ins and parts
-     * as they were and drops only the cutoff to move.
+     * Keeping the cutoff leaves the scope's sessions, pending sign-ins and
+     * parts as they were and drops only the cutoff to move.
      *
      * @return void
      */
@@ -220,7 +219,7 @@ final class RevocationScopeTest extends TestCase
 
         self::assertSame($identity, $scope->cutoff);
         self::assertNull($kept->cutoff);
-        self::assertSame($scope->devices, $kept->devices);
+        self::assertSame($scope->sessions, $kept->sessions);
         self::assertSame($scope->pendings, $kept->pendings);
         self::assertSame($scope->changes, $kept->changes);
         self::assertSame($identity, $kept->identity);
@@ -251,7 +250,7 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * Persist an identity that records a cutoff and holds devices.
+     * Persist an identity that records a cutoff and holds sessions.
      *
      * @return \Tests\Integration\Fixtures\CutoffIdentity
      */

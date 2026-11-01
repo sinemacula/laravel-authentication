@@ -25,8 +25,8 @@ use Tests\TestCase;
 /**
  * Integration tests of a guard's session revocations signing a binding out
  * everywhere for an identity that records a "tokens valid after" cutoff: the
- * cutoff stays where it is only when the binding's own session is kept and has
- * no device, and moves to now otherwise.
+ * cutoff stays where it is only when the binding's own token is kept and names
+ * no session, and moves to now otherwise.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -83,14 +83,14 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * Keeping a binding's session that has no device leaves the cutoff where it
-     * is, while the identity's devices are revoked.
+     * Keeping a binding's access-only token leaves the cutoff where it is,
+     * while the identity's sessions are revoked.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testKeepingADevicelessSessionLeavesTheCutoff(): void
+    public function testKeepingASessionlessTokenLeavesTheCutoff(): void
     {
         $identity = $this->seedIdentity();
 
@@ -102,18 +102,18 @@ final class SessionRevocationsTest extends TestCase
 
         self::assertSame(1, $this->revocationsOf($guard)->signOutEverywhere($guard, true));
         self::assertNull($identity->fresh()?->getTokensValidAfter());
-        self::assertSame('signed_out_everywhere', DB::table('devices')->value('revoked_reason'));
+        self::assertSame('signed_out_everywhere', DB::table('authentication_sessions')->value('revoked_reason'));
     }
 
     /**
-     * Keeping a binding's session that has a device keeps the device and still
-     * moves the cutoff, which only device-less tokens are held to.
+     * Keeping a binding's session keeps it and still moves the cutoff, which
+     * only session-less tokens are held to.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testKeepingADevicesSessionStillMovesTheCutoff(): void
+    public function testKeepingASessionStillMovesTheCutoff(): void
     {
         $identity = $this->seedIdentity();
         $guard    = $this->bearing($this->signIn($identity));
@@ -123,18 +123,18 @@ final class SessionRevocationsTest extends TestCase
 
         self::assertSame(1, $this->revocationsOf($guard)->signOutEverywhere($guard, true));
         self::assertSame($this->now->toDateTimeString(), $identity->fresh()?->getTokensValidAfter()?->toDateTimeString());
-        self::assertSame(1, DB::table('devices')->whereNull('revoked_at')->count());
+        self::assertSame(1, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
     }
 
     /**
-     * Without the keep, a binding's session that has no device ends with the
-     * rest: the cutoff moves.
+     * Without the keep, a binding's access-only token ends with the rest: the
+     * cutoff moves.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testNotKeepingADevicelessSessionMovesTheCutoff(): void
+    public function testNotKeepingASessionlessTokenMovesTheCutoff(): void
     {
         $identity = $this->seedIdentity();
         $guard    = $this->bearing($this->tokens()->issueAccessToken($identity, $identity, null));
@@ -182,7 +182,7 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * Sign the identity in on a new device and return the session's access
+     * Sign the identity in on a new session and return the session's access
      * token.
      *
      * @param  \Tests\Integration\Fixtures\CutoffIdentity  $identity

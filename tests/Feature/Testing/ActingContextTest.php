@@ -9,7 +9,7 @@ use Illuminate\Foundation\Application;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Testing\ActingContext;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
@@ -20,8 +20,8 @@ use Tests\TestCase;
 /**
  * Feature tests for how the acting context finds what it acts on through the
  * application's guards: the package guard named or the default one, the
- * resolver's default principal, and the owner and principal a device's session
- * records, each refused with what could not be found.
+ * resolver's default principal, and the owner and principal a session records,
+ * each refused with what could not be found.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -118,23 +118,23 @@ final class ActingContextTest extends TestCase
     }
 
     /**
-     * A device's session is acted on as the owner and the principal it records,
-     * two- and three-dimensional alike, found afresh through the guard.
+     * A session is acted on as the owner and the principal it records, two- and
+     * three-dimensional alike, found afresh through the guard.
      *
      * @return void
      */
-    public function testADeviceActsAsTheOwnerAndPrincipalItRecords(): void
+    public function testASessionActsAsTheOwnerAndPrincipalItRecords(): void
     {
         $ada                   = $this->seedIdentity();
         [$member, $membership] = $this->seedMember();
 
-        [$identity, $principal] = ActingContext::recordedOn(ActingContext::guard('api'), $this->device('api', 'ada@example.test'));
+        [$identity, $principal] = ActingContext::recordedOn(ActingContext::guard('api'), $this->record('api', 'ada@example.test'));
 
         self::assertInstanceOf(IntegrationIdentity::class, $identity);
         self::assertTrue($ada->is($identity));
         self::assertSame($identity, $principal);
 
-        [$identity, $principal] = ActingContext::recordedOn(ActingContext::guard('members'), $this->device('members', 'member@example.test'));
+        [$identity, $principal] = ActingContext::recordedOn(ActingContext::guard('members'), $this->record('members', 'member@example.test'));
 
         self::assertInstanceOf(ActivatableTenantMember::class, $identity);
         self::assertTrue($member->is($identity));
@@ -143,33 +143,33 @@ final class ActingContextTest extends TestCase
     }
 
     /**
-     * A device that records no principal acts as the owner's default one.
+     * A session that records no principal acts as the owner's default one.
      *
      * @return void
      */
-    public function testADeviceRecordingNoPrincipalActsAsTheDefault(): void
+    public function testASessionRecordingNoPrincipalActsAsTheDefault(): void
     {
         [, $membership] = $this->seedMember();
 
-        $device = $this->device('members', 'member@example.test');
+        $session = $this->record('members', 'member@example.test');
 
-        $device->forceFill(['principal_id' => null]);
+        $session->forceFill(['principal_id' => null]);
 
-        [, $principal] = ActingContext::recordedOn(ActingContext::guard('members'), $device);
+        [, $principal] = ActingContext::recordedOn(ActingContext::guard('members'), $session);
 
         self::assertTrue($membership->is($principal));
     }
 
     /**
-     * Rows of `[guard, change to the device, message]`: devices whose owner or
-     * principal cannot be found through the guard.
+     * Rows of `[guard, change to the session, message]`: sessions whose owner
+     * or principal cannot be found through the guard.
      *
      * @return iterable<string, array{0: string, 1: array<string, mixed>, 2: string}>
      */
     public static function provideUnfoundSessions(): iterable
     {
-        $owner     = 'Device [%s] has no owner the provider of guard [api] finds.';
-        $principal = 'The resolver of guard [members] does not resolve the principal device [%s] records.';
+        $owner     = 'Session [%s] has no owner the provider of guard [api] finds.';
+        $principal = 'The resolver of guard [members] does not resolve the principal session [%s] records.';
 
         yield from [
             'no owner key'                         => ['api', ['authenticatable_id' => null], $owner],
@@ -181,7 +181,7 @@ final class ActingContextTest extends TestCase
     }
 
     /**
-     * A device whose owner the guard's provider does not find, or whose
+     * A session whose owner the guard's provider does not find, or whose
      * principal its resolver does not resolve as recorded, is refused.
      *
      * @param  string  $guard
@@ -190,19 +190,19 @@ final class ActingContextTest extends TestCase
      * @return void
      */
     #[DataProvider('provideUnfoundSessions')]
-    public function testADeviceWhoseSessionCannotBeFoundIsRefused(string $guard, array $change, string $message): void
+    public function testASessionThatCannotBeFoundIsRefused(string $guard, array $change, string $message): void
     {
         $this->seedIdentity();
         $this->seedMember();
 
-        $device = $this->device($guard, $guard === 'api' ? 'ada@example.test' : 'member@example.test');
+        $session = $this->record($guard, $guard === 'api' ? 'ada@example.test' : 'member@example.test');
 
-        $device->forceFill($change);
+        $session->forceFill($change);
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage(sprintf($message, $device->getKey()));
+        $this->expectExceptionMessage(sprintf($message, $session->getKey()));
 
-        ActingContext::recordedOn(ActingContext::guard($guard), $device);
+        ActingContext::recordedOn(ActingContext::guard($guard), $session);
     }
 
     /**
@@ -228,19 +228,19 @@ final class ActingContextTest extends TestCase
     }
 
     /**
-     * Sign the identity with the email in on the guard and return its device,
+     * Sign the identity with the email in on the guard and return its session,
      * read afresh.
      *
      * @param  string  $guard
      * @param  string  $email
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private function device(string $guard, string $email): Device
+    private function record(string $guard, string $email): Session
     {
-        $device = $this->sessions($guard)->signIn('password', self::credentials($email))->session?->device;
+        $session = $this->sessions($guard)->signIn('password', self::credentials($email))->session?->record;
 
-        self::assertInstanceOf(Device::class, $device);
+        self::assertInstanceOf(Session::class, $session);
 
-        return Device::query()->whereKey($device->getKey())->firstOrFail();
+        return Session::query()->whereKey($session->getKey())->firstOrFail();
     }
 }

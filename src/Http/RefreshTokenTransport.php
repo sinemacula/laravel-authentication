@@ -8,11 +8,11 @@ use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
-use SineMacula\Laravel\Authentication\Devices\DeviceDeadlines;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\SessionRecords\SessionDeadlines;
 use Symfony\Component\HttpFoundation\Cookie;
 
 /**
@@ -101,19 +101,19 @@ final readonly class RefreshTokenTransport
     /**
      * The cookie that carries the refresh token to the browser: `HttpOnly`, so
      * scripts cannot read it, `Secure`, `SameSite=Strict`, with the guard's
-     * name, path and domain, and expiring when the device's session ends (the
-     * earlier of its deadlines, as the token itself does).
+     * name, path and domain, and expiring when the session ends (the earlier of
+     * its deadlines, as the token itself does).
      *
      * @param  string  $refreshToken
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return \Symfony\Component\HttpFoundation\Cookie
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public function cookie(#[\SensitiveParameter] string $refreshToken, Device $device): Cookie
+    public function cookie(#[\SensitiveParameter] string $refreshToken, Session $session): Cookie
     {
-        return $this->makeCookie($refreshToken, self::sessionEnd($device));
+        return $this->makeCookie($refreshToken, self::sessionEnd($session));
     }
 
     /**
@@ -156,18 +156,18 @@ final readonly class RefreshTokenTransport
     }
 
     /**
-     * When the device's session ends, the earlier of its deadlines, read on the
-     * write connection, as the refresh token's own `exp` is.
+     * When the session ends, the earlier of its deadlines, read on the write
+     * connection, as the refresh token's own `exp` is.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return \Carbon\CarbonImmutable
      *
      * @throws \InvalidArgumentException
      */
-    private static function sessionEnd(Device $device): CarbonImmutable
+    private static function sessionEnd(Session $session): CarbonImmutable
     {
-        [$idle, $absolute] = WriteConnection::during($device, static fn (): ?array => DeviceDeadlines::liveDeadlines($device, Carbon::now()))
-            ?? throw new \InvalidArgumentException('Cannot set a refresh cookie for a device whose session has ended or that has no idle and absolute deadlines.');
+        [$idle, $absolute] = WriteConnection::during($session, static fn (): ?array => SessionDeadlines::liveDeadlines($session, Carbon::now()))
+            ?? throw new \InvalidArgumentException('Cannot set a refresh cookie for a session that has ended or that has no idle and absolute deadlines.');
 
         return CarbonImmutable::createFromTimestamp(min($idle->getTimestamp(), $absolute->getTimestamp()));
     }

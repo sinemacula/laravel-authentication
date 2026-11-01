@@ -7,9 +7,9 @@ namespace Tests\Unit\Factors;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
@@ -55,10 +55,10 @@ final class NeverRequireAdditionalFactorTest extends TestCase
         $identity  = \Mockery::mock(Identity::class);
         $principal = \Mockery::mock(Principal::class);
         $tenant    = \Mockery::mock(Tenant::class);
-        $device    = \Mockery::mock(Device::class);
+        $session   = \Mockery::mock(Session::class);
         $client    = new ClientContext('203.0.113.7', 'agent');
 
-        $context = new AdditionalFactorContext('api', $identity, $principal, $tenant, 'sso', $client, 'Work laptop', 'macOS', $device);
+        $context = new AdditionalFactorContext('api', $identity, $principal, $tenant, 'sso', $client, 'Work laptop', 'macOS', $session);
 
         self::assertSame('api', $context->guard);
         self::assertSame($identity, $context->identity);
@@ -68,6 +68,6 @@ final class NeverRequireAdditionalFactorTest extends TestCase
         self::assertSame($client, $context->client);
         self::assertSame('Work laptop', $context->clientName);
         self::assertSame('macOS', $context->platform);
-        self::assertSame($device, $context->provenDevice);
+        self::assertSame($session, $context->provenSession);
     }
 }

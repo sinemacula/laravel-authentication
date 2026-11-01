@@ -13,8 +13,8 @@ use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
-use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
@@ -39,8 +39,8 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Principal Principal the guard resolves. */
     private MockInterface $principal;
 
-    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Device Device the guard resolves. */
-    private MockInterface $device;
+    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Session Session the guard resolves. */
+    private MockInterface $session;
 
     /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Tenant Tenant the principal acts within. */
     private MockInterface $tenant;
@@ -57,7 +57,7 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
 
         $this->identity  = $this->mockIdentity();
         $this->principal = $this->mockPrincipal();
-        $this->device    = $this->mockDevice();
+        $this->session   = $this->mockSession();
         $this->tenant    = \Mockery::mock(Tenant::class);
 
         $this->principal->shouldReceive('getTenant')->andReturn($this->tenant);
@@ -88,14 +88,14 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     }
 
     /**
-     * The first call to `device()` resolves the request before reading the
-     * bound device.
+     * The first call to `session()` resolves the request before reading the
+     * bound session.
      *
      * @return void
      */
-    public function testDeviceResolvesTheRequestOnFirstCall(): void
+    public function testSessionResolvesTheRequestOnFirstCall(): void
     {
-        self::assertSame($this->device, $this->makeResolvingGuard()->device());
+        self::assertSame($this->session, $this->makeResolvingGuard()->session());
     }
 
     /**
@@ -145,41 +145,41 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
 
         self::assertSame($pinned, $guard->principal());
         self::assertSame($this->identity, $guard->identity());
-        self::assertSame($this->device, $guard->device());
+        self::assertSame($this->session, $guard->session());
     }
 
     /**
-     * A device pinned before anything resolved the request is pinned over the
-     * device the request binds, not replaced by it on the next access.
+     * A session pinned before anything resolved the request is pinned over the
+     * session the request binds, not replaced by it on the next access.
      *
      * @return void
      */
-    public function testSetDeviceBeforeFirstAccessPinsOverTheResolvedDevice(): void
+    public function testSetSessionBeforeFirstAccessPinsOverTheResolvedSession(): void
     {
-        $pinned = $this->mockDevice();
+        $pinned = $this->mockSession();
         $guard  = $this->makeResolvingGuard();
 
-        $guard->setDevice($pinned);
+        $guard->setSession($pinned);
 
-        self::assertSame($pinned, $guard->device());
+        self::assertSame($pinned, $guard->session());
         self::assertSame($this->identity, $guard->identity());
         self::assertSame($this->principal, $guard->principal());
     }
 
     /**
      * `setPrincipal()` reports the context bound with it: the principal's
-     * tenant, and the method of a device already bound, or none without one.
+     * tenant, and the method of a session already bound, or none without one.
      *
      * @return void
      */
     public function testSetPrincipalReportsTheBoundContext(): void
     {
-        $this->device->shouldReceive('getSignInMethod')->andReturn('password');
+        $this->session->shouldReceive('getSignInMethod')->andReturn('password');
 
         $events = $this->recordEvents();
         $guard  = $this->makeGuard();
 
-        $guard->authenticateAs($this->identity, $this->principal, $this->device);
+        $guard->authenticateAs($this->identity, $this->principal, $this->session);
         $events->exchangeArray([]);
 
         $other = $this->mockPrincipal();
@@ -190,16 +190,16 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
 
         self::assertCount(1, $first);
         self::assertSame($other, $first[0]->principal);
-        self::assertSame($this->device, $first[0]->device);
+        self::assertSame($this->session, $first[0]->session);
         self::assertSame('password', $first[0]->method);
     }
 
     /**
-     * `setPrincipal()` with no device bound reports no method and no device.
+     * `setPrincipal()` with no session bound reports no method and no session.
      *
      * @return void
      */
-    public function testSetPrincipalWithoutADeviceReportsNoMethod(): void
+    public function testSetPrincipalWithoutASessionReportsNoMethod(): void
     {
         $events = $this->recordEvents();
 
@@ -208,30 +208,30 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
         $contexts = $this->contextsOf($events, PrincipalAssigned::class);
 
         self::assertCount(1, $contexts);
-        self::assertNull($contexts[0]->device);
+        self::assertNull($contexts[0]->session);
         self::assertNull($contexts[0]->method);
         self::assertSame($this->tenant, $contexts[0]->tenant);
     }
 
     /**
-     * `setDevice()` reports the tenant of the principal already bound, and no
+     * `setSession()` reports the tenant of the principal already bound, and no
      * tenant when no principal is bound.
      *
      * @return void
      */
-    public function testSetDeviceReportsTheBoundPrincipalsTenant(): void
+    public function testSetSessionReportsTheBoundPrincipalsTenant(): void
     {
-        $this->device->shouldReceive('getSignInMethod')->andReturn('password');
+        $this->session->shouldReceive('getSignInMethod')->andReturn('password');
 
         $events = $this->recordEvents();
         $guard  = $this->makeGuard();
 
-        $guard->setDevice($this->device);
+        $guard->setSession($this->session);
 
         $guard->authenticateAs($this->identity, $this->principal);
-        $guard->setDevice($this->device);
+        $guard->setSession($this->session);
 
-        $contexts = $this->contextsOf($events, DeviceAuthenticated::class);
+        $contexts = $this->contextsOf($events, SessionAuthenticated::class);
 
         self::assertCount(2, $contexts);
         self::assertNull($contexts[0]->tenant);
@@ -261,17 +261,17 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     }
 
     /**
-     * A bind without a device dispatches no `DeviceAuthenticated`.
+     * A bind without a session dispatches no `SessionAuthenticated`.
      *
      * @return void
      */
-    public function testABindWithoutADeviceDispatchesNoDeviceEvent(): void
+    public function testABindWithoutASessionDispatchesNoSessionEvent(): void
     {
         $events = $this->recordEvents();
 
         $this->makeGuard()->authenticateAs($this->identity, $this->principal);
 
-        self::assertSame([], $this->contextsOf($events, DeviceAuthenticated::class));
+        self::assertSame([], $this->contextsOf($events, SessionAuthenticated::class));
         self::assertCount(1, $this->contextsOf($events, PrincipalAssigned::class));
     }
 
@@ -299,7 +299,7 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
         $events = $this->recordEvents();
         $guard  = $this->makeGuard();
 
-        $guard->login($this->identity, $this->principal, $this->device);
+        $guard->login($this->identity, $this->principal, $this->session);
 
         self::assertNull($guard->scopes());
 
@@ -375,7 +375,7 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
 
     /**
      * A context a credential authenticated is limited to the scopes it grants,
-     * and every event describing it, a later principal or device bind's
+     * and every event describing it, a later principal or session bind's
      * included, carries the credential and its scopes; clearing the state,
      * signing out or forgetting the user clears them.
      *
@@ -392,9 +392,9 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
         self::assertSame(['invoices:read'], $guard->scopes());
 
         $guard->setPrincipal($this->principal);
-        $guard->setDevice($this->device);
+        $guard->setSession($this->session);
 
-        $contexts = [...$this->contextsOf($events, PrincipalAssigned::class), ...$this->contextsOf($events, DeviceAuthenticated::class)];
+        $contexts = [...$this->contextsOf($events, PrincipalAssigned::class), ...$this->contextsOf($events, SessionAuthenticated::class)];
 
         self::assertCount(3, $contexts);
 
@@ -430,46 +430,46 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     /**
      * `loginVerified()` binds as a sign-in, `Validated` and then `Login` before
      * the bind events, which carry the tenant and the method it is given rather
-     * than the principal's tenant and the device's method, and it clears what
+     * than the principal's tenant and the session's method, and it clears what
      * was bound before.
      *
      * @return void
      */
     public function testLoginVerifiedBindsAsASignInWithTheTenantAndMethodGiven(): void
     {
-        $this->device->shouldReceive('getSignInMethod')->andReturn('password');
+        $this->session->shouldReceive('getSignInMethod')->andReturn('password');
 
         $verified = \Mockery::mock(Tenant::class);
         $verified->shouldReceive('getTenantIdentifier')->andReturn('tenant-2');
         $events = $this->recordEvents();
         $guard  = $this->makeGuard();
 
-        $guard->authenticateAs($this->mockIdentity(), $this->mockPrincipal(), $this->mockDevice());
+        $guard->authenticateAs($this->mockIdentity(), $this->mockPrincipal(), $this->mockSession());
         $events->exchangeArray([]);
 
-        $guard->loginVerified($this->identity, $this->principal, $this->device, $verified, 'passkey');
+        $guard->loginVerified($this->identity, $this->principal, $this->session, $verified, 'passkey');
 
         self::assertSame(
-            [Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class, DeviceAuthenticated::class],
+            [Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class, SessionAuthenticated::class],
             array_map(static fn (object $event): string => $event::class, $events->getArrayCopy()),
         );
         self::assertSame($this->identity, $events[0]->user ?? null);
         self::assertSame($this->identity, $events[1]->user ?? null);
 
-        foreach ([...$this->contextsOf($events, PrincipalAssigned::class), ...$this->contextsOf($events, DeviceAuthenticated::class)] as $context) {
+        foreach ([...$this->contextsOf($events, PrincipalAssigned::class), ...$this->contextsOf($events, SessionAuthenticated::class)] as $context) {
             self::assertSame($verified, $context->tenant);
             self::assertSame('passkey', $context->method);
-            self::assertSame($this->device, $context->device);
+            self::assertSame($this->session, $context->session);
         }
 
-        self::assertSame([$this->identity, $this->principal, $this->device], [$guard->user(), $guard->principal(), $guard->device()]);
+        self::assertSame([$this->identity, $this->principal, $this->session], [$guard->user(), $guard->principal(), $guard->session()]);
 
         $events->exchangeArray([]);
 
         $guard->loginVerified($this->identity, $this->principal, null, null, null);
 
-        self::assertNull($guard->device());
-        self::assertSame([], $this->contextsOf($events, DeviceAuthenticated::class));
+        self::assertNull($guard->session());
+        self::assertSame([], $this->contextsOf($events, SessionAuthenticated::class));
         self::assertNull($this->contextsOf($events, PrincipalAssigned::class)[0]->tenant);
     }
 
@@ -482,7 +482,7 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     private function makeResolvingGuard(): AbstractGuard
     {
         $guard = new class (self::GUARD_NAME, $this->provider, $this->resolver, $this->events, $this->request, $this->timebox) extends AbstractGuard {
-            /** @var ?array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Contracts\Principal, 2: \SineMacula\Laravel\Authentication\Contracts\Device} Context bound on the first `user()` call. */
+            /** @var ?array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Contracts\Principal, 2: \SineMacula\Laravel\Authentication\Contracts\Session} Context bound on the first `user()` call. */
             public ?array $pending = null;
 
             /**
@@ -505,7 +505,7 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
             }
         };
 
-        $guard->pending = [$this->identity, $this->principal, $this->device];
+        $guard->pending = [$this->identity, $this->principal, $this->session];
 
         return $guard;
     }

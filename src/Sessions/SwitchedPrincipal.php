@@ -7,9 +7,9 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 use SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh;
 
 /**
- * A session that switched the principal it acts as on its device: the session
- * as it now is, with its new pair, and the principal its device recorded
- * before, as the type and identifier it stored.
+ * A session that switched the principal it acts as: the session as it now is,
+ * with its new pair, and the principal it recorded before, as the type and
+ * identifier it stored.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -28,13 +28,13 @@ final readonly class SwitchedPrincipal
      */
     public function __construct(
 
-        /** The session on its device, acting as the target, with its new pair. */
+        /** The session, acting as the target, with its new pair. */
         public ExchangedRefresh $session,
 
-        /** The principal's morph type the device recorded before. */
+        /** The principal's morph type the session recorded before. */
         public ?string $previousType,
 
-        /** The principal identifier the device recorded before. */
+        /** The principal identifier the session recorded before. */
         public ?string $previousId,
 
         /** Whether this call changed the principal, rather than rotating for the one already recorded or answering a retry. */

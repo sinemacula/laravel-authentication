@@ -9,9 +9,9 @@ use Firebase\JWT\JWT;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Log\LoggerInterface;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -133,7 +133,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
             'access sub'  => [TokenType::ACCESS, Claims::SUBJECT],
             'access pid'  => [TokenType::ACCESS, Claims::PRINCIPAL_ID],
             'refresh jti' => [TokenType::REFRESH, Claims::JWT_ID],
-            'refresh did' => [TokenType::REFRESH, Claims::DEVICE_ID],
+            'refresh did' => [TokenType::REFRESH, Claims::SESSION_ID],
         ];
     }
 
@@ -164,17 +164,17 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     {
         $access = $this->completeClaims(TokenType::ACCESS);
 
-        unset($access[Claims::DEVICE_ID->value]);
+        unset($access[Claims::SESSION_ID->value]);
 
-        $nullDevice                           = $this->completeClaims(TokenType::ACCESS);
-        $nullDevice[Claims::DEVICE_ID->value] = null;
+        $nullSession                            = $this->completeClaims(TokenType::ACCESS);
+        $nullSession[Claims::SESSION_ID->value] = null;
 
         $refresh = $this->completeClaims(TokenType::REFRESH);
 
         unset($refresh[Claims::PRINCIPAL_ID->value]);
 
         self::assertIsArray($this->makeService()->parse($this->encode($access), TokenType::ACCESS));
-        self::assertIsArray($this->makeService()->parse($this->encode($nullDevice), TokenType::ACCESS));
+        self::assertIsArray($this->makeService()->parse($this->encode($nullSession), TokenType::ACCESS));
         self::assertIsArray($this->makeService()->parse($this->encode($refresh), TokenType::REFRESH));
     }
 
@@ -189,7 +189,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     {
         $claims = $this->completeClaims(TokenType::REFRESH);
 
-        unset($claims[Claims::DEVICE_ID->value]);
+        unset($claims[Claims::SESSION_ID->value]);
 
         self::assertNull($this->makeService()->parse($this->encode($claims)));
     }
@@ -266,7 +266,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $service = $this->makeService();
 
         $access  = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null), TokenType::ACCESS);
-        $refresh = $service->parse($service->issueRefreshToken($this->mockDevice('device-42'), 'rotation-id'), TokenType::REFRESH);
+        $refresh = $service->parse($service->issueRefreshToken($this->mockSession('session-42'), 'rotation-id'), TokenType::REFRESH);
 
         self::assertIsArray($access);
         self::assertIsArray($refresh);
@@ -318,7 +318,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
      */
     public function testParseRejectsARefreshTokenIssuedForAnotherGuard(): void
     {
-        $token = $this->makeServiceFor(self::OTHER_GUARD)->issueRefreshToken($this->mockDevice('device-42'), 'rotation-id');
+        $token = $this->makeServiceFor(self::OTHER_GUARD)->issueRefreshToken($this->mockSession('session-42'), 'rotation-id');
 
         self::assertNull($this->makeService()->parse($token, TokenType::REFRESH));
     }
@@ -390,7 +390,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A refresh token offered as proof of a device is accepted after it has
+     * A refresh token offered as proof of a session is accepted after it has
      * expired, with the same claims `parse()` returns for a live one, while
      * `parse()` itself rejects it.
      *
@@ -399,8 +399,8 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     public function testParseRefreshProofAcceptsAnExpiredRefreshToken(): void
     {
         $service = $this->makeService();
-        $device  = $this->mockDeviceEndingAt('device-42', $this->now->copy()->addMinutes(10), $this->now->copy()->addMinutes(20));
-        $token   = $service->issueRefreshToken($device, 'rotation-id', $this->mockPrincipal('principal-3'));
+        $record  = $this->mockSessionEndingAt('session-42', $this->now->copy()->addMinutes(10), $this->now->copy()->addMinutes(20));
+        $token   = $service->issueRefreshToken($record, 'rotation-id', $this->mockPrincipal('principal-3'));
         $live    = $service->parseRefreshProof($token);
 
         self::assertSame($service->parse($token, TokenType::REFRESH), $live);
@@ -409,7 +409,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
 
         self::assertNull($service->parse($token, TokenType::REFRESH));
         self::assertSame($live, $service->parseRefreshProof($token));
-        self::assertSame('device-42', $live[Claims::DEVICE_ID->value] ?? null);
+        self::assertSame('session-42', $live[Claims::SESSION_ID->value] ?? null);
         self::assertSame('rotation-id', $live[Claims::JWT_ID->value] ?? null);
     }
 
@@ -439,7 +439,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
 
         $claims = $this->completeClaims(TokenType::REFRESH);
 
-        unset($claims[Claims::DEVICE_ID->value]);
+        unset($claims[Claims::SESSION_ID->value]);
 
         $future = $this->completeClaims(TokenType::REFRESH);
 
@@ -448,8 +448,8 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $otherKey = new JwtTokenService($this->makeKeyring(str_repeat('k', 32)), self::GUARD, $service->lifetimes(), 30);
 
         self::assertNull($service->parseRefreshProof($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null)));
-        self::assertNull($service->parseRefreshProof($this->makeServiceFor(self::OTHER_GUARD)->issueRefreshToken($this->mockDevice('device-42'), 'rotation-id')));
-        self::assertNull($service->parseRefreshProof($otherKey->issueRefreshToken($this->mockDevice('device-42'), 'rotation-id')));
+        self::assertNull($service->parseRefreshProof($this->makeServiceFor(self::OTHER_GUARD)->issueRefreshToken($this->mockSession('session-42'), 'rotation-id')));
+        self::assertNull($service->parseRefreshProof($otherKey->issueRefreshToken($this->mockSession('session-42'), 'rotation-id')));
         self::assertNull($service->parseRefreshProof($this->encode($future)));
         self::assertNull($service->parseRefreshProof($this->encode($claims)));
         self::assertNull($service->parseRefreshProof('not-a-jwt'));
@@ -471,7 +471,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         try {
             $service = $this->makeService();
 
-            $service->parseRefreshProof($service->issueRefreshToken($this->mockDevice('device-42'), 'rotation-id'));
+            $service->parseRefreshProof($service->issueRefreshToken($this->mockSession('session-42'), 'rotation-id'));
 
             self::assertSame(7, JWT::$leeway);
 
@@ -485,7 +485,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
 
     /**
      * The service exposes the lifetimes it issues with, for code that stamps a
-     * new device's deadlines.
+     * new session's deadlines.
      *
      * @return void
      */
@@ -499,38 +499,38 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A refresh token expires at the device's stored idle deadline, not the
+     * A refresh token expires at the session's stored idle deadline, not the
      * idle lifetime from now: the row decides how long the session lasts.
      *
      * @return void
      */
-    public function testRefreshTokenExpiresAtTheDevicesIdleDeadline(): void
+    public function testRefreshTokenExpiresAtTheSessionsIdleDeadline(): void
     {
-        $device = $this->mockDeviceEndingAt('device-42', $this->now->copy()->addHours(2), $this->now->copy()->addDays(10));
+        $record = $this->mockSessionEndingAt('session-42', $this->now->copy()->addHours(2), $this->now->copy()->addDays(10));
 
-        $claims = $this->refreshClaims($this->makeService()->issueRefreshToken($device, 'rotation-id'));
+        $claims = $this->refreshClaims($this->makeService()->issueRefreshToken($record, 'rotation-id'));
 
         self::assertSame($this->now->getTimestamp() + 7200, $claims[Claims::EXPIRES_AT->value]);
     }
 
     /**
-     * A refresh token never expires after the device's absolute deadline, even
+     * A refresh token never expires after the session's absolute deadline, even
      * when the stored idle deadline lies beyond it.
      *
      * @return void
      */
     public function testRefreshTokenNeverExpiresAfterTheAbsoluteDeadline(): void
     {
-        $device = $this->mockDeviceEndingAt('device-42', $this->now->copy()->addDays(10), $this->now->copy()->addDay());
+        $record = $this->mockSessionEndingAt('session-42', $this->now->copy()->addDays(10), $this->now->copy()->addDay());
 
-        $claims = $this->refreshClaims($this->makeService()->issueRefreshToken($device, 'rotation-id'));
+        $claims = $this->refreshClaims($this->makeService()->issueRefreshToken($record, 'rotation-id'));
 
         self::assertSame($this->now->getTimestamp() + 86400, $claims[Claims::EXPIRES_AT->value]);
     }
 
     /**
      * An access token expires after the access lifetime when there is no
-     * device, or when the device's session outlasts the token.
+     * session, or when the session outlasts the token.
      *
      * @return void
      *
@@ -541,12 +541,12 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $expected = $this->now->getTimestamp() + (self::ACCESS_TTL_MINUTES * 60);
 
         self::assertSame($expected, $this->accessExpiry(null));
-        self::assertSame($expected, $this->accessExpiry($this->mockDeviceEndingAt('device-42', $this->now->copy()->addDay(), $this->now->copy()->addDay())));
+        self::assertSame($expected, $this->accessExpiry($this->mockSessionEndingAt('session-42', $this->now->copy()->addDay(), $this->now->copy()->addDay())));
     }
 
     /**
-     * An access token never expires after the absolute deadline of its device's
-     * session, even when the idle deadline lies beyond it.
+     * An access token never expires after the absolute deadline of its session,
+     * even when the idle deadline lies beyond it.
      *
      * @return void
      *
@@ -556,16 +556,16 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     {
         foreach ([120, 1] as $absoluteIn) {
 
-            $device = $this->mockDeviceEndingAt('device-42', $this->now->copy()->addDay(), $this->now->copy()->addSeconds($absoluteIn));
+            $record = $this->mockSessionEndingAt('session-42', $this->now->copy()->addDay(), $this->now->copy()->addSeconds($absoluteIn));
 
-            self::assertSame($this->now->getTimestamp() + $absoluteIn, $this->accessExpiry($device));
+            self::assertSame($this->now->getTimestamp() + $absoluteIn, $this->accessExpiry($record));
         }
     }
 
     /**
-     * An access token never expires after the idle deadline of its device's
-     * session either, from which the bearer path rejects it: an idle lifetime
-     * shorter than the access lifetime shortens the token to match.
+     * An access token never expires after the idle deadline of its session
+     * either, from which the bearer path rejects it: an idle lifetime shorter
+     * than the access lifetime shortens the token to match.
      *
      * @return void
      *
@@ -575,14 +575,14 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     {
         foreach ([120, 1] as $idleIn) {
 
-            $device = $this->mockDeviceEndingAt('device-42', $this->now->copy()->addSeconds($idleIn), $this->now->copy()->addDay());
+            $record = $this->mockSessionEndingAt('session-42', $this->now->copy()->addSeconds($idleIn), $this->now->copy()->addDay());
 
-            self::assertSame($this->now->getTimestamp() + $idleIn, $this->accessExpiry($device));
+            self::assertSame($this->now->getTimestamp() + $idleIn, $this->accessExpiry($record));
         }
     }
 
     /**
-     * A caller that judged the device at a given time issues at that time:
+     * A caller that judged the session at a given time issues at that time:
      * `iat` and the access lifetime count from it, cut to the whole second.
      *
      * @return void
@@ -593,10 +593,10 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     {
         $issuedAt = CarbonImmutable::instance($this->now)->subSeconds(10)->addMilliseconds(900);
         $service  = $this->makeService();
-        $device   = $this->mockDevice('device-42');
+        $record   = $this->mockSession('session-42');
 
-        $access  = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), $device, $issuedAt), TokenType::ACCESS);
-        $refresh = $this->refreshClaims($service->issueRefreshToken($device, 'rotation-id', null, $issuedAt));
+        $access  = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), $record, $issuedAt), TokenType::ACCESS);
+        $refresh = $this->refreshClaims($service->issueRefreshToken($record, 'rotation-id', null, $issuedAt));
 
         self::assertIsArray($access);
         self::assertSame($this->now->getTimestamp() - 10, $access[Claims::ISSUED_AT->value]);
@@ -623,7 +623,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * No access token is issued for a device whose session has ended or has no
+     * No access token is issued for a session that has ended or has no
      * deadlines: it could never be used, and a token must not outlive its
      * session.
      *
@@ -636,16 +636,16 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     #[DataProvider('provideEndedSessions')]
     public function testRefusesAnAccessTokenForAnEndedSession(?int $idleIn, ?int $absoluteIn): void
     {
-        $device = $this->mockDeviceEndingAt('device-42', $this->secondsFromNow($idleIn), $this->secondsFromNow($absoluteIn));
+        $record = $this->mockSessionEndingAt('session-42', $this->secondsFromNow($idleIn), $this->secondsFromNow($absoluteIn));
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Cannot issue a token for a device whose session has ended or that has no idle and absolute deadlines.');
+        $this->expectExceptionMessage('Cannot issue a token for a session that has ended or that has no idle and absolute deadlines.');
 
-        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), $device);
+        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), $record);
     }
 
     /**
-     * No refresh token is issued for a device whose session has ended or has no
+     * No refresh token is issued for a session that has ended or has no
      * deadlines, so issuing cannot extend a session that is over.
      *
      * @param  ?int  $idleIn
@@ -655,17 +655,17 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     #[DataProvider('provideEndedSessions')]
     public function testRefusesARefreshTokenForAnEndedSession(?int $idleIn, ?int $absoluteIn): void
     {
-        $device = $this->mockDeviceEndingAt('device-42', $this->secondsFromNow($idleIn), $this->secondsFromNow($absoluteIn));
+        $record = $this->mockSessionEndingAt('session-42', $this->secondsFromNow($idleIn), $this->secondsFromNow($absoluteIn));
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Cannot issue a token for a device whose session has ended or that has no idle and absolute deadlines.');
+        $this->expectExceptionMessage('Cannot issue a token for a session that has ended or that has no idle and absolute deadlines.');
 
-        $this->makeService()->issueRefreshToken($device, 'rotation-id');
+        $this->makeService()->issueRefreshToken($record, 'rotation-id');
     }
 
     /**
      * An access token carries exactly the access claims, and a client
-     * credentials token those and its `cid` and `scope`, with no device.
+     * credentials token those and its `cid` and `scope`, with no session.
      *
      * @return void
      *
@@ -740,7 +740,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
             Claims::TYPE->value         => $type->value,
             Claims::GUARD->value        => self::GUARD,
             Claims::PRINCIPAL_ID->value => 'principal-3',
-            Claims::DEVICE_ID->value    => 'device-42',
+            Claims::SESSION_ID->value   => 'session-42',
         ];
 
         if ($type === TokenType::ACCESS) {
@@ -808,17 +808,17 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
 
     /**
      * The `exp` claim of an access token the default service issues for the
-     * device.
+     * session.
      *
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $record
      * @return mixed
      *
      * @throws \Random\RandomException
      */
-    private function accessExpiry(?Device $device): mixed
+    private function accessExpiry(?Session $record): mixed
     {
         $service = $this->makeService();
-        $claims  = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), $device), TokenType::ACCESS);
+        $claims  = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), $record), TokenType::ACCESS);
 
         self::assertIsArray($claims);
 

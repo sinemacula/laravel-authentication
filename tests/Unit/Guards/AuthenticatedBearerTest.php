@@ -8,7 +8,7 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
-use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Guards\AuthenticatedBearer;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
@@ -28,8 +28,7 @@ final class AuthenticatedBearerTest extends TestCase
 
     /**
      * A client credentials token reports `client_credentials`; any other
-     * reports the method its device's session records, or none without a
-     * device.
+     * reports the method its session records, or none without a session.
      *
      * @return void
      */
@@ -44,10 +43,10 @@ final class AuthenticatedBearerTest extends TestCase
         self::assertNull((new AuthenticatedBearer($admitted))->method());
         self::assertNull((new AuthenticatedBearer($admitted))->scopes);
 
-        $device = \Mockery::mock(Device::class);
-        $device->shouldReceive('getSignInMethod')->andReturn('password');
+        $session = \Mockery::mock(Session::class);
+        $session->shouldReceive('getSignInMethod')->andReturn('password');
 
-        self::assertSame('password', (new AuthenticatedBearer($admitted->on($device)))->method());
-        self::assertSame('client_credentials', (new AuthenticatedBearer($admitted->on($device), 'key-1', []))->method());
+        self::assertSame('password', (new AuthenticatedBearer($admitted->on($session)))->method());
+        self::assertSame('client_credentials', (new AuthenticatedBearer($admitted->on($session), 'key-1', []))->method());
     }
 }

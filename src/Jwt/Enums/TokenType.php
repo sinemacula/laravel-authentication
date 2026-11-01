@@ -32,7 +32,7 @@ enum TokenType: string
 
         return match ($this) {
             self::ACCESS  => [...$common, Claims::SUBJECT, Claims::PRINCIPAL_ID],
-            self::REFRESH => [...$common, Claims::DEVICE_ID],
+            self::REFRESH => [...$common, Claims::SESSION_ID],
         };
     }
 }

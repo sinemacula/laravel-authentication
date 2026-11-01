@@ -23,7 +23,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
-use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
+use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use Tests\Integration\Fixtures\MachineClient;
 
@@ -115,7 +115,7 @@ final class MachineCredentialBenchHarness
 
         BenchSchema::ensureMachineClientTable();
         BenchSchema::ensureApiKeyTable();
-        BenchSchema::ensureDeviceTable();
+        BenchSchema::ensureSessionTable();
 
         $this->seedFixtures();
         $this->assertEachPathReachesItsOutcome();
@@ -290,7 +290,7 @@ final class MachineCredentialBenchHarness
             $this->tokens,
             static fn (GuardContext $context): SessionRevocations => new SessionRevocations(
                 $context,
-                new DeviceRevocations(BenchDatabase::connectionResolver(), static fn (): null => null),
+                new RevocationWriter(BenchDatabase::connectionResolver(), static fn (): null => null),
                 Container::getInstance(),
             ),
             BenchRequest::refreshTransport(...),

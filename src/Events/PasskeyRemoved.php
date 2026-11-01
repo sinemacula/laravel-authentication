@@ -13,7 +13,7 @@ namespace SineMacula\Laravel\Authentication\Events;
  * that removed it, the identity that owned it, the method `passkey`, and the
  * removed passkey's id in `credentialId`. A listener that ends the identity's
  * sessions when a sign-in factor goes away can be registered:
- * `RevokeDevicesOnPasskeyRemoval`.
+ * `RevokeSessionsOnPasskeyRemoval`.
  *
  * @api
  *

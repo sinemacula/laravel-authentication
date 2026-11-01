@@ -11,14 +11,14 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
-use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalSwitch;
+use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -29,11 +29,11 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
 /**
- * Races a switch of principal and the revocation of a device against each other
- * and against a refresh, on PostgreSQL and MySQL, each side in a process with a
- * database connection of its own: one side writes the device inside a
+ * Races a switch of principal and the revocation of a session against each
+ * other and against a refresh, on PostgreSQL and MySQL, each side in a process
+ * with a database connection of its own: one side writes the session inside a
  * transaction it holds open, and the other, started meanwhile, waits on the
- * device's row. When the first commits, the second finds the row it read
+ * session's row. When the first commits, the second finds the row it read
  * changed under it and is answered from the row as it now is; when the first
  * rolls back, the second goes ahead as if alone. Either way each change is
  * made, and reported, once.
@@ -47,7 +47,7 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(PrincipalSwitch::class)]
-#[CoversClass(DeviceRevocations::class)]
+#[CoversClass(RevocationWriter::class)]
 final class ConcurrentSwitchAndRevocationTest extends TestCase
 {
     use InteractsWithSessions;
@@ -65,7 +65,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     private const int START_TIMEOUT_SECONDS = 10;
 
     /** @var list<class-string> The events both sides record. */
-    private const array EVENTS = [DeviceRevoked::class, PrincipalSwitched::class, Refreshed::class, SignedOutEverywhere::class];
+    private const array EVENTS = [SessionRevoked::class, PrincipalSwitched::class, Refreshed::class, SignedOutEverywhere::class];
 
     /** @var string Directory the second side reports its outcome in. */
     private string $outcomes;
@@ -123,7 +123,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     }
 
     /**
-     * Two revocations of an identity's devices: the one that waited finds them
+     * Two revocations of an identity's sessions: the one that waited finds them
      * revoked once the first commits, and revokes and reports none of them; it
      * revokes and reports them itself when the first rolls back.
      *
@@ -131,7 +131,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testTwoConcurrentRevocationsReportEachDeviceOnce(): void
+    public function testTwoConcurrentRevocationsReportEachSessionOnce(): void
     {
         foreach ([true, false] as $commit) {
 
@@ -141,33 +141,34 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
             $this->signIn();
 
             [$first, $second] = $this->race(
-                fn (): int => $this->sessions(self::GUARD)->revokeDevices($member, RevocationReason::REVOKED),
-                fn (): int => $this->sessions(self::GUARD)->revokeDevices($member, RevocationReason::REVOKED),
+                fn (): int => $this->sessions(self::GUARD)->revokeSessions($member, RevocationReason::REVOKED),
+                fn (): int => $this->sessions(self::GUARD)->revokeSessions($member, RevocationReason::REVOKED),
                 $commit,
             );
 
             self::assertSame(2, $first);
 
             if ($commit) {
-                self::assertSame([DeviceRevoked::class, DeviceRevoked::class, SignedOutEverywhere::class], $this->recordedClasses());
+                self::assertSame([SessionRevoked::class, SessionRevoked::class, SignedOutEverywhere::class], $this->recordedClasses());
                 self::assertSame(0, $second['result']);
                 self::assertSame([SignedOutEverywhere::class], $second['events']);
             } else {
                 self::assertSame([], $this->recordedClasses());
                 self::assertSame(2, $second['result']);
-                self::assertSame([DeviceRevoked::class, DeviceRevoked::class, SignedOutEverywhere::class], $second['events']);
+                self::assertSame([SessionRevoked::class, SessionRevoked::class, SignedOutEverywhere::class], $second['events']);
             }
 
-            self::assertSame(2, DB::table('devices')->where('revoked_reason', 'revoked')->count());
+            self::assertSame(2, DB::table('authentication_sessions')->where('revoked_reason', 'revoked')->count());
 
             $this->reset();
         }
     }
 
     /**
-     * A switch waiting on a revocation of its device fails as `device_revoked`
-     * once the revocation commits, leaving the device revoked and unswitched;
-     * when the revocation rolls back, the switch goes ahead.
+     * A switch waiting on a revocation of its session fails as
+     * `session_revoked` once the revocation commits, leaving the session
+     * revoked and unswitched; when the revocation rolls back, the switch goes
+     * ahead.
      *
      * @return void
      *
@@ -182,15 +183,15 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
             $session = $this->signIn();
 
             [, $second] = $this->race(
-                fn (): int => $this->sessions(self::GUARD)->revokeDevices($member, RevocationReason::REVOKED),
+                fn (): int => $this->sessions(self::GUARD)->revokeSessions($member, RevocationReason::REVOKED),
                 fn (): array => self::describe($this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $target)),
                 $commit,
             );
 
-            $row = DB::table('devices')->sole();
+            $row = DB::table('authentication_sessions')->sole();
 
             if ($commit) {
-                self::assertSame(['switched' => false, 'reason' => FailureReason::DEVICE_REVOKED->value], $second['result']);
+                self::assertSame(['switched' => false, 'reason' => FailureReason::SESSION_REVOKED->value], $second['result']);
                 self::assertSame([], $second['events']);
                 self::assertSame('revoked', $row->revoked_reason);
                 self::assertSame(IdentifierCoercion::stringify($first->getKey()), IdentifierCoercion::stringify($row->principal_id));
@@ -230,7 +231,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
 
             self::assertTrue($refreshed);
 
-            $row = DB::table('devices')->sole();
+            $row = DB::table('authentication_sessions')->sole();
 
             if ($commit) {
                 self::assertSame([Refreshed::class], $this->recordedClasses());
@@ -284,7 +285,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
                 self::assertSame([PrincipalSwitched::class], $second['events']);
             }
 
-            self::assertSame(IdentifierCoercion::stringify($target->getKey()), IdentifierCoercion::stringify(DB::table('devices')->value('principal_id')));
+            self::assertSame(IdentifierCoercion::stringify($target->getKey()), IdentifierCoercion::stringify(DB::table('authentication_sessions')->value('principal_id')));
 
             $this->reset();
         }
@@ -435,7 +436,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
      */
     private function reset(): void
     {
-        foreach (['devices', 'pending_sign_ins', 'rate_limits', 'activatable_tenant_memberships', 'activatable_tenants'] as $table) {
+        foreach (['authentication_sessions', 'pending_sign_ins', 'rate_limits', 'activatable_tenant_memberships', 'activatable_tenants'] as $table) {
             DB::table($table)->delete();
         }
 

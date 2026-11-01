@@ -85,7 +85,7 @@ final class ApiKeyGuardTest extends TestCase
                 'principal' => self::keyGuard($guard)->principal()?->getPrincipalIdentifier(),
                 'tenant'    => self::keyGuard($guard)->tenant()?->getTenantIdentifier(),
                 'scopes'    => self::keyGuard($guard)->scopes(),
-                'device'    => self::keyGuard($guard)->device(),
+                'session'   => self::keyGuard($guard)->session(),
             ]);
         }
 
@@ -113,7 +113,7 @@ final class ApiKeyGuardTest extends TestCase
 
     /**
      * A request with a live key binds its owner and principal with the key's
-     * scopes and no device, as an authentication rather than a sign-in, and
+     * scopes and no session, as an authentication rather than a sign-in, and
      * records the key's use.
      *
      * @return void
@@ -130,7 +130,7 @@ final class ApiKeyGuardTest extends TestCase
             'principal' => $machine->getKey(),
             'tenant'    => null,
             'scopes'    => ['invoices:read'],
-            'device'    => null,
+            'session'   => null,
         ]);
 
         self::assertSame([Authenticated::class, PrincipalAssigned::class], $this->dispatchedClasses());
@@ -175,7 +175,7 @@ final class ApiKeyGuardTest extends TestCase
             'principal' => $membership->getKey(),
             'tenant'    => $tenant->getKey(),
             'scopes'    => ['reports'],
-            'device'    => null,
+            'session'   => null,
         ]);
     }
 

@@ -53,10 +53,10 @@ final class TokenTypeTest extends TestCase
      *
      * @return void
      */
-    public function testRefreshTokensRequireDevice(): void
+    public function testRefreshTokensRequireSession(): void
     {
         self::assertSame(
-            [Claims::EXPIRES_AT, Claims::ISSUED_AT, Claims::JWT_ID, Claims::TYPE, Claims::GUARD, Claims::DEVICE_ID],
+            [Claims::EXPIRES_AT, Claims::ISSUED_AT, Claims::JWT_ID, Claims::TYPE, Claims::GUARD, Claims::SESSION_ID],
             TokenType::REFRESH->requiredClaims(),
         );
     }

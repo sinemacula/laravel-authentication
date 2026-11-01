@@ -4,7 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions;
 
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -33,9 +33,9 @@ final class SessionPreconditions
     private function __construct() {}
 
     /**
-     * Refuse an identity that does not own devices: a session lives on a
-     * device, and a bearer token names one the guard can only find through the
-     * identity's `HasDevices` relation, so its access token would never
+     * Refuse an identity that does not own sessions: a session is a stored row,
+     * and a bearer token names one the guard can only find through the
+     * identity's `HasSessions` relation, so its access token would never
      * authenticate. Such a guard is access-only and signs in with `attempt()`.
      * A non-human identity is let through: it has no session at all, and the
      * sign-in's admission refuses it as `machine_identity`, a result rather
@@ -46,16 +46,16 @@ final class SessionPreconditions
      *
      * @throws \LogicException
      */
-    public static function assertHoldsDevices(Identity $identity): void
+    public static function assertHoldsSessions(Identity $identity): void
     {
-        if ($identity instanceof HasDevices || $identity instanceof MachineIdentity) {
+        if ($identity instanceof HasSessions || $identity instanceof MachineIdentity) {
             return;
         }
 
         $message = sprintf(
             'The session service can only start sessions for identities that implement %s; %s does not. '
             . 'Sign this guard\'s identities in with attempt() and issue access tokens instead.',
-            HasDevices::class,
+            HasSessions::class,
             $identity::class,
         );
 

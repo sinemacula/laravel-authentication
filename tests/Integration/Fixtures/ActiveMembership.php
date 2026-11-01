@@ -13,7 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
  * 3D principal fixture with an activity flag of its own, owned by an
- * `ActivatableTenantMember` (which holds devices), in the `active_memberships`
+ * `ActivatableTenantMember` (which holds sessions), in the `active_memberships`
  * table the test creates.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

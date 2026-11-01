@@ -79,7 +79,7 @@ final class ReplicaDatabaseAttemptLimiterTest extends TestCase
      */
     public function testFailuresBlockWhileTheReplicaLags(): void
     {
-        $subject = new AttemptSubject('api', AttemptFlow::REFRESH, 'device-1', null, '203.0.113.7');
+        $subject = new AttemptSubject('api', AttemptFlow::REFRESH, 'session-1', null, '203.0.113.7');
 
         $this->limiter()->recordFailure($subject);
         $this->limiter()->recordFailure($subject);
