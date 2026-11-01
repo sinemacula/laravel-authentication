@@ -60,12 +60,21 @@ final class RequirementTest extends TestCase
     /**
      * The strictest of several requirements has every part any of them has, the
      * shortest maximum age any gives it (any age only when none gives one), and
-     * the highest level asked for; none given asks for nothing.
+     * the highest level asked for; a part only one of them has is that one's
+     * own, and none given asks for nothing.
      *
      * @return void
      */
     public function testTheStrictestRequirementCombinesEveryPart(): void
     {
+        $only  = new RequirementPart(120);
+        $level = new LevelRequirement(AssuranceLevel::AAL2, 120);
+        $alone = Requirement::strictest(new Requirement($only, minimumLevel: $level), new Requirement(multifactor: $only));
+
+        self::assertSame($only, $alone->additionalVerification);
+        self::assertSame($only, $alone->multifactor);
+        self::assertSame($level, $alone->minimumLevel);
+        self::assertNull($alone->phishingResistance);
         self::assertTrue(Requirement::strictest()->isEmpty());
 
         $strictest = Requirement::strictest(

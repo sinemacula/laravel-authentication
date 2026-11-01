@@ -22,6 +22,8 @@ use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
+use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
@@ -32,6 +34,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use Tests\Unit\Stubs\PlainTenantFixture;
 use Tests\Unit\Stubs\StubCredentialGuard;
 use Tests\Unit\Stubs\StubRequestResolvingGuard;
 use Tests\Unit\Stubs\StubSession;
@@ -783,6 +786,59 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
+     * `attempt()` with a pinned session holds the principal to the tenant the
+     * session acts in: once `TenantAccess` no longer lets it act there, the
+     * attempt fails as `tenant_ineligible`, with the session, though the access
+     * still lets it act in its own, and binds nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPinnedSessionInATenantTheAccessNoLongerAllowsIsIneligible(): void
+    {
+        $sessionId = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f72';
+
+        $principal = $this->mockActivePrincipal();
+        $session   = $this->pinnableSession($sessionId, $principal)->forceFill(['tenant_id' => 'tenant-2']);
+        $elsewhere = new PlainTenantFixture('tenant-2');
+
+        $sessions = \Mockery::mock(Builder::class);
+        $sessions->shouldReceive('useWritePdo')->andReturnSelf();
+        $sessions->shouldReceive('getModel')->andReturn(new StubSession);
+        $sessions->shouldReceive('find')->with($sessionId)->andReturn($session);
+
+        $identity = $this->mockIdentity(HasSessions::class);
+        $identity->shouldReceive('sessions')->andReturn($sessions);
+
+        $this->expectPasswordAccepted($identity);
+        $this->resolver->shouldReceive('resolve')->once()->andReturn($principal);
+
+        $resolver = \Mockery::mock(TenantResolver::class);
+        $resolver->shouldReceive('resolve')->with('tenant-2')->andReturn($elsewhere);
+        $access = \Mockery::mock(TenantAccess::class);
+        $access->shouldReceive('mayActIn')->with($principal, null)->andReturnTrue();
+        $access->shouldReceive('mayActIn')->once()->with($principal, $elsewhere)->andReturnFalse();
+
+        assert($this->app !== null);
+
+        $this->app->instance(TenantResolver::class, $resolver);
+        $this->app->instance(TenantAccess::class, $access);
+
+        $events = $this->recordEvents();
+        $guard  = $this->makeGuard();
+
+        self::assertFalse($guard->attempt(['email' => 'ada@example.test', 'password' => 'secret'], null, $session));
+        self::assertFalse($guard->hasUser());
+
+        $signIn = $events[count($events) - 1];
+
+        self::assertInstanceOf(AuthenticationFailed::class, $signIn);
+        self::assertSame(FailureReason::TENANT_INELIGIBLE, $signIn->reason);
+        self::assertSame($session, $signIn->context->session);
+    }
+
+    /**
      * A pinned session the identity holds is bound, but the factor policy is
      * never told of it, because naming a session proves nothing about who holds
      * the client; when the policy then requires a factor, the failure still
@@ -1127,6 +1183,29 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         self::assertInstanceOf(PrincipalAssigned::class, $events[1]);
         self::assertNull($events[1]->context->method);
         self::assertNull($events[1]->context->session);
+    }
+
+    /**
+     * `authenticateAs()` binds the tenant it is given as given, over the
+     * principal's own; without one, the principal's own.
+     *
+     * @return void
+     */
+    public function testAuthenticateAsBindsTheTenantGivenOverThePrincipalsOwn(): void
+    {
+        $own       = new PlainTenantFixture(7);
+        $given     = new PlainTenantFixture(9);
+        $principal = $this->mockPrincipal();
+        $principal->shouldReceive('getTenant')->andReturn($own);
+        $guard = $this->makeGuard();
+
+        $guard->authenticateAs($this->mockIdentity(), $principal, null, null, $given);
+
+        self::assertSame($given, $guard->tenant());
+
+        $guard->authenticateAs($this->mockIdentity(), $principal);
+
+        self::assertSame($own, $guard->tenant());
     }
 
     /**

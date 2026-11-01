@@ -29,9 +29,9 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
 final class RequirementSubjectTest extends TestCase
 {
     /**
-     * The subject hands its query's arguments to the package's reader and
-     * returns what it reads, and holds the first factor however the query
-     * answers.
+     * The subject hands its query's arguments to the package's reader, at
+     * either end of the limit's range, and returns what it reads, and holds
+     * the first factor however the query answers.
      *
      * @return void
      */
@@ -53,8 +53,10 @@ final class RequirementSubjectTest extends TestCase
         self::assertEquals([[$now->subMinute(), [ProofKind::ADDITIONAL_FACTOR], 200]], $asked);
 
         $subject->proofs();
+        $subject->proofs(limit: 1);
 
         self::assertEquals([null, null, 50], $asked[1]);
+        self::assertEquals([null, null, 1], $asked[2]);
         self::assertSame($first, $subject->firstFactor);
         self::assertSame('api', $subject->application);
         self::assertNull($subject->session);

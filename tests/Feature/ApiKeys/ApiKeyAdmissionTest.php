@@ -87,6 +87,34 @@ final class ApiKeyAdmissionTest extends TestCase
     }
 
     /**
+     * A key whose binding no longer holds (here it records a tenant the
+     * principal is not in) is refused as `principal_mismatch` before the
+     * application access is asked, so a refusing access never hides it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAKeyWhoseBindingNoLongerHoldsIsAMismatchBeforeTheAccessIsAsked(): void
+    {
+        $client = self::client();
+        $asked  = 0;
+
+        app()->instance(ApplicationAccess::class, new RefusingApplicationAccess(static function () use (&$asked): bool {
+            $asked++;
+
+            return true;
+        }));
+
+        $refused = self::admission($client)->admit(self::keyOf($client)->forceFill(['tenant_type' => 'tenants', 'tenant_id' => '9']));
+
+        self::assertInstanceOf(Refused::class, $refused);
+        self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $refused->reason);
+        self::assertSame($client, $refused->principal);
+        self::assertSame(0, $asked);
+    }
+
+    /**
      * An active machine client that is its own principal, unsaved, with a key.
      *
      * @return \Tests\Integration\Fixtures\MachineClient

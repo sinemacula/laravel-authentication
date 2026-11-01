@@ -14,12 +14,15 @@ use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
+use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -29,10 +32,14 @@ use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\BearerAuthentication;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
+use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Tenancy\DescendantTenants;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
@@ -168,6 +175,41 @@ final class BearerAuthenticationTest extends TestCase
 
         self::assertSame((string) $membership->getKey(), $context->principalId); // @phpstan-ignore cast.string
         self::assertSame((string) $tenant->getKey(), $context->tenantId); // @phpstan-ignore cast.string
+    }
+
+    /**
+     * A token for a session acting in a tenant below the member's own reports
+     * that tenant, resolved from the row, and never the membership's own.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testABearerRequestReportsTheTenantTheSessionActsIn(): void
+    {
+        [$member, $membership, $own] = $this->seedMember();
+
+        $tree       = new DescendantTenants;
+        $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
+
+        $tree->place($descendant->getKey(), $own->getKey());
+
+        app()->instance(TenantAccess::class, $tree);
+        app()->instance(TenantResolver::class, $tree);
+
+        $context = new SignInContext(ClientContext::fromRequest(Request::create('/')), tenant: TenantSelection::of($descendant->getKey()));
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), $context)->session;
+
+        self::assertNotNull($session);
+
+        $this->recordEvents([PrincipalAssigned::class]);
+
+        $this->bearer($session->tokens->accessToken, '/members/me')->assertOk()->assertJson(['identity' => $member->getKey()]);
+
+        $assigned = $this->recordedEvent(PrincipalAssigned::class)->context;
+
+        self::assertSame((string) $membership->getKey(), $assigned->principalId); // @phpstan-ignore cast.string
+        self::assertSame((string) $descendant->getKey(), $assigned->tenantId); // @phpstan-ignore cast.string
     }
 
     /**

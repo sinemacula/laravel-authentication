@@ -27,6 +27,8 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Requirements\MeetNoRequirement;
@@ -404,7 +406,8 @@ final class TenantAuthenticationPolicyTest extends TestCase
 
     /**
      * `attempt()`, which cannot wait, refuses a principal whose tenant requires
-     * a further factor as `additional_factor_required`, and one whose tenant
+     * a further factor as `additional_factor_required`, the check judging the
+     * password the attempt proved, with no session, and one whose tenant
      * requires a connection as `sso_required`.
      *
      * @return void
@@ -421,6 +424,16 @@ final class TenantAuthenticationPolicyTest extends TestCase
 
         self::assertFalse(Auth::guard('members')->attempt(self::credentials('member@example.test')));
         self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $this->recordedEvent(AuthenticationFailed::class)->reason);
+        self::assertCount(1, $this->check->judged);
+
+        $password = $this->check->judged[0]->firstFactor;
+
+        self::assertSame(ProofKind::FIRST_FACTOR, $password->kind);
+        self::assertSame('password', $password->method);
+        self::assertSame(ChannelKind::PASSWORD, $password->channel->kind);
+        self::assertSame(['pwd'], $password->methods);
+        self::assertTrue($password->authenticatedAt->equalTo($this->now));
+        self::assertNull($this->check->judged[0]->session);
 
         $this->policy->requirement = new TenantRequirement(connections: ['conn-a']);
 

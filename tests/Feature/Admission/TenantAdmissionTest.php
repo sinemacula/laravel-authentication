@@ -259,6 +259,33 @@ final class TenantAdmissionTest extends TestCase
     }
 
     /**
+     * A trusted bind names a tenant with no access or activity check: the own
+     * tenant when its identifier matches, else the resolver's answer when it
+     * has the identifier asked for, and nothing for one it does not find or
+     * finds under another identifier.
+     *
+     * @return void
+     */
+    public function testANamedTenantIsTheOwnOrTheResolvedWithNoCheck(): void
+    {
+        $own       = new PlainTenantFixture(7);
+        $principal = new PlainPrincipalFixture(1, tenant: $own);
+        $inactive  = \Mockery::mock(Tenant::class, CanBeActive::class);
+        $inactive->shouldReceive('getTenantIdentifier')->andReturn('9');
+        $inactive->shouldNotReceive('isActive');
+
+        $this->resolver->shouldReceive('resolve')->once()->with('9')->andReturn($inactive);
+        $this->resolver->shouldReceive('resolve')->once()->with('gone')->andReturnNull();
+        $this->resolver->shouldReceive('resolve')->once()->with('other')->andReturn(new PlainTenantFixture('another'));
+        $this->access->shouldNotReceive('mayActIn');
+
+        self::assertSame($own, TenantAdmission::named($principal, $own, '7'));
+        self::assertSame($inactive, TenantAdmission::named($principal, $own, '9'));
+        self::assertNull(TenantAdmission::named($principal, $own, 'gone'));
+        self::assertNull(TenantAdmission::named($principal, null, 'other'));
+    }
+
+    /**
      * The class is a static utility that cannot be instantiated from outside.
      *
      * @return void
