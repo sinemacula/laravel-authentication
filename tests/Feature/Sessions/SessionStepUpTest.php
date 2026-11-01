@@ -35,6 +35,7 @@ use SineMacula\Laravel\Authentication\Sessions\Concerns\ProvesSessions;
 use SineMacula\Laravel\Authentication\Sessions\ProofIssuance;
 use SineMacula\Laravel\Authentication\Sessions\SessionStepUp;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
@@ -263,12 +264,12 @@ final class SessionStepUpTest extends TestCase
      */
     public function testARefreshAndASwitchKeepTheStepUpsAuthentication(): void
     {
-        [$member, , $tenant] = $this->seedMember();
+        [$member, $first, $tenant] = $this->seedMember();
 
         $other  = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
         $second = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $other->getKey()]);
 
-        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), SignInContext::fromRequest(request(), principal: $first))->session;
 
         self::assertNotNull($signedIn);
 

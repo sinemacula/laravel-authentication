@@ -13,12 +13,14 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Sessions\TenantPolicyChanges;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -294,11 +296,11 @@ final class TenantPolicyChangesTest extends TestCase
      */
     public function testASwitchLosingToAPolicyChangeThatRevokesItFails(): void
     {
-        [$member, , $tenant] = $this->seedMember();
+        [$member, $first, $tenant] = $this->seedMember();
 
         $other   = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
         $target  = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $other->getKey()]);
-        $session = $this->signIn();
+        $session = $this->signIn($first);
 
         $this->beforeTheUpdate('previous_refresh_key', function () use ($tenant): void {
 
@@ -326,11 +328,11 @@ final class TenantPolicyChangesTest extends TestCase
      */
     public function testAPolicyChangeAfterASwitchAwayLeavesTheSessionAlone(): void
     {
-        [$member, , $tenant] = $this->seedMember();
+        [$member, $first, $tenant] = $this->seedMember();
 
         $other   = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
         $target  = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $other->getKey()]);
-        $session = $this->signIn();
+        $session = $this->signIn($first);
 
         self::assertTrue($this->sessions('members')->switchTo($session->tokens->refreshToken, SwitchTarget::principal($target))->isSwitched());
 
@@ -361,15 +363,18 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * Sign the seeded member in with its password.
+     * Sign the seeded member in with its password, as the principal named, if
+     * one is: a member with more than one membership must name one, or it is
+     * held pending for the choice.
      *
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
      * @throws \Throwable
      */
-    private function signIn(): SignedInSession
+    private function signIn(?Principal $principal = null): SignedInSession
     {
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), SignInContext::fromRequest(request(), principal: $principal))->session;
 
         self::assertNotNull($session);
 

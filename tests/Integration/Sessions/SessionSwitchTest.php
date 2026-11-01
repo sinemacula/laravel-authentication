@@ -27,6 +27,7 @@ use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\SessionSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -36,6 +37,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
+use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
@@ -554,7 +556,9 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Sign the member in as its default membership.
+     * Sign the member in as its default membership, named at sign-in: a member
+     * with more than one membership would otherwise be held pending for the
+     * choice.
      *
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
@@ -562,7 +566,9 @@ final class SessionSwitchTest extends TestCase
      */
     private function signIn(): SignedInSession
     {
-        $session = $this->sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'))->session;
+        $member  = ActivatableTenantMember::query()->where('email', 'member@example.test')->firstOrFail();
+        $context = SignInContext::fromRequest(request(), principal: $member->resolveDefaultPrincipal());
+        $session = $this->sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'), $context)->session;
 
         self::assertNotNull($session);
 

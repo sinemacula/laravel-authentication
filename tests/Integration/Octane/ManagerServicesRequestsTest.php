@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
@@ -126,12 +127,12 @@ final class ManagerServicesRequestsTest extends TestCase
     }
 
     /**
-     * A sign-in, a refresh, a switch of principal and a sign-out, each in a
-     * request of its own from its own address, through a guard resolved before
-     * the request bound a dispatcher of its own: each reports through its own
-     * request's dispatcher, with its own client, and only its own events, none
-     * reaching an earlier request's; the session ends signed out, and its last
-     * token is refused.
+     * A sign-in naming the first of the member's two memberships, a refresh, a
+     * switch to the second and a sign-out, each in a request of its own from
+     * its own address, through a guard resolved before the request bound a
+     * dispatcher of its own: each reports through its own request's dispatcher,
+     * with its own client, and only its own events, none reaching an earlier
+     * request's; the session ends signed out, and its last token is refused.
      *
      * @return void
      */
@@ -141,7 +142,7 @@ final class ManagerServicesRequestsTest extends TestCase
 
         $second = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
 
-        $signIn = $this->serve(self::octaneRequest('POST', '/members/sign-in', self::credentials('member@example.test'), ip: '203.0.113.1'));
+        $signIn = $this->serve(self::octaneRequest('POST', '/members/sign-in', [...self::credentials('member@example.test'), 'membership' => $first->getKey()], ip: '203.0.113.1'));
 
         $signIn->assertJson(['principal' => $first->getKey()]);
 
@@ -287,7 +288,8 @@ final class ManagerServicesRequestsTest extends TestCase
         Route::post('/members/sign-in', function (): array {
             $sessions = Auth::sessions('members');
             $this->recordInThisRequest(self::LIFECYCLE);
-            $session = $sessions->signIn('password', request()->only('email', 'password'))->session;
+            $chosen  = ActivatableTenantMembership::query()->findOrFail(request()->integer('membership'));
+            $session = $sessions->signIn('password', request()->only('email', 'password'), SignInContext::fromRequest(request(), principal: $chosen))->session;
 
             return [
                 'principal' => $session?->principal->getPrincipalIdentifier(),

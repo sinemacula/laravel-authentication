@@ -91,10 +91,10 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
      */
     public function testASwitchIsItsReadsAndOneUpdate(): void
     {
-        [$member, , $tenant] = $this->seedMember();
+        [$member, $first, $tenant] = $this->seedMember();
 
         $second  = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), SignInContext::fromRequest(request(), principal: $first))->session;
 
         self::assertNotNull($session);
 
@@ -408,7 +408,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         [$member, $first, $tenant] = $this->seedMember();
 
         $second  = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), SignInContext::fromRequest(request(), principal: $first))->session;
 
         self::assertNotNull($session);
 

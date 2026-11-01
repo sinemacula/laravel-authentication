@@ -26,6 +26,7 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -259,7 +260,7 @@ final class RequestSequenceTest extends TestCase
         [$member, $first, $tenant] = $this->seedMember();
 
         $second  = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
-        $session = Auth::sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = Auth::sessions('members')->signIn('password', self::credentials('member@example.test'), SignInContext::fromRequest(request(), principal: $first))->session;
 
         self::assertNotNull($session);
 
@@ -359,7 +360,7 @@ final class RequestSequenceTest extends TestCase
         [$first, $second] = $this->seedMemberships();
 
         $guard   = $this->membersGuard();
-        $session = self::sessionsOf($guard)->signIn('password', self::credentials('member@example.test'))->session;
+        $session = self::sessionsOf($guard)->signIn('password', self::credentials('member@example.test'), SignInContext::fromRequest(request(), principal: $first))->session;
 
         self::assertNotNull($session);
 
@@ -383,10 +384,10 @@ final class RequestSequenceTest extends TestCase
      */
     public function testAResolverBoundAfterResolutionReachesTheSwitch(): void
     {
-        [, $second] = $this->seedMemberships();
+        [$first, $second] = $this->seedMemberships();
 
         $guard   = $this->membersGuard();
-        $session = self::sessionsOf($guard)->signIn('password', self::credentials('member@example.test'))->session;
+        $session = self::sessionsOf($guard)->signIn('password', self::credentials('member@example.test'), SignInContext::fromRequest(request(), principal: $first))->session;
 
         self::assertNotNull($session);
 

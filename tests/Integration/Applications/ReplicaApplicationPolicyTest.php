@@ -10,12 +10,14 @@ use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Admission\ApplicationAdmission;
 use SineMacula\Laravel\Authentication\Admission\SignInAdmission;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
 use SineMacula\Laravel\Authentication\Sessions\PendingEvaluation;
 use SineMacula\Laravel\Authentication\Sessions\SessionSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use Tests\Concerns\InteractsWithApplicationGrants;
 use Tests\Concerns\InteractsWithLaggingReplica;
@@ -201,7 +203,7 @@ final class ReplicaApplicationPolicyTest extends TestCase
         $this->grant($first);
         $this->grant($second);
 
-        $switched = $this->sessions('members')->switchTo($this->signIn('members', 'member@example.test')->tokens->refreshToken, SwitchTarget::principal($second));
+        $switched = $this->sessions('members')->switchTo($this->signIn('members', 'member@example.test', $first)->tokens->refreshToken, SwitchTarget::principal($second));
 
         self::assertTrue($switched->isSwitched());
         self::assertNotNull($switched->session);
@@ -277,17 +279,20 @@ final class ReplicaApplicationPolicyTest extends TestCase
     }
 
     /**
-     * Sign in to the guard with the password of the identity with the email.
+     * Sign in to the guard with the password of the identity with the email, as
+     * the principal named, if one is: an identity with more than one principal
+     * must name one, or it is held pending for the choice.
      *
      * @param  string  $guard
      * @param  string  $email
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
      * @throws \Throwable
      */
-    private function signIn(string $guard, string $email): SignedInSession
+    private function signIn(string $guard, string $email, ?Principal $principal = null): SignedInSession
     {
-        $session = $this->sessions($guard)->signIn('password', self::credentials($email))->session;
+        $session = $this->sessions($guard)->signIn('password', self::credentials($email), SignInContext::fromRequest(request(), principal: $principal))->session;
 
         self::assertNotNull($session);
 

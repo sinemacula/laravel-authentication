@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Codes\IssuedCode;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
@@ -826,7 +827,7 @@ final class EventSequenceTest extends TestCase
 
         $tenant  = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
         $second  = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
-        $session = $this->signedIn('members', 'member@example.test');
+        $session = $this->signedIn('members', 'member@example.test', $first);
 
         $sessions = $this->sessions('members');
 
@@ -1143,16 +1144,18 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * Sign in through the guard's password method, as a fresh request, and
-     * return the session.
+     * Sign in through the guard's password method, as a fresh request, as the
+     * principal named, if one is, and return the session: an identity with more
+     * than one principal must name one, or it is held pending for the choice.
      *
      * @param  string  $guard
      * @param  string  $email
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      */
-    private function signedIn(string $guard = 'api', string $email = 'ada@example.test'): SignedInSession
+    private function signedIn(string $guard = 'api', string $email = 'ada@example.test', ?Principal $principal = null): SignedInSession
     {
-        $session = $this->sessions($guard)->signIn('password', self::credentials($email))->session;
+        $session = $this->sessions($guard)->signIn('password', self::credentials($email), SignInContext::fromRequest(request(), principal: $principal))->session;
 
         self::assertNotNull($session);
 

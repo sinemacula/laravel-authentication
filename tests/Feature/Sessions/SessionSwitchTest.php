@@ -53,6 +53,7 @@ use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SessionSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
@@ -68,6 +69,7 @@ use Tests\Fixtures\Tenancy\DescendantTenants;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
+use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\ChoosingMembership;
 use Tests\Integration\Fixtures\IdentifierTypeOmittingSession;
@@ -1369,14 +1371,16 @@ final class SessionSwitchTest extends TestCase
 
         $descendant = $this->below($own);
         $session    = $this->signIn();
+        $asked      = $this->tree()->asked;
+        $resolved   = $this->tree()->resolved;
 
         $own->forceFill(['is_active' => false])->save();
 
         $refused = $this->assertTargetFails(FailureReason::TENANT_INACTIVE, $session, SwitchTarget::tenant(TenantSelection::of($descendant->getKey())));
 
         self::assertSame(IdentifierCoercion::stringify($first->getKey()), $refused->context->principalId);
-        self::assertSame(0, $this->tree()->asked);
-        self::assertSame(0, $this->tree()->resolved);
+        self::assertSame($asked, $this->tree()->asked);
+        self::assertSame($resolved, $this->tree()->resolved);
     }
 
     /**
@@ -1525,13 +1529,13 @@ final class SessionSwitchTest extends TestCase
      */
     public function testAReturnToPendingForgetsTheGuardsBindingToThatSession(): void
     {
-        [, $second] = $this->seedMemberships();
+        [$first, $second] = $this->seedMemberships();
 
         $this->scriptPolicy([IdentifierCoercion::stringify($second->tenant_id) => new TenantRequirement('v1', new Requirement(multifactor: new RequirementPart))]);
 
         $guard   = $this->freshGuard(self::GUARD);
         $service = self::sessionsOf($guard);
-        $session = $service->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $service->signIn('password', self::credentials('member@example.test'), SignInContext::fromRequest(request(), principal: $first))->session;
 
         self::assertNotNull($session);
         self::assertSame($session->record, $guard->session());
@@ -1819,7 +1823,9 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Sign the member in as its default membership.
+     * Sign the member in as its default membership, named at sign-in: a member
+     * with more than one membership would otherwise be held pending for the
+     * choice.
      *
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
@@ -1827,7 +1833,9 @@ final class SessionSwitchTest extends TestCase
      */
     private function signIn(): SignedInSession
     {
-        $session = $this->sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'))->session;
+        $member  = ActivatableTenantMember::query()->where('email', 'member@example.test')->firstOrFail();
+        $context = SignInContext::fromRequest(request(), principal: $member->resolveDefaultPrincipal());
+        $session = $this->sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'), $context)->session;
 
         self::assertNotNull($session);
 
