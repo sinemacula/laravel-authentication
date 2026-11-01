@@ -39,7 +39,7 @@ return new class extends Migration {
 
             // The session's key as a string, whatever the session model's key
             // type: one provenance per session.
-            self::exact($schema, $blueprint->string('session_id'))->primary();
+            self::exact($schema, $blueprint, 'session_id')->primary();
 
             $blueprint->string('connection_id');
             $blueprint->string('tenant_id')->nullable();
@@ -86,20 +86,23 @@ return new class extends Migration {
     }
 
     /**
-     * The column, compared byte for byte on MySQL and MariaDB, whose default
-     * collations ignore case and accents: two session keys that differ only in
+     * A string column that compares byte for byte: binary on MySQL and MariaDB,
+     * whose default collations ignore case and accents and whose `utf8mb4_bin`
+     * pads (`'abc'` equals `'abc '`), while the binary collation that does not
+     * pad has a different name on each. Two session keys that differ only in
      * those would otherwise match, so one session would clear or prune
      * another's provenance, or could not record its own. PostgreSQL and SQLite
      * already compare bytes.
      *
      * @param  \Illuminate\Database\Schema\Builder  $schema
-     * @param  \Illuminate\Database\Schema\ColumnDefinition  $column
+     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
+     * @param  string  $name
      * @return \Illuminate\Database\Schema\ColumnDefinition
      */
-    private static function exact(Builder $schema, ColumnDefinition $column): ColumnDefinition
+    private static function exact(Builder $schema, Blueprint $blueprint, string $name): ColumnDefinition
     {
         return in_array($schema->getConnection()->getDriverName(), ['mysql', 'mariadb'], true)
-            ? $column->charset('utf8mb4')->collation('utf8mb4_bin')
-            : $column;
+            ? $blueprint->binary($name, 255)
+            : $blueprint->string($name);
     }
 };

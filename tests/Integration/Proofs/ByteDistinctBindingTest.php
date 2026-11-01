@@ -10,6 +10,9 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
+use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Concerns\PrunesSessions;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
@@ -27,10 +30,11 @@ use Tests\TestCase;
 
 /**
  * Integration tests, against each supported database, of proofs whose session
- * keys or `amr` values differ only in case: MySQL's default collations count
- * such values as equal, and the proofs' columns must not. A session counts and
- * clears only the proofs and provenance recorded under its own key, byte for
- * byte, and the claims keep two values that differ only in case apart.
+ * keys or `amr` values differ only in case or in trailing spaces: MySQL's
+ * default collations count the first as equal and `utf8mb4_bin` the second, and
+ * the proofs' columns must count neither. A session counts, clears and is
+ * pruned with only the proofs and provenance recorded under its own key, byte
+ * for byte, and the claims keep two values that differ only in case apart.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -40,7 +44,8 @@ use Tests\TestCase;
 #[CoversClass(SessionProofs::class)]
 #[CoversClass(ProofWriter::class)]
 #[CoversClass(AuthenticationClaims::class)]
-final class CaseDistinctBindingTest extends TestCase
+#[CoversTrait(PrunesSessions::class)]
+final class ByteDistinctBindingTest extends TestCase
 {
     use InteractsWithProofs, InteractsWithSessions;
 
@@ -86,27 +91,34 @@ final class CaseDistinctBindingTest extends TestCase
     }
 
     /**
-     * A session of the same owner and guard whose key is this session's in
-     * upper case (a custom session model's key, on a table that keeps case)
-     * keeps its own step-up and provenance: neither counts for this session,
-     * both are recorded beside this session's own, and clearing that key leaves
-     * this session's first factor and provenance where they were.
+     * The ways a custom session model's key, on a table that keeps them apart,
+     * can differ from another only where MySQL's collations do not look.
      *
+     * @return iterable<string, array{\Closure(string): string}>
+     */
+    public static function twinKeys(): iterable
+    {
+        yield 'in case' => [strtoupper(...)];
+
+        yield 'by a trailing space' => [static fn (string $key): string => $key . ' '];
+    }
+
+    /**
+     * A session of the same owner and guard whose key differs from this
+     * session's only in case or by a trailing space keeps its own step-up and
+     * provenance: neither counts for this session, both are recorded beside
+     * this session's own, and clearing that key leaves this session's first
+     * factor and provenance where they were.
+     *
+     * @param  \Closure(string): string  $spell
      * @return void
      *
      * @throws \Throwable
      */
-    public function testASessionWhoseKeyDiffersOnlyInCaseSharesNothing(): void
+    #[DataProvider('twinKeys')]
+    public function testASessionUnderATwinKeySharesNothing(\Closure $spell): void
     {
-        $identity = $this->seedIdentity();
-        $record   = $this->sessions()->start($identity, null, 'sso', null, new Provenance('connection-7'))->session?->record;
-
-        self::assertInstanceOf(Session::class, $record);
-
-        $key  = (string) IdentifierCoercion::stringify($record->getKey());
-        $twin = (new Session)->forceFill([...$record->getAttributes(), 'id' => strtoupper($key)]);
-
-        self::assertNotSame($key, $twin->getKey());
+        [$record, $twin] = $this->sessionAndTwin($spell);
 
         self::recordProof($twin, ProofKind::ADDITIONAL_FACTOR, $this->now, ['otp'], new Evaluation(true, true));
 
@@ -120,6 +132,32 @@ final class CaseDistinctBindingTest extends TestCase
         self::assertSame(['first_factor'], array_map(static fn (SessionProof $proof): string => $proof->kind, self::proofsOf($record)));
         self::assertSame('connection-7', self::provenanceOf($record)?->connection_id);
         self::assertSame([[], null], [self::proofsOf($twin), self::provenanceOf($twin)]);
+    }
+
+    /**
+     * Pruning a session deletes its own proofs and provenance and leaves those
+     * of a key that differs from its only in case or by a trailing space.
+     *
+     * @param  \Closure(string): string  $spell
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('twinKeys')]
+    public function testPruningASessionLeavesItsTwinsProofs(\Closure $spell): void
+    {
+        [$record, $twin] = $this->sessionAndTwin($spell);
+
+        self::recordProof($twin, ProofKind::ADDITIONAL_FACTOR, $this->now, ['otp'], new Evaluation(true, true));
+
+        ProofWriter::provenance($twin, new Provenance('connection-8'));
+
+        Session::query()->whereKey($record->getKey())->update(['revoked_at' => $this->now->subYear()]);
+
+        self::assertSame(1, (new Session)->pruneAll());
+        self::assertSame([[], null], [self::proofsOf($record), self::provenanceOf($record)]);
+        self::assertSame(['additional_factor'], array_map(static fn (SessionProof $proof): string => $proof->kind, self::proofsOf($twin)));
+        self::assertSame('connection-8', self::provenanceOf($twin)?->connection_id);
     }
 
     /**
@@ -158,5 +196,29 @@ final class CaseDistinctBindingTest extends TestCase
         assert($app instanceof Application);
 
         self::configureSessionGuards($app->make(ConfigRepository::class));
+    }
+
+    /**
+     * A session an external provider established, with its provenance, and an
+     * unsaved session like it whose key is the first's spelled as given.
+     *
+     * @param  \Closure(string): string  $spell
+     * @return array{0: \SineMacula\Laravel\Authentication\Models\Session, 1: \SineMacula\Laravel\Authentication\Models\Session}
+     *
+     * @throws \Throwable
+     */
+    private function sessionAndTwin(\Closure $spell): array
+    {
+        $identity = $this->seedIdentity();
+        $record   = $this->sessions()->start($identity, null, 'sso', null, new Provenance('connection-7'))->session?->record;
+
+        self::assertInstanceOf(Session::class, $record);
+
+        $key  = (string) IdentifierCoercion::stringify($record->getKey());
+        $twin = (new Session)->forceFill([...$record->getAttributes(), 'id' => $spell($key)]);
+
+        self::assertNotSame($key, $twin->getKey());
+
+        return [$record, $twin];
     }
 }

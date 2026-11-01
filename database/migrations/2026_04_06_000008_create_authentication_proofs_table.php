@@ -40,7 +40,7 @@ return new class extends Migration {
 
             // The session's key as a string, whatever the session model's key
             // type, so proofs are found and pruned by bound string values.
-            self::exact($schema, $blueprint->string('session_id'));
+            self::exact($schema, $blueprint, 'session_id');
 
             $blueprint->string('kind', 40);
             $blueprint->string('purpose', 32);
@@ -65,11 +65,11 @@ return new class extends Migration {
 
             // The proof's `amr` values as a JSON list. A bounded string rather
             // than text, so the claims query can group by it on every database.
-            self::exact($schema, $blueprint->string('methods', 1024));
+            self::exact($schema, $blueprint, 'methods', 1024);
 
-            self::exact($schema, $blueprint->string('authenticatable_type'));
-            self::exact($schema, $blueprint->string('authenticatable_id'));
-            self::exact($schema, $blueprint->string('guard'));
+            self::exact($schema, $blueprint, 'authenticatable_type');
+            self::exact($schema, $blueprint, 'authenticatable_id');
+            self::exact($schema, $blueprint, 'guard');
 
             $blueprint->dateTime('authenticated_at', 0);
 
@@ -112,20 +112,24 @@ return new class extends Migration {
     }
 
     /**
-     * The column, compared byte for byte on MySQL and MariaDB, whose default
-     * collations ignore case and accents: two session keys, guards, owners or
+     * A string column that compares byte for byte: binary on MySQL and MariaDB,
+     * whose default collations ignore case and accents and whose `utf8mb4_bin`
+     * pads (`'abc'` equals `'abc '`), while the binary collation that does not
+     * pad has a different name on each. Two session keys, guards, owners or
      * `amr` values that differ only in those would otherwise match, so one
      * session would count, clear or prune another's proofs and the claims read
      * would merge two values. PostgreSQL and SQLite already compare bytes.
      *
      * @param  \Illuminate\Database\Schema\Builder  $schema
-     * @param  \Illuminate\Database\Schema\ColumnDefinition  $column
+     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
+     * @param  string  $name
+     * @param  int  $length
      * @return \Illuminate\Database\Schema\ColumnDefinition
      */
-    private static function exact(Builder $schema, ColumnDefinition $column): ColumnDefinition
+    private static function exact(Builder $schema, Blueprint $blueprint, string $name, int $length = 255): ColumnDefinition
     {
         return in_array($schema->getConnection()->getDriverName(), ['mysql', 'mariadb'], true)
-            ? $column->charset('utf8mb4')->collation('utf8mb4_bin')
-            : $column;
+            ? $blueprint->binary($name, $length)
+            : $blueprint->string($name, $length);
     }
 };

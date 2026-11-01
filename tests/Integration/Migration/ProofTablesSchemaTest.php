@@ -222,10 +222,11 @@ final class ProofTablesSchemaTest extends TestCase
 
     /**
      * The session key, the guard, the owner and the `amr` values compare byte
-     * for byte on every engine, MySQL's default case-insensitive collation
-     * included: a lookup of one finds no value that differs from it only in
-     * case, a group keeps such values apart, and two provenances whose session
-     * keys differ only in case are both kept.
+     * for byte on every engine, MySQL's default case-insensitive collations and
+     * its padding `utf8mb4_bin` included: a lookup of one finds no value that
+     * differs from it only in case or by a trailing space, a group keeps such
+     * values apart, and provenances whose session keys differ only in those are
+     * all kept.
      *
      * @return void
      */
@@ -248,6 +249,7 @@ final class ProofTablesSchemaTest extends TestCase
         DB::table(self::PROOFS)->insert([
             $row('0196a3c0-0000-7000-8000-000000000001', 'abc', 'App\User', 'alice', 'api', '["urn:example:a"]'),
             $row('0196a3c0-0000-7000-8000-000000000002', 'ABC', 'App\USER', 'Alice', 'API', '["urn:example:A"]'),
+            $row('0196a3c0-0000-7000-8000-000000000003', 'abc ', 'App\User ', 'alice ', 'api ', '["urn:example:a"] '),
         ]);
 
         $columns = ['session_id' => 'abc', 'authenticatable_type' => 'App\User', 'authenticatable_id' => 'alice', 'guard' => 'api', 'methods' => '["urn:example:a"]'];
@@ -257,12 +259,16 @@ final class ProofTablesSchemaTest extends TestCase
         }
 
         self::assertSame(1, DB::table(self::PROOFS)->whereIn('session_id', ['abc'])->count());
-        self::assertCount(2, DB::table(self::PROOFS)->select('methods')->groupBy('methods')->get());
+        self::assertCount(3, DB::table(self::PROOFS)->select('methods')->groupBy('methods')->get());
 
-        DB::table(self::PROVENANCE)->insert([['session_id' => 'abc', 'connection_id' => 'c-1'], ['session_id' => 'ABC', 'connection_id' => 'c-2']]);
+        DB::table(self::PROVENANCE)->insert([
+            ['session_id' => 'abc', 'connection_id' => 'c-1'],
+            ['session_id' => 'ABC', 'connection_id' => 'c-2'],
+            ['session_id' => 'abc ', 'connection_id' => 'c-3'],
+        ]);
 
         self::assertSame('c-1', DB::table(self::PROVENANCE)->where('session_id', 'abc')->value('connection_id'));
-        self::assertSame(2, DB::table(self::PROVENANCE)->count());
+        self::assertSame(3, DB::table(self::PROVENANCE)->count());
     }
 
     /**

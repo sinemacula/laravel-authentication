@@ -109,7 +109,7 @@ final class SessionProofs
      * (`ProofWriter::clear()`, within the limit it states), so the same
      * identity's proofs from that earlier session do not count either. The
      * binding columns compare byte for byte, so a key or owner that differs
-     * only in case is another.
+     * only in case or by a trailing space is another.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return \Illuminate\Database\Eloquent\Builder<\SineMacula\Laravel\Authentication\Models\SessionProof>
