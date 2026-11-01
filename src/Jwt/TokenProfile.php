@@ -4,14 +4,19 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Jwt;
 
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\SubjectType;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * The shape rules of the package's token profile that go beyond a claim being
- * present: the header type a token's `typ` names, and what an access token's
- * claims must say about its subject, its session and its tenant.
+ * present: the header type a token's `typ` names, what an access token's claims
+ * must say about its subject, its session and its tenant, and which tenant one
+ * may name when it is issued.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -46,6 +51,30 @@ final class TokenProfile
         $typ = strtolower($typ);
 
         return TokenType::tryFrom(str_starts_with($typ, self::MEDIA_TYPE_PREFIX) ? substr($typ, strlen(self::MEDIA_TYPE_PREFIX)) : $typ);
+    }
+
+    /**
+     * The `tenant_id` an access token for the principal may carry: the tenant
+     * identifier given, once it is known to be the one of the tenant the
+     * principal acts within (its `getTenant()`, read on the write connection).
+     * A principal acts only within its own tenant, so a token never names
+     * another.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  string  $tenantId
+     * @return string
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function ownTenant(Principal $principal, string $tenantId): string
+    {
+        $own = WriteConnection::during($principal, static fn (): ?Tenant => $principal->getTenant());
+
+        if (!IdentifierCoercion::matches($own?->getTenantIdentifier(), $tenantId)) {
+            throw new \InvalidArgumentException('Cannot issue a token naming a tenant the principal does not act within: pass the tenant its admission loaded.');
+        }
+
+        return $tenantId;
     }
 
     /**

@@ -7,10 +7,12 @@ namespace Tests\Unit\Jwt;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use SineMacula\Laravel\Authentication\Jwt\TokenProfile;
 use Tests\Concerns\InteractsWithJwtTokens;
 
 /**
@@ -26,6 +28,7 @@ use Tests\Concerns\InteractsWithJwtTokens;
  * @internal
  */
 #[CoversClass(JwtTokenService::class)]
+#[CoversClass(TokenProfile::class)]
 final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
 {
     use InteractsWithJwtTokens;
@@ -78,15 +81,50 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     {
         $service   = $this->makeService();
         $identity  = $this->mockIdentity('identity-7');
-        $principal = $this->mockPrincipal('principal-3');
+        $tenant    = $this->mockTenant(9);
+        $principal = $this->principalIn('principal-3', $tenant);
 
-        $tenanted   = $service->parse($service->issueAccessToken($identity, $principal, $this->mockTenant(9), null), TokenType::ACCESS);
+        $tenanted   = $service->parse($service->issueAccessToken($identity, $principal, $tenant, null), TokenType::ACCESS);
         $untenanted = $service->parse($service->issueAccessToken($identity, $principal, null, null), TokenType::ACCESS);
 
         self::assertIsArray($tenanted);
         self::assertIsArray($untenanted);
         self::assertSame('9', $tenanted[Claims::TENANT_ID->value]);
         self::assertArrayNotHasKey(Claims::TENANT_ID->value, $untenanted);
+    }
+
+    /**
+     * Rows of `[the principal's own tenant's identifier, or null for none]`:
+     * principals the tenant 9 is not the tenant of.
+     *
+     * @return iterable<string, array{0: ?int}>
+     */
+    public static function provideForeignTenants(): iterable
+    {
+        yield from [
+            'a principal in no tenant'      => [null],
+            'a principal in another tenant' => [10],
+        ];
+    }
+
+    /**
+     * An access token never names a tenant the principal does not act within:
+     * one given for a principal in no tenant, or in another, is refused.
+     *
+     * @param  ?int  $own
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideForeignTenants')]
+    public function testIssueAccessTokenRefusesATenantThePrincipalIsNotIn(?int $own): void
+    {
+        $principal = $this->principalIn('principal-3', $own === null ? null : $this->mockTenant($own));
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Cannot issue a token naming a tenant the principal does not act within');
+
+        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $principal, $this->mockTenant(9), null);
     }
 
     /**
@@ -367,5 +405,22 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $tenant->shouldReceive('getTenantIdentifier')->andReturn($id);
 
         return $tenant;
+    }
+
+    /**
+     * A principal mock that acts within the tenant given, or in none.
+     *
+     * @param  string  $id
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @return \SineMacula\Laravel\Authentication\Contracts\Principal
+     */
+    private function principalIn(string $id, ?Tenant $tenant): Principal
+    {
+        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Principal $principal */
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn($id);
+        $principal->shouldReceive('getTenant')->andReturn($tenant);
+
+        return $principal;
     }
 }

@@ -34,7 +34,8 @@ principal auth without session tracking or refresh rotation.
   with `attempt()`.
 - Do not implement `HasSessions` on the identity model.
 - Issue access tokens with `Auth::jwt('api')->issueAccessToken($identity, $principal, $tenant, null)`, where `$tenant`
-  is the tenant the principal acts within (carried in `tenant_id`), or `null` for none.
+  is the tenant the principal acts within (carried in `tenant_id`), or `null` for none; a tenant that is not the
+  principal's own is refused with an `InvalidArgumentException`.
 - On the bearer path, the guard binds identity and principal normally and leaves session unset.
 - Query cost stays low because the access-only bearer path only needs the identity read, a recorded "tokens valid
   after" time included.

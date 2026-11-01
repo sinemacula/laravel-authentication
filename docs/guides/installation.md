@@ -136,7 +136,8 @@ Session tracking and refresh are opt-in. For simple backends or short-lived toke
 
 1. Do not implement `HasSessions` on your identity model.
 2. Issue access tokens with `Auth::jwt('api')->issueAccessToken($identity, $principal, $tenant, null)`, passing the
-   tenant the principal acts within (or `null`), which the token carries in `tenant_id`.
+   tenant the principal acts within (or `null`), which the token carries in `tenant_id`; any other tenant is refused
+   with an `InvalidArgumentException`.
 3. Do not refresh (`Auth::sessions('api')->refresh(...)`) or start sessions through the session service (`signIn()`,
    `start()`), which throws a `LogicException` for an identity without `HasSessions`. Clients re-authenticate when the
    access token expires. To end an identity's tokens before they expire, give the identity (or the principal) a "tokens

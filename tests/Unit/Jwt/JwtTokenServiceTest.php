@@ -820,7 +820,12 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $tenant = \Mockery::mock(Tenant::class);
         $tenant->shouldReceive('getTenantIdentifier')->andReturn(12);
 
-        $client = $service->parse($service->issueClientAccessToken($machine, $this->mockPrincipal('principal-3'), $tenant, self::KEY_ID, []), TokenType::ACCESS);
+        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Principal $principal */
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('principal-3');
+        $principal->shouldReceive('getTenant')->andReturn($tenant);
+
+        $client = $service->parse($service->issueClientAccessToken($machine, $principal, $tenant, self::KEY_ID, []), TokenType::ACCESS);
 
         self::assertIsArray($client);
         self::assertSame('12', $client[Claims::TENANT_ID->value]);

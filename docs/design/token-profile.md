@@ -32,8 +32,9 @@ are told apart, which claims are checked on every parse, and which the bearer pa
   `proofs-and-freshness.md`), read on the write connection, and `auth_time` is never later than `iat`. A parse holds
   `auth_time` to an integer not after `iat` plus the leeway and `amr` to a list of non-empty strings.
 - `tenant_id` names the tenant the principal acts within when the token is issued, the one its admission loaded, and
-  is a non-empty string when present. It is transitional: the package carries it and never checks it, and
-  `Auth::tenant()` stays the principal's tenant, read live.
+  is a non-empty string when present; issuing refuses a tenant that is not the principal's own (its `getTenant()`, by
+  identifier), since a principal acts only within its own tenant. It is transitional: the package carries it and never
+  checks it on a request, and `Auth::tenant()` stays the principal's tenant, read live.
 - Past the parse, the bearer path reads `sub`, `principal`, `sid`, `iat`, `cid` and `scope`. It does not read
   `tenant_id`, `auth_time` or `amr`, and makes no query for them: they are for the application, derived at issue, and
   live no longer than the access token does.

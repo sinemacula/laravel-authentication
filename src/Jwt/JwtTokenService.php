@@ -130,7 +130,9 @@ final class JwtTokenService
      *
      * The token's subject type is `person`. `$tenant` is the tenant the
      * caller's admission loaded for the principal, written to `tenant_id`; the
-     * claim is carried for the application and not checked by the package. A
+     * claim is carried for the application and not checked by the package on a
+     * request. A principal acts only within its own tenant, so a tenant given
+     * must be the one the principal's `getTenant()` returns, by identifier. A
      * token for a session carries the session's latest authentication time in
      * `auth_time` (never after the issue time: an authentication another server
      * recorded with its clock ahead is carried as the issue time) and its
@@ -140,10 +142,10 @@ final class JwtTokenService
      * Refuses to issue a token that `parse()` would reject or that would lose
      * part of its context: the identity and principal, the tenant when one is
      * given, and the session when one is given, must each have an identifier
-     * that can be written into its claim (a saved model's scalar key). Refuses,
-     * too, a session that has ended or that has no idle deadline, and a
-     * non-human identity: a machine gets tokens only from a client credentials
-     * exchange.
+     * that can be written into its claim (a saved model's scalar key), and a
+     * tenant given must be the principal's own. Refuses, too, a session that
+     * has ended or that has no idle deadline, and a non-human identity: a
+     * machine gets tokens only from a client credentials exchange.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -357,7 +359,7 @@ final class JwtTokenService
         $payload[Claims::PRINCIPAL->value]    = $this->requireClaimValue(Claims::PRINCIPAL, $principal->getPrincipalIdentifier());
 
         if ($tenant !== null) {
-            $payload[Claims::TENANT_ID->value] = $this->requireClaimValue(Claims::TENANT_ID, $tenant->getTenantIdentifier());
+            $payload[Claims::TENANT_ID->value] = TokenProfile::ownTenant($principal, $this->requireClaimValue(Claims::TENANT_ID, $tenant->getTenantIdentifier()));
         }
 
         if ($session !== null) {

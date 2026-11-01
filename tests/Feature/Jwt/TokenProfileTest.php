@@ -182,6 +182,32 @@ final class TokenProfileTest extends TestCase
     }
 
     /**
+     * A token is never issued naming a tenant the principal does not act
+     * within: a member's principal with another tenant given is refused, and
+     * with its own the token names it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATokenNeverNamesATenantThePrincipalIsNotIn(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+        [, , $other]                    = $this->seedMember('other@example.test');
+
+        $tokens = Auth::jwt('members');
+
+        $claims = $this->claims($tokens->issueAccessToken($member, $membership, $tenant, null), TokenType::ACCESS, 'members');
+
+        self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $claims['tenant_id'] ?? null);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Cannot issue a token naming a tenant the principal does not act within');
+
+        $tokens->issueAccessToken($member, $membership, $other, null);
+    }
+
+    /**
      * Rows of `[a change to a session's access token: claims to merge, claims
      * to remove, its header type]` that break the profile.
      *
