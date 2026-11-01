@@ -78,6 +78,7 @@ use SineMacula\Laravel\Authentication\Tenancy\OwnTenantOnly;
 use SineMacula\Laravel\Authentication\Tenancy\RequireNothingOfTenants;
 use SineMacula\Laravel\Authentication\Tenancy\ResolveNoTenant;
 use Symfony\Component\HttpFoundation\Response;
+use Tests\Fixtures\Database\ShippedMigrations;
 use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 use Tests\Unit\Stubs\StubGuardScopedPrincipalResolver;
@@ -1111,12 +1112,10 @@ final class AuthenticationServiceProviderTest extends TestCase
      */
     private function migrateRateLimits(): void
     {
-        $migration = include dirname(__DIR__, 2) . '/database/migrations/2026_04_06_000002_create_rate_limits_table.php';
+        ShippedMigrations::up('2026_04_06_000002_create_rate_limits_table.php');
 
-        $migration->up();
-
-        $this->beforeApplicationDestroyed(static function () use ($migration): void {
-            $migration->down();
+        $this->beforeApplicationDestroyed(static function (): void {
+            ShippedMigrations::down('2026_04_06_000002_create_rate_limits_table.php');
         });
     }
 

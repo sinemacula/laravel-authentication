@@ -8,6 +8,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Tests\Fixtures\Database\ShippedMigrations;
 
 /**
  * Builds a read/write split connection whose read replica lags behind the
@@ -97,11 +98,9 @@ trait InteractsWithLaggingReplica
 
         foreach ($files as $file) {
 
-            $migration = require __DIR__ . '/../../database/migrations/' . $file;
-
             foreach ([self::PRIMARY_CONNECTION, self::REPLICA_CONNECTION] as $connection) {
                 $manager->setDefaultConnection($connection);
-                $migration->up();
+                ShippedMigrations::up($file);
             }
         }
 

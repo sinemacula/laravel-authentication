@@ -11,6 +11,7 @@ use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -24,6 +25,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Sessions\TenantPolicyChanges;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
@@ -101,7 +103,9 @@ final class TenantPolicyChangesTest extends TestCase
     /**
      * More sessions than two chunks are each judged once, in three locking
      * reads that page by key: every one records the version answered, and a
-     * second call skips them all, writing nothing.
+     * second call skips them all, writing nothing. The policy counts what it is
+     * asked rather than keeping every context, so the test holds no session it
+     * judged once the helper is done with it.
      *
      * @return void
      *
@@ -115,14 +119,14 @@ final class TenantPolicyChangesTest extends TestCase
 
         $this->insertSessions($member, $membership, $tenant, $count);
 
-        $this->policy->requirement = new TenantRequirement('v1');
+        $policy = self::countingPolicy(new TenantRequirement('v1'));
 
         $chunk = 'limit ' . TenantPolicyChanges::CHUNK;
         $reads = $this->countQueries(static fn (string $sql): bool => str_starts_with($sql, 'select') && str_contains($sql, 'sessions') && str_contains($sql, $chunk));
 
         self::assertSame(0, $this->sessions('members')->tenantPolicyChanged($tenant));
         self::assertCount(3, $reads);
-        self::assertCount($count, $this->policy->asked);
+        self::assertSame($count, $policy->judged);
         self::assertSame($count, DB::table('authentication_sessions')->where('tenant_policy_version', 'v1')->count());
 
         $updates = $this->countQueries(static fn (string $sql): bool => str_starts_with($sql, 'update'));
@@ -133,7 +137,8 @@ final class TenantPolicyChangesTest extends TestCase
 
     /**
      * More sessions than two chunks that all fall short are all revoked, each
-     * counted and reported once.
+     * counted and reported once. Only the identifier of each session reported
+     * is kept, so the test holds none of the sessions it revoked.
      *
      * @return void
      *
@@ -149,16 +154,17 @@ final class TenantPolicyChangesTest extends TestCase
 
         $this->policy->requirement = new TenantRequirement('v1', connections: []);
 
-        $this->recordEvents([SessionRevoked::class]);
+        $reported = new \ArrayObject;
+
+        Event::listen(SessionRevoked::class, static function (SessionRevoked $event) use ($reported): void {
+            $reported->append($event->context->sessionId);
+        });
 
         self::assertSame($count, $this->sessions('members')->tenantPolicyChanged($tenant));
         self::assertSame(0, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
         self::assertSame($count, DB::table('authentication_sessions')->where('revoked_reason', RevocationReason::TENANT_POLICY_CHANGED->value)->count());
-        self::assertCount($count, $this->recorded);
-
-        $reported = array_map(static fn (object $event): ?string => $event instanceof SessionRevoked ? $event->context->sessionId : null, $this->recorded);
-
-        self::assertCount($count, array_unique($reported));
+        self::assertCount($count, $reported);
+        self::assertCount($count, array_unique($reported->getArrayCopy()));
     }
 
     /**
@@ -439,6 +445,50 @@ final class TenantPolicyChangesTest extends TestCase
         foreach (array_chunk($rows, 200) as $chunk) {
             DB::table('authentication_sessions')->insert($chunk);
         }
+    }
+
+    /**
+     * Bind a tenant authentication policy that answers every tenant with the
+     * requirement and counts the sessions it judges, keeping none of them.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement  $requirement
+     * @return object{judged: int}&\SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy
+     */
+    private static function countingPolicy(TenantRequirement $requirement): TenantAuthenticationPolicy
+    {
+        $policy = new class ($requirement) implements TenantAuthenticationPolicy {
+            /** @var int How many times it was asked. */
+            public int $judged = 0;
+
+            /**
+             * Constructor.
+             *
+             * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement  $requirement
+             */
+            public function __construct(
+
+                /** The requirement it answers with. */
+                private readonly TenantRequirement $requirement,
+            ) {}
+
+            /**
+             * Count the question and answer with the requirement.
+             *
+             * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext  $context
+             * @return \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement
+             */
+            #[\Override]
+            public function requirementFor(TenantPolicyContext $context): TenantRequirement
+            {
+                $this->judged++;
+
+                return $this->requirement;
+            }
+        };
+
+        app()->instance(TenantAuthenticationPolicy::class, $policy);
+
+        return $policy;
     }
 
     /**

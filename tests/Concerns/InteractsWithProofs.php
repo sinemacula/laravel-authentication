@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use SineMacula\Laravel\Authentication\Proofs\ProofResult;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Fixtures\Database\ShippedMigrations;
 
 /**
  * Shared helpers for tests of the proofs a session records: the proofs and
@@ -77,7 +78,7 @@ trait InteractsWithProofs
     protected static function migrateProofTables(): void
     {
         foreach (['2026_04_06_000008_create_authentication_proofs_table.php', '2026_04_06_000009_create_authentication_provenance_table.php'] as $file) {
-            (require __DIR__ . '/../../database/migrations/' . $file)->up();
+            ShippedMigrations::up($file);
         }
     }
 

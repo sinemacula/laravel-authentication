@@ -15,6 +15,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\RateLimiting\RateLimitStore;
 use Tests\Concerns\InteractsWithLaggingReplica;
+use Tests\Fixtures\Database\ShippedMigrations;
 use Tests\TestCase;
 
 /**
@@ -46,13 +47,11 @@ final class ReplicaDatabaseAttemptLimiterTest extends TestCase
 
         Carbon::setTestNow(Carbon::createFromTimestamp(1800000150));
 
-        $migration = require __DIR__ . '/../../../database/migrations/2026_04_06_000002_create_rate_limits_table.php';
-
         /** @var \Illuminate\Database\DatabaseManager $manager */
         $manager = app(DatabaseManager::class);
 
         $manager->setDefaultConnection(self::REPLICA_CONNECTION);
-        $migration->up();
+        ShippedMigrations::up('2026_04_06_000002_create_rate_limits_table.php');
         $manager->setDefaultConnection(self::SPLIT_CONNECTION);
     }
 

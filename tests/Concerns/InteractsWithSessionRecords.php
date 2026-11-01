@@ -13,6 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
+use Tests\Fixtures\Database\ShippedMigrations;
 
 /**
  * Shared session helpers for test cases that create session tables and rows.
@@ -126,14 +127,13 @@ trait InteractsWithSessionRecords
      */
     protected static function createCodeTableOn(string $connection): void
     {
-        $manager   = app(DatabaseManager::class);
-        $default   = $manager->getDefaultConnection();
-        $migration = require __DIR__ . '/../../database/migrations/2026_04_06_000003_create_one_time_codes_table.php';
+        $manager = app(DatabaseManager::class);
+        $default = $manager->getDefaultConnection();
 
         $manager->setDefaultConnection($connection);
 
         try {
-            $migration->up();
+            ShippedMigrations::up('2026_04_06_000003_create_one_time_codes_table.php');
         } finally {
             $manager->setDefaultConnection($default);
         }
