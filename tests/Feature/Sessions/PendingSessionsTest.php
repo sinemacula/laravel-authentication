@@ -1276,6 +1276,59 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
+     * A failure while a satisfied factor is judged, after the proof was stored,
+     * is thrown on as it was raised, and rolls back everything the call wrote:
+     * no transaction is left open, the proof is gone, nothing is reported, and
+     * the session waits on the factor exactly as it did, so the same credential
+     * activates it once the failure clears.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailureWhileAFactorIsJudgedRollsEverythingBackAndIsThrownOn(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$credential, $pending] = $this->pendingSignIn();
+
+        $failure = new \RuntimeException('The factor policy cannot be reached.');
+        $level   = DB::transactionLevel();
+        $proofs  = SessionProof::query()->count();
+        $row     = (array) DB::table('authentication_sessions')->where('id', $pending->id)->sole();
+        $stored  = null;
+
+        $this->factorAnswer = static function () use ($failure, &$stored): never {
+
+            $stored = SessionProof::query()->count();
+
+            throw $failure;
+        };
+
+        $this->recordEvents([AuthenticationFailed::class, SessionCreated::class, SignedIn::class]);
+
+        try {
+            $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN));
+
+            self::fail('The factor policy\'s failure was not thrown on.');
+        } catch (\RuntimeException $thrown) {
+            self::assertSame($failure, $thrown);
+        }
+
+        self::assertSame($proofs + 1, $stored);
+        self::assertSame($level, DB::transactionLevel());
+        self::assertSame($proofs, SessionProof::query()->count());
+        self::assertSame([], $this->recordedClasses());
+        self::assertEquals($row, (array) DB::table('authentication_sessions')->where('id', $pending->id)->sole());
+
+        $this->factorAnswer   = null;
+        $this->factorRequired = false;
+
+        self::assertTrue($this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN))->isSignedIn());
+        self::assertSame($proofs + 1, SessionProof::query()->count());
+    }
+
+    /**
      * The pre-action seam answers nothing for a session the gate would refuse,
      * so no code is sent and no enrolment begun for one that can never
      * activate: its identity deactivated, or its method no longer allowed. Once
