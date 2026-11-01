@@ -481,6 +481,47 @@ final class SessionStepUpTest extends TestCase
     }
 
     /**
+     * Sessions the step-up refuses before admitting their owner.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function provideSessionsRefusedBeforeAdmission(): iterable
+    {
+        yield from [
+            'revoked'          => ['revoked'],
+            'ended'            => ['ended'],
+            'another guard\'s' => ['admin'],
+        ];
+    }
+
+    /**
+     * A session refused before its owner is loaded still names that owner on
+     * the failure, read from the session row itself.
+     *
+     * @param  string  $state
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideSessionsRefusedBeforeAdmission')]
+    public function testASessionRefusedBeforeAdmissionNamesItsOwner(string $state): void
+    {
+        $signedIn = $state === 'admin' ? $this->signedIn('admin') : $this->signedIn();
+
+        $this->putInto($state);
+
+        $this->recordEvents([SteppedUp::class, AuthenticationFailed::class]);
+
+        self::assertTrue($this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()))->isFailed());
+
+        $context = $this->recordedEvent(AuthenticationFailed::class)->context;
+
+        $owner = IdentifierCoercion::stringify($signedIn->identity->getAuthIdentifier());
+
+        self::assertSame([IntegrationIdentity::class, $owner], [$context->identityMorphClass, $context->identityId]);
+    }
+
+    /**
      * A proof made in the very second the session signed in steps it up: the
      * proof is measured from the session's own start, not from now.
      *
