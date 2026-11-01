@@ -7,6 +7,7 @@ namespace Tests\Integration\Proofs;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -26,6 +27,7 @@ use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
@@ -34,7 +36,8 @@ use Tests\TestCase;
  * default collations count the first as equal and `utf8mb4_bin` the second, and
  * the proofs' columns must count neither. A session counts, clears and is
  * pruned with only the proofs and provenance recorded under its own key, byte
- * for byte, and the claims keep two values that differ only in case apart.
+ * for byte, and the claims keep two values that differ only in case apart. A
+ * key, owner or guard of 255 characters of four bytes each is kept whole.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -158,6 +161,47 @@ final class ByteDistinctBindingTest extends TestCase
         self::assertSame([[], null], [self::proofsOf($record), self::provenanceOf($record)]);
         self::assertSame(['additional_factor'], array_map(static fn (SessionProof $proof): string => $proof->kind, self::proofsOf($twin)));
         self::assertSame('connection-8', self::provenanceOf($twin)?->connection_id);
+    }
+
+    /**
+     * A session whose key, owner's morph alias, owner key and guard are each
+     * 255 characters of four bytes records its step-up and provenance under
+     * them whole: the step-up counts for it, and the provenance is found by its
+     * key.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testBindingsOf255FourByteCharactersAreKeptWhole(): void
+    {
+        $alias  = str_repeat("\u{1D4AF}", 255);
+        $record = $this->sessions()->start($this->seedIdentity(), null, 'sso')->session?->record;
+
+        self::assertInstanceOf(Session::class, $record);
+
+        $session = (new Session)->forceFill([
+            ...$record->getAttributes(),
+            'id'                   => str_repeat("\u{1F511}", 255),
+            'authenticatable_type' => $alias,
+            'authenticatable_id'   => str_repeat("\u{1F464}", 255),
+            'guard'                => str_repeat("\u{1F6E1}", 255),
+        ]);
+
+        Relation::morphMap([$alias => IntegrationIdentity::class]);
+
+        try {
+            self::recordProof($session, ProofKind::ADDITIONAL_FACTOR, $this->now, ['otp'], new Evaluation(true, true));
+
+            ProofWriter::provenance($session, new Provenance('connection-8'));
+
+            $proof = SessionProofs::newestMeeting($session, new FreshnessRequirement(900, [ProofKind::ADDITIONAL_FACTOR]), $this->now);
+        } finally {
+            Relation::morphMap([], false);
+        }
+
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR, ['otp']], [$proof?->kind, $proof?->methods]);
+        self::assertSame('connection-8', self::provenanceOf($session)?->connection_id);
     }
 
     /**

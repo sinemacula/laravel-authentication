@@ -92,7 +92,9 @@ return new class extends Migration {
      * pad has a different name on each. Two session keys that differ only in
      * those would otherwise match, so one session would clear or prune
      * another's provenance, or could not record its own. PostgreSQL and SQLite
-     * already compare bytes.
+     * already compare bytes. A binary column's length is in bytes, so it is
+     * given the four a `utf8mb4` character may take for each of the 255
+     * characters the column holds elsewhere.
      *
      * @param  \Illuminate\Database\Schema\Builder  $schema
      * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
@@ -102,7 +104,7 @@ return new class extends Migration {
     private static function exact(Builder $schema, Blueprint $blueprint, string $name): ColumnDefinition
     {
         return in_array($schema->getConnection()->getDriverName(), ['mysql', 'mariadb'], true)
-            ? $blueprint->binary($name, 255)
+            ? $blueprint->binary($name, 1020)
             : $blueprint->string($name);
     }
 };

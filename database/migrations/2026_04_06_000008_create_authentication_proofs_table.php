@@ -65,7 +65,9 @@ return new class extends Migration {
 
             // The proof's `amr` values as a JSON list. A bounded string rather
             // than text, so the claims query can group by it on every database.
-            self::exact($schema, $blueprint, 'methods', 1024);
+            // Its JSON is ASCII (the values are, and the cast escapes anything
+            // else), so it takes no more bytes than characters.
+            self::exact($schema, $blueprint, 'methods', 1024, 1024);
 
             self::exact($schema, $blueprint, 'authenticatable_type');
             self::exact($schema, $blueprint, 'authenticatable_id');
@@ -118,18 +120,21 @@ return new class extends Migration {
      * pad has a different name on each. Two session keys, guards, owners or
      * `amr` values that differ only in those would otherwise match, so one
      * session would count, clear or prune another's proofs and the claims read
-     * would merge two values. PostgreSQL and SQLite already compare bytes.
+     * would merge two values. PostgreSQL and SQLite already compare bytes. A
+     * binary column's length is in bytes, so it is given the four a `utf8mb4`
+     * character may take for each character the column holds elsewhere.
      *
      * @param  \Illuminate\Database\Schema\Builder  $schema
      * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
      * @param  string  $name
-     * @param  int  $length
+     * @param  int  $characters
+     * @param  int  $bytes
      * @return \Illuminate\Database\Schema\ColumnDefinition
      */
-    private static function exact(Builder $schema, Blueprint $blueprint, string $name, int $length = 255): ColumnDefinition
+    private static function exact(Builder $schema, Blueprint $blueprint, string $name, int $characters = 255, int $bytes = 1020): ColumnDefinition
     {
         return in_array($schema->getConnection()->getDriverName(), ['mysql', 'mariadb'], true)
-            ? $blueprint->binary($name, $length)
-            : $blueprint->string($name, $length);
+            ? $blueprint->binary($name, $bytes)
+            : $blueprint->string($name, $characters);
     }
 };

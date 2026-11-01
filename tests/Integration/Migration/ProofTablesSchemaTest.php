@@ -180,18 +180,29 @@ final class ProofTablesSchemaTest extends TestCase
     /**
      * The string columns are as long as what they hold: a channel reference and
      * a factor reference of 255 characters, a kind, a purpose and a key
-     * protection, the `amr` list's JSON, and a policy version of 64.
+     * protection, the `amr` list's JSON, and a policy version of 64. The
+     * session key, owner and guard hold 255 characters, which on MySQL and
+     * MariaDB, where they are binary, is 1020 bytes.
      *
      * @return void
      */
     public function testSizesTheStringColumns(): void
     {
-        if (Schema::getConnection()->getDriverName() === 'sqlite') {
+        $driver = Schema::getConnection()->getDriverName();
+
+        if ($driver === 'sqlite') {
             self::markTestSkipped('SQLite does not record a length for string columns.');
         }
 
         $proofs     = array_column(Schema::getColumns(self::PROOFS), 'type', 'name');
         $provenance = array_column(Schema::getColumns(self::PROVENANCE), 'type', 'name');
+        $binding    = in_array($driver, ['mysql', 'mariadb'], true) ? '(1020)' : '(255)';
+
+        foreach (['session_id', 'authenticatable_type', 'authenticatable_id', 'guard'] as $column) {
+            self::assertStringContainsString($binding, $proofs[$column], $column);
+        }
+
+        self::assertStringContainsString($binding, $provenance['session_id']);
 
         self::assertStringContainsString('(40)', $proofs['kind']);
         self::assertStringContainsString('(32)', $proofs['purpose']);
@@ -269,6 +280,45 @@ final class ProofTablesSchemaTest extends TestCase
 
         self::assertSame('c-1', DB::table(self::PROVENANCE)->where('session_id', 'abc')->value('connection_id'));
         self::assertSame(3, DB::table(self::PROVENANCE)->count());
+    }
+
+    /**
+     * A session key, owner and guard of 255 characters that each take four
+     * bytes are stored and found again whole on every engine, and so is a
+     * provenance under that key: a binary column on MySQL and MariaDB holds
+     * what a string column of 255 characters holds elsewhere.
+     *
+     * @return void
+     */
+    public function testHoldsBindingsOf255FourByteCharacters(): void
+    {
+        $session = str_repeat("\u{1F511}", 255);
+        $type    = str_repeat("\u{1D4AF}", 255);
+        $owner   = str_repeat("\u{1F464}", 255);
+        $guard   = str_repeat("\u{1F6E1}", 255);
+
+        DB::table(self::PROOFS)->insert([
+            'id'                   => '0196a3c0-0000-7000-8000-000000000001',
+            'session_id'           => $session,
+            'kind'                 => 'first_factor',
+            'purpose'              => 'sign_in',
+            'method'               => 'password',
+            'channel_kind'         => 'password',
+            'methods'              => '["pwd"]',
+            'authenticatable_type' => $type,
+            'authenticatable_id'   => $owner,
+            'guard'                => $guard,
+            'authenticated_at'     => '2026-04-06 12:00:00',
+        ]);
+
+        DB::table(self::PROVENANCE)->insert(['session_id' => $session, 'connection_id' => 'c-1']);
+
+        $stored = (array) DB::table(self::PROOFS)
+            ->where(['session_id' => $session, 'authenticatable_type' => $type, 'authenticatable_id' => $owner, 'guard' => $guard])
+            ->sole(['session_id', 'authenticatable_type', 'authenticatable_id', 'guard']);
+
+        self::assertSame(['session_id' => $session, 'authenticatable_type' => $type, 'authenticatable_id' => $owner, 'guard' => $guard], $stored);
+        self::assertSame($session, DB::table(self::PROVENANCE)->where('session_id', $session)->value('session_id'));
     }
 
     /**

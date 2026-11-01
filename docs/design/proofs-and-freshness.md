@@ -22,8 +22,9 @@ the token's claims and every freshness answer are worked out from them, never st
 - Every read of proofs is of the session's own: those recorded under its key and bound to its guard and its owner (the
   morph type and key the session records), so another identity's or application's proof under the same key never
   counts for it. The key, guard, owner and `amr` columns compare byte for byte (binary columns on MySQL and MariaDB,
-  whose default collations ignore case and accents and whose `utf8mb4_bin` ignores trailing spaces), so a key, owner or
-  value that differs only in those is another.
+  whose default collations ignore case and accents and whose `utf8mb4_bin` ignores trailing spaces; there the key, guard
+  and owner take 1020 bytes, the 255 four-byte characters they hold elsewhere), so a key, owner or value that differs
+  only in those is another.
   A sign-in deletes every proof and provenance recorded under its new session's key before it records its own
   (`ProofWriter::clear()`), so a key the database issues again (an integer key whose counter a truncation reset, after
   the sessions were deleted without their proofs) inherits nothing, the same identity's proofs included. It finds them
