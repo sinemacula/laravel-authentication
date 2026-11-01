@@ -158,11 +158,11 @@ evaluation and time), or `null`. The requirement is configured per operation in 
 it must have reported multifactor authentication or been observed to resist phishing. An operation with no configured
 requirement and none of the caller's is never fresh, nor is one whose two requirements take no kind in common. A proof
 marked void never counts (nothing marks one yet). The session is never trusted as the caller holds it: it is read again
-on the write connection and must still be live for its guard before its proofs are read, two queries in all, and none
-when the operation has no requirement. That read takes no lock, and inside a transaction it may be served from a
-snapshot taken before the caller's lock (MySQL's REPEATABLE READ), so a caller that acts on the answer atomically locks
-the session in its transaction, checks the locked row is still live itself, and asks inside it, as an identifier change
-does (see [Changing identifiers](identifier-changes.md)).
+on the write connection and must still record the same owner and be live for its guard before its proofs are read, two
+queries in all, and none when the operation has no requirement. That read takes no lock, and inside a transaction it may
+be served from a snapshot taken before the caller's lock (MySQL's REPEATABLE READ), so a caller that acts on the answer
+atomically locks the session in its transaction, checks the locked row is still live itself, and asks inside it, as an
+identifier change does (see [Changing identifiers](identifier-changes.md)).
 
 The package binds `Freshness\ConfiguredFreshness`. Rebind the contract for a requirement the stored proofs cannot show,
 such as a minimum assurance level or an additional verification of your own; an implementation keeps no state between

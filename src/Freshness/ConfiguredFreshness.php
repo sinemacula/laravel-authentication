@@ -6,6 +6,8 @@ namespace SineMacula\Laravel\Authentication\Freshness;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Config\Repository;
+use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
@@ -13,6 +15,7 @@ use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * The package's freshness policy: the requirement each operation has on each
@@ -23,11 +26,12 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
  * The requirement is the one of the application the caller's session names, and
  * with none, nothing is read. Otherwise the session is never trusted as the
  * caller holds it, which may predate a revocation: it is read again by its key
- * on the write connection and must still be live for that application (of that
- * guard, not revoked, not ended) before its proofs are read, two queries in
- * all. That read takes no lock, so a caller that acts on the answer atomically
- * locks the session in its transaction first, judges the locked row itself, and
- * asks inside it.
+ * on the write connection and must still record the owner the caller's does (a
+ * session model that reissues keys may have put another identity's session
+ * under it) and be live for that application (of that guard, not revoked, not
+ * ended) before its proofs are read, two queries in all. That read takes no
+ * lock, so a caller that acts on the answer atomically locks the session in its
+ * transaction first, judges the locked row itself, and asks inside it.
  *
  * Stateless: the configuration is read on every call.
  *
@@ -79,8 +83,9 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
     /**
      * The newest of the session's proofs that meets the requirement now, or
      * `null` when the session names no application, there is no requirement,
-     * the stored session is gone or no longer live for that application, or no
-     * proof meets it.
+     * the stored session is gone, records another owner (or the session given
+     * is not an Eloquent session, which records none) or is no longer live for
+     * that application, or no proof meets it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
@@ -104,6 +109,42 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
         $stored = SessionLookup::find($session->getSessionIdentifier());
         $now    = CarbonImmutable::now()->startOfSecond();
 
-        return $stored === null || OwnedSession::refusal($stored, $guard, $now) !== null ? null : SessionProofs::newestMeeting($stored, $effective, $now);
+        return $stored === null || !self::isSameOwner($session, $stored) || OwnedSession::refusal($stored, $guard, $now) !== null
+            ? null
+            : SessionProofs::newestMeeting($stored, $effective, $now);
+    }
+
+    /**
+     * Whether the stored session records the owner the session given does: the
+     * same morph type and owner key, read with no query. A session that is not
+     * an Eloquent session records no owner, so it is never the stored one's.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $stored
+     * @return bool
+     */
+    private static function isSameOwner(Session $session, EloquentSession&Model $stored): bool
+    {
+        return $session instanceof EloquentSession && $session instanceof Model && self::owner($session) === self::owner($stored);
+    }
+
+    /**
+     * The owner's morph type and key the session records. The columns are named
+     * by the relation of a blank instance, so the recorded type is never
+     * instantiated.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @return array{0: ?string, 1: ?string}
+     */
+    private static function owner(EloquentSession&Model $session): array
+    {
+        /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession $blank */
+        $blank = $session->newInstance();
+        $owner = $blank->authenticatable();
+
+        return [
+            IdentifierCoercion::stringify($session->getAttribute($owner->getMorphType())),
+            IdentifierCoercion::stringify($session->getAttribute($owner->getForeignKeyName())),
+        ];
     }
 }

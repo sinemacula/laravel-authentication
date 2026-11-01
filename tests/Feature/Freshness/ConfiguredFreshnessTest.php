@@ -12,7 +12,10 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
+use SineMacula\Laravel\Authentication\Contracts\Session as Contract;
 use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessSettings;
@@ -24,6 +27,7 @@ use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 
 /**
@@ -299,6 +303,69 @@ final class ConfiguredFreshnessTest extends TestCase
 
         self::assertNull(self::policy()->freshProof($record, Operations::IDENTIFIER_CHANGE));
         self::assertNull(self::policy()->freshProof(new Session, Operations::IDENTIFIER_CHANGE));
+    }
+
+    /**
+     * The ways a session a model that reissues keys put under the caller's key
+     * can record another owner: another identity's key, or another morph type
+     * with the same key.
+     *
+     * @return iterable<string, array{array<string, string>}>
+     */
+    public static function otherOwners(): iterable
+    {
+        yield 'another identity' => [['authenticatable_id' => 'another-identity']];
+
+        yield 'another type' => [['authenticatable_type' => MachineClient::class]];
+    }
+
+    /**
+     * A session the caller still holds after its key was given to a live
+     * session of another owner, on the same guard and with a fresh proof of its
+     * own, is not fresh: the replacement's proof is found only for the
+     * replacement.
+     *
+     * @param  array<string, string>  $owner
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('otherOwners')]
+    public function testASessionWhoseKeyNowHoldsAnotherOwnersIsNotFresh(array $owner): void
+    {
+        $record = $this->signedIn();
+
+        DB::table('authentication_sessions')->where('id', $record->getKey())->update($owner);
+
+        $replacement = Session::query()->findOrFail($record->getKey());
+
+        self::recordProof($replacement, ProofKind::FIRST_FACTOR, $this->now);
+
+        self::assertNotNull(self::policy()->freshProof($replacement, Operations::IDENTIFIER_CHANGE));
+        self::assertNull(self::policy()->freshProof($record, Operations::IDENTIFIER_CHANGE));
+    }
+
+    /**
+     * A session that is not an Eloquent session records no owner, so it is
+     * never fresh, even under the key and guard of a live session that is.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionThatRecordsNoOwnerIsNeverFresh(): void
+    {
+        $record = $this->signedIn();
+
+        self::assertNotNull(self::policy()->freshProof($record, Operations::IDENTIFIER_CHANGE));
+
+        foreach ([Contract::class, EloquentSession::class] as $contract) {
+            $session = \Mockery::mock($contract);
+            $session->shouldReceive('getGuard')->andReturn('api');
+            $session->shouldReceive('getSessionIdentifier')->andReturn($record->getKey());
+
+            self::assertNull(self::policy()->freshProof($session, Operations::IDENTIFIER_CHANGE), $contract);
+        }
     }
 
     /**

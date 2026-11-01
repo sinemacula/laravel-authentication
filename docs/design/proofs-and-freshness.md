@@ -60,9 +60,10 @@ the token's claims and every freshness answer are worked out from them, never st
   1 to 86400 seconds, multifactor, phishing resistance), the stricter of the configured one and the caller's, and the
   newest proof meeting it. The default, `Freshness\ConfiguredFreshness`, reads `authentication.freshness` and a guard's
   `freshness` block (an entry wins whole; `null` removes it) on every call, keeps no state, and reads the session again
-  by key on the write connection, requiring it live for its guard, before reading its proofs; it reads nothing when the
-  operation has no requirement. An operation with no requirement, or two requirements with no kind in common, is never
-  fresh. The latest `auth_time` never stands in for the proof that meets a requirement.
+  by key on the write connection, requiring it to record the caller's owner (a session model that reissues keys may have
+  put another identity's session under it) and be live for its guard, before reading its proofs; it reads nothing when
+  the operation has no requirement. An operation with no requirement, or two requirements with no kind in common, is
+  never fresh. The latest `auth_time` never stands in for the proof that meets a requirement.
 - An identifier change proves a recent authentication with the `identifier_change` operation: a session proof must be
   one of the identity's live sessions of the guard, as stored, and the policy must find a proof for it; inside the
   change's transaction both are checked again on the session's locked row, which the change judges itself, since the
