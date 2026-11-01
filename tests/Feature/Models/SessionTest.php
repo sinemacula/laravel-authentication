@@ -150,6 +150,7 @@ final class SessionTest extends TestCase
     public function testCastsStringColumnsToString(): void
     {
         $columns = [
+            'generation',
             'authenticatable_type',
             'authenticatable_id',
             'principal_type',
