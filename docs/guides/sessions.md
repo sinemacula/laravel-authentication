@@ -24,10 +24,10 @@ removed) never counts.
 
 A session an external provider established also records its provenance, once, in `proofs.provenance_table`: the
 connection and its tenant, the provider's authentication time, the evidence accepted for it (only an evidence contract
-that accepts it records any), the provider's deadline for its session and the policy version the caller checked. A later
-reauthentication at the provider is a proof of its own and never rewrites how the session began. The provenance is
-indexed by connection and by tenant, so the sessions of a connection, or of a tenant's connections, are found by an
-indexed query.
+that accepts it records any), the provider's deadline for its session (which also caps the session's absolute deadline,
+the earlier of it and the sign-in's own winning) and the policy version the caller checked. A later reauthentication at
+the provider is a proof of its own and never rewrites how the session began. The provenance is indexed by connection and
+by tenant, so the sessions of a connection, or of a tenant's connections, are found by an indexed query.
 
 Proofs and provenance belong to the session's key, so they carry unchanged from a pending sign-in to its session, and
 across every refresh and switch of principal. A sign-in that replaces a session the client proved it holds is a new

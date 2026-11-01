@@ -62,7 +62,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   client credentials token to every listener that reads the method.
 - One `$now` per call, cut to the second, is used for the deadlines, the last use and every token's `iat`. The deadlines
   come from the application policy's lifetimes for the guard (`ApplicationPolicy::lifetimes($guard)`), which with the
-  shipped policy are the guard's token service's (see `application-policy.md`).
+  shipped policy are the guard's token service's (see `application-policy.md`), the absolute one capped at the
+  context's own deadline (`SignInContext::$notAfter`, into which `start()` folds a provenance's deadline); a context
+  whose deadline is `$now` or earlier is refused as `session_expired` before anything is written.
 - Every sign-in creates a new session (D15): a new key, a new rotation id, both deadlines from `$now`. A session is
   written in one transaction on the session's connection: the revocation of a proven session first, then the new
   session, then its proofs (the first factor, and the further factor a completion was given) and its provenance, then

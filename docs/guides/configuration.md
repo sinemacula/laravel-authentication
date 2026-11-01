@@ -255,8 +255,9 @@ A sign-in may supply a deadline of its own, such as an external provider's sessi
 (see [Signing in](signing-in.md#a-sign-ins-own-deadline)): the session's absolute deadline is then the earlier of it
 and the application's limit, or the deadline alone when the application sets none.
 
-A guard override that is present and not `null` wins; otherwise the package value applies. Each value must be an integer
-or a string of digits (as `env()` returns it) within its range. A value that is missing, malformed, or out of range
+A guard override that is present and not `null` wins; otherwise the package value applies, except that a present `null`
+for `refresh_absolute_ttl_minutes` means no absolute limit (above). Each value must be an integer or a string of digits
+(as `env()` returns it) within its range. A value that is missing, malformed, or out of range
 fails closed with an `InvalidJwtConfigurationException` naming the key and the guard when the guard or `Auth::jwt()`
 service is resolved; the defaults live only in the published config.
 

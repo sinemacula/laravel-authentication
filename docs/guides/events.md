@@ -155,7 +155,7 @@ while the sign-in's result says `invalid_credentials`:
 | `additional_factor_failed`   | A pending sign-in was discarded: its further factor failed                          |
 | `principal_choice_abandoned` | A choice of principal was discarded                                                 |
 | `pending_invalid`            | The pending sign-in is unknown, expired, used, or not this guard's                  |
-| `token_invalid`              | Decode, expiry, missing claim, typ, guard, iss, aud                                 |
+| `token_invalid`              | Decode, expiry, header type, `client_id`, `iss`, `aud`, missing or malformed claim  |
 | `issued_before_cutoff`       | Session-less token issued at or before a "tokens valid after" time                  |
 | `session_unknown`            | Session id is not a session key or names no session                                 |
 | `session_guard_mismatch`     | Session is another guard's (or none's); not revoked                                 |

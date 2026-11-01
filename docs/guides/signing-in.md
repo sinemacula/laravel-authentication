@@ -166,7 +166,8 @@ own session (SAML `SessionNotOnOrAfter`), and the version of the enforcement or 
 proof is then the provider's: the connection as an `external_provider` channel, the private `amr` value
 `urn:sinemacula:amr:external_provider` (RFC 8176 names none for it; the provider's own values are its package's to
 carry), and the provider's authentication time (now, when it gave none or one after now). The provenance is recorded
-with the session and never rewritten, and the provider's deadline caps the session's absolute deadline. Never build a
+with the session and never rewritten, and the provider's deadline is folded into the context's (see [A sign-in's own
+deadline](#a-sign-ins-own-deadline)), so the earlier of the two caps the session's absolute deadline. Never build a
 provenance from what the client sent. Without one, the first proof names no channel and no `amr` value, timed now.
 
 ```php
@@ -225,15 +226,14 @@ $result = Auth::sessions('api')->start($identity, null, 'sso', $context);
 ```
 
 The session's absolute deadline is then the earlier of the deadline and the application's absolute limit, or the
-deadline alone when the application sets none (see
-[Token and session lifetimes](configuration.md#token-and-session-lifetimes)), and its idle deadline is never later. A
-refresh, a switch of principal and a reauthentication never move it. `withNotAfter()` keeps the earlier of the
-context's deadline and the one given, so a deadline is only ever lowered, and `null` changes nothing. A sign-in whose
-deadline is this second or earlier is refused as `session_expired` (reported as any failed sign-in) before the
-additional-factor policy is asked, a choice is offered or anything is written. A sign-in held for a further factor or a
-choice of principal keeps its deadline, and its completion or choice is refused as `session_expired` once the deadline
-has passed while it waited. `fromRequest()` never sets a deadline: it is the application's, or a trusted adapter's, to
-supply, never the client's.
+deadline alone when the application sets none (see [Token and session
+lifetimes](configuration.md#token-and-session-lifetimes)), and its idle deadline is never later. A refresh, a switch of
+principal, a step-up and a reauthentication never move it. `withNotAfter()` keeps the earlier of the context's deadline
+and the one given, so a deadline is only ever lowered, and `null` changes nothing. A sign-in whose deadline is this
+second or earlier is refused as `session_expired` (reported as any failed sign-in) before the additional-factor policy
+is asked, a choice is offered or anything is written. A sign-in held for a further factor or a choice of principal keeps
+its deadline, and its completion or choice is refused as `session_expired` once the deadline has passed while it waited.
+`fromRequest()` never sets a deadline: it is the application's, or a trusted adapter's, to supply, never the client's.
 
 `attempt()` and `login()` remain for code that binds the guard itself; neither creates a session. A session is a stored
 row, so the session service signs in only identities that implement `HasSessions`: for any other identity `signIn()`,

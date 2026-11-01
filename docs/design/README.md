@@ -27,6 +27,9 @@ The current note set is:
   previous rotation id, and when a replayed refresh token revokes the session (`rotation_reuse`).
 - `refresh-token-transport.md`: where a guard reads the refresh token from, why a request may carry it in only one
   place, the cookie's cross-site checks, and the cookie that carries a browser's refresh token.
+- `token-profile.md`: the claims each token carries, the header type that tells access and refresh tokens apart, the
+  subject type that tells a person's token from a machine's, what every parse checks, and what the bearer path does not
+  read.
 - `fail-closed-pid-did.md`: why the `principal` and `sid` claims are treated as commitments rather than advisory hints.
 - `storage.md`: where the package's tables live, why the session-backed ones share one connection, and how the models
   and the published migrations choose the same one.
