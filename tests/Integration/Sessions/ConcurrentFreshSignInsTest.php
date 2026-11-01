@@ -157,7 +157,9 @@ final class ConcurrentFreshSignInsTest extends TestCase
 
         touch("{$this->outcomes}/start");
 
-        self::awaitSignal("{$this->outcomes}/inserting");
+        if (!self::wasSignalled("{$this->outcomes}/inserting")) {
+            self::abandon($pid, 'The second side never reached the insert of its proof, so the sign-ins did not overlap.');
+        }
 
         usleep(self::SETTLE_MICROSECONDS);
 
@@ -235,12 +237,14 @@ final class ConcurrentFreshSignInsTest extends TestCase
      */
     private function runInChild(\Closure $second): never
     {
-        try {
-            self::awaitSignal("{$this->outcomes}/start");
+        $outcome = ['error' => 'The first side never signalled the start.'];
 
-            $started = microtime(true);
-            $result  = $second();
-            $outcome = ['result' => $result, 'events' => $this->recordedClasses(), 'waited' => microtime(true) - $started];
+        try {
+            if (self::wasSignalled("{$this->outcomes}/start")) {
+                $started = microtime(true);
+                $result  = $second();
+                $outcome = ['result' => $result, 'events' => $this->recordedClasses(), 'waited' => microtime(true) - $started];
+            }
         } catch (\Throwable $e) {
             $outcome = ['error' => $e->getMessage()];
         }
@@ -253,19 +257,40 @@ final class ConcurrentFreshSignInsTest extends TestCase
     }
 
     /**
-     * Wait for the other side to create the signal file, or give up after the
-     * timeout.
+     * Wait for the other side to create the signal file, for no longer than the
+     * timeout: whether it did.
      *
      * @param  string  $signal
-     * @return void
+     * @return bool
      */
-    private static function awaitSignal(string $signal): void
+    private static function wasSignalled(string $signal): bool
     {
         $deadline = microtime(true) + self::SIGNAL_TIMEOUT_SECONDS;
 
         while (!is_file($signal) && microtime(true) < $deadline) {
             usleep(5000);
         }
+
+        return is_file($signal);
+    }
+
+    /**
+     * Fail the race that was never set up: roll the first side's transaction
+     * back and stop and reap the second side, so neither is left holding locks
+     * on the tables the teardown drops.
+     *
+     * @param  int  $pid
+     * @param  string  $message
+     * @return never
+     */
+    private static function abandon(int $pid, string $message): never
+    {
+        DB::rollBack();
+
+        posix_kill($pid, SIGKILL);
+        pcntl_waitpid($pid, $status);
+
+        self::fail($message);
     }
 
     /**
