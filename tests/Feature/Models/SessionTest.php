@@ -179,36 +179,46 @@ final class SessionTest extends TestCase
     /**
      * Only the client-described metadata is mass assignable: ownership, the
      * request-derived columns, and the session state are set with `forceFill()`
-     * or by the package's own writes.
+     * or by the package's own writes, so a new session keeps the status it
+     * starts with whatever it is given.
      *
      * @return void
      */
     public function testOnlyClientMetadataIsMassAssignable(): void
     {
         $session = new Session([
-            'client_name'          => 'Work laptop',
-            'platform'             => 'macOS',
-            'authenticatable_type' => 'App\Models\User',
-            'authenticatable_id'   => '1',
-            'principal_type'       => 'App\Models\Member',
-            'principal_id'         => '2',
-            'guard'                => 'api',
-            'sign_in_method'       => 'password',
-            'created_ip'           => '203.0.113.7',
-            'created_user_agent'   => 'Mozilla/5.0',
-            'last_used_at'         => self::FIXED_TIMESTAMP,
-            'last_used_ip'         => '203.0.113.7',
-            'last_used_user_agent' => 'Mozilla/5.0',
-            'refresh_key'          => 'digest',
-            'previous_refresh_key' => 'previous-digest',
-            'refresh_rotated_at'   => self::FIXED_TIMESTAMP,
-            'idle_expires_at'      => self::FIXED_TIMESTAMP,
-            'absolute_expires_at'  => self::FIXED_TIMESTAMP,
-            'revoked_at'           => self::FIXED_TIMESTAMP,
-            'revoked_reason'       => 'rotation_reuse',
+            'client_name'            => 'Work laptop',
+            'platform'               => 'macOS',
+            'authenticatable_type'   => 'App\Models\User',
+            'authenticatable_id'     => '1',
+            'principal_type'         => 'App\Models\Member',
+            'principal_id'           => '2',
+            'guard'                  => 'api',
+            'sign_in_method'         => 'password',
+            'created_ip'             => '203.0.113.7',
+            'created_user_agent'     => 'Mozilla/5.0',
+            'last_used_at'           => self::FIXED_TIMESTAMP,
+            'last_used_ip'           => '203.0.113.7',
+            'last_used_user_agent'   => 'Mozilla/5.0',
+            'refresh_key'            => 'digest',
+            'previous_refresh_key'   => 'previous-digest',
+            'refresh_rotated_at'     => self::FIXED_TIMESTAMP,
+            'idle_expires_at'        => self::FIXED_TIMESTAMP,
+            'absolute_expires_at'    => self::FIXED_TIMESTAMP,
+            'revoked_at'             => self::FIXED_TIMESTAMP,
+            'revoked_reason'         => 'rotation_reuse',
+            'status'                 => 'pending',
+            'requires'               => '["mfa"]',
+            'pending_key'            => 'pending-digest',
+            'supersedes_session_id'  => 'another-session',
+            'supersedes_refresh_key' => 'another-digest',
+            'attempt_windows'        => '[]',
+            'tenant_id'              => 'tenant-1',
+            'tenant_policy_version'  => 'v1',
+            'switched_at'            => self::FIXED_TIMESTAMP,
         ]);
 
-        self::assertSame(['client_name' => 'Work laptop', 'platform' => 'macOS'], $session->getAttributes());
+        self::assertSame(['status' => 'active', 'client_name' => 'Work laptop', 'platform' => 'macOS'], $session->getAttributes());
     }
 
     /**

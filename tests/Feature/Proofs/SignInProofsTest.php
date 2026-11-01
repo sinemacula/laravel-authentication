@@ -648,13 +648,17 @@ final class SignInProofsTest extends TestCase
 
         [$pending, $credential] = self::pendingOf($this->sessions()->signIn('password', self::credentials()));
 
+        $this->clockAt($this->now->addMinute());
+
         $session = $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::ENROLLMENT))->session;
 
         self::assertNotNull($session);
-        self::assertSame(
-            [ProofKind::ADDITIONAL_FACTOR->value, Purpose::ENROLLMENT->value],
-            [self::proofsOf($session->record)[1]->kind, self::proofsOf($session->record)[1]->purpose],
-        );
+
+        $proofs = self::proofsOf($session->record);
+
+        self::assertCount(2, $proofs);
+        self::assertSame([ProofKind::FIRST_FACTOR->value, Purpose::SIGN_IN->value], [$proofs[0]->kind, $proofs[0]->purpose]);
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR->value, Purpose::ENROLLMENT->value], [$proofs[1]->kind, $proofs[1]->purpose]);
     }
 
     /**

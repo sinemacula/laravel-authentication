@@ -14,9 +14,12 @@ use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\AssertionFailedError;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
+use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
+use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Testing\Concerns\InteractsWithAuthenticationContext;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Tenancy\DescendantTenants;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -121,9 +124,9 @@ final class InteractsWithAuthenticationContextTest extends TestCase
     /**
      * Acting as an identity of a three-dimensional guard binds the principal
      * and session given, on every request, in the tenant the session records
-     * for that principal (none here: the session acts in the tenant of the
-     * membership it was signed in as, which the shipped resolver does not find
-     * for another membership), or, with no session, in the principal's own.
+     * (here the tenant of the membership it was signed in as, which the
+     * application's resolver finds, not the own tenant of the membership acted
+     * as), or, with no session, in the principal's own.
      *
      * @return void
      */
@@ -133,17 +136,29 @@ final class InteractsWithAuthenticationContextTest extends TestCase
 
         $session = $this->signedInSession('members', 'member@example.test');
 
-        [, $other] = $this->seedMember('other@example.test');
+        [, $other, $otherTenant] = $this->seedMember('other@example.test');
 
         $other->forceFill(['identity_id' => $member->getKey()])->save();
+
+        app()->instance(TenantResolver::class, new DescendantTenants);
 
         $this->actingAsIdentity($member, $other, $session, null, 'members');
 
         $this->getJson('/members/me')->assertOk()->assertExactJson([
             'identity'  => $member->getKey(),
             'principal' => $other->getKey(),
-            'tenant'    => null,
+            'tenant'    => $tenant->getKey(),
             'session'   => $session->getKey(),
+            'scopes'    => null,
+        ]);
+
+        $this->actingAsIdentity($member, $other, guard: 'members');
+
+        $this->getJson('/members/me')->assertOk()->assertExactJson([
+            'identity'  => $member->getKey(),
+            'principal' => $other->getKey(),
+            'tenant'    => $otherTenant->getKey(),
+            'session'   => null,
             'scopes'    => null,
         ]);
 
@@ -156,6 +171,33 @@ final class InteractsWithAuthenticationContextTest extends TestCase
             'session'   => null,
             'scopes'    => null,
         ]);
+    }
+
+    /**
+     * Acting on a session whose recorded tenant the application cannot resolve
+     * never reads as acting in no tenant: the active tenant throws
+     * `TenantUnavailableException` while the context stays bound.
+     *
+     * @return void
+     */
+    public function testActingOnASessionWhoseTenantCannotBeResolvedThrowsForTheTenant(): void
+    {
+        [$member] = $this->seedMember();
+
+        $session = $this->signedInSession('members', 'member@example.test');
+
+        [, $other] = $this->seedMember('other@example.test');
+
+        $other->forceFill(['identity_id' => $member->getKey()])->save();
+
+        $this->actingAsIdentity($member, $other, $session, null, 'members');
+
+        self::assertSame($other, Auth::principal());
+        self::assertSame($session, Auth::session());
+
+        $this->expectException(TenantUnavailableException::class);
+
+        Auth::tenant();
     }
 
     /**

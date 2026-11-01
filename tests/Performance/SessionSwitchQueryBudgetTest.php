@@ -166,7 +166,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         $chosen = ChoosingMembership::query()->firstOrFail();
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(7, 4, static fn (): SignInResult => $sessions->choose($token, $chosen));
+        $result   = $this->assertQueryBudget(6, 4, static fn (): SignInResult => $sessions->choose($token, $chosen));
 
         self::assertTrue($result->isSignedIn());
     }
@@ -195,7 +195,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         self::assertNotNull($choice);
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(8, 5, static fn (): SignInResult => $sessions->choose($choice, $chosen));
+        $result   = $this->assertQueryBudget(7, 5, static fn (): SignInResult => $sessions->choose($choice, $chosen));
 
         self::assertNotSame($first->record->getKey(), $result->session?->record->getKey());
         self::assertSame('superseded', Session::query()->whereKey($first->record->getKey())->value('revoked_reason'));

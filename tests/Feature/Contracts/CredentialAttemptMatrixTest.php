@@ -266,7 +266,9 @@ final class CredentialAttemptMatrixTest extends TestCase
 
     /**
      * Rows of `[case, row]`: what the session service's `signIn('password')`
-     * does in each case. A pinned session is `attempt()`'s alone.
+     * does in each case. A pinned session is `attempt()`'s alone. The timebox
+     * is cut short once the identity is admitted, whatever comes of the sign-in
+     * after, a principal named that is not the identity's included.
      *
      * @return iterable<string, array{0: string, 1: array{result: string, events: list<string>, timebox: string, rehashed: bool, reservation: string, account: string}}>
      */
@@ -338,7 +340,7 @@ final class CredentialAttemptMatrixTest extends TestCase
         yield 'pinned principal mismatch' => ['pinned principal mismatch', [
             'result'      => 'failed principal_mismatch',
             'events'      => ['Attempting api', 'Failed api i1', 'AuthenticationFailed api sign_in:principal_mismatch i1/-/-'],
-            'timebox'     => 'padded',
+            'timebox'     => 'cut short',
             'rehashed'    => false,
             'reservation' => 'consumed',
             'account'     => 'consumed',

@@ -333,13 +333,13 @@ final class TenantAuthenticationPolicyTest extends TestCase
     {
         $this->seedMember();
 
+        $other   = $this->signedIn();
         $guard   = $this->freshGuard('members');
         $service = self::sessionsOf($guard);
         $kept    = $service->signIn('password', self::credentials('member@example.test'))->session;
 
         self::assertNotNull($kept);
-
-        $other = $this->signedIn();
+        self::assertSame($kept->record, $guard->session());
 
         $this->policy->requirement = new TenantRequirement('v2', new Requirement(new RequirementPart));
 

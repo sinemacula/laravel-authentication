@@ -389,7 +389,7 @@ final class RevocationWriterTest extends TestCase
         self::assertSame('api', $scope->context->guard);
         self::assertSame($identity, $scope->context->identity);
         self::assertSame(self::idOf($kept), $scope->context->sessionId);
-        self::assertSame(1, $scope->revoked);
+        self::assertSame(2, $scope->revoked);
         self::assertNull($scope->tokensValidAfter);
 
         self::assertNull(self::revokedAt($kept));

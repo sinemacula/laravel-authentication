@@ -292,14 +292,15 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
      */
     public static function provideTenantPrincipals(): iterable
     {
-        yield 'one principal' => [1, 3, 1];
-        yield 'three principals' => [3, 9, 3];
+        yield 'one principal' => [1, 4, 1];
+        yield 'three principals' => [3, 10, 3];
     }
 
     /**
      * A tenant's deactivation reads each principal's tenant, owner and
-     * sessions, and writes each session's revocation: three reads and one write
-     * for each principal with one session.
+     * sessions, and writes each session's revocation, then reads the sessions
+     * still acting in the tenant in one chunk: three reads and one write for
+     * each principal with one session, and one read more.
      *
      * @param  int  $count
      * @param  int  $reads

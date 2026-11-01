@@ -63,11 +63,11 @@ final class NamespaceDependenciesTest extends TestCase
             'forbids' => ['Jwt', 'Sessions', 'Guards'],
             'allows'  => [],
         ],
-        'admission, the session records and the support helpers name nothing of tokens, the session service or guards' => [
+        'admission, the session records and the support helpers name nothing of tokens, the session service or guards but the session status' => [
             'from'    => ['Admission', 'SessionRecords', 'Support'],
             'except'  => [],
             'forbids' => ['Jwt', 'Sessions', 'Guards'],
-            'allows'  => [],
+            'allows'  => ['Sessions\Enums\SessionStatus'],
         ],
         'the proofs and freshness name nothing of tokens, the session service or guards' => [
             'from'    => ['Proofs', 'Freshness'],
@@ -111,11 +111,11 @@ final class NamespaceDependenciesTest extends TestCase
             'forbids' => ['Guards'],
             'allows'  => [],
         ],
-        'tokens, API keys and client credentials name nothing of the session service but the sign-in request' => [
+        'tokens, API keys and client credentials name nothing of the session service but the sign-in request, the session status and the return to pending' => [
             'from'    => ['Jwt', 'ApiKeys', 'ClientCredentials'],
             'except'  => [],
             'forbids' => ['Sessions'],
-            'allows'  => ['Sessions\SignInRequest'],
+            'allows'  => ['Sessions\SignInRequest', 'Sessions\Enums\SessionStatus', 'Sessions\PendingTransitions', 'Sessions\ReturnedToPending'],
         ],
         'the HTTP helpers name nothing of the session service or guards' => [
             'from'    => ['Http'],

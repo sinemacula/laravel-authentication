@@ -651,7 +651,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
-            ->times(4)
+            ->times(5)
             ->andReturn('p-12');
         $principal->shouldReceive('isActive')
             ->once()

@@ -138,11 +138,12 @@ final class SessionActivationTest extends TestCase
     /**
      * A sign-in's first activation makes the session active in place: nothing
      * outstanding, the pending credential consumed, the digest of the pair's
-     * rotation id with no previous one, the idle deadline restored, the client
-     * as its last use, the principal, tenant and policy version recorded, and
-     * the proven session and slots forgotten; the pair authenticates, and the
-     * activation is reported as the sign-in (`SessionCreated`, then
-     * `SignedIn`), not as a reactivation.
+     * rotation id with no previous one, the idle deadline restored to the
+     * configured idle lifetime from the activation, the client as its last use,
+     * the principal, tenant and policy version recorded, and the proven session
+     * and slots forgotten; the pair authenticates, and the activation is
+     * reported as the sign-in (`SessionCreated`, then `SignedIn`), not as a
+     * reactivation.
      *
      * @return void
      *
@@ -174,7 +175,7 @@ final class SessionActivationTest extends TestCase
         self::assertSame(RefreshTokenHasher::hash($rotationId), $row->getRefreshKey());
         self::assertNull($row->getRawOriginal('previous_refresh_key'));
         self::assertNull($row->getRawOriginal('refresh_rotated_at'));
-        self::assertSame($this->now->addDays(90)->getTimestamp(), $row->getIdleExpiresAt()?->getTimestamp());
+        self::assertSame($this->now->addMinutes(config()->integer('authentication.jwt.refresh_idle_ttl_minutes'))->getTimestamp(), $row->getIdleExpiresAt()?->getTimestamp());
         self::assertSame('198.51.100.20', $row->getRawOriginal('last_used_ip'));
         self::assertSame('Activator/2.0', $row->getRawOriginal('last_used_user_agent'));
         self::assertSame($this->now->getTimestamp(), $row->getLastUsedAt()?->getTimestamp());
