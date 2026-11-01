@@ -7,6 +7,7 @@ namespace Tests\Fixtures\Sessions;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\QueryException;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
@@ -64,9 +65,10 @@ final class FirstFactorRecorder
      * `sign_in_method` (a package method's channel and `amr` values, or an
      * unknown channel and none), bound to its owner and guard. A row that
      * records no sign-in time, guard or owner, a row whose owner type names no
-     * model (its owner relation cannot be built, so no proof can be bound to
-     * it), the session writer's own insert (which records its own proofs), and
-     * a row on a database without the proofs table are left without one.
+     * class (the proof writer builds its owner relation, which would
+     * instantiate it), the session writer's own insert (which records its own
+     * proofs), and a row on a database without the proofs table are left
+     * without one.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return void
@@ -95,7 +97,8 @@ final class FirstFactorRecorder
     /**
      * The first factor the row's sign-in would have recorded, or `null` for a
      * row that records no sign-in time or owner, or whose owner type names no
-     * model.
+     * class. The owner's columns are named by a blank instance's relation, so
+     * the recorded type is never instantiated.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return ?\SineMacula\Laravel\Authentication\Proofs\NewProof
@@ -104,21 +107,16 @@ final class FirstFactorRecorder
      */
     private static function firstFactorOf(EloquentSession&Model $session): ?NewProof
     {
-        try {
-            $owner = $session->authenticatable();
-        } catch (\Error $error) {
-            if (!str_starts_with($error->getMessage(), 'Class "')) {
-                throw $error;
-            }
-
-            return null;
-        }
-
+        /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession $blank */
+        $blank    = $session->newInstance();
+        $owner    = $blank->authenticatable();
+        $type     = $session->getAttribute($owner->getMorphType());
         $signedIn = array_key_exists($session->getSignedInAtName(), $session->getAttributes()) ? $session->getSignedInAt() : null;
         $method   = $session->getAttribute($session->getSignInMethodName());
 
         $recordable = $signedIn !== null
-            && is_string($session->getAttribute($owner->getMorphType()))
+            && is_string($type)
+            && class_exists(Relation::getMorphedModel($type) ?? $type)
             && $session->getAttribute($owner->getForeignKeyName()) !== null;
 
         if (!$recordable) {
