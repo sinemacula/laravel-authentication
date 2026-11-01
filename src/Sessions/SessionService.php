@@ -295,13 +295,15 @@ final readonly class SessionService
      * The live pending session of this guard the pending credential names, or
      * `null`; with an action, also `null` when the session does not allow the
      * action now (only its first outstanding requirement's actions are). Also
-     * `null` when the session can no longer activate because its identity or
-     * its method would be refused (a machine or inactive identity, an
-     * identifier type the application no longer admits, a method no longer
-     * allowed). The seam an adapter checks before each action it takes for a
-     * pending session (listing or verifying factors, enrolling one), and the
-     * source of the principals a choice screen lists. A read: it dispatches
-     * nothing and writes nothing.
+     * `null` when the session can no longer activate because its identity, its
+     * method, or the principal and active tenant it records would be refused (a
+     * machine or inactive identity, an identifier type the application no
+     * longer admits, a method no longer allowed, a principal or tenant the
+     * application or `TenantAccess` no longer admits, or one inactive). The
+     * seam an adapter checks before each action it takes for a pending session
+     * (listing or verifying factors, enrolling one), and the source of the
+     * principals a choice screen lists. A read: it dispatches nothing and
+     * writes nothing.
      *
      * @param  string  $credential
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction  $action

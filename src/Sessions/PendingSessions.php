@@ -9,7 +9,6 @@ use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\PinnedPrincipal;
 use SineMacula\Laravel\Authentication\Admission\Refused;
-use SineMacula\Laravel\Authentication\Admission\TenantAdmission;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -97,13 +96,17 @@ final readonly class PendingSessions
     /**
      * The live pending session the credential names, or `null`; with an action,
      * also `null` when its first outstanding requirement does not allow the
-     * action now. Also `null` when the gate would refuse its identity (a
-     * machine identity, an inactive one, or one the application no longer
-     * admits with the identifier type the sign-in used) or its method is no
-     * longer allowed: such a session can never activate, so nothing (a code
-     * sent, an enrolment begun) is done for it. The principals to choose from
-     * are listed only while the choice is that requirement. Reads only, on the
-     * write connection, with no lock.
+     * action now. Also `null` whenever the gate would refuse it: its identity
+     * (a machine identity, an inactive one, or one the application no longer
+     * admits with the identifier type the sign-in used), its method no longer
+     * allowed, or the principal it records, if any, no longer one that may hold
+     * it in the active tenant it records (the principal inactive, its own
+     * tenant inactive, `ApplicationAccess` refusing it, or that tenant
+     * unresolvable, inactive or refused by `TenantAccess`). Such a session can
+     * never activate, so nothing (a code sent, an enrolment begun) is done for
+     * it. The tenant described is the one the gate admitted. The principals to
+     * choose from are listed only while the choice is that requirement. Reads
+     * only, on the write connection, with no lock.
      *
      * @param  string  $credential
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction  $action
@@ -134,14 +137,15 @@ final readonly class PendingSessions
         $refused = $this->evaluation->identityRefusal($identity, $session->getSignInIdentifierType()) !== null
             || !$this->evaluation->allowsMethod((string) $session->getSignInMethod());
 
-        if ($refused) {
+        $tenant = $refused || $principal === null ? null : $this->evaluation->recorded($session, $principal);
+
+        if ($refused || $tenant instanceof FailureReason) {
             return null;
         }
 
-        $tenant     = $principal   === null ? null : TenantAdmission::recorded($principal, $session->getTenantId(), false);
         $principals = $requires[0] === PendingRequirement::PRINCIPAL ? $this->evaluation->principals($identity, $session->getSignInIdentifierType())[0] : [];
 
-        return $this->describe($session, $identity, $principal, $tenant instanceof Tenant ? $tenant : null, $requires, $principals);
+        return $this->describe($session, $identity, $principal, $tenant, $requires, $principals);
     }
 
     /**
@@ -488,8 +492,10 @@ final readonly class PendingSessions
      * The live pending session of the guard the credential names, read on the
      * write connection (locked for update when asked), with its owner reloaded
      * through the guard's provider and the principal it records resolved, or
-     * `null`. A credential that cannot name one (no key or secret, or a key
-     * longer than any the session can have) is rejected without a query.
+     * `null`. The secret follows the credential's last `.` (it is base64url,
+     * which has none), so a session key may hold one. A credential that cannot
+     * name one (no key or secret, or a key longer than any the session can
+     * have) is rejected without a query.
      *
      * @formatter:off
      *
@@ -510,7 +516,9 @@ final readonly class PendingSessions
      */
     private function find(#[\SensitiveParameter] string $credential, CarbonImmutable $now, bool $lock): ?array
     {
-        [$key, $secret] = [...explode('.', $credential, 2), ''];
+        $dot    = strrpos($credential, '.');
+        $key    = $dot === false ? '' : substr($credential, 0, $dot);
+        $secret = $dot === false ? '' : substr($credential, $dot + 1);
 
         if ($key === '' || $secret === '' || mb_strlen($key) > self::KEY_MAX_LENGTH) {
             return null;

@@ -33,10 +33,11 @@ checked before it gets here is in `session-service.md`; the choice of principal 
   the session is written active; otherwise `SessionWriter::createPending()` writes it pending, with its first proof and
   provenance, in one transaction.
 - The credential is `<session key>.<secret>`: the secret from `RefreshTokenHasher::generate()`, only its digest stored
-  and compared in constant time. It is handed out once, in the result's body (`SignInResult::$credential`), never in a
-  URL or a cookie, and it is not a JWT: no guard authenticates a request or a refresh with it, and only `pending()`,
-  `satisfy()`, `choose()` and `discard()` read it. While a session is pending its access tokens are refused as
-  `session_pending` (`OwnedSession::refusal()`), and its refresh token too, before any key comparison
+  and compared in constant time. It is split at its last `.`, since the secret is base64url and has none, so a session
+  model whose key holds a `.` is found by it. It is handed out once, in the result's body (`SignInResult::$credential`),
+  never in a URL or a cookie, and it is not a JWT: no guard authenticates a request or a refresh with it, and only
+  `pending()`, `satisfy()`, `choose()` and `discard()` read it. While a session is pending its access tokens are refused
+  as `session_pending` (`OwnedSession::refusal()`), and its refresh token too, before any key comparison
   (`RefreshJudgment::classify()`), so a token presented while pending is never taken for a replay.
 - A credential names a live pending session only while the session is this guard's, pending, unrevoked and before its
   idle deadline, the digest matches, the owner reloads through the guard's provider as the recorded one, and the
@@ -49,7 +50,8 @@ checked before it gets here is in `session-service.md`; the choice of principal 
   `pending_action_not_allowed`. The `mfa.*` values follow the further-factor package's action names, spelt with this
   package's identifiers (`enrollment`), so the integration between the two maps them by case, not by value; whether a
   bootstrap enrolment applies is that package's to judge. `pending()` also answers `null` when the gate would refuse the
-  identity or the method (below), so nothing is sent or enrolled for a session that can never activate.
+  identity, the method, or the principal and active tenant the session records (below, `PendingEvaluation::recorded()`),
+  so nothing is sent or enrolled for a session that can never activate.
 - `satisfy()` and `choose()` run in one transaction on the session's connection that locks the row, finds the credential
   again under the lock, and rolls back on any refusal, so a refused proof is never stored, a refused choice records
   nothing, and no refusal revokes the session: it waits until its credential expires, and only `discard()` ends it

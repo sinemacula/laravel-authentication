@@ -144,19 +144,23 @@ trait InteractsWithSessionRecords
      * owner and both deadlines are nullable, unlike the shipped table, so tests
      * can store a session without an owner or deadlines. The table is created
      * on the given connection, or the default one, keyed by a UUID or, when
-     * `$incrementing`, by an integer the database issues.
+     * `$incrementing`, by an integer the database issues, or, when
+     * `$stringKey`, by any string the model gives it.
      *
      * @param  string  $table
      * @param  string  $key
      * @param  ?string  $connection
      * @param  bool  $incrementing
+     * @param  bool  $stringKey
      * @return void
      */
-    protected static function createSessionRecordTable(string $table, string $key = 'id', ?string $connection = null, bool $incrementing = false): void
+    protected static function createSessionRecordTable(string $table, string $key = 'id', ?string $connection = null, bool $incrementing = false, bool $stringKey = false): void
     {
-        Schema::connection($connection)->create($table, static function (Blueprint $blueprint) use ($key, $incrementing): void {
+        Schema::connection($connection)->create($table, static function (Blueprint $blueprint) use ($key, $incrementing, $stringKey): void {
             if ($incrementing) {
                 $blueprint->increments($key);
+            } elseif ($stringKey) {
+                $blueprint->string($key)->primary();
             } else {
                 $blueprint->uuid($key)->primary();
             }

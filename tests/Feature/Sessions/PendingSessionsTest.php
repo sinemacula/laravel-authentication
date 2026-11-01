@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
@@ -54,6 +55,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Sessions\RefusingApplicationAccess;
 use Tests\Fixtures\Tenancy\DescendantTenants;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
@@ -864,6 +866,67 @@ final class PendingSessionsTest extends TestCase
         config()->set('auth.guards.api.application.methods', ['password']);
 
         self::assertNotNull($this->sessions()->pending($credential, PendingAction::SEND_CODE));
+    }
+
+    /**
+     * Rows of `[change]` after which the gate refuses the principal a pending
+     * session records, or the active tenant it records for it, although the
+     * credential still names the session.
+     *
+     * @return iterable<string, array{0: \Closure(mixed): void}>
+     */
+    public static function provideRefusalsOfTheRecordedContext(): iterable
+    {
+        yield 'the application refuses the principal' => [static function (): void {
+            app()->instance(ApplicationAccess::class, new RefusingApplicationAccess(static fn (): bool => true));
+        }];
+
+        yield 'the principal\'s tenant is inactive' => [static function (): void {
+            ActivatableTenant::query()->update(['is_active' => false]);
+        }];
+
+        yield 'the recorded tenant no longer resolves' => [static function (mixed $session): void {
+            DB::table('authentication_sessions')->where('id', $session)->update(['tenant_id' => '999999']);
+        }];
+
+        yield 'the principal may no longer act in the recorded tenant' => [static function (mixed $session): void {
+            $elsewhere = ActivatableTenant::query()->create(['name' => 'Elsewhere', 'is_active' => true]);
+            $tree      = new DescendantTenants;
+
+            app()->instance(TenantAccess::class, $tree);
+            app()->instance(TenantResolver::class, $tree);
+
+            DB::table('authentication_sessions')->where('id', $session)->update(['tenant_id' => IdentifierCoercion::stringify($elsewhere->getKey())]);
+        }];
+    }
+
+    /**
+     * The pre-action seam answers nothing for a session whose recorded
+     * principal or active tenant the gate would refuse, as satisfying it is
+     * refused, so no code is sent and no enrolment begun for it.
+     *
+     * @param  \Closure(mixed): void  $change
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideRefusalsOfTheRecordedContext')]
+    public function testThePreActionSeamAnswersNothingForARecordedContextTheGateWouldRefuse(\Closure $change): void
+    {
+        [$member, , $tenant] = $this->seedMember();
+
+        [$credential, $pending] = $this->pendingSignIn('members', 'member@example.test');
+
+        $described = $this->sessions('members')->pending($credential, PendingAction::SEND_CODE)?->tenant;
+
+        self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), IdentifierCoercion::stringify($described?->getTenantIdentifier()));
+
+        $change($pending->id);
+
+        self::assertNull($this->sessions('members')->pending($credential, PendingAction::SEND_CODE));
+        self::assertNull($this->sessions('members')->pending($credential));
+        self::assertTrue($this->sessions('members')->satisfy($credential, self::adapterProof($member, 'members', $pending->id, Purpose::SIGN_IN))->isFailed());
+        self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
     }
 
     /**
