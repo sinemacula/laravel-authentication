@@ -25,8 +25,9 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
  * caller holds it, which may predate a revocation: it is read again by its key
  * on the write connection and must still be live for that application (of that
  * guard, not revoked, not ended) before its proofs are read, two queries in
- * all. A caller that acts on the answer atomically locks the session in its
- * transaction first and asks inside it.
+ * all. That read takes no lock, so a caller that acts on the answer atomically
+ * locks the session in its transaction first, judges the locked row itself, and
+ * asks inside it.
  *
  * Stateless: the configuration is read on every call.
  *

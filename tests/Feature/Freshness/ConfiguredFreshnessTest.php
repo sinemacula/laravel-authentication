@@ -84,8 +84,9 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
-     * The container binds the configured policy, unless the application bound
-     * its own first.
+     * By default the container binds the configured policy, one instance shared
+     * by every caller; an application's own binding replaces it (see
+     * `ProviderBindingOrderTest` and `ReboundFreshnessPolicyTest`).
      *
      * @return void
      */

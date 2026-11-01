@@ -44,8 +44,11 @@ interface FreshnessPolicy
     /**
      * The newest of the session's proofs that meets that requirement now, or
      * `null` when none does. The session is read again by its key on the write
-     * connection and must be live for its own application; inside a transaction
-     * that has locked it, the read sees the locked row.
+     * connection and must be live for its own application. That read takes no
+     * lock, and a transaction may serve it from a snapshot taken before the
+     * caller's lock (MySQL's REPEATABLE READ), so a caller that acts on the
+     * answer atomically locks the session first and judges the locked row
+     * itself as well.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
