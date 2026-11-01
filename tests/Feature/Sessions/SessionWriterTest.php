@@ -781,9 +781,10 @@ final class SessionWriterTest extends TestCase
         $lifetimes = new TokenLifetimes(5, 60, $absolute, 30);
         $context   = $this->context()->withNotAfter($deadlineIn === null ? null : $this->now->addSeconds($deadlineIn));
         $proof     = SignInProof::unattested('password', $this->now);
+        $again     = SignInProof::unattested('password', $this->now);
         $first     = $this->writer()->create($this->admitted($identity), 'email', $context, $lifetimes, $this->now, $context->client, $proof);
         $proven    = Session::query()->whereKey($first->record->getKey())->firstOrFail();
-        $second    = $this->writer()->replace($this->admitted($identity)->on($proven), 'email', $context, $lifetimes, $this->now, $context->client, $proof);
+        $second    = $this->writer()->replace($this->admitted($identity)->on($proven), 'email', $context, $lifetimes, $this->now, $context->client, $again);
 
         self::assertNotNull($second);
 
@@ -810,9 +811,10 @@ final class SessionWriterTest extends TestCase
         $identity = $this->seedIdentity();
         $context  = $this->context();
         $proof    = SignInProof::unattested('password', $this->now);
+        $again    = SignInProof::unattested('password', $this->now);
         $first    = $this->writer()->create($this->admitted($identity), 'email', $context, $this->lifetimes(), $this->now, $context->client, $proof);
         $proven   = Session::query()->whereKey($first->record->getKey())->firstOrFail();
-        $second   = $this->writer()->replace($this->admitted($identity)->on($proven), 'email', $context, $this->lifetimes(), $this->now, $context->client, $proof);
+        $second   = $this->writer()->replace($this->admitted($identity)->on($proven), 'email', $context, $this->lifetimes(), $this->now, $context->client, $again);
 
         self::assertNotNull($second);
 
