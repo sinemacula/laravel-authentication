@@ -230,7 +230,7 @@ final readonly class SessionEstablishment
         if ($principal === null || $requires !== []) {
             $draft = new PendingSessionDraft($identity, $principal, $tenant, $requires, $identifierType, $proof, $proven, $attemptWindows);
 
-            return $this->wait($writer, $draft, $principals, $context, $now);
+            return $this->wait($writer, $draft, $requires[0] === PendingRequirement::PRINCIPAL ? $principals : [], $context, $now);
         }
 
         $session = $this->write($writer, new Admitted($identity, $principal, $tenant, $proven), $identifierType, $context, $proof, $now);
@@ -242,7 +242,9 @@ final readonly class SessionEstablishment
 
     /**
      * Write the sign-in's session pending, waiting on what is outstanding, and
-     * schedule `SessionPending` for once it is committed.
+     * schedule `SessionPending` for once it is committed. The principals are
+     * the ones the pending session lists, given only when the choice is the
+     * first requirement, so none is shown while a factor is outstanding.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SessionWriter  $writer
      * @param  \SineMacula\Laravel\Authentication\Sessions\PendingSessionDraft  $draft

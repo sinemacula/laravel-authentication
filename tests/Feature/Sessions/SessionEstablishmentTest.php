@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
@@ -29,6 +30,8 @@ use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingEvaluation;
@@ -38,8 +41,10 @@ use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
@@ -507,7 +512,8 @@ final class SessionEstablishmentTest extends TestCase
     /**
      * A sign-in with principals to choose from is written as a pending session
      * waiting on the choice, after the further factor when one is required,
-     * listing the principals and recording none.
+     * recording no principal and listing none until the factor is met: the
+     * holder of the first factor alone never sees the identity's principals.
      *
      * @return void
      *
@@ -532,8 +538,37 @@ final class SessionEstablishmentTest extends TestCase
         self::assertNotNull($result->pending);
         self::assertSame([PendingRequirement::MFA, PendingRequirement::PRINCIPAL], $result->pending->requires);
         self::assertNull($result->pending->principal);
-        self::assertSame([$identity, $other], $result->pending->principals);
+        self::assertSame([], $result->pending->principals);
         self::assertNull(Session::query()->sole()->principal_id);
+    }
+
+    /**
+     * A sign-in whose only outstanding requirement is the choice lists the
+     * principals to choose from on the pending session.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChoiceAloneListsThePrincipals(): void
+    {
+        $identity = $this->seedIdentity();
+        $other    = $this->seedIdentity('grace@example.test');
+
+        self::requireAFurtherFactor(false);
+
+        $result = self::outcome($this->establishment($this->freshGuard())->proceed(
+            $identity,
+            [null, [$identity, $other]],
+            'password',
+            'email',
+            $this->context(),
+            SignInProof::unattested('password', CarbonImmutable::now()),
+        ));
+
+        self::assertNotNull($result->pending);
+        self::assertSame([PendingRequirement::PRINCIPAL], $result->pending->requires);
+        self::assertSame([$identity, $other], $result->pending->principals);
     }
 
     /**
@@ -593,6 +628,110 @@ final class SessionEstablishmentTest extends TestCase
         self::assertNotNull($record);
         self::assertSame($deadline->getTimestamp(), $record->getAbsoluteExpiresAt()?->getTimestamp());
         self::assertSame($deadline->getTimestamp(), $record->getIdleExpiresAt()?->getTimestamp());
+    }
+
+    /**
+     * A selected principal whose tenant requires a connection the sign-in did
+     * not come through is refused as `sso_required`, with the principal and
+     * tenant it was refused in, before anything is written or reported.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATenantRequiringAConnectionRefusesTheSignInBeforeAnyWrite(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $policy = $this->bindTenantPolicy(new TenantRequirement('v1', connections: ['conn-a']));
+
+        $this->recordEvents([SessionPending::class, SessionCreated::class, SignedIn::class]);
+
+        $refused = $this->establishment($this->freshGuard('members'))->proceed(
+            $member,
+            [$membership, []],
+            'password',
+            'email',
+            $this->context(),
+            SignInProof::unattested('password', CarbonImmutable::now()),
+        );
+
+        self::assertInstanceOf(Refused::class, $refused);
+        self::assertSame(FailureReason::SSO_REQUIRED, $refused->reason);
+        self::assertTrue($membership->is($refused->principal));
+        self::assertTrue($tenant->is($refused->tenant));
+        self::assertSame(0, DB::table('authentication_sessions')->count());
+        self::assertSame([], $this->recordedClasses());
+        self::assertCount(1, $policy->asked);
+        self::assertNull($policy->asked[0]->session);
+    }
+
+    /**
+     * A selected principal whose tenant requires a further factor the sign-in
+     * did not prove holds the sign-in pending on `mfa`, its principal and
+     * tenant recorded with the version the policy answered, though the
+     * identity's own policy asks for none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATenantRequiringAFactorHoldsTheSignInPendingOnIt(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        self::requireAFurtherFactor(false);
+
+        $this->bindTenantPolicy(new TenantRequirement('v1', new Requirement(new RequirementPart)));
+
+        $result = self::outcome($this->establishment($this->freshGuard('members'))->proceed(
+            $member,
+            [$membership, []],
+            'password',
+            'email',
+            $this->context(),
+            SignInProof::unattested('password', CarbonImmutable::now()),
+        ));
+
+        self::assertTrue($result->isPending());
+        self::assertSame([PendingRequirement::MFA], $result->pending?->requires);
+
+        $row = Session::query()->sole();
+
+        self::assertSame(SessionStatus::PENDING, $row->getStatus());
+        self::assertSame('v1', $row->getTenantPolicyVersion());
+        self::assertSame(IdentifierCoercion::stringify($membership->getKey()), $row->principal_id);
+        self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $row->getTenantId());
+    }
+
+    /**
+     * A selected principal whose tenant's policy the sign-in meets starts the
+     * session active, recording the version the policy answered.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAMetTenantPolicyRecordsItsVersionOnTheActiveSession(): void
+    {
+        [$member, $membership] = $this->seedMember();
+
+        self::requireAFurtherFactor(false);
+
+        $this->bindTenantPolicy(new TenantRequirement('v3'));
+
+        $result = self::outcome($this->establishment($this->freshGuard('members'))->proceed(
+            $member,
+            [$membership, []],
+            'password',
+            'email',
+            $this->context(),
+            SignInProof::unattested('password', CarbonImmutable::now()),
+        ));
+
+        self::assertTrue($result->isSignedIn());
+        self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
+        self::assertSame('v3', Session::query()->sole()->getTenantPolicyVersion());
     }
 
     /**
@@ -668,6 +807,22 @@ final class SessionEstablishmentTest extends TestCase
     private static function selected(IntegrationIdentity $identity): array
     {
         return [$identity, []];
+    }
+
+    /**
+     * Bind a tenant authentication policy that answers every tenant with the
+     * requirement, and return it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement  $requirement
+     * @return \Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy
+     */
+    private function bindTenantPolicy(TenantRequirement $requirement): ScriptedTenantAuthenticationPolicy
+    {
+        $policy = new ScriptedTenantAuthenticationPolicy($requirement);
+
+        app()->instance(TenantAuthenticationPolicy::class, $policy);
+
+        return $policy;
     }
 
     /**
