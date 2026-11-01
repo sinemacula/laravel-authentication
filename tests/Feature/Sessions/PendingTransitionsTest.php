@@ -13,8 +13,10 @@ use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
+use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -23,7 +25,9 @@ use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingTransitions;
 use SineMacula\Laravel\Authentication\Sessions\ReturnedToPending;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\TestCase;
 
 /**
@@ -86,7 +90,8 @@ final class PendingTransitionsTest extends TestCase
     /**
      * The session returns to pending on `mfa` with a new pending credential of
      * the configured lifetime, its floor moved to now, keeping its principal
-     * and tenant; the report follows, naming no previous principal or tenant,
+     * and tenant and recording the policy version the caller judged it
+     * against; the report follows, naming no previous principal or tenant,
      * since neither changed.
      *
      * @return void
@@ -101,7 +106,7 @@ final class PendingTransitionsTest extends TestCase
 
         $this->recordEvents([SessionReturnedToPending::class]);
 
-        $returned = $this->transitions()->returnToPending($session, new Admitted($member, $membership, $tenant), AuthenticationFlow::REFRESH, $this->now);
+        $returned = $this->transitions()->returnToPending($session, new Admitted($member, $membership, $tenant), 'v3', AuthenticationFlow::REFRESH, $this->now);
 
         self::assertNotNull($returned);
         self::assertSame([PendingRequirement::MFA], $returned->pending->requires);
@@ -117,6 +122,7 @@ final class PendingTransitionsTest extends TestCase
         self::assertTrue(RefreshTokenHasher::verify($secret, (string) $row->getPendingKey()));
         self::assertSame($this->now->getTimestamp(), $row->getSwitchedAt()?->getTimestamp());
         self::assertSame($this->now->addSeconds(300)->getTimestamp(), $row->getIdleExpiresAt()?->getTimestamp());
+        self::assertSame('v3', $row->getTenantPolicyVersion());
 
         $event = $this->recordedEvent(SessionReturnedToPending::class);
 
@@ -144,7 +150,7 @@ final class PendingTransitionsTest extends TestCase
 
         $this->recordEvents([SessionReturnedToPending::class]);
 
-        self::assertNotNull($this->transitions()->returnToPending($session, new Admitted($member, $elsewhere, $other), AuthenticationFlow::REFRESH, $this->now));
+        self::assertNotNull($this->transitions()->returnToPending($session, new Admitted($member, $elsewhere, $other), null, AuthenticationFlow::REFRESH, $this->now));
 
         $row   = Session::query()->sole();
         $event = $this->recordedEvent(SessionReturnedToPending::class);
@@ -154,6 +160,41 @@ final class PendingTransitionsTest extends TestCase
         self::assertSame(IdentifierCoercion::stringify($membership->getKey()), $event->previousPrincipalId);
         self::assertSame($membership->getMorphClass(), $event->previousPrincipalMorphClass);
         self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $event->previousTenantId);
+    }
+
+    /**
+     * A session returned to pending in another tenant records the version that
+     * tenant's policy answered, not the one its old tenant's did, so the new
+     * tenant's policy-change helper never takes it as already checked when the
+     * two tenants answer the same version: the destination coming to require a
+     * connection at the version the origin recorded revokes it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReturnElsewhereRecordsTheDestinationsVersion(): void
+    {
+        [$member, , $tenant] = $this->seedMember();
+
+        $session = $this->signedIn();
+
+        DB::table('authentication_sessions')->where('id', $session->getKey())->update(['tenant_policy_version' => 'v2']);
+
+        $session = Session::query()->sole();
+
+        [, $elsewhere, $other] = $this->seedMember('second@example.test');
+
+        self::assertNotNull($this->transitions()->returnToPending($session, new Admitted($member, $elsewhere, $other), 'v1', AuthenticationFlow::SWITCH, $this->now));
+        self::assertSame('v1', Session::query()->sole()->getTenantPolicyVersion());
+
+        $origin = IdentifierCoercion::stringify($tenant->getKey());
+
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v2', connections: ['conn-a'])));
+
+        self::assertNotSame($origin, Session::query()->sole()->getTenantId());
+        self::assertSame(1, $this->sessions('members')->tenantPolicyChanged($other));
+        self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, Session::query()->sole()->getRevokedReason());
     }
 
     /**
@@ -198,7 +239,7 @@ final class PendingTransitionsTest extends TestCase
 
         $this->recordEvents([SessionReturnedToPending::class]);
 
-        self::assertNull($this->transitions()->returnToPending($session, new Admitted($member, $membership, $tenant), AuthenticationFlow::REFRESH, $this->now));
+        self::assertNull($this->transitions()->returnToPending($session, new Admitted($member, $membership, $tenant), 'v3', AuthenticationFlow::REFRESH, $this->now));
         self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
         self::assertSame([], $this->recordedClasses());
     }

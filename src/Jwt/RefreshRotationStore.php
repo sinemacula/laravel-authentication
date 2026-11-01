@@ -228,6 +228,36 @@ final readonly class RefreshRotationStore
     }
 
     /**
+     * Revoke the active session as it was loaded, for a decision taken on that
+     * state: the revocation applies only while the row is still active and
+     * unrevoked, and holds the refresh digest, principal and active tenant it
+     * was loaded with, so a session a concurrent rotation, switch or return to
+     * pending moved on is left as it now is. Returns whether this call revoked
+     * it.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return bool
+     *
+     * @imperative
+     */
+    public function revokeAsLoaded(EloquentSession&Model $session, RevocationReason $reason, CarbonImmutable $now): bool
+    {
+        [$type, $id] = PrincipalReference::columns($session);
+
+        $revoked = self::revocation($session, $reason, $now);
+
+        $affected = $this->table($session)
+            ->where($session->getStatusName(), SessionStatus::ACTIVE->value)
+            ->whereNull($session->getRevokedAtName())
+            ->where(self::loaded($session, [$session->getRefreshKeyName(), $type, $id, $session->getTenantIdName()]))
+            ->update($revoked);
+
+        return $this->mirror($session, $affected, $revoked);
+    }
+
+    /**
      * The columns a revocation writes, keyed by column: the time and reason,
      * and both refresh digests cleared, so no refresh token of the session is
      * accepted again.

@@ -396,6 +396,69 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
+     * A revocation of the session as it was loaded records the time and reason,
+     * clears both digests, and mirrors them on the in-memory session, while
+     * the row is still as it was loaded.
+     *
+     * @return void
+     */
+    public function testRevokeAsLoadedMarksTheUnchangedRowAndMirrorsIt(): void
+    {
+        $session = $this->record([...self::recordedPrincipal(new PlainPrincipalFixture('p-1')), 'tenant_id' => 't-1']);
+
+        self::assertTrue($this->store()->revokeAsLoaded($session, RevocationReason::TENANT_POLICY_CHANGED, $this->now));
+
+        $row = $this->row($session);
+
+        self::assertSame('tenant_policy_changed', $row['revoked_reason']);
+        self::assertNull($row['refresh_key']);
+        self::assertSame('tenant_policy_changed', $session->getRevokedReason());
+        self::assertFalse($session->isDirty());
+    }
+
+    /**
+     * Rows of `[change committed since the session was loaded]` that a
+     * revocation decided on the loaded state must not overwrite.
+     *
+     * @return iterable<string, array{0: array<string, mixed>}>
+     */
+    public static function provideChangesBeforeARevocationAsLoaded(): iterable
+    {
+        yield from [
+            'rotated elsewhere'      => [['refresh_key' => RefreshTokenHasher::hash('elsewhere')]],
+            'revoked'                => [['revoked_at' => '2026-04-06 11:59:00', 'revoked_reason' => 'earlier']],
+            'switched elsewhere'     => [['principal_id' => 'p-3']],
+            'principal type changed' => [['principal_type' => 'other']],
+            'tenant switched'        => [['tenant_id' => 't-9']],
+            'returned to pending'    => [['status' => 'pending']],
+        ];
+    }
+
+    /**
+     * A revocation decided on the loaded state applies only to it: after a
+     * concurrent rotation, revocation, switch of principal or tenant, or return
+     * to pending it affects no row, reports so, and leaves the in-memory
+     * session as it was.
+     *
+     * @param  array<string, mixed>  $change
+     * @return void
+     */
+    #[DataProvider('provideChangesBeforeARevocationAsLoaded')]
+    public function testRevokeAsLoadedMissesAfterAChangeSinceTheSessionWasLoaded(array $change): void
+    {
+        $session = $this->record([...self::recordedPrincipal(new PlainPrincipalFixture('p-1')), 'tenant_id' => 't-1']);
+
+        DB::table('stub_sessions')->where('id', $session->id)->update($change);
+
+        $before = $this->row($session);
+
+        self::assertFalse($this->store()->revokeAsLoaded($session, RevocationReason::TENANT_POLICY_CHANGED, $this->now));
+        self::assertSame($before, $this->row($session));
+        self::assertNull($session->getRevokedAt());
+        self::assertSame(RefreshTokenHasher::hash(self::CURRENT), $session->getRefreshKey());
+    }
+
+    /**
      * The columns a revocation writes are the ones the session writer's
      * replacement writes too: the time in the model's own format, the reason,
      * and both digests cleared, and nothing else.

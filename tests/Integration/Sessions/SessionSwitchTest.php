@@ -32,6 +32,7 @@ use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
+use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
@@ -465,6 +466,51 @@ final class SessionSwitchTest extends TestCase
         self::assertSame('active', $row->status);
         self::assertSame(IdentifierCoercion::stringify($first->getKey()), IdentifierCoercion::stringify($row->principal_id));
         self::assertNull($row->switched_at);
+    }
+
+    /**
+     * A grace retry of a switch to the session's own context, whose tenant now
+     * asks for a further factor, and whose return to pending loses to a
+     * revocation, is a conflict and is never judged again: the revocation
+     * stands, the session never returns to pending, and nothing is reported.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAGraceRetrysReturnToPendingLosingToARevocationIsAConflict(): void
+    {
+        [$first] = $this->seedMemberships();
+
+        $policy = new ScriptedTenantAuthenticationPolicy;
+
+        app()->instance(TenantAuthenticationPolicy::class, $policy);
+
+        $session = $this->signIn();
+
+        $this->advance(5);
+
+        self::assertNotNull(self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken)->session);
+
+        $policy->requirement = new TenantRequirement('v1', new Requirement(new RequirementPart));
+
+        $this->beforeTheReturn(function (): void {
+            DB::table('authentication_sessions')->update(['revoked_at' => $this->now, 'revoked_reason' => RevocationReason::REVOKED->value]);
+        });
+
+        $this->recordEvents([SessionReturnedToPending::class, PrincipalSwitched::class]);
+
+        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::tenant(TenantSelection::principalDefault()));
+
+        self::assertSame(FailureReason::ROTATION_CONFLICT, $result->reason);
+        self::assertSame([], $this->recordedClasses());
+
+        $row = DB::table('authentication_sessions')->sole();
+
+        self::assertSame('active', $row->status);
+        self::assertSame(RevocationReason::REVOKED->value, $row->revoked_reason);
+        self::assertNull($row->pending_key);
+        self::assertSame(IdentifierCoercion::stringify($first->getKey()), IdentifierCoercion::stringify($row->principal_id));
     }
 
     /**

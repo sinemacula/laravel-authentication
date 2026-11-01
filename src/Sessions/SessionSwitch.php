@@ -350,19 +350,21 @@ final readonly class SessionSwitch
 
         return match ($verdict->standing) {
             TenantPolicyStanding::SSO_REQUIRED    => self::refused(FailureReason::SSO_REQUIRED, $this->eventContext($session, $destination)),
-            TenantPolicyStanding::FACTOR_REQUIRED => $this->toPending($session, $destination, $presented, $now),
+            TenantPolicyStanding::FACTOR_REQUIRED => $this->toPending($session, $destination, $presented, $verdict->version, $now),
             TenantPolicyStanding::MET             => $this->rotateTo($session, $destination, $presented, [$deadlines, $verdict->version], $now),
         };
     }
 
     /**
-     * Return the session to pending with the destination recorded, instead of
-     * re-issuing its pair, or, when the compare-and-swap missed, judge the
-     * presented rotation id again as after a lost switch.
+     * Return the session to pending with the destination and the version its
+     * policy answered recorded, instead of re-issuing its pair, or, when the
+     * compare-and-swap missed, judge the presented rotation id again as after a
+     * lost switch.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
      * @param  array{0: string, 1: mixed}  $presented
+     * @param  ?string  $policyVersion
      * @param  \Carbon\CarbonImmutable  $now
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
      *
@@ -372,9 +374,10 @@ final readonly class SessionSwitch
         EloquentSession&Model $session,
         Admitted $destination,
         #[\SensitiveParameter] array $presented,
+        ?string $policyVersion,
         CarbonImmutable $now,
     ): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal {
-        return $this->transitions->returnToPending($session, $destination, AuthenticationFlow::SWITCH, $now)
+        return $this->transitions->returnToPending($session, $destination, $policyVersion, AuthenticationFlow::SWITCH, $now)
             ?? $this->afterLostSwitch($session, $destination, $presented, $now);
     }
 
@@ -460,7 +463,7 @@ final readonly class SessionSwitch
 
         return match ($verdict->standing) {
             TenantPolicyStanding::SSO_REQUIRED    => self::refused(FailureReason::SSO_REQUIRED, $this->eventContext($session, $admitted)),
-            TenantPolicyStanding::FACTOR_REQUIRED => $this->transitions->returnToPending($session, $admitted, AuthenticationFlow::SWITCH, $now)
+            TenantPolicyStanding::FACTOR_REQUIRED => $this->transitions->returnToPending($session, $admitted, $verdict->version, AuthenticationFlow::SWITCH, $now)
                 ?? self::refused(FailureReason::ROTATION_CONFLICT, $this->eventContext($session, $admitted)),
             TenantPolicyStanding::MET => new SwitchedPrincipal(
                 self::exchanged($admitted, $session, $this->issue($admitted, $session, RefreshTokenHasher::successor($presented[0]), $now)),
@@ -478,7 +481,9 @@ final readonly class SessionSwitch
      * the compare-and-swap missed, read with a lock, by the rules the first
      * judgement used: a retry is answered as `retry()` answers it, a
      * still-current id is a conflict, and anything else fails for its reason, a
-     * replay revoking the session. There is never a second swap.
+     * replay revoking the session. The switch is never swapped again: at most
+     * one return to pending follows, from `retry()`, and a return that loses
+     * its compare-and-swap is never judged again.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted

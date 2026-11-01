@@ -28,14 +28,15 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * One compare-and-swap on the row, as the caller loaded it, makes it pending:
  * it waits on a further factor, holds the digest of a new pending credential,
  * idles out when that credential expires (never past its absolute deadline),
- * records the destination the caller admitted (its principal and active
- * tenant), and moves the floor for its access tokens' issue time
- * (`SwitchFloor`). Its refresh digests are kept: a refresh or switch of a
- * pending session is refused as `session_pending` before any digest is
- * compared, so its old refresh token is never taken for a replay, and its
- * activation replaces them. From the commit, every one of its access and
- * refresh tokens is refused. `SessionReturnedToPending` reports it once
- * committed on the session's connection.
+ * records the destination the caller admitted (its principal and active tenant)
+ * and the version of the destination's policy the caller judged it against, and
+ * moves the floor for its access tokens' issue time (`SwitchFloor`). Its
+ * refresh digests are kept: a refresh or switch of a pending session is refused
+ * as `session_pending` before any digest is compared, so its old refresh token
+ * is never taken for a replay, and its activation replaces them. From the
+ * commit, every one of its access and refresh tokens is refused.
+ * `SessionReturnedToPending` reports it once committed on the session's
+ * connection.
  *
  * A requirement the session cannot meet in place (sign-in through a tenant's
  * own connections) is never a reason to return to pending: the caller refuses
@@ -70,14 +71,17 @@ final readonly class PendingTransitions
     /**
      * Return the active session to pending instead of re-issuing its pair,
      * recording the destination the caller admitted (its principal and active
-     * tenant): one compare-and-swap on the row as the caller loaded it, while
-     * it is active and unrevoked with the refresh digest, principal, active
-     * tenant, policy version and both deadlines it was loaded with. Returns
-     * `null` when the row changed since it was loaded, so the caller judges it
-     * again, as after a lost rotation.
+     * tenant) and the version of the destination's policy the caller judged it
+     * against, which the destination's policy-change helper compares with its
+     * own: one compare-and-swap on the row as the caller loaded it, while it is
+     * active and unrevoked with the refresh digest, principal, active tenant,
+     * policy version and both deadlines it was loaded with. Returns `null` when
+     * the row changed since it was loaded, so the caller judges it again, as
+     * after a lost rotation.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
+     * @param  ?string  $policyVersion
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow  $flow
      * @param  \Carbon\CarbonImmutable  $now
      * @return ?\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending
@@ -87,8 +91,13 @@ final readonly class PendingTransitions
      * @throws \LogicException
      * @throws \Random\RandomException
      */
-    public function returnToPending(EloquentSession&Model $session, Admitted $destination, AuthenticationFlow $flow, CarbonImmutable $now): ?ReturnedToPending
-    {
+    public function returnToPending(
+        EloquentSession&Model $session,
+        Admitted $destination,
+        ?string $policyVersion,
+        AuthenticationFlow $flow,
+        CarbonImmutable $now,
+    ): ?ReturnedToPending {
         [$type, $id] = PrincipalReference::columns($session);
 
         $secret   = RefreshTokenHasher::generate();
@@ -97,14 +106,15 @@ final readonly class PendingTransitions
         $loaded   = self::loaded($session, $type, $id);
 
         $values = [
-            $session->getStatusName()        => SessionStatus::PENDING->value,
-            $session->getRequiresName()      => PendingState::requires([PendingRequirement::MFA]),
-            $session->getPendingKeyName()    => RefreshTokenHasher::hash($secret),
-            $session->getIdleExpiresAtName() => $session->fromDateTime($expiry),
-            $session->getSwitchedAtName()    => $session->fromDateTime(SwitchFloor::after($session->getSwitchedAt(), $now)),
-            $type                            => PrincipalReference::type($destination->principal),
-            $id                              => PrincipalReference::id($destination->principal),
-            $session->getTenantIdName()      => $tenantId,
+            $session->getStatusName()              => SessionStatus::PENDING->value,
+            $session->getRequiresName()            => PendingState::requires([PendingRequirement::MFA]),
+            $session->getPendingKeyName()          => RefreshTokenHasher::hash($secret),
+            $session->getIdleExpiresAtName()       => $session->fromDateTime($expiry),
+            $session->getSwitchedAtName()          => $session->fromDateTime(SwitchFloor::after($session->getSwitchedAt(), $now)),
+            $type                                  => PrincipalReference::type($destination->principal),
+            $id                                    => PrincipalReference::id($destination->principal),
+            $session->getTenantIdName()            => $tenantId,
+            $session->getTenantPolicyVersionName() => $policyVersion,
         ];
 
         $affected = $session->getConnection()

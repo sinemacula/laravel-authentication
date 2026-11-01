@@ -18,8 +18,10 @@ use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
+use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\PendingTransitions;
@@ -44,8 +46,10 @@ use Tests\TestCase;
  * that loses its rotation, or its return to pending, to a switch of the
  * session's tenant refuses rather than issuing for a context it never judged; a
  * return to pending that loses to a rotation or a revocation applies neither
- * twice; and a rotation that loses to a return to pending whose deadlines equal
- * its own is told apart by the session's status alone.
+ * twice, and hands out no pair; a revocation for a connection the tenant now
+ * requires never revokes a session a switch moved to another tenant; and a
+ * rotation that loses to a return to pending whose deadlines equal its own is
+ * told apart by the session's status alone.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -243,15 +247,16 @@ final class RefreshTokenExchangeTest extends TestCase
 
     /**
      * A refresh that falls short of a factor and loses its return to pending to
-     * a rotation of the same token is answered as a grace retry of that
-     * rotation: the rotation stands, the session stays active, nothing returns
-     * to pending, and the pair handed back carries the rotation's successor.
+     * a rotation of the same token is refused as `rotation_conflict` instead of
+     * getting the pair the policy refused it: the rotation stands, the session
+     * stays active and nothing returns to pending; presented again, the same
+     * token is judged afresh and returns the session to pending.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAReturnToPendingLosingToARotationIsAnsweredAsARetry(): void
+    public function testAReturnToPendingLosingToARotationIsAConflict(): void
     {
         [, , $tenant] = $this->seedMember();
 
@@ -278,14 +283,66 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $this->recordEvents([SessionReturnedToPending::class]);
 
-        $retried = $this->refresh($session->tokens->refreshToken);
+        $refused = $this->refresh($session->tokens->refreshToken);
 
         self::assertInstanceOf(SignedInSession::class, $rotated);
-        self::assertTrue($retried->isRefreshed());
-        self::assertNotNull($retried->session);
-        self::assertSame(self::rotationOf($rotated->tokens->refreshToken), self::rotationOf($retried->session->tokens->refreshToken));
+        self::assertSame(FailureReason::ROTATION_CONFLICT, $refused->reason);
+        self::assertNull($refused->session);
         self::assertSame([], $this->recordedClasses());
-        self::assertSame('active', DB::table('authentication_sessions')->value('status'));
+
+        $row      = DB::table('authentication_sessions')->sole();
+        $rotation = self::rotationOf($rotated->tokens->refreshToken);
+
+        self::assertIsString($rotation);
+        self::assertSame('active', $row->status);
+        self::assertSame(RefreshTokenHasher::hash($rotation), $row->refresh_key);
+
+        self::assertTrue($this->refresh($session->tokens->refreshToken)->isPending());
+    }
+
+    /**
+     * A refresh whose tenant now requires a connection, and whose revocation
+     * loses to a switch of the session to a tenant it meets, presenting the
+     * same token, leaves the switched session alone: nothing is revoked or
+     * reported, the session stays active in the tenant it moved to, and the
+     * refresh is refused as `session_tenant_mismatch`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARevocationLosingToASwitchOfTheTenantLeavesTheSessionAlone(): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        $descendant = $this->below($tenant);
+        $session    = $this->signIn();
+
+        $this->advance(5);
+
+        $this->requirements[self::keyOf($tenant)] = new TenantRequirement('v2', connections: ['conn-a']);
+
+        $switched = null;
+
+        $this->beforeTheUpdate('revoked_reason', function () use ($session, $descendant, &$switched): void {
+            $switched = $this->switchTenant($session->tokens->refreshToken, $descendant);
+        });
+
+        $this->recordEvents([SessionRevoked::class]);
+
+        $refused = $this->refresh($session->tokens->refreshToken);
+
+        self::assertInstanceOf(SwitchResult::class, $switched);
+        self::assertTrue($switched->isSwitched());
+        self::assertSame(FailureReason::SESSION_TENANT_MISMATCH, $refused->reason);
+        self::assertSame([], $this->recordedClasses());
+
+        $row = DB::table('authentication_sessions')->sole();
+
+        self::assertSame('active', $row->status);
+        self::assertSame(self::keyOf($descendant), $row->tenant_id);
+        self::assertNull($row->revoked_at);
+        self::assertNotNull($row->refresh_key);
     }
 
     /**
