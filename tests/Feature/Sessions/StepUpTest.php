@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SteppedUp;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
@@ -28,6 +29,7 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Proofs\ProofAcceptance;
+use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Sessions\AccessTokenResult;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\ProvesSessions;
 use SineMacula\Laravel\Authentication\Sessions\ProofIssuance;
@@ -36,6 +38,8 @@ use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Integration\Fixtures\ActivatableTenant;
+use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
@@ -235,6 +239,96 @@ final class StepUpTest extends TestCase
         $multi = $this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey(), methods: ['hwk']));
 
         self::assertSame([$this->now->addMinutes(2)->getTimestamp(), ['pwd', 'otp', 'hwk', 'mfa']], self::authentication((string) $multi->accessToken));
+    }
+
+    /**
+     * A refresh and a switch of principal after a step-up carry the session's
+     * authentication as it stands and never renew it: each new access token's
+     * `auth_time` is the step-up's, ten minutes before its own issue time, and
+     * its `amr` keeps the step-up's values and `mfa`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefreshAndASwitchKeepTheStepUpsAuthentication(): void
+    {
+        [$member] = $this->seedMember();
+
+        $other  = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
+        $second = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $other->getKey()]);
+
+        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+
+        self::assertNotNull($signedIn);
+
+        $steppedUpAt = $this->now->addMinutes(10);
+        $issuedAt    = $this->now->addMinutes(20);
+
+        $this->clockAt($steppedUpAt);
+
+        self::assertTrue($this->sessions('members')->stepUp(self::adapterProof($member, 'members', $signedIn->record->getKey()))->isIssued());
+
+        $this->clockAt($issuedAt);
+
+        $refreshed = $this->sessions('members')->refresh($signedIn->tokens->refreshToken)->session;
+
+        self::assertNotNull($refreshed);
+
+        $switched = $this->sessions('members')->switchPrincipal($refreshed->tokens->refreshToken, $second)->session;
+
+        self::assertNotNull($switched);
+
+        foreach ([$refreshed, $switched] as $carried) {
+            $claims = Auth::manager()->jwt('members')->parse($carried->tokens->accessToken, TokenType::ACCESS);
+
+            self::assertIsArray($claims);
+            self::assertSame(
+                [$steppedUpAt->getTimestamp(), ['pwd', 'otp', 'mfa'], $issuedAt->getTimestamp()],
+                [$claims['auth_time'] ?? null, $claims['amr'] ?? null, $claims['iat'] ?? null],
+            );
+        }
+    }
+
+    /**
+     * Rows of `[time zone]`: zones behind and ahead of the application's.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideProofZones(): iterable
+    {
+        yield from [
+            'behind the application'   => ['America/New_York'],
+            'ahead of the application' => ['Asia/Tokyo'],
+        ];
+    }
+
+    /**
+     * A proof time an adapter reports in a time zone other than the
+     * application's is recorded as the same instant: the new token's
+     * `auth_time` is that instant, and the proof meets a freshness requirement
+     * straight away.
+     *
+     * @param  string  $zone
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideProofZones')]
+    public function testAProofTimedInAnyTimeZoneIsRecordedAsItsInstant(string $zone): void
+    {
+        $signedIn = $this->signedIn();
+        $at       = $this->now->addMinute();
+
+        $this->clockAt($at);
+
+        $result = $this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey(), at: $at->setTimezone($zone)));
+        $newest = SessionProofs::newestMeeting($signedIn->record, new FreshnessRequirement(60, [ProofKind::ADDITIONAL_FACTOR]), $at);
+
+        self::assertTrue($result->isIssued());
+        self::assertSame($at->getTimestamp(), SessionProof::query()->where('kind', 'additional_factor')->sole()->authenticated_at->getTimestamp());
+        self::assertSame($at->getTimestamp(), self::authentication((string) $result->accessToken)[0]);
+        self::assertSame($at->getTimestamp(), $newest?->authenticatedAt->getTimestamp());
     }
 
     /**

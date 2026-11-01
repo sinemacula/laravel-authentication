@@ -17,11 +17,15 @@ use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
+use SineMacula\Laravel\Authentication\Events\SteppedUp;
+use SineMacula\Laravel\Authentication\Sessions\AccessTokenResult;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalSwitch;
+use SineMacula\Laravel\Authentication\Sessions\ProofIssuance;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
@@ -29,14 +33,14 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
 /**
- * Races a switch of principal and the revocation of a session against each
- * other and against a refresh, on PostgreSQL and MySQL, each side in a process
- * with a database connection of its own: one side writes the session inside a
- * transaction it holds open, and the other, started meanwhile, waits on the
- * session's row. When the first commits, the second finds the row it read
- * changed under it and is answered from the row as it now is; when the first
- * rolls back, the second goes ahead as if alone. Either way each change is
- * made, and reported, once.
+ * Races a switch of principal, a step-up and the revocation of a session
+ * against each other and against a refresh, on PostgreSQL and MySQL, each side
+ * in a process with a database connection of its own: one side writes the
+ * session inside a transaction it holds open, and the other, started meanwhile,
+ * waits on the session's row. When the first commits, the second finds the row
+ * it read changed under it and is answered from the row as it now is; when the
+ * first rolls back, the second goes ahead as if alone. Either way each change
+ * is made, and reported, once.
  *
  * Skipped on SQLite, whose in-memory database each process would have to
  * itself, and where `pcntl` is not available.
@@ -48,9 +52,10 @@ use Tests\TestCase;
  */
 #[CoversClass(PrincipalSwitch::class)]
 #[CoversClass(RevocationWriter::class)]
+#[CoversClass(ProofIssuance::class)]
 final class ConcurrentSwitchAndRevocationTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithProofs, InteractsWithSessions;
 
     /** @var string Guard over `ActivatableTenantMember`. */
     private const string GUARD = 'members';
@@ -65,7 +70,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     private const int START_TIMEOUT_SECONDS = 10;
 
     /** @var list<class-string> The events both sides record. */
-    private const array EVENTS = [SessionRevoked::class, PrincipalSwitched::class, Refreshed::class, SignedOutEverywhere::class];
+    private const array EVENTS = [SessionRevoked::class, PrincipalSwitched::class, Refreshed::class, SignedOutEverywhere::class, SteppedUp::class];
 
     /** @var string Directory the second side reports its outcome in. */
     private string $outcomes;
@@ -292,6 +297,84 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     }
 
     /**
+     * A revocation waiting on a step-up of the session, which holds the
+     * session's row locked until its transaction ends, revokes the session once
+     * the step-up commits, its proof and access token already issued and
+     * reported; when the step-up rolls back, the revocation goes ahead alone
+     * and no proof is left.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARevocationWaitsOnAStepUpOfItsSession(): void
+    {
+        foreach ([true, false] as $commit) {
+
+            [$member] = $this->seedMemberships();
+
+            $session = $this->signIn();
+
+            [$steppedUp, $second] = $this->race(
+                fn (): array => self::stepUpOutcome($this->sessions(self::GUARD)->stepUp(self::adapterProof($member, self::GUARD, $session->record->getKey()))),
+                fn (): int => $this->sessions(self::GUARD)->revokeSessions($member, RevocationReason::REVOKED),
+                $commit,
+            );
+
+            self::assertSame(['issued' => true, 'reason' => null], $steppedUp);
+            self::assertSame(1, $second['result']);
+            self::assertSame([SessionRevoked::class, SignedOutEverywhere::class], $second['events']);
+            self::assertSame($commit ? [SteppedUp::class] : [], $this->recordedClasses());
+            self::assertSame($commit ? 1 : 0, DB::table('authentication_proofs')->where('kind', 'additional_factor')->count());
+            self::assertSame('revoked', DB::table('authentication_sessions')->sole()->revoked_reason);
+
+            $this->reset();
+        }
+    }
+
+    /**
+     * A step-up waiting on a revocation of its session, which locks the row
+     * first, is refused as `session_revoked` once the revocation commits, with
+     * no proof recorded; when the revocation rolls back, the step-up goes
+     * ahead.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAStepUpWaitingOnARevocationFollowsItsOutcome(): void
+    {
+        foreach ([true, false] as $commit) {
+
+            [$member] = $this->seedMemberships();
+
+            $session = $this->signIn();
+
+            [$revoked, $second] = $this->race(
+                fn (): int => $this->sessions(self::GUARD)->revokeSessions($member, RevocationReason::REVOKED),
+                fn (): array => self::stepUpOutcome($this->sessions(self::GUARD)->stepUp(self::adapterProof($member, self::GUARD, $session->record->getKey()))),
+                $commit,
+            );
+
+            self::assertSame(1, $revoked);
+
+            if ($commit) {
+                self::assertSame(['issued' => false, 'reason' => FailureReason::SESSION_REVOKED->value], $second['result']);
+                self::assertSame([], $second['events']);
+                self::assertSame(0, DB::table('authentication_proofs')->where('kind', 'additional_factor')->count());
+                self::assertSame('revoked', DB::table('authentication_sessions')->sole()->revoked_reason);
+            } else {
+                self::assertSame(['issued' => true, 'reason' => null], $second['result']);
+                self::assertSame([SteppedUp::class], $second['events']);
+                self::assertSame(1, DB::table('authentication_proofs')->where('kind', 'additional_factor')->count());
+                self::assertNull(DB::table('authentication_sessions')->sole()->revoked_at);
+            }
+
+            $this->reset();
+        }
+    }
+
+    /**
      * Register the guards.
      *
      * @param  mixed  $app
@@ -436,7 +519,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
      */
     private function reset(): void
     {
-        foreach (['authentication_sessions', 'pending_sign_ins', 'rate_limits', 'activatable_tenant_memberships', 'activatable_tenants'] as $table) {
+        foreach (['authentication_sessions', 'authentication_proofs', 'pending_sign_ins', 'rate_limits', 'activatable_tenant_memberships', 'activatable_tenants'] as $table) {
             DB::table($table)->delete();
         }
 
@@ -455,6 +538,17 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     private static function describe(SwitchResult $result): array
     {
         return ['switched' => $result->isSwitched(), 'reason' => $result->reason?->value];
+    }
+
+    /**
+     * Whether a step-up issued its access token, and why not.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult  $result
+     * @return array{issued: bool, reason: ?string}
+     */
+    private static function stepUpOutcome(AccessTokenResult $result): array
+    {
+        return ['issued' => $result->isIssued(), 'reason' => $result->reason?->value];
     }
 
     /**

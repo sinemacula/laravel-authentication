@@ -17,8 +17,10 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
@@ -212,7 +214,8 @@ final class SignInProofsTest extends TestCase
      * `start()` with a provenance records the provider's first factor (the
      * connection as an external-provider channel, the private namespaced `amr`
      * value, the provider's authentication time) and the provenance as given,
-     * with no evidence.
+     * with no evidence; the session's first access token says it authenticated
+     * when the provider did, two minutes before the token was issued.
      *
      * @return void
      *
@@ -243,6 +246,14 @@ final class SignInProofsTest extends TestCase
         self::assertNull($stored->accepted_evidence);
         self::assertSame($this->now->getTimestamp(), $stored->created_at->getTimestamp());
         self::assertArrayNotHasKey('accepted_evidence', $stored->toArray());
+
+        $claims = Auth::manager()->jwt('api')->parse($session->tokens->accessToken, TokenType::ACCESS);
+
+        self::assertIsArray($claims);
+        self::assertSame(
+            [$this->now->subMinutes(2)->getTimestamp(), [FirstFactor::EXTERNAL_PROVIDER_METHOD], $this->now->getTimestamp()],
+            [$claims['auth_time'] ?? null, $claims['amr'] ?? null, $claims['iat'] ?? null],
+        );
     }
 
     /**
@@ -424,6 +435,43 @@ final class SignInProofsTest extends TestCase
 
         self::assertNotNull($session);
         self::assertSame($deadline->getTimestamp(), $session->record->getAbsoluteExpiresAt()?->getTimestamp());
+    }
+
+    /**
+     * The provider's times given in a time zone other than the application's
+     * are recorded as the same instants when `start()` signs in at once: the
+     * provenance's authentication time and deadline, the first factor's time,
+     * the session's absolute deadline and its access token's `auth_time`.
+     *
+     * @param  string  $zone
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideDeadlineZones')]
+    public function testAnImmediateStartKeepsTheProvidersTimesInAnyTimeZone(string $zone): void
+    {
+        $identity      = $this->seedIdentity();
+        $authenticated = $this->now->subMinutes(5)->setTimezone($zone);
+        $deadline      = $this->now->addHours(8)->setTimezone($zone);
+        $provenance    = new Provenance('connection-7', providerAuthenticatedAt: $authenticated, sessionNotAfter: $deadline);
+        $session       = $this->sessions()->start($identity, null, 'sso', null, $provenance)->session;
+
+        self::assertNotNull($session);
+
+        $stored = self::provenanceOf($session->record);
+
+        self::assertNotNull($stored);
+        self::assertSame(
+            [$authenticated->getTimestamp(), $deadline->getTimestamp()],
+            [$stored->provider_authenticated_at?->getTimestamp(), $stored->provider_session_expires_at?->getTimestamp()],
+        );
+        self::assertSame($authenticated->getTimestamp(), self::proofsOf($session->record)[0]->authenticated_at->getTimestamp());
+        self::assertSame($deadline->getTimestamp(), $session->record->getAbsoluteExpiresAt()?->getTimestamp());
+
+        $claims = Auth::manager()->jwt('api')->parse($session->tokens->accessToken, TokenType::ACCESS);
+
+        self::assertSame($authenticated->getTimestamp(), $claims['auth_time'] ?? null);
     }
 
     /**
