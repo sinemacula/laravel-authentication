@@ -11,7 +11,7 @@ use Mockery\MockInterface;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Admission\PinnedPrincipal;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
@@ -78,7 +78,7 @@ final class PinnedPrincipalTest extends TestCase
     public function testAPinTheResolverDoesNotReturnExactlyIsRefused(): void
     {
         $pinned = $this->principal('p-1');
-        $other  = \Mockery::mock(Principal::class, HasDevices::class);
+        $other  = \Mockery::mock(Principal::class, HasSessions::class);
         $other->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
 
         $this->resolver->shouldReceive('resolve')->with($this->identity, 'p-1')->andReturn(null, $this->principal('p-2', $this->identity), $other);
@@ -114,7 +114,7 @@ final class PinnedPrincipalTest extends TestCase
         $victim = \Mockery::mock(Identity::class);
         $victim->shouldReceive('getAuthIdentifier')->andReturn(8);
 
-        $otherClass = \Mockery::mock(Identity::class, HasDevices::class);
+        $otherClass = \Mockery::mock(Identity::class, HasSessions::class);
         $otherClass->shouldReceive('getAuthIdentifier')->andReturn(7);
 
         $unreadable = $this->principal('p-1');

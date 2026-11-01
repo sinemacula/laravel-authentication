@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Models\IdentifierChange;
-use Tests\Integration\Fixtures\SeparateConnectionDevice;
+use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\TestCase;
 
 /**
@@ -43,7 +43,7 @@ final class IdentifierChangeTest extends TestCase
 
     /**
      * The model reads the configured table, on the storage connection, each
-     * time one is made, whatever connection the device model names.
+     * time one is made, whatever connection the session model names.
      *
      * @return void
      */
@@ -55,7 +55,7 @@ final class IdentifierChangeTest extends TestCase
 
         self::assertSame('pending_email_changes', (new IdentifierChange)->getTable());
 
-        config()->set('authentication.device.model', SeparateConnectionDevice::class);
+        config()->set('authentication.session.model', SeparateConnectionSession::class);
 
         self::assertNull((new IdentifierChange)->getConnectionName());
 

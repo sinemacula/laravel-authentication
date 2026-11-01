@@ -12,16 +12,16 @@ use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Facades\Auth as IlluminateAuth;
-use Tests\Concerns\InteractsWithDevices;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\TestCase;
-use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubPrincipal;
+use Tests\Unit\Stubs\StubSession;
 
 /**
  * Integration test for the Auth facade contextual macros.
  *
  * Boots the package service provider through Testbench and asserts that the
- * four contextual `Auth::...()` macros (`principal`, `device`, `tenant`,
+ * four contextual `Auth::...()` macros (`principal`, `session`, `tenant`,
  * `type`) return resolved values when the active guard implements
  * `ContextualGuard` and a user is bound, and return `null` when the guard is
  * unauthenticated or does not implement `ContextualGuard`.
@@ -36,7 +36,7 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(AuthManager::class)]
 final class AuthFacadeMacroIntegrationTest extends TestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
     /**
      * `Auth::principal()` returns null for an unauthenticated request when the
@@ -52,13 +52,13 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
     }
 
     /**
-     * `Auth::device()` returns null for an unauthenticated request.
+     * `Auth::session()` returns null for an unauthenticated request.
      *
      * @return void
      */
-    public function testAuthDeviceReturnsNullForUnauthenticatedRequest(): void
+    public function testAuthSessionReturnsNullForUnauthenticatedRequest(): void
     {
-        self::assertNull(IlluminateAuth::device());
+        self::assertNull(IlluminateAuth::session());
     }
 
     /**
@@ -89,26 +89,26 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
     }
 
     /**
-     * After `login()` with a bound device, `Auth::device()` forwards to the
-     * contextual guard and returns the bound device.
+     * After `login()` with a bound session, `Auth::session()` forwards to the
+     * contextual guard and returns the bound session.
      *
      * @return void
      */
-    public function testAuthDeviceForwardsToContextualGuardWhenAuthenticated(): void
+    public function testAuthSessionForwardsToContextualGuardWhenAuthenticated(): void
     {
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(),
             'id'          => '019590e0-0000-7000-8000-000000000001',
             'refresh_key' => 'rk',
         ]);
 
-        $this->loginThroughContextualGuard($device);
+        $this->loginThroughContextualGuard($session);
 
-        /** @var \SineMacula\Laravel\Authentication\Contracts\Device|null $resolved */
-        $resolved = IlluminateAuth::device();
+        /** @var \SineMacula\Laravel\Authentication\Contracts\Session|null $resolved */
+        $resolved = IlluminateAuth::session();
 
-        self::assertSame($device, $resolved);
+        self::assertSame($session, $resolved);
     }
 
     /**
@@ -133,7 +133,7 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
         self::assertNotInstanceOf(ContextualGuard::class, $guard);
 
         self::assertNull(IlluminateAuth::principal());
-        self::assertNull(IlluminateAuth::device());
+        self::assertNull(IlluminateAuth::session());
         self::assertNull(IlluminateAuth::tenant());
     }
 
@@ -178,14 +178,14 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
     }
 
     /**
-     * Bind a `StubPrincipal` (and optional `StubDevice`) to the active
+     * Bind a `StubPrincipal` (and optional `StubSession`) to the active
      * contextual guard via the package's `login()` surface so the macro
      * assertions observe a fully-resolved context.
      *
-     * @param  \Tests\Unit\Stubs\StubDevice|null  $device
+     * @param  \Tests\Unit\Stubs\StubSession|null  $session
      * @return \Tests\Unit\Stubs\StubPrincipal
      */
-    private function loginThroughContextualGuard(?StubDevice $device = null): StubPrincipal
+    private function loginThroughContextualGuard(?StubSession $session = null): StubPrincipal
     {
         $principal = new StubPrincipal;
         $principal->forceFill([
@@ -197,7 +197,7 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
 
         self::assertInstanceOf(ContextualGuard::class, $guard);
 
-        $guard->login($principal, $principal, $device);
+        $guard->login($principal, $principal, $session);
 
         return $principal;
     }

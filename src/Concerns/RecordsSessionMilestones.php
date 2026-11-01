@@ -7,11 +7,11 @@ namespace SineMacula\Laravel\Authentication\Concerns;
 use Carbon\CarbonInterface;
 
 /**
- * Default Eloquent-backed accessors for when a device's session started and
- * when it last switched the principal it acts as, using conventional attribute
- * names. Override the `*Name()` methods to remap columns.
+ * Default Eloquent-backed accessors for when a session started and when it last
+ * switched the principal it acts as, using conventional attribute names.
+ * Override the `*Name()` methods to remap columns.
  *
- * Both are session state: a device loaded without either column throws a
+ * Both are session state: a session loaded without either column throws a
  * `LogicException` rather than reading the missing value as `null`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -28,7 +28,7 @@ trait RecordsSessionMilestones
      */
     public function getSignedInAt(): ?CarbonInterface
     {
-        return $this->toDeviceTimestamp($this->loadedDeviceAttribute($this->getSignedInAtName(), 'getSignedInAtName'));
+        return $this->toSessionTimestamp($this->loadedSessionAttribute($this->getSignedInAtName(), 'getSignedInAtName'));
     }
 
     /**
@@ -50,7 +50,7 @@ trait RecordsSessionMilestones
      */
     public function getPrincipalSwitchedAt(): ?CarbonInterface
     {
-        return $this->toDeviceTimestamp($this->loadedDeviceAttribute($this->getPrincipalSwitchedAtName(), 'getPrincipalSwitchedAtName'));
+        return $this->toSessionTimestamp($this->loadedSessionAttribute($this->getPrincipalSwitchedAtName(), 'getPrincipalSwitchedAtName'));
     }
 
     /**

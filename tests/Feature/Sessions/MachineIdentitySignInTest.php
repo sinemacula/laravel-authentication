@@ -22,7 +22,7 @@ use SineMacula\Laravel\Authentication\Guards\BearerAuthentication;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeySignIn;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 use SineMacula\Laravel\Authentication\Sessions\SessionPreconditions;
@@ -40,7 +40,7 @@ use Tests\TestCase;
  * interactive sign-in, no session and no refresh, at every entry point that
  * verifies something: a password is never checked for a machine, every sign-in
  * method's identity is refused at admission (a passkey whose owner became a
- * machine included), a machine's device can neither refresh nor switch
+ * machine included), a machine's session can neither refresh nor switch
  * principal, a session token naming one is refused, and the token service
  * issues it no session token.
  *
@@ -120,7 +120,7 @@ final class MachineIdentitySignInTest extends TestCase
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $result->reason);
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->recordedEvent(AuthenticationFailed::class)->reason);
-        self::assertSame(0, DB::table('devices')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->count());
 
         $this->recordEvents([AuthenticationFailed::class]);
 
@@ -169,7 +169,7 @@ final class MachineIdentitySignInTest extends TestCase
 
     /**
      * Whatever method proved it, a machine is refused at admission as
-     * `machine_identity`: no session, no device, no pending sign-in.
+     * `machine_identity`: no session, no pending sign-in.
      *
      * @param  string  $method
      * @return void
@@ -189,15 +189,15 @@ final class MachineIdentitySignInTest extends TestCase
         self::assertSame(FailureReason::MACHINE_IDENTITY, $failure->reason);
         self::assertSame(AuthenticationFlow::SIGN_IN, $failure->flow);
         self::assertTrue($machine->is($failure->context->identity));
-        self::assertSame(0, DB::table('devices')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->count());
         self::assertSame(0, DB::table('pending_sign_ins')->count());
     }
 
     /**
      * A passkey a person registered, whose owner is now a machine with the same
      * key, signs nothing in: the assertion verifies, and admission refuses the
-     * machine as `machine_identity` with no device. A machine cannot register a
-     * passkey of its own.
+     * machine as `machine_identity` with no session. A machine cannot register
+     * a passkey of its own.
      *
      * @return void
      *
@@ -227,7 +227,7 @@ final class MachineIdentitySignInTest extends TestCase
 
         self::assertSame([FailureReason::MACHINE_IDENTITY, AuthenticationFlow::SIGN_IN, PasskeySignIn::NAME], [$failure->reason, $failure->flow, $failure->context->method]);
         self::assertTrue($machine->is($failure->context->identity));
-        self::assertSame(0, DB::table('devices')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->count());
     }
 
     /**
@@ -243,18 +243,18 @@ final class MachineIdentitySignInTest extends TestCase
         $result = $this->sessions('machines')->start($machine, null, 'proven');
 
         self::assertSame(FailureReason::MACHINE_IDENTITY, $result->reason);
-        self::assertSame(0, DB::table('devices')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->count());
     }
 
     /**
-     * A device a machine owns (left from before it became one, say) neither
+     * A session a machine owns (left from before it became one, say) neither
      * refreshes nor switches principal, and its access token is refused.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testAMachinesDeviceNeitherRefreshesNorSwitchesNorAuthenticates(): void
+    public function testAMachinesSessionNeitherRefreshesNorSwitchesNorAuthenticates(): void
     {
         $session = $this->humanSessionHandedToAMachine();
 
@@ -280,12 +280,13 @@ final class MachineIdentitySignInTest extends TestCase
         self::assertSame(FailureReason::MACHINE_IDENTITY, $failure->reason);
         self::assertSame(AuthenticationFlow::BEARER, $failure->flow);
         self::assertInstanceOf(MachineClient::class, $failure->context->identity);
-        self::assertNull(DB::table('devices')->value('revoked_at'));
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
     }
 
     /**
      * The token service issues a machine no session token: no access token for
-     * it, and no refresh token for a device it owns or for it as the principal.
+     * it, and no refresh token for a session it owns or for it as the
+     * principal.
      *
      * @return void
      */
@@ -295,8 +296,8 @@ final class MachineIdentitySignInTest extends TestCase
 
         $machine = MachineClient::query()->sole();
         $tokens  = Auth::manager()->jwt('api');
-        $owned   = Device::query()->sole();
-        $unowned = (new Device)->forceFill([
+        $owned   = Session::query()->sole();
+        $unowned = (new Session)->forceFill([
             'id'                  => 'unowned',
             'idle_expires_at'     => CarbonImmutable::now()->addDay(),
             'absolute_expires_at' => CarbonImmutable::now()->addDay(),
@@ -304,7 +305,7 @@ final class MachineIdentitySignInTest extends TestCase
 
         $issues = [
             'an access token'                  => static fn (): string => $tokens->issueAccessToken($machine, $machine, null),
-            'a refresh token for its device'   => static fn (): string => $tokens->issueRefreshToken($owned, 'rotation-id'),
+            'a refresh token for its session'  => static fn (): string => $tokens->issueRefreshToken($owned, 'rotation-id'),
             'a refresh token as its principal' => static fn (): string => $tokens->issueRefreshToken($unowned, 'rotation-id', $machine),
         ];
 
@@ -356,9 +357,9 @@ final class MachineIdentitySignInTest extends TestCase
     }
 
     /**
-     * Sign a human in on `api`, then make the device's owner and principal a
+     * Sign a human in on `api`, then make the session's owner and principal a
      * machine with the same key, and point the guard's provider at machines:
-     * the state a device is in when its owner became a machine.
+     * the state a session is in when its owner became a machine.
      *
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      */
@@ -373,7 +374,7 @@ final class MachineIdentitySignInTest extends TestCase
 
         self::assertNotNull($session);
 
-        DB::table('devices')->update(['authenticatable_type' => MachineClient::class, 'principal_type' => MachineClient::class]);
+        DB::table('authentication_sessions')->update(['authenticatable_type' => MachineClient::class, 'principal_type' => MachineClient::class]);
 
         config()->set('auth.providers.identities.model', MachineClient::class);
 

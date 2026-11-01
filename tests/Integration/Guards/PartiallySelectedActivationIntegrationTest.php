@@ -18,8 +18,8 @@ use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Concerns\InteractsWithDevices;
+use SineMacula\Laravel\Authentication\Models\Session;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\PartiallySelectedIdentity;
 use Tests\TestCase;
@@ -41,12 +41,12 @@ use Tests\TestCase;
 #[CoversTrait(ProvidesActiveState::class)]
 final class PartiallySelectedActivationIntegrationTest extends TestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
     /** @var string Plaintext password of the seeded identity. */
     private const string PASSWORD = 'correct horse battery staple';
 
-    /** @var string Plaintext rotation id stored on the seeded device. */
+    /** @var string Plaintext rotation id stored on the seeded session. */
     private const string ROTATION_ID = 'stored-rotation-id';
 
     /** @var string Message of the misconfiguration report. */
@@ -138,15 +138,15 @@ final class PartiallySelectedActivationIntegrationTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => PartiallySelectedIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $identity);
         $guard        = $this->guardForRequest(Request::create('/refresh', 'POST'));
 
         try {
@@ -157,9 +157,9 @@ final class PartiallySelectedActivationIntegrationTest extends TestCase
             self::assertStringContainsString(self::NOT_LOADED, $exception->getMessage());
         }
 
-        $fresh = Device::query()->findOrFail($device->getKey());
+        $fresh = Session::query()->findOrFail($session->getKey());
 
-        assert($fresh instanceof Device);
+        assert($fresh instanceof Session);
 
         self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), $fresh->getRefreshKey());
     }

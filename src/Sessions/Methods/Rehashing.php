@@ -224,7 +224,7 @@ final class Rehashing
 
     /**
      * Record that a guard forced a rehash of the user's password to sign its
-     * other devices out (`OtherDeviceLogout`), which runs the change held for
+     * other sessions out (`OtherDeviceLogout`), which runs the change held for
      * that user: the forced save, not an attempt's rehash, so a change like any
      * other.
      *

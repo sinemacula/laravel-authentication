@@ -151,7 +151,7 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
 
     /**
      * The cookie is scoped and protected as configured, and expires when the
-     * refresh token it carries does: the end of the device's session.
+     * refresh token it carries does: the end of the session.
      *
      * @return void
      */
@@ -231,7 +231,7 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
         assert($session !== null);
 
         return (new JsonResponse(['access_token' => $session->tokens->accessToken, 'refresh_token' => $session->tokens->refreshToken]))
-            ->withCookie(Auth::refreshTransport($guard)->cookie($session->tokens->refreshToken, $session->device));
+            ->withCookie(Auth::refreshTransport($guard)->cookie($session->tokens->refreshToken, $session->record));
     }
 
     /**
@@ -254,7 +254,7 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
         assert($result->source === RefreshTokenSource::COOKIE);
 
         return (new JsonResponse(['access_token' => $result->session->tokens->accessToken, 'source' => $result->source->value]))
-            ->withCookie(Auth::refreshTransport($guard)->cookie($result->session->tokens->refreshToken, $result->session->device));
+            ->withCookie(Auth::refreshTransport($guard)->cookie($result->session->tokens->refreshToken, $result->session->record));
     }
 
     /**

@@ -15,10 +15,10 @@
 </div>
 
 Stateless contextual authentication for Laravel. Distinguishes the authenticated **Identity** from the acting
-**Principal** and the issuing **Device**, exposed through Laravel's standard `Auth` facade, middleware, and events.
+**Principal** and the issuing **Session**, exposed through Laravel's standard `Auth` facade, middleware, and events.
 
 Drops into Laravel's existing auth machinery - same `Auth::check()`, `Auth::user()`, `auth()->guard('api')`, same
-middleware, same events. Adds contextual accessors (`Auth::identity()`, `Auth::principal()`, `Auth::device()`) and
+middleware, same events. Adds contextual accessors (`Auth::identity()`, `Auth::principal()`, `Auth::session()`) and
 ships a hardened JWT guard.
 
 ## Core Concept
@@ -27,12 +27,12 @@ ships a hardened JWT guard.
 |-----------------|-------------------------------------------------------------------------------------------------------------------------------|
 | **Identity**    | Who logged in. The account behind the request - a person or a service account.                                                |
 | **Principal**   | Who the request is acting as. Often the same as the identity; can be a role or membership.                                    |
-| **Device**      | Which client obtained the login - a browser, a mobile app, a CLI session.                                                     |
+| **Session**     | One sign-in, on one application, on one device: a browser, a mobile app, a CLI. Refresh and revocation live here.             |
 | **Tenant**      | The isolation boundary the principal acts within. Optional, for multi-tenant apps.                                            |
 | **Application** | The app being signed into, e.g. `admin`, `console`, `mobile`. Each application is a guard with its own methods and lifetimes. |
 
 Start **2D** (the identity is the principal) and grow into **3D** (identity → principal → tenant) without changing
-guards. Access tokens are self-verifying JWTs; refresh is stateful, held per device, so replays and revoked sessions
+guards. Access tokens are self-verifying JWTs; refresh is stateful, held per session, so replays and revoked sessions
 are caught on the server.
 
 ## Features
@@ -41,7 +41,7 @@ are caught on the server.
   refresh cookie with CSRF checks.
 - **Sign-in methods**: password, one-time code to a phone or email, and passkeys, behind one contract that SSO and
   custom methods plug into.
-- **Sessions per device**: list, sign out, sign out everywhere, revoke on security changes, and switch principal.
+- **Sessions**: list, sign out, sign out everywhere, revoke on security changes, and switch principal.
 - **Machine credentials**: API keys and OAuth 2.0 client credentials for non-human identities, with scopes.
 - **Account lifecycle**: password policy, password reset, identifier verification and changing an email or phone.
 - **Per-application settings**: which sign-in methods and machine credentials each application allows (none until it
@@ -104,18 +104,18 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Foundation\Auth\User;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 
-class AppUser extends User implements Identity, Principal, HasDevices
+class AppUser extends User implements Identity, Principal, HasSessions
 {
     use Authenticatable, ActsAsPrincipal;
 
-    public function devices(): MorphMany
+    public function sessions(): MorphMany
     {
-        return $this->morphMany(Device::class, 'authenticatable');
+        return $this->morphMany(Session::class, 'authenticatable');
     }
 }
 ```
@@ -155,7 +155,7 @@ Route::middleware('auth:api')->get('/me', fn () => Auth::identity());
 | [Identity models](docs/guides/identity-models.md)         | 2D and 3D models, identifiers, verification, activity                    |
 | [Signing in](docs/guides/signing-in.md)                   | The session service, one-time codes, passkeys, custom methods, factors   |
 | [Refreshing](docs/guides/refreshing.md)                   | Refresh, the refresh cookie and replay detection                         |
-| [Sessions](docs/guides/sessions.md)                       | Switching principal, signing out, listing devices and revocation         |
+| [Sessions](docs/guides/sessions.md)                       | Switching principal, signing out, listing sessions and revocation        |
 | [Passwords](docs/guides/passwords.md)                     | Password policy, setting a password and password reset                   |
 | [Changing identifiers](docs/guides/identifier-changes.md) | Changing an email address or phone number                                |
 | [Machine credentials](docs/guides/machine-credentials.md) | Non-human identities, scopes, API keys and client credentials            |

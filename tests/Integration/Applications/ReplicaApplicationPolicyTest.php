@@ -155,7 +155,7 @@ final class ReplicaApplicationPolicyTest extends TestCase
 
     /**
      * A refresh is admitted on a grant only the primary holds, and refused as
-     * `principal_ineligible`, without revoking the device, once the primary
+     * `principal_ineligible`, without revoking the session, once the primary
      * withdraws it.
      *
      * @return void
@@ -176,7 +176,7 @@ final class ReplicaApplicationPolicyTest extends TestCase
         $this->withdrawOnThePrimary(GrantedApplicationPolicy::GRANTS, $grant);
 
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions()->refresh($refreshed->session->tokens->refreshToken)->reason);
-        self::assertNull(DB::table('devices')->useWritePdo()->value('revoked_at'));
+        self::assertNull(DB::table('authentication_sessions')->useWritePdo()->value('revoked_at'));
     }
 
     /**

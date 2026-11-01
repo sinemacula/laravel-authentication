@@ -10,9 +10,9 @@ use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Database\PinningConnectionResolver;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
-use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Concerns\InteractsWithDevices;
+use SineMacula\Laravel\Authentication\Models\Session;
 use Tests\Concerns\InteractsWithLaggingReplica;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Concerns\ServesRequestsThroughOctane;
 use Tests\TestCase;
 
@@ -20,7 +20,7 @@ use Tests\TestCase;
  * End-to-end tests for `WriteConnection::during()` served by one Laravel Octane
  * worker. Eloquent's connection resolver is process-wide, so it outlives the
  * request's sandbox, and so does the database connection whose read mode a pin
- * changes. Against a split connection whose replica lags, a device written
+ * changes. Against a split connection whose replica lags, a session written
  * through it is on the primary only: a pinned read finds it, and an ordinary
  * read misses it. Whether the pin's callback returns or throws, the next
  * request reads through the database manager again, from the replica.
@@ -34,9 +34,9 @@ use Tests\TestCase;
 #[CoversClass(PinningConnectionResolver::class)]
 final class WriteConnectionRequestsTest extends TestCase
 {
-    use InteractsWithDevices, InteractsWithLaggingReplica, ServesRequestsThroughOctane;
+    use InteractsWithLaggingReplica, InteractsWithSessionRecords, ServesRequestsThroughOctane;
 
-    /** @var list<bool> Whether each pinned read found the device. */
+    /** @var list<bool> Whether each pinned read found the session. */
     private array $pinnedReads = [];
 
     /**
@@ -49,8 +49,8 @@ final class WriteConnectionRequestsTest extends TestCase
     {
         parent::setUp();
 
-        Route::get('/devices/{id}', static fn (string $id): array => [
-            'found'    => Device::query()->find($id) instanceof Device,
+        Route::get('/sessions/{id}', static fn (string $id): array => [
+            'found'    => Session::query()->find($id) instanceof Session,
             'resolver' => Model::getConnectionResolver() === app('db'),
         ]);
 
@@ -59,9 +59,9 @@ final class WriteConnectionRequestsTest extends TestCase
 
         Route::post('/nested/{id}/throw', function (string $id): array {
             try {
-                WriteConnection::during(new Device, fn (): bool => $this->readPinned($id, true));
+                WriteConnection::during(new Session, fn (): bool => $this->readPinned($id, true));
             } catch (\RuntimeException) {
-                return ['found' => Device::query()->find($id) instanceof Device];
+                return ['found' => Session::query()->find($id) instanceof Session];
             }
 
             return ['found' => null];
@@ -84,7 +84,7 @@ final class WriteConnectionRequestsTest extends TestCase
     }
 
     /**
-     * A pinned read in one request finds the device on the primary; the next
+     * A pinned read in one request finds the session on the primary; the next
      * request reads through the database manager, from the replica, and misses
      * it.
      *
@@ -92,28 +92,28 @@ final class WriteConnectionRequestsTest extends TestCase
      */
     public function testAPinThatReturnsIsReleasedForTheNextRequest(): void
     {
-        $device = $this->seedDevice();
+        $session = $this->seedSession();
 
-        $this->serve(self::octaneRequest('POST', "/pinned/{$device}"))->assertExactJson(['found' => true]);
-        $this->serve(self::octaneRequest('GET', "/devices/{$device}"))->assertExactJson(['found' => false, 'resolver' => true]);
+        $this->serve(self::octaneRequest('POST', "/pinned/{$session}"))->assertExactJson(['found' => true]);
+        $this->serve(self::octaneRequest('GET', "/sessions/{$session}"))->assertExactJson(['found' => false, 'resolver' => true]);
     }
 
     /**
      * A pin whose callback throws, out of the request and into the exception
-     * handler, is released all the same: the read inside it found the device,
+     * handler, is released all the same: the read inside it found the session,
      * and the next request reads from the replica through the database manager.
      *
      * @return void
      */
     public function testAPinThatThrowsIsReleasedForTheNextRequest(): void
     {
-        $device = $this->seedDevice();
+        $session = $this->seedSession();
 
-        $this->serve(self::octaneRequest('POST', "/pinned/{$device}/throw"))->assertServerError();
+        $this->serve(self::octaneRequest('POST', "/pinned/{$session}/throw"))->assertServerError();
 
         self::assertSame([true], $this->pinnedReads);
 
-        $this->serve(self::octaneRequest('GET', "/devices/{$device}"))->assertExactJson(['found' => false, 'resolver' => true]);
+        $this->serve(self::octaneRequest('GET', "/sessions/{$session}"))->assertExactJson(['found' => false, 'resolver' => true]);
 
         self::assertSame($this->app?->make('db'), Model::getConnectionResolver());
     }
@@ -126,13 +126,13 @@ final class WriteConnectionRequestsTest extends TestCase
      */
     public function testANestedPinThatThrowsReleasesBoth(): void
     {
-        $device = $this->seedDevice();
+        $session = $this->seedSession();
 
-        $this->serve(self::octaneRequest('POST', "/nested/{$device}/throw"))->assertExactJson(['found' => false]);
+        $this->serve(self::octaneRequest('POST', "/nested/{$session}/throw"))->assertExactJson(['found' => false]);
 
         self::assertSame([true], $this->pinnedReads);
 
-        $this->serve(self::octaneRequest('GET', "/devices/{$device}"))->assertExactJson(['found' => false, 'resolver' => true]);
+        $this->serve(self::octaneRequest('GET', "/sessions/{$session}"))->assertExactJson(['found' => false, 'resolver' => true]);
     }
 
     /**
@@ -162,7 +162,7 @@ final class WriteConnectionRequestsTest extends TestCase
     }
 
     /**
-     * Read the device inside a pin, recording whether it was found, and throw
+     * Read the session inside a pin, recording whether it was found, and throw
      * from the pin's callback when asked to.
      *
      * @param  string  $id
@@ -173,8 +173,8 @@ final class WriteConnectionRequestsTest extends TestCase
      */
     private function readPinned(string $id, bool $throw): bool
     {
-        return WriteConnection::during(new Device, function () use ($id, $throw): bool {
-            $found = Device::query()->find($id) instanceof Device;
+        return WriteConnection::during(new Session, function () use ($id, $throw): bool {
+            $found = Session::query()->find($id) instanceof Session;
 
             $this->pinnedReads[] = $found;
 
@@ -187,17 +187,17 @@ final class WriteConnectionRequestsTest extends TestCase
     }
 
     /**
-     * Write a device through the split connection, so it exists on the primary
+     * Write a session through the split connection, so it exists on the primary
      * only, and return its key.
      *
      * @return string
      */
-    private function seedDevice(): string
+    private function seedSession(): string
     {
-        $device = new Device;
-        $device->forceFill([...self::liveSession(), 'authenticatable_type' => 'identity', 'authenticatable_id' => '1'])->save();
+        $session = new Session;
+        $session->forceFill([...self::liveSession(), 'authenticatable_type' => 'identity', 'authenticatable_id' => '1'])->save();
 
-        $key = $device->getKey();
+        $key = $session->getKey();
 
         self::assertIsString($key);
 

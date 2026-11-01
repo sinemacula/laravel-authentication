@@ -4,7 +4,7 @@ declare(strict_types = 1);
 
 use SineMacula\Laravel\Authentication\Identifiers\E164PhoneNormalizer;
 use SineMacula\Laravel\Authentication\Identifiers\EmailNormalizer;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 
 return [
 
@@ -14,14 +14,14 @@ return [
     |---------------------------------------------------------------------------
     |
     | The connection every package table lives on (`null` for the default):
-    | devices, pending sign-ins, one-time codes, passkeys and their challenges,
+    | sessions, pending sign-ins, one-time codes, passkeys and their challenges,
     | API keys, identifier changes, and the rate limit counters unless
     | `rate_limits.connection` names their own. The models read and write them
     | there, and the published migrations create them there. They share one
     | connection because a session, the completion of a pending sign-in, a
     | password reset and an identifier change each write several of them in one
-    | transaction, which two connections cannot commit as one: a custom device
-    | model must live on it too, or every device flow fails closed, and password
+    | transaction, which two connections cannot commit as one: a custom session
+    | model must live on it too, or every session flow fails closed, and password
     | resets and identifier changes need the identity there as well. A value
     | that is neither a connection name nor `null` or empty fails closed when a
     | model is built, and `authentication:check` reports it, as it does a name
@@ -37,34 +37,34 @@ return [
 
     /*
     |---------------------------------------------------------------------------
-    | Device tracking
+    | Session tracking
     |---------------------------------------------------------------------------
     |
-    | Configures the package's default Eloquent device adapter. JWT refresh
-    | lookup and rotation require `device.model` to be an Eloquent model
-    | implementing the package `EloquentDevice` contract, on the storage
+    | Configures the package's default Eloquent session adapter. JWT refresh
+    | lookup and rotation require `session.model` to be an Eloquent model
+    | implementing the package `EloquentSession` contract, on the storage
     | connection (the shipped model takes it, unless a subclass names its own).
     | Column names come from that contract's accessors (e.g.
     | `getRefreshKeyName()`); the shipped migration and model use the default
     | names, so a custom model that renames a column ships its own migration.
-    | Every authentication that binds a persisted EloquentDevice records when,
+    | Every authentication that binds a persisted EloquentSession records when,
     | from which IP address, and with which user agent it was last used, at most
     | once per `last_used_throttle_seconds` (0 records every use). Laravel's
-    | `model:prune` deletes devices whose session ended (revoked, or past its
+    | `model:prune` deletes sessions that ended (revoked, or past its
     | idle or absolute deadline) more than `prune_after_days` ago (0 to 3650,
     | counted from that end, not from creation; 0 prunes them as soon as they
     | end; an integer, or a digit string as `env()` returns one; anything else
     | fails closed when pruning runs, and `authentication:check` reports it).
-    | The shipped model opts in with the `PrunesDevices` trait, as a custom
+    | The shipped model opts in with the `PrunesSessions` trait, as a custom
     | model does.
     |
     */
 
-    'device' => [
-        'model'                      => env('AUTHENTICATION_DEVICE_MODEL', Device::class),
-        'table'                      => env('AUTHENTICATION_DEVICE_TABLE', 'devices'),
-        'last_used_throttle_seconds' => (int) env('AUTHENTICATION_DEVICE_LAST_USED_THROTTLE_SECONDS', 60),
-        'prune_after_days'           => env('AUTHENTICATION_DEVICE_PRUNE_AFTER_DAYS', 30),
+    'session' => [
+        'model'                      => env('AUTHENTICATION_SESSION_MODEL', Session::class),
+        'table'                      => env('AUTHENTICATION_SESSION_TABLE', 'authentication_sessions'),
+        'last_used_throttle_seconds' => (int) env('AUTHENTICATION_SESSION_LAST_USED_THROTTLE_SECONDS', 60),
+        'prune_after_days'           => env('AUTHENTICATION_SESSION_PRUNE_AFTER_DAYS', 30),
     ],
 
     /*
@@ -140,8 +140,8 @@ return [
     | Sessionless JWT defaults consumed by JwtTokenService and JwtGuard. Access
     | tokens are self-verifying and are not backed by a server-side access-token
     | store, but JwtGuard still rehydrates identity, principal, and optional
-    | device state on bearer authentication. A resolved, persisted device may
-    | still trigger normal device-authenticated side effects such as debounced
+    | session state on bearer authentication. A resolved, persisted session may
+    | still trigger normal session-authenticated side effects such as debounced
     | last-use writes. Signing material is always a `kid => secret` map in
     | `keys` plus the `active_kid` that signs new tokens; every token carries
     | its kid, and any kid in the map verifies. Signing is HMAC only:
@@ -177,7 +177,7 @@ return [
         'algorithm' => env('AUTHENTICATION_JWT_ALGORITHM', 'HS256'),
 
         // Lifetimes, in minutes, each overridable per guard. An access token
-        // lives `access_ttl_minutes` (1 to 1440). A session (a device) ends
+        // lives `access_ttl_minutes` (1 to 1440). A session ends
         // `refresh_idle_ttl_minutes` after its last refresh, and in any case
         // `refresh_absolute_ttl_minutes` after it started (each 1 to 5256000,
         // ten years). No token outlives its session: a refresh token, and an
@@ -192,11 +192,11 @@ return [
         // replaced still gets the session's current credential, so a lost
         // response or a parallel refresh does not sign the client out. After
         // the window, or with 0, presenting a replaced refresh token is treated
-        // as theft and revokes the device. Overridable per guard.
+        // as theft and revokes the session. Overridable per guard.
         'refresh_grace_seconds' => env('AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS', 30),
 
         // Clock-skew tolerance, in seconds (0 to 300), on every token's `exp`
-        // and `iat`. It never stretches a session: a device past its idle or
+        // and `iat`. It never stretches a session: a session past its idle or
         // absolute deadline is rejected however recent its access token.
         'leeway_seconds' => env('AUTHENTICATION_JWT_LEEWAY_SECONDS', 30),
 
@@ -282,7 +282,7 @@ return [
     | address counts by its /64 network, and one that carries an IPv4 client's
     | address (IPv4-mapped, or the NAT64 well-known prefix `64:ff9b::/96`) as
     | that IPv4 address. Refresh, which cannot guess a secret, counts only
-    | failures, per device and per IP address. A request for a one-time code
+    | failures, per session and per IP address. A request for a one-time code
     | counts every request, per identifier and per IP address, and never gives
     | one back. A request for passkey sign-in options counts every request per
     | IP address (it names no identifier, so its `per_identifier` must stay
@@ -508,7 +508,7 @@ return [
     | it or a signed link the application sends it; until then the identity
     | keeps the current one. A request must come within
     | `recent_authentication_seconds` (60 to 86400) of the identity's sign-in on
-    | the device it is made from, or of a proof the application confirmed
+    | the session it is made from, or of a proof the application confirmed
     | itself, or give the current password. It waits in `table`, on the storage
     | connection, for at most `ttl_seconds` (300 to 86400; a code request also
     | no longer than its code), and a newer request for the same identity and

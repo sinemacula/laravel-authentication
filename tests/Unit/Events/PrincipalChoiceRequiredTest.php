@@ -13,8 +13,8 @@ use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PrincipalChoiceRequired;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use Tests\Unit\Stubs\PlainDeviceFixture;
 use Tests\Unit\Stubs\PlainIdentityFixture;
+use Tests\Unit\Stubs\PlainSessionFixture;
 
 /**
  * PrincipalChoiceRequired event unit tests.
@@ -63,17 +63,19 @@ final class PrincipalChoiceRequiredTest extends TestCase
         self::assertInstanceOf(PrincipalChoiceRequired::class, $copy);
         self::assertSame('7', $copy->context->identityId);
         self::assertNull($copy->context->principalId);
-        self::assertSame('proven-device', $copy->context->deviceId);
+        self::assertSame('proven-session', $copy->context->sessionId);
         self::assertSame('2027-01-15 10:05:00', $copy->expiresAt->toDateTimeString());
     }
 
     /**
-     * A context for an identity choosing on a device it proved it holds.
+     * A context for an identity choosing on a session it proved it holds.
      *
      * @return \SineMacula\Laravel\Authentication\Events\EventContext
      */
     private static function context(): EventContext
     {
-        return new EventContext('api', new ClientContext('203.0.113.7', 'agent'), new PlainIdentityFixture(7), device: new PlainDeviceFixture('proven-device'), method: 'password');
+        $client = new ClientContext('203.0.113.7', 'agent');
+
+        return new EventContext('api', $client, new PlainIdentityFixture(7), session: new PlainSessionFixture('proven-session'), method: 'password');
     }
 }

@@ -7,11 +7,11 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\HoldsARotatedSession;
 
 /**
- * The outcome of switching a session to another principal: the session on the
- * same device with its new token pair, or why it was refused.
+ * The outcome of switching a session to another principal: the same session
+ * with its new token pair, or why it was refused.
  *
  * A refused switch leaves the session as it was (unless the presented refresh
- * token proved a replay, which revokes the device), and `AuthenticationFailed`
+ * token proved a replay, which revokes the session), and `AuthenticationFailed`
  * reports why; `retryAfter` carries the wait of a `rate_limited` refusal. A
  * switch read from the request (`switchPrincipalFromRequest()`) says where the
  * refresh token came from (`source`), so one read from the cookie can be

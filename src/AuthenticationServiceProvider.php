@@ -35,8 +35,7 @@ use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
-use SineMacula\Laravel\Authentication\Devices\DeviceLookup;
-use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
@@ -47,7 +46,7 @@ use SineMacula\Laravel\Authentication\Http\UnauthenticatedResponse;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
-use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
+use SineMacula\Laravel\Authentication\Listeners\RecordSessionUsage;
 use SineMacula\Laravel\Authentication\Listeners\TrackCredentialAttempts;
 use SineMacula\Laravel\Authentication\Passkeys\WebAuthn;
 use SineMacula\Laravel\Authentication\Passwords\NoBreachedPasswordCheck;
@@ -57,6 +56,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Scopes\AcceptAnyScope;
+use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
@@ -73,7 +73,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
 {
     /** @var list<string> File names of the shipped migrations, published under the `authentication-migrations` tag. */
     private const array MIGRATIONS = [
-        '2026_04_06_000000_create_devices_table.php',
+        '2026_04_06_000000_create_authentication_sessions_table.php',
         '2026_04_06_000001_create_pending_sign_ins_table.php',
         '2026_04_06_000002_create_rate_limits_table.php',
         '2026_04_06_000003_create_one_time_codes_table.php',
@@ -141,7 +141,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
 
     /**
      * Construct a `JwtGuard` from the supplied container, guard name, and
-     * Laravel guard config block. A device model that is misconfigured, or not
+     * Laravel guard config block. A session model that is misconfigured, or not
      * on the storage connection, fails here rather than on the first request.
      *
      * @param  \Illuminate\Foundation\Application  $app
@@ -151,7 +151,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     public static function createJwtGuard(Application $app, string $name, array $config): JwtGuard
     {
@@ -164,7 +164,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $resolver  = $selection['resolver'];
         $events    = $app->make(Dispatcher::class);
 
-        DeviceLookup::model();
+        SessionLookup::model();
 
         /** @var \SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory $tokenFactory */
         $tokenFactory = $app->make(JwtTokenServiceFactory::class);
@@ -190,7 +190,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
      * Construct an `ApiKeyGuard` from the supplied container, guard name, and
      * Laravel guard config block. A malformed storage connection, where the
      * guard's keys live, fails here rather than on the first request; the
-     * device model is not read, since keys have no device sessions.
+     * session model is not read, since keys have no sessions.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  string  $name
@@ -347,7 +347,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register the `DeviceAuthenticated` listener, the reset of the package
+     * Register the `SessionAuthenticated` listener, the reset of the package
      * guards before each queued job, and the tracking of credential attempts
      * that marks an automatic rehash.
      *
@@ -355,7 +355,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
      */
     protected function registerListeners(): void
     {
-        Event::listen(DeviceAuthenticated::class, RecordDeviceUsage::class);
+        Event::listen(SessionAuthenticated::class, RecordSessionUsage::class);
         Event::listen(JobProcessing::class, ForgetGuardStateBeforeJob::class);
         Event::listen([Attempting::class, Validated::class, Login::class, Authenticated::class, Failed::class, OtherDeviceLogout::class], TrackCredentialAttempts::class);
     }

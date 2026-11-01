@@ -21,7 +21,7 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeConfirmation;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Passwords\PasswordService;
 use SineMacula\Laravel\Authentication\Passwords\PasswordWriter;
 use SineMacula\Laravel\Authentication\Passwords\ResetResult;
@@ -30,8 +30,8 @@ use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Testing\FakeIdentifierChangeNotifier;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Testing\FakePasswordResetLinkSender;
-use Tests\Concerns\InteractsWithDevices;
 use Tests\Concerns\InteractsWithPasswords;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Integration\Fixtures\StoredIdentity;
 use Tests\TestCase;
 
@@ -61,7 +61,7 @@ use Tests\TestCase;
 #[CoversClass(PasswordWriter::class)]
 final class StorageConnectionProofSpendingTest extends TestCase
 {
-    use InteractsWithDevices, InteractsWithPasswords;
+    use InteractsWithPasswords, InteractsWithSessionRecords;
 
     /** @var string The connection the identities and the package's tables live on. */
     private const string STORAGE = StoredIdentity::CONNECTION;
@@ -193,7 +193,7 @@ final class StorageConnectionProofSpendingTest extends TestCase
 
     /**
      * A reset by the link delivered sets the new password on the storage
-     * connection, moves the identity's cutoff, revokes its device there and
+     * connection, moves the identity's cutoff, revokes its session there and
      * uses the link's token up.
      *
      * @return void
@@ -204,7 +204,7 @@ final class StorageConnectionProofSpendingTest extends TestCase
     {
         $identity = $this->seedStored();
 
-        self::seedStoredDevice($identity);
+        self::seedStoredSession($identity);
 
         $result = $this->reset($this->requestLink());
 
@@ -212,14 +212,14 @@ final class StorageConnectionProofSpendingTest extends TestCase
         self::assertSame(1, $result->revoked);
         self::assertTrue($this->hasPassword(self::NEW_PASSWORD));
         self::assertNotNull($this->stored()->value('tokens_valid_after'));
-        self::assertSame(0, $this->storage('devices')->whereNull('revoked_at')->count());
+        self::assertSame(0, $this->storage('authentication_sessions')->whereNull('revoked_at')->count());
         self::assertSame(0, $this->unspentCodes());
     }
 
     /**
-     * A failure once the device is revoked, after the password and the cutoff
+     * A failure once the session is revoked, after the password and the cutoff
      * are written, rolls the reset back whole on the storage connection: the
-     * old password, no cutoff, a live device and an unspent token; the same
+     * old password, no cutoff, a live session and an unspent token; the same
      * token then resets the password, once.
      *
      * @return void
@@ -230,17 +230,17 @@ final class StorageConnectionProofSpendingTest extends TestCase
     {
         $identity = $this->seedStored();
 
-        self::seedStoredDevice($identity);
+        self::seedStoredSession($identity);
 
         $token = $this->requestLink();
 
-        $this->failAfterWriting = 'devices';
+        $this->failAfterWriting = 'authentication_sessions';
 
         $this->assertFails(fn (): mixed => $this->reset($token));
 
         self::assertTrue($this->hasPassword(self::PASSWORD));
         self::assertNull($this->stored()->value('tokens_valid_after'));
-        self::assertSame(1, $this->storage('devices')->whereNull('revoked_at')->count());
+        self::assertSame(1, $this->storage('authentication_sessions')->whereNull('revoked_at')->count());
         self::assertSame(1, $this->unspentCodes());
 
         $this->failAfterWriting = null;
@@ -293,14 +293,14 @@ final class StorageConnectionProofSpendingTest extends TestCase
     }
 
     /**
-     * Persist a live device of the identity for the guard.
+     * Persist a live session of the identity for the guard.
      *
      * @param  \Tests\Integration\Fixtures\StoredIdentity  $identity
      * @return void
      */
-    private static function seedStoredDevice(StoredIdentity $identity): void
+    private static function seedStoredSession(StoredIdentity $identity): void
     {
-        (new Device)->forceFill([
+        (new Session)->forceFill([
             ...self::liveSession('web', $identity),
             'signed_in_at'         => Carbon::now(),
             'authenticatable_type' => $identity->getMorphClass(),

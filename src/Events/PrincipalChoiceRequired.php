@@ -13,12 +13,13 @@ use Carbon\CarbonImmutable;
  * Choosing one (`choose()`) continues the sign-in; discarding the choice
  * dispatches `AuthenticationFailed` with `principal_choice_abandoned`.
  *
- * Dispatched once the pending choice is committed on its connection (the device
- * model's): at once when that connection has no open transaction, after its
- * transaction commits otherwise, and never for a sign-in that is rolled back.
+ * Dispatched once the pending choice is committed on its connection (the
+ * session model's): at once when that connection has no open transaction, after
+ * its transaction commits otherwise, and never for a sign-in that is rolled
+ * back.
  *
  * The context carries the guard, the client, the identity, the method, and the
- * device the client proved it holds, if any; its principal and tenant are
+ * session the client proved it holds, if any; its principal and tenant are
  * `null`, since none is chosen yet. Never carries the choice token or the list
  * of principals.
  *

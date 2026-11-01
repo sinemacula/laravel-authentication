@@ -18,7 +18,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
-use SineMacula\Laravel\Authentication\Concerns\ActsAsDevice;
+use SineMacula\Laravel\Authentication\Concerns\ActsAsSession;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
@@ -29,15 +29,15 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Listeners\RecordSessionUsage;
+use SineMacula\Laravel\Authentication\Models\Session;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * End-to-end tests for device times stored around the hour that repeats when
- * the clocks go back, on the shipped devices table of each engine.
+ * End-to-end tests for session times stored around the hour that repeats when
+ * the clocks go back, on the shipped sessions table of each engine.
  *
  * The times are stored as wall-clock times in the application timezone, as
  * Laravel stores `datetime` columns. With UTC, the documented setting, they
@@ -67,11 +67,11 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(JwtTokenService::class)]
 #[CoversClass(RefreshRotationStore::class)]
 #[CoversClass(RefreshTokenExchange::class)]
-#[CoversClass(RecordDeviceUsage::class)]
-#[CoversTrait(ActsAsDevice::class)]
+#[CoversClass(RecordSessionUsage::class)]
+#[CoversTrait(ActsAsSession::class)]
 final class RepeatedHourStorageIntegrationTest extends TestCase
 {
-    /** @var string Plaintext rotation id of the device's first refresh token. */
+    /** @var string Plaintext rotation id of the session's first refresh token. */
     private const string ROTATION_ID = 'first-rotation-id';
 
     /** @var string A timezone whose clocks go back at 06:00 UTC on 1 November 2026. */
@@ -103,7 +103,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
             $blueprint->timestamps();
         });
 
-        Route::middleware('auth:api')->get('/me', static fn (): array => ['device' => Auth::device()?->getDeviceIdentifier()]);
+        Route::middleware('auth:api')->get('/me', static fn (): array => ['session' => Auth::session()?->getSessionIdentifier()]);
     }
 
     /**
@@ -164,14 +164,14 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     {
         $at = $this->atUtc('2026-10-24 12:00:00', $timezone);
 
-        [, $device] = $this->signIn($at, $at->copy()->addDays(2));
+        [, $session] = $this->signIn($at, $at->copy()->addDays(2));
 
         $time = CarbonImmutable::parse($utc, 'UTC')->setTimezone($timezone);
 
-        self::assertTrue($this->store()->rotate($device, self::ROTATION_ID, RefreshTokenHasher::successor(self::ROTATION_ID), $time, $time));
+        self::assertTrue($this->store()->rotate($session, self::ROTATION_ID, RefreshTokenHasher::successor(self::ROTATION_ID), $time, $time));
 
-        $row    = $this->storedRow($device);
-        $stored = $this->stored($device);
+        $row    = $this->storedRow($session);
+        $stored = $this->stored($session);
 
         self::assertSame($wallClock, $row['refresh_rotated_at']);
         self::assertSame($wallClock, $row['idle_expires_at']);
@@ -191,17 +191,17 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
      */
     public function testWithUtcARotationAtTheEndOfTheRepeatedHourKeepsItsGraceWindow(): void
     {
-        [$token, $device] = $this->rotateAtTheEndOfTheRepeatedHourAndRetry('UTC');
+        [$token, $session] = $this->rotateAtTheEndOfTheRepeatedHourAndRetry('UTC');
 
         self::assertNotNull(GuardSessions::of($this->guard())->refresh($token)->session);
-        self::assertNull($this->stored($device)->getRevokedAt());
+        self::assertNull($this->stored($session)->getRevokedAt());
     }
 
     /**
      * With a timezone that observes daylight saving, a rotation in the second
      * pass of the repeated hour reads back an hour early, so a retry of the
      * rotated token fifteen seconds later is past the grace window: it is a
-     * replay and revokes the device. This is why the application timezone must
+     * replay and revokes the session. This is why the application timezone must
      * not observe daylight saving.
      *
      * @return void
@@ -210,17 +210,17 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
      */
     public function testWithDaylightSavingARotationInTheSecondPassLeavesNoGraceWindow(): void
     {
-        [$token, $device] = $this->rotateAtTheEndOfTheRepeatedHourAndRetry(self::DAYLIGHT_SAVING_ZONE);
+        [$token, $session] = $this->rotateAtTheEndOfTheRepeatedHourAndRetry(self::DAYLIGHT_SAVING_ZONE);
 
         self::assertSame(FailureReason::ROTATION_REUSE, $this->refreshFailure($token));
-        self::assertSame('rotation_reuse', $this->stored($device)->getRevokedReason());
+        self::assertSame('rotation_reuse', $this->stored($session)->getRevokedReason());
     }
 
     /**
      * In a timezone where PHP reads the repeated hour as the second pass, a
      * rotation in the first pass still reads back at its own time, so a replay
      * of the rotated token fifty minutes later, when the clocks have gone back,
-     * is past the grace window: it revokes the device rather than being handed
+     * is past the grace window: it revokes the session rather than being handed
      * the current credential.
      *
      * @return void
@@ -231,15 +231,15 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     {
         $replayAt = $this->atUtc('2026-10-25 01:20:00', self::LONDON);
 
-        [$identity, $device] = $this->signIn($replayAt);
+        [$identity, $session] = $this->signIn($replayAt);
 
-        $token     = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $token     = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity);
         $rotatedAt = $replayAt->toImmutable()->subMinutes(50);
 
-        self::assertTrue($this->store()->rotate($device, self::ROTATION_ID, RefreshTokenHasher::successor(self::ROTATION_ID), $rotatedAt->addHours(3), $rotatedAt));
+        self::assertTrue($this->store()->rotate($session, self::ROTATION_ID, RefreshTokenHasher::successor(self::ROTATION_ID), $rotatedAt->addHours(3), $rotatedAt));
 
         self::assertSame(FailureReason::ROTATION_REUSE, $this->refreshFailure($token));
-        self::assertSame('rotation_reuse', $this->stored($device)->getRevokedReason());
+        self::assertSame('rotation_reuse', $this->stored($session)->getRevokedReason());
     }
 
     /**
@@ -258,19 +258,19 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     {
         $now = $this->atUtc('2026-11-01 05:30:00', self::DAYLIGHT_SAVING_ZONE);
 
-        [$identity, $device] = $this->signIn($now);
+        [$identity, $session] = $this->signIn($now);
 
-        $token = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $token = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity);
 
         try {
             GuardSessions::of($this->guard())->refresh($token);
 
             self::fail('The refresh should not have been able to issue tokens.');
         } catch (\InvalidArgumentException $exception) {
-            self::assertStringStartsWith('Cannot issue a token for a device whose session has ended', $exception->getMessage());
+            self::assertStringStartsWith('Cannot issue a token for a session that has ended', $exception->getMessage());
         }
 
-        self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), $this->stored($device)->getRefreshKey());
+        self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), $this->stored($session)->getRefreshKey());
     }
 
     /**
@@ -288,9 +288,9 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
         $signedInAt = $this->atUtc('2026-11-01 05:00:00', self::DAYLIGHT_SAVING_ZONE);
         $stored     = $signedInAt->copy()->addMinutes(90);
 
-        [$identity, $device] = $this->signIn($signedInAt, $stored);
+        [$identity, $session] = $this->signIn($signedInAt, $stored);
 
-        $token = $this->tokens()->issueRefreshToken($this->stored($device), self::ROTATION_ID, $identity);
+        $token = $this->tokens()->issueRefreshToken($this->stored($session), self::ROTATION_ID, $identity);
 
         self::assertSame($stored->getTimestamp() - 3600, $this->tokens()->parse($token, TokenType::REFRESH)[Claims::EXPIRES_AT->value] ?? null);
 
@@ -298,7 +298,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
 
         $this->expectException(\InvalidArgumentException::class);
 
-        $this->tokens()->issueRefreshToken($this->stored($device), self::ROTATION_ID, $identity);
+        $this->tokens()->issueRefreshToken($this->stored($session), self::ROTATION_ID, $identity);
     }
 
     /**
@@ -315,17 +315,17 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     {
         $firstUse = $this->atUtc('2026-10-25 01:30:00', self::LONDON);
 
-        [$identity, $device] = $this->signIn($firstUse);
+        [$identity, $session] = $this->signIn($firstUse);
 
-        $this->withToken($this->tokens()->issueAccessToken($identity, $identity, $device))->getJson('/me')->assertOk();
+        $this->withToken($this->tokens()->issueAccessToken($identity, $identity, $session))->getJson('/me')->assertOk();
 
-        self::assertSame('2026-10-25 01:30:00', $this->storedRow($device)['last_used_at']);
+        self::assertSame('2026-10-25 01:30:00', $this->storedRow($session)['last_used_at']);
 
         $this->moveClockTo($firstUse->copy()->addSeconds(30));
 
-        $this->withToken($this->tokens()->issueAccessToken($identity, $identity, $device))->getJson('/me')->assertOk();
+        $this->withToken($this->tokens()->issueAccessToken($identity, $identity, $session))->getJson('/me')->assertOk();
 
-        self::assertSame('2026-10-25 01:30:30', $this->storedRow($device)['last_used_at']);
+        self::assertSame('2026-10-25 01:30:30', $this->storedRow($session)['last_used_at']);
     }
 
     /**
@@ -354,7 +354,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
                 'refresh_grace_seconds'        => 30,
             ],
         ]);
-        $config->set('authentication.device.last_used_throttle_seconds', 60);
+        $config->set('authentication.session.last_used_throttle_seconds', 60);
     }
 
     /**
@@ -377,13 +377,13 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     }
 
     /**
-     * Persist an identity signed in on a new device holding `ROTATION_ID`, with
-     * an idle deadline at the given time (five hours from now by default) and
-     * an absolute deadline nine hours from now.
+     * Persist an identity signed in on a new session holding `ROTATION_ID`,
+     * with an idle deadline at the given time (five hours from now by default)
+     * and an absolute deadline nine hours from now.
      *
      * @param  \Carbon\Carbon  $now
      * @param  ?\Carbon\Carbon  $idle
-     * @return array{0: \Tests\Unit\Stubs\StubPrincipal, 1: \SineMacula\Laravel\Authentication\Models\Device}
+     * @return array{0: \Tests\Unit\Stubs\StubPrincipal, 1: \SineMacula\Laravel\Authentication\Models\Session}
      */
     private function signIn(Carbon $now, ?Carbon $idle = null): array
     {
@@ -393,8 +393,8 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
         $identity->is_active = true;
         $identity->save();
 
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'principal_type'       => $identity->getMorphClass(),
@@ -407,17 +407,17 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
             'absolute_expires_at'  => $now->copy()->addHours(9),
         ])->save();
 
-        return [$identity, $device];
+        return [$identity, $session];
     }
 
     /**
      * Sign in at 07:00:05 UTC with the given application timezone, rotate the
-     * device at 06:59:50 UTC (01:59:50 in the second pass in New York), and
+     * session at 06:59:50 UTC (01:59:50 in the second pass in New York), and
      * return the rotated token, for a retry fifteen seconds later, and the
-     * device.
+     * session.
      *
      * @param  string  $timezone
-     * @return array{0: string, 1: \SineMacula\Laravel\Authentication\Models\Device}
+     * @return array{0: string, 1: \SineMacula\Laravel\Authentication\Models\Session}
      *
      * @throws \Random\RandomException
      */
@@ -425,14 +425,14 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     {
         $retryAt = $this->atUtc('2026-11-01 07:00:05', $timezone);
 
-        [$identity, $device] = $this->signIn($retryAt);
+        [$identity, $session] = $this->signIn($retryAt);
 
-        $token     = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $token     = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity);
         $rotatedAt = $retryAt->toImmutable()->subSeconds(15);
 
-        self::assertTrue($this->store()->rotate($device, self::ROTATION_ID, RefreshTokenHasher::successor(self::ROTATION_ID), $rotatedAt->addHour(), $rotatedAt));
+        self::assertTrue($this->store()->rotate($session, self::ROTATION_ID, RefreshTokenHasher::successor(self::ROTATION_ID), $rotatedAt->addHour(), $rotatedAt));
 
-        return [$token, $device];
+        return [$token, $session];
     }
 
     /**
@@ -467,25 +467,25 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     }
 
     /**
-     * Reload a device from the database.
+     * Reload a session from the database.
      *
-     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private function stored(Device $device): Device
+    private function stored(Session $session): Session
     {
-        return Device::query()->whereKey($device->getKey())->firstOrFail();
+        return Session::query()->whereKey($session->getKey())->firstOrFail();
     }
 
     /**
-     * Read a device's raw row.
+     * Read a session's raw row.
      *
-     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @return array<string, mixed>
      */
-    private function storedRow(Device $device): array
+    private function storedRow(Session $session): array
     {
-        return (array) DB::table('devices')->where('id', $device->getKey())->first();
+        return (array) DB::table('authentication_sessions')->where('id', $session->getKey())->first();
     }
 
     /**

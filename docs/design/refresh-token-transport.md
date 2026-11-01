@@ -30,8 +30,8 @@ request may carry the token in only one place; and the cookie that carries a bro
 - A present value that is not one non-empty string (an empty field, `null`, an array, a header sent twice, a cookie
   that could not be decrypted) is `token_invalid`.
 - Reading has no side effects: it changes nothing on the request and runs no query.
-- `cookie($refreshToken, $device)` makes the refresh cookie: `HttpOnly`, `Secure`, `SameSite=Strict`, the guard's name,
-  path and domain, expiring at the earlier of the device's deadlines (read on the write connection), which is the
+- `cookie($refreshToken, $session)` makes the refresh cookie: `HttpOnly`, `Secure`, `SameSite=Strict`, the guard's name,
+  path and domain, expiring at the earlier of the session's deadlines (read on the write connection), which is the
   refresh token's own `exp`. `forgetCookie()` makes the same cookie, empty and expired; a path limits where a browser
   sends a cookie, not which response may set it, so any route may clear it. Both throw a `LogicException` for a guard
   that does not list `cookie`, and `cookie()` an `InvalidArgumentException` for a session that has ended. Nothing is
@@ -39,7 +39,7 @@ request may carry the token in only one place; and the cookie that carries a bro
 - The session service's `refresh(string)` is for a token the caller reads itself and makes none of the cookie's checks,
   so only `refreshFromRequest()` reads the cookie for a refresh. A switch of principal is proven by the refresh token
   too: `SessionService::switchPrincipalFromRequest()` reads it with `read()`, so a token from the cookie gets the same
-  checks (a refusal is an `AuthenticationFailed` of flow `principal_switch` that touches no device), and its
+  checks (a refusal is an `AuthenticationFailed` of flow `principal_switch` that touches no session), and its
   `SwitchResult::$source` lets the application answer a switch read from the cookie with `cookie()` (see
   `principal-choice-and-switch.md`).
 - `isSameSiteRequest($request)` is the cookie's same-site check on its own (the `Origin` and the `csrf_header`), for a
@@ -47,8 +47,8 @@ request may carry the token in only one place; and the cookie that carries a bro
   a form with an attacker's credentials and leave the attacker's refresh cookie in the victim's browser (a browser keeps
   a `SameSite=Strict` cookie set by the response to a top-level navigation), where the victim's own scripts would then
   pass every refresh check.
-- `logout()` revokes the session's device but cannot reach the response, so the logout route sends `forgetCookie()`
-  itself; the revoked device's cookie no longer refreshes (`device_revoked`) wherever the browser keeps it.
+- `logout()` revokes the session but cannot reach the response, so the logout route sends `forgetCookie()`
+  itself; the revoked session's cookie no longer refreshes (`session_revoked`) wherever the browser keeps it.
 
 ## Success Path
 
@@ -57,14 +57,14 @@ request may carry the token in only one place; and the cookie that carries a bro
 - No listed source carries a token: it returns `null` and dispatches nothing, as a bearer request without a token.
 - One source carries one: the token goes through the same exchange, binding and events as `refresh()`, and the
   `RefreshResult` carries the `RefreshTokenSource` it was read from (`source`), refreshed or refused, so a cookie
-  refresh can be answered with a cookie for the session's device (`$result->session->device`).
+  refresh can be answered with a cookie for the session (`$result->session->record`).
 - `Auth::refreshTransport($guard)->read($request)` reads the same way without refreshing.
 
 ## Failure / Edge Cases
 
 - A refusal by the transport dispatches `Attempting`, `Failed` and `AuthenticationFailed` (flow `refresh`, the reason,
   the guard and the request's client, no identity) and returns a failed `RefreshResult` with the reason and no `source`.
-  It reaches no device and no limit.
+  It reaches no session and no limit.
 - A cookie the routes' `EncryptCookies` cannot decrypt arrives as `null` and is `token_invalid`; leave the cookie out
   of encryption, or set and read it on routes that both encrypt.
 - A refusal by the exchange returns the exchange's reason after the same events as `refresh()`, `rate_limited` with its

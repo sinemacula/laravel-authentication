@@ -20,19 +20,19 @@ use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
-use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
-use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Listeners\RecordSessionUsage;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
-use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
+use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
@@ -80,10 +80,10 @@ final class RefreshTokenExchangeBenchHarness
     /** @var \Illuminate\Support\Timebox */
     private readonly Timebox $timebox;
 
-    /** @var string Token targeting a nonexistent device; empty until seeded, which the set-up check refuses. */
-    private string $unknownDeviceToken = '';
+    /** @var string Token targeting a nonexistent session; empty until seeded, which the set-up check refuses. */
+    private string $unknownSessionToken = '';
 
-    /** @var list<string> Tokens with a mismatched rotation ID, each for its own device, since the first replay revokes it. */
+    /** @var list<string> Tokens with a mismatched rotation ID, each for its own session, since the first replay revokes it. */
     private array $rotationMismatchTokens = [];
 
     /** @var int Current index into the mismatch pool. */
@@ -137,9 +137,9 @@ final class RefreshTokenExchangeBenchHarness
         $config = new ConfigRepository([
             'database'       => ['default' => BenchDatabase::CONNECTION],
             'authentication' => [
-                'device' => [
-                    'model'                      => Device::class,
-                    'table'                      => 'devices',
+                'session' => [
+                    'model'                      => Session::class,
+                    'table'                      => 'authentication_sessions',
                     'last_used_throttle_seconds' => 60,
                 ],
                 'timebox' => [
@@ -158,8 +158,8 @@ final class RefreshTokenExchangeBenchHarness
         $this->events   = new Dispatcher($container);
         $this->events->setTransactionManagerResolver(static fn (): null => null);
         $this->events->listen(
-            DeviceAuthenticated::class,
-            new RecordDeviceUsage,
+            SessionAuthenticated::class,
+            new RecordSessionUsage,
         );
 
         $hasher = new BcryptHasher;
@@ -199,15 +199,15 @@ final class RefreshTokenExchangeBenchHarness
     }
 
     /**
-     * Benchmark the unknown-device failure path.
+     * Benchmark the unknown-session failure path.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function runUnknownDeviceFailure(): void
+    public function runUnknownSessionFailure(): void
     {
-        $this->sessionsOf($this->makeGuard())->refresh($this->unknownDeviceToken);
+        $this->sessionsOf($this->makeGuard())->refresh($this->unknownSessionToken);
     }
 
     /**
@@ -272,7 +272,7 @@ final class RefreshTokenExchangeBenchHarness
     {
         BenchSchema::ensureIdentityTable('stub_principals');
         BenchSchema::ensureIdentityTable('tenant_aware_3d_identities');
-        BenchSchema::ensureDeviceTable();
+        BenchSchema::ensureSessionTable();
         BenchSchema::ensureTenantTables();
     }
 
@@ -341,7 +341,7 @@ final class RefreshTokenExchangeBenchHarness
     }
 
     /**
-     * Pre-issue a pool of refresh tokens, each bound to its own device row,
+     * Pre-issue a pool of refresh tokens, each bound to its own session row,
      * which records the principal the token acts as, as a sign-in records it.
      *
      * @param  string  $prefix
@@ -359,8 +359,8 @@ final class RefreshTokenExchangeBenchHarness
 
             $rotationId = $prefix . $index;
 
-            $device = new Device;
-            $device->forceFill([
+            $session = new Session;
+            $session->forceFill([
                 ...BenchSchema::signedIn('api'),
                 'authenticatable_type' => $ownerClass,
                 'authenticatable_id'   => $ownerId,
@@ -371,7 +371,7 @@ final class RefreshTokenExchangeBenchHarness
                 'last_used_at'         => Carbon::now(),
             ])->save();
 
-            $pool[] = $this->tokens->issueRefreshToken($device, $rotationId, $principal);
+            $pool[] = $this->tokens->issueRefreshToken($session, $rotationId, $principal);
         }
 
         return $pool;
@@ -465,9 +465,9 @@ final class RefreshTokenExchangeBenchHarness
     {
         // A well-formed id that names no row, so the bench measures the lookup
         // rather than the shape check that rejects malformed ids before it.
-        $missingDevice = new Device;
-        $missingDevice->forceFill([...BenchSchema::signedIn('api'), 'id' => '0190f1d2-7c4e-7a3b-9f10-000000000000']);
-        $this->unknownDeviceToken = $this->tokens->issueRefreshToken($missingDevice, 'bench-missing-device-rotation');
+        $missingSession = new Session;
+        $missingSession->forceFill([...BenchSchema::signedIn('api'), 'id' => '0190f1d2-7c4e-7a3b-9f10-000000000000']);
+        $this->unknownSessionToken = $this->tokens->issueRefreshToken($missingSession, 'bench-missing-session-rotation');
 
         if ($this->rotationMismatchTokens !== []) {
             return;
@@ -481,8 +481,8 @@ final class RefreshTokenExchangeBenchHarness
     }
 
     /**
-     * Issue a refresh token whose rotation id is not its device's, for a device
-     * of its own.
+     * Issue a refresh token whose rotation id is not its session's, for a
+     * session of its own.
      *
      * @param  \Tests\Unit\Stubs\StubPrincipal  $identity
      * @param  string  $clientName
@@ -490,8 +490,8 @@ final class RefreshTokenExchangeBenchHarness
      */
     private function issueMismatchedToken(StubPrincipal $identity, string $clientName): string
     {
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...BenchSchema::signedIn('api'),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
@@ -501,15 +501,15 @@ final class RefreshTokenExchangeBenchHarness
             'refresh_key'          => RefreshTokenHasher::hash('stored-rotation-id'),
         ])->save();
 
-        return $this->tokens->issueRefreshToken($device, 'tampered-rotation-id');
+        return $this->tokens->issueRefreshToken($session, 'tampered-rotation-id');
     }
 
     /**
      * Run each benchmarked path once and throw unless it reaches the outcome
      * its name describes: a successful refresh returns a pair (and a
-     * tenant-aware one binds its tenant), an unknown device fails as
-     * `device_unknown`, and a mismatched rotation id as `rotation_reuse`. Paths
-     * that use a token up run on tokens outside the benchmark's pools.
+     * tenant-aware one binds its tenant), an unknown session fails as
+     * `session_unknown`, and a mismatched rotation id as `rotation_reuse`.
+     * Paths that use a token up run on tokens outside the benchmark's pools.
      *
      * @return void
      *
@@ -533,12 +533,12 @@ final class RefreshTokenExchangeBenchHarness
             $reasons[] = $failed->reason;
         });
 
-        $this->sessionsOf($this->makeGuard())->refresh($this->unknownDeviceToken);
+        $this->sessionsOf($this->makeGuard())->refresh($this->unknownSessionToken);
         $this->sessionsOf($this->makeGuard())->refresh($this->rotationMismatchCheckToken);
 
         $this->events->forget(AuthenticationFailed::class);
 
-        BenchOutcome::assert('unknown-device failure', ($reasons[0] ?? null) === FailureReason::DEVICE_UNKNOWN);
+        BenchOutcome::assert('unknown-session failure', ($reasons[0] ?? null) === FailureReason::SESSION_UNKNOWN);
         BenchOutcome::assert('rotation-mismatch failure', ($reasons[1] ?? null) === FailureReason::ROTATION_REUSE);
     }
 
@@ -562,7 +562,7 @@ final class RefreshTokenExchangeBenchHarness
             $this->tokens,
             static fn (GuardContext $context): SessionRevocations => new SessionRevocations(
                 $context,
-                new DeviceRevocations(BenchDatabase::connectionResolver(), static fn (): null => null),
+                new RevocationWriter(BenchDatabase::connectionResolver(), static fn (): null => null),
                 new Container,
             ),
             BenchRequest::refreshTransport(...),

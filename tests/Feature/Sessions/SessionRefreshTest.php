@@ -21,11 +21,11 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
-use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -33,7 +33,7 @@ use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\HoldsARotatedSession;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\RefreshesSessions;
 use SineMacula\Laravel\Authentication\Sessions\RefreshResult;
@@ -73,7 +73,7 @@ final class SessionRefreshTest extends TestCase
         Login::class,
         Authenticated::class,
         PrincipalAssigned::class,
-        DeviceAuthenticated::class,
+        SessionAuthenticated::class,
         Failed::class,
         AuthenticationFailed::class,
     ];
@@ -87,7 +87,7 @@ final class SessionRefreshTest extends TestCase
         Login::class,
         Authenticated::class,
         PrincipalAssigned::class,
-        DeviceAuthenticated::class,
+        SessionAuthenticated::class,
     ];
 
     /** @var list<class-string> The events of a refused refresh, in order. */
@@ -127,11 +127,10 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * A refresh rotates the session's refresh token on its device, reports the
-     * rotation with `Refreshed` and then `SignedIn` (a refresh, on no new
-     * device), and then binds the guard as a sign-in; the result carries the
-     * session on the same device with the new pair, and no source, reason or
-     * wait.
+     * A refresh rotates the session's refresh token, reports the rotation with
+     * `Refreshed` and then `SignedIn` (a refresh, on no new session), and then
+     * binds the guard as a sign-in; the result carries the same session with
+     * the new pair, and no source, reason or wait.
      *
      * @return void
      *
@@ -158,7 +157,7 @@ final class SessionRefreshTest extends TestCase
 
         self::assertInstanceOf(SignedInSession::class, $refreshed);
         self::assertTrue($identity->is($refreshed->identity));
-        self::assertSame($session->device->getKey(), $refreshed->device->getKey());
+        self::assertSame($session->record->getKey(), $refreshed->record->getKey());
         self::assertSame('password', $refreshed->method);
         self::assertNotSame($before, $this->refreshKeyOf($session));
 
@@ -166,7 +165,7 @@ final class SessionRefreshTest extends TestCase
 
         self::assertIsString($rotation);
         self::assertSame($this->refreshKeyOf($session), RefreshTokenHasher::hash($rotation));
-        self::assertSame($session->device->getKey(), $this->claimsOf($refreshed->tokens->accessToken, TokenType::ACCESS)[Claims::DEVICE_ID->value] ?? null);
+        self::assertSame($session->record->getKey(), $this->claimsOf($refreshed->tokens->accessToken, TokenType::ACCESS)[Claims::SESSION_ID->value] ?? null);
 
         self::assertSame(self::REFRESHED, $this->recordedClasses());
 
@@ -174,7 +173,7 @@ final class SessionRefreshTest extends TestCase
         $signedIn   = $this->recordedEvent(SignedIn::class);
 
         self::assertSame(['api', [], false], [$attempting->guard, $attempting->credentials, $attempting->remember]);
-        self::assertSame($refreshed->device, $this->recordedEvent(Refreshed::class)->context->device);
+        self::assertSame($refreshed->record, $this->recordedEvent(Refreshed::class)->context->session);
         self::assertSame(self::CLIENT_IP, $this->recordedEvent(Refreshed::class)->context->client->ip);
         self::assertTrue($signedIn->refresh);
         self::assertSame('password', $signedIn->context->method);
@@ -184,12 +183,13 @@ final class SessionRefreshTest extends TestCase
 
         self::assertSame($refreshed->identity, $guard->user());
         self::assertSame($refreshed->principal, $guard->principal());
-        self::assertSame($refreshed->device, $guard->device());
+        self::assertSame($refreshed->record, $guard->session());
     }
 
     /**
      * The bind events carry the tenant the refresh admitted the principal in
-     * and the sign-in method the device records, as the rotation's report does.
+     * and the sign-in method the session records, as the rotation's report
+     * does.
      *
      * @return void
      *
@@ -202,7 +202,7 @@ final class SessionRefreshTest extends TestCase
         $session = $this->signedIn('members', 'member@example.test');
         $guard   = $this->freshGuard('members');
 
-        $this->recordEvents([Refreshed::class, PrincipalAssigned::class, DeviceAuthenticated::class]);
+        $this->recordEvents([Refreshed::class, PrincipalAssigned::class, SessionAuthenticated::class]);
 
         self::assertTrue(self::sessionsOf($guard)->refresh($session->tokens->refreshToken)->isRefreshed());
 
@@ -240,15 +240,15 @@ final class SessionRefreshTest extends TestCase
 
         self::assertTrue(self::sessionsOf($this->freshGuard())->refresh($replayed->tokens->refreshToken)->isRefreshed());
 
-        Device::query()->whereKey($unknown->device->getKey())->delete();
-        Device::query()->whereKey($revoked->device->getKey())->update(['revoked_at' => CarbonImmutable::now(), 'revoked_reason' => 'signed_out']);
+        Session::query()->whereKey($unknown->record->getKey())->delete();
+        Session::query()->whereKey($revoked->record->getKey())->update(['revoked_at' => CarbonImmutable::now(), 'revoked_reason' => 'signed_out']);
 
         $this->moveTo(CarbonImmutable::now()->addMinute());
 
         $cases = [
             'not-a-token'                   => FailureReason::TOKEN_INVALID,
-            $unknown->tokens->refreshToken  => FailureReason::DEVICE_UNKNOWN,
-            $revoked->tokens->refreshToken  => FailureReason::DEVICE_REVOKED,
+            $unknown->tokens->refreshToken  => FailureReason::SESSION_UNKNOWN,
+            $revoked->tokens->refreshToken  => FailureReason::SESSION_REVOKED,
             $replayed->tokens->refreshToken => FailureReason::ROTATION_REUSE,
         ];
 
@@ -346,7 +346,7 @@ final class SessionRefreshTest extends TestCase
     /**
      * A token the transport refuses is a refused refresh, reported with the
      * transport's reason and the request's client and no identity, returned
-     * with no source, and the device is left as it was.
+     * with no source, and the session is left as it was.
      *
      * @return void
      *
@@ -440,7 +440,7 @@ final class SessionRefreshTest extends TestCase
             Login::class,
             Authenticated::class,
             PrincipalAssigned::class,
-            DeviceAuthenticated::class,
+            SessionAuthenticated::class,
             Refreshed::class,
             SignedIn::class,
         ], $this->recordedClasses());
@@ -542,14 +542,14 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * The refresh key the session's device stores now.
+     * The refresh key the session stores now.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
      * @return mixed
      */
     private function refreshKeyOf(SignedInSession $session): mixed
     {
-        return Device::query()->whereKey($session->device->getKey())->value('refresh_key');
+        return Session::query()->whereKey($session->record->getKey())->value('refresh_key');
     }
 
     /**

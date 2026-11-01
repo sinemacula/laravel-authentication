@@ -5,9 +5,9 @@ declare(strict_types = 1);
 namespace Tests\Unit\Stubs;
 
 use Illuminate\Contracts\Auth\Authenticatable;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 
 /**
@@ -30,12 +30,12 @@ final class StubCredentialGuard extends AbstractGuard
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return void
      */
-    public function bindResolvedContext(Identity $identity, Principal $principal, ?Device $device = null): void
+    public function bindResolvedContext(Identity $identity, Principal $principal, ?Session $session = null): void
     {
-        $this->bindAuthenticationLifecycle($identity, $principal, $device);
+        $this->bindAuthenticationLifecycle($identity, $principal, $session);
     }
 
     /**

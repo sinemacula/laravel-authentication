@@ -7,13 +7,13 @@ namespace Tests\Unit\Stubs;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * Eloquent stub implementing Identity, HasPrincipals, and HasDevices.
+ * Eloquent stub implementing Identity, HasPrincipals, and HasSessions.
  *
  * Used by guard and integration tests that need a real Eloquent identity rather
  * than a Mockery mock. Intentionally not `final` so individual tests may extend
@@ -27,7 +27,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  *
  * @inheritable
  */
-class StubIdentity extends Model implements HasDevices, HasPrincipals, Identity
+class StubIdentity extends Model implements HasPrincipals, HasSessions, Identity
 {
     use Authenticatable;
 
@@ -53,12 +53,12 @@ class StubIdentity extends Model implements HasDevices, HasPrincipals, Identity
     }
 
     /**
-     * Eloquent relation builder for the identity's devices.
+     * Eloquent relation builder for the identity's sessions.
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
     #[\Override]
-    public function devices(): Builder
+    public function sessions(): Builder
     {
         return $this->newQuery();
     }

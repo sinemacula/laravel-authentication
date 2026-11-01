@@ -131,7 +131,7 @@ final class RehashingTest extends TestCase
 
     /**
      * A forced rehash inside the package's own rehash, by a listener of the
-     * rehash's save that signs the user's other devices out, runs the save it
+     * rehash's save that signs the user's other sessions out, runs the save it
      * held: the save the package's rehash takes is held, not dropped, until the
      * rehash returns, and a save held before the rehash, which a forced rehash
      * around it may be waiting for, is held again.

@@ -18,13 +18,13 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -34,7 +34,7 @@ use Tests\TestCase;
 /**
  * End-to-end tests for what a refresh and a bearer request are held to beyond
  * the token itself, against a real database on whichever engine the suite runs
- * on: the device must be one of the guard's sessions, the application policy
+ * on: the session must be one of the guard's sessions, the application policy
  * must still allow the method that started the session and still admit its
  * owner, the next idle deadline follows the policy's lifetimes for the guard,
  * and failed refreshes are counted and, past the limit, answered with a 429.
@@ -70,7 +70,7 @@ final class RefreshApplicationIntegrationTest extends TestCase
 
         $this->createSessionTables();
 
-        Route::middleware('auth:api')->get('/me', static fn (): array => ['device' => Auth::device()?->getDeviceIdentifier()]);
+        Route::middleware('auth:api')->get('/me', static fn (): array => ['session' => Auth::session()?->getSessionIdentifier()]);
 
         Route::post('/refresh', static function (Request $request): array {
 
@@ -103,16 +103,15 @@ final class RefreshApplicationIntegrationTest extends TestCase
     }
 
     /**
-     * A session whose device the row now records for another guard is neither
-     * refreshed nor revoked, even by a replayed token, and its access token no
-     * longer authenticates; once the row is the guard's again, the session
-     * refreshes.
+     * A session the row now records for another guard is neither refreshed nor
+     * revoked, even by a replayed token, and its access token no longer
+     * authenticates; once the row is the guard's again, the session refreshes.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testADeviceOfAnotherGuardIsNeitherRefreshedNorRevoked(): void
+    public function testASessionOfAnotherGuardIsNeitherRefreshedNorRevoked(): void
     {
         $this->seedIdentity();
 
@@ -121,20 +120,20 @@ final class RefreshApplicationIntegrationTest extends TestCase
 
         self::assertNotNull($replay);
 
-        Device::query()->whereKey($session->device->getKey())->update(['guard' => 'admin']);
+        Session::query()->whereKey($session->record->getKey())->update(['guard' => 'admin']);
 
-        $this->recordEvents([AuthenticationFailed::class, DeviceRevoked::class]);
+        $this->recordEvents([AuthenticationFailed::class, SessionRevoked::class]);
 
         self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
         self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
-        self::assertSame(FailureReason::DEVICE_GUARD_MISMATCH, $this->recordedEvent(AuthenticationFailed::class)->reason);
+        self::assertSame(FailureReason::SESSION_GUARD_MISMATCH, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertNull($this->stored($session)->getRevokedAt());
 
         $this->bearer($replay->accessToken)->assertUnauthorized();
 
-        Device::query()->whereKey($session->device->getKey())->update(['guard' => 'api']);
+        Session::query()->whereKey($session->record->getKey())->update(['guard' => 'api']);
 
-        $this->bearer($replay->accessToken)->assertOk()->assertJson(['device' => $session->device->getKey()]);
+        $this->bearer($replay->accessToken)->assertOk()->assertJson(['session' => $session->record->getKey()]);
 
         self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($replay->refreshToken)->session);
     }
@@ -167,19 +166,19 @@ final class RefreshApplicationIntegrationTest extends TestCase
     }
 
     /**
-     * A device that records no sign-in method fails closed.
+     * A session that records no sign-in method fails closed.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testADeviceThatRecordsNoMethodIsNotRefreshed(): void
+    public function testASessionThatRecordsNoMethodIsNotRefreshed(): void
     {
         $this->seedIdentity();
 
         $session = $this->signIn();
 
-        Device::query()->whereKey($session->device->getKey())->update(['sign_in_method' => null]);
+        Session::query()->whereKey($session->record->getKey())->update(['sign_in_method' => null]);
 
         $this->recordEvents([AuthenticationFailed::class]);
 
@@ -233,14 +232,14 @@ final class RefreshApplicationIntegrationTest extends TestCase
     }
 
     /**
-     * A failed refresh is counted against its device and the request's IP
+     * A failed refresh is counted against its session and the request's IP
      * address; a successful one is not.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAFailedRefreshIsCountedAgainstTheDeviceAndTheIpAddress(): void
+    public function testAFailedRefreshIsCountedAgainstTheSessionAndTheIpAddress(): void
     {
         $this->seedIdentity();
 
@@ -284,11 +283,11 @@ final class RefreshApplicationIntegrationTest extends TestCase
         $before  = $this->stored($session)->getRefreshKey();
         $limiter = \Mockery::mock(AttemptLimiter::class);
 
-        $deviceId = $session->device->getDeviceIdentifier();
+        $sessionId = $session->record->getSessionIdentifier();
 
         $limiter->shouldReceive('blocked')
             ->once()
-            ->with(\Mockery::on(static fn (AttemptSubject $subject): bool => $subject->identifier === $deviceId && $subject->ip === '198.51.100.20'))
+            ->with(\Mockery::on(static fn (AttemptSubject $subject): bool => $subject->identifier === $sessionId && $subject->ip === '198.51.100.20'))
             ->andReturn(17);
         $limiter->shouldNotReceive('recordFailure');
 
@@ -341,14 +340,14 @@ final class RefreshApplicationIntegrationTest extends TestCase
     }
 
     /**
-     * The session's device as stored.
+     * The session as stored.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private function stored(SignedInSession $session): Device
+    private function stored(SignedInSession $session): Session
     {
-        return Device::query()->whereKey($session->device->getDeviceIdentifier())->firstOrFail();
+        return Session::query()->whereKey($session->record->getSessionIdentifier())->firstOrFail();
     }
 
     /**

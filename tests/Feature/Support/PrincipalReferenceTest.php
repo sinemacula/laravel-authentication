@@ -10,11 +10,11 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 use Tests\TestCase;
-use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubPrincipal;
+use Tests\Unit\Stubs\StubSession;
 
 /**
- * Feature tests for how a principal is recorded on a device.
+ * Feature tests for how a principal is recorded on a session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -72,36 +72,36 @@ final class PrincipalReferenceTest extends TestCase
     }
 
     /**
-     * A device records a principal when both its principal columns name it;
-     * another type, another identifier, or a device recording none does not.
+     * A session records a principal when both its principal columns name it;
+     * another type, another identifier, or a session recording none does not.
      *
      * @return void
      */
-    public function testADeviceRecordsThePrincipalOnlyByTypeAndIdentifier(): void
+    public function testASessionRecordsThePrincipalOnlyByTypeAndIdentifier(): void
     {
         $principal = (new StubPrincipal)->forceFill(['id' => 7]);
 
-        self::assertTrue(PrincipalReference::isRecordedOn($this->device(StubPrincipal::class, '7'), $principal));
-        self::assertFalse(PrincipalReference::isRecordedOn($this->device('other', '7'), $principal));
-        self::assertFalse(PrincipalReference::isRecordedOn($this->device(StubPrincipal::class, '8'), $principal));
-        self::assertFalse(PrincipalReference::isRecordedOn($this->device(null, null), $principal));
-        self::assertFalse(PrincipalReference::isRecordedOn($this->device(StubPrincipal::class, null), new StubPrincipal));
+        self::assertTrue(PrincipalReference::isRecordedOn($this->record(StubPrincipal::class, '7'), $principal));
+        self::assertFalse(PrincipalReference::isRecordedOn($this->record('other', '7'), $principal));
+        self::assertFalse(PrincipalReference::isRecordedOn($this->record(StubPrincipal::class, '8'), $principal));
+        self::assertFalse(PrincipalReference::isRecordedOn($this->record(null, null), $principal));
+        self::assertFalse(PrincipalReference::isRecordedOn($this->record(StubPrincipal::class, null), new StubPrincipal));
 
         $plain = \Mockery::mock(Principal::class);
         $plain->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
 
-        self::assertTrue(PrincipalReference::isRecordedOn($this->device($plain::class, 'p-1'), $plain));
+        self::assertTrue(PrincipalReference::isRecordedOn($this->record($plain::class, 'p-1'), $plain));
     }
 
     /**
-     * The principal columns are the device's `principal()` relation's, read
-     * without instantiating the type a device records.
+     * The principal columns are the session's `principal()` relation's, read
+     * without instantiating the type a session records.
      *
      * @return void
      */
     public function testTheColumnsAreThePrincipalRelations(): void
     {
-        self::assertSame(['principal_type', 'principal_id'], PrincipalReference::columns($this->device('not-a-class', '7')));
+        self::assertSame(['principal_type', 'principal_id'], PrincipalReference::columns($this->record('not-a-class', '7')));
     }
 
     /**
@@ -126,14 +126,14 @@ final class PrincipalReferenceTest extends TestCase
     }
 
     /**
-     * Build a device recording the principal columns.
+     * Build a session recording the principal columns.
      *
      * @param  ?string  $type
      * @param  ?string  $id
-     * @return \Tests\Unit\Stubs\StubDevice
+     * @return \Tests\Unit\Stubs\StubSession
      */
-    private function device(?string $type, ?string $id): StubDevice
+    private function record(?string $type, ?string $id): StubSession
     {
-        return (new StubDevice)->forceFill(['principal_type' => $type, 'principal_id' => $id]);
+        return (new StubSession)->forceFill(['principal_type' => $type, 'principal_id' => $id]);
     }
 }

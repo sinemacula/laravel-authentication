@@ -7,9 +7,9 @@ namespace Tests\Feature\Database;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use Tests\Integration\Fixtures\IntegrationIdentity;
-use Tests\Integration\Fixtures\SeparateConnectionDevice;
+use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\TestCase;
 
 /**
@@ -129,19 +129,19 @@ final class StorageConnectionTest extends TestCase
 
         self::assertTrue(StorageConnection::holds($identity));
         self::assertSame('testing', StorageConnection::nameOf($identity));
-        self::assertFalse(StorageConnection::holds(new SeparateConnectionDevice));
-        self::assertSame(SeparateConnectionDevice::CONNECTION, StorageConnection::nameOf(new SeparateConnectionDevice));
+        self::assertFalse(StorageConnection::holds(new SeparateConnectionSession));
+        self::assertSame(SeparateConnectionSession::CONNECTION, StorageConnection::nameOf(new SeparateConnectionSession));
         self::assertTrue(StorageConnection::holds((new IntegrationIdentity)->setConnection('testing')));
 
         config()->set('authentication.storage.connection', 'testing');
 
         self::assertTrue(StorageConnection::holds($identity));
 
-        config()->set('authentication.storage.connection', SeparateConnectionDevice::CONNECTION);
+        config()->set('authentication.storage.connection', SeparateConnectionSession::CONNECTION);
 
         self::assertFalse(StorageConnection::holds($identity));
-        self::assertTrue(StorageConnection::holds(new SeparateConnectionDevice));
-        self::assertTrue(StorageConnection::holds(new Device));
+        self::assertTrue(StorageConnection::holds(new SeparateConnectionSession));
+        self::assertTrue(StorageConnection::holds(new Session));
     }
 
     /**

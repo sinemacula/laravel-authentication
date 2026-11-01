@@ -88,10 +88,10 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
      */
     public function testParseRejectsRefreshTokenWhenAccessTypeIsExpected(): void
     {
-        $device = $this->mockDevice('device-42');
+        $session = $this->mockSession('session-42');
 
         $service = $this->makeService();
-        $token   = $service->issueRefreshToken($device, 'rotation-id');
+        $token   = $service->issueRefreshToken($session, 'rotation-id');
 
         self::assertNull($service->parse($token, TokenType::ACCESS));
     }

@@ -19,7 +19,7 @@ package's.
 - Every passkey records the relying party id it was registered for, and a guard reads, uses, lists and removes only the
   passkeys of its own id. A passkey is found by the SHA-256 hex digest of its raw credential id (unique across all
   relying parties), since an id of up to 1023 bytes is longer than an index can hold; the id itself is kept in full.
-- A passkey belongs to a saved Eloquent identity that is not a `MachineIdentity`, recorded as devices record their
+- A passkey belongs to a saved Eloquent identity that is not a `MachineIdentity`, recorded as sessions record their
   owner: its morph class and its key as a string. A machine identity is refused with an `InvalidArgumentException`
   (it has no interactive sign-in), an identity that is not a model or has no key with a `LogicException`.
 - Every ceremony's options carry 32 random bytes as the challenge, require user verification, and are stored with the
@@ -36,7 +36,7 @@ package's.
 - An identity's passkeys for a relying party share one user handle: 32 random bytes the first one was registered under,
   read back (on the writer) when the options of every later registration are handed out. It carries no personal data
   and does not depend on `app.key`. Registrations whose options were handed out before the first completed (on two
-  devices or in two tabs) may store two handles; each passkey is checked against its own.
+  sessions or in two tabs) may store two handles; each passkey is checked against its own.
 - A registration and an assertion must come from one of the relying party's origins, unframed: client data with
   `crossOrigin: true` is refused by `WebAuthn` itself, with or without `topOrigin`, since webauthn-lib's
   `CheckTopOrigin` only acts when the browser names a `topOrigin`, which WebAuthn Level 2 browsers do not.
@@ -50,7 +50,7 @@ package's.
   `DeferredCounterCheck`, which accepts everything. On MySQL an update that matches but changes nothing reports no row,
   so a `0`/`0` use whose update reports none is accepted when the writer still holds the passkey at 0: it has no count
   to race for, but a passkey removed while its sign-in was in flight is refused as a lost race is, so no session starts
-  after the removal (and after `RevokeDevicesOnPasskeyRemoval`) committed.
+  after the removal (and after `RevokeSessionsOnPasskeyRemoval`) committed.
 - Every read that decides a ceremony (challenge, passkey, the identity's passkeys and handle) is on the write
   connection; every write is one conditional statement (registration an `insertOrIgnore` on the digest, so a duplicate
   is `already_registered` without a caught violation).
@@ -78,7 +78,7 @@ package's.
   `sign_in` limit counts only the IP address; inside the credential timebox `PasskeySignIn` uses the challenge up,
   finds the passkey, loads its owner through the guard's provider (`retrieveById`, the very model recorded), takes a
   slot on the owner's account limit, verifies the assertion and applies the counter rule; `PasskeyUsed` once the use is
-  committed, whether or not the session service then admits the owner. The device records the method `passkey` and no
+  committed, whether or not the session service then admits the owner. The session records the method `passkey` and no
   identifier type.
 - Factor (the seam for a further-factor package): `factorOptions($identity)` writes a `factor` challenge allowing only
   the identity's passkeys; `verifyFactor($identity, $challenge, $credential)` applies the same checks for that identity
@@ -86,7 +86,7 @@ package's.
   counts nothing and reports no failure: the factor's outcome is the further-factor package's.
 - Management: `passkeys($identity)` lists summaries oldest first; `remove($identity, $id)` deletes the identity's
   passkey of the relying party with one conditional `DELETE` and reports `PasskeyRemoved` from the call that removed it.
-  The optional `Listeners\RevokeDevicesOnPasskeyRemoval` then ends the identity's sessions (`factor_removed`).
+  The optional `Listeners\RevokeSessionsOnPasskeyRemoval` then ends the identity's sessions (`factor_removed`).
 
 ## Failure / Edge Cases
 
@@ -128,7 +128,7 @@ package's.
   `database/migrations/2026_04_06_000004_create_passkeys_table.php`,
   `database/migrations/2026_04_06_000005_create_passkey_challenges_table.php`.
 - `src/Events/PasskeyAdded.php`, `src/Events/PasskeyUsed.php`, `src/Events/PasskeyRemoved.php`,
-  `src/Listeners/RevokeDevicesOnPasskeyRemoval.php`.
+  `src/Listeners/RevokeSessionsOnPasskeyRemoval.php`.
 
 ## Authoritative Tests
 

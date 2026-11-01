@@ -10,9 +10,9 @@ use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyService;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
 use SineMacula\Laravel\Authentication\Codes\CodeService;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
@@ -30,8 +30,8 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  * Package AuthManager.
  *
  * Subclass of Laravel's `AuthManager` that exposes the contextual accessors
- * (`identity`, `principal`, `device`, `tenant`, `scopes`), guard-scoped `jwt()`
- * issuance, each JWT guard's `sessions()`, `codes()`, `passwords()`,
+ * (`identity`, `principal`, `session`, `tenant`, `scopes`), guard-scoped
+ * `jwt()` issuance, each JWT guard's `sessions()`, `codes()`, `passwords()`,
  * `passkeys()`, `identifierChanges()`, `refreshTransport()` and
  * `clientCredentials()`, and the API keys of an `api_key` or JWT guard
  * (`apiKeys()`) directly on the manager. Each contextual accessor forwards to
@@ -262,7 +262,7 @@ class AuthManager extends IlluminateAuthManager
     /**
      * Reset every package guard already resolved to the current request, as a
      * new HTTP request does, so nothing one unit of work bound (an identity, a
-     * principal, a device) carries into the next: a queued job in a worker,
+     * principal, a session) carries into the next: a queued job in a worker,
      * which keeps the application between jobs. Guards of other drivers are
      * left alone; no guard is created and no rebinding callback registered, as
      * `forgetGuards()` would on every job.
@@ -314,17 +314,17 @@ class AuthManager extends IlluminateAuthManager
     }
 
     /**
-     * The active device, when the active guard is contextual.
+     * The active session, when the active guard is contextual.
      *
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Session
      *
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function device(): ?Device
+    public function session(): ?Session
     {
         $guard = $this->guard();
 
-        return $guard instanceof ContextualGuard ? $guard->device() : null;
+        return $guard instanceof ContextualGuard ? $guard->session() : null;
     }
 
     /**

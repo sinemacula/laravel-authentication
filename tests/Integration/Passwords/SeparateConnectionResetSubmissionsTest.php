@@ -22,14 +22,14 @@ use SineMacula\Laravel\Authentication\Passwords\ResetRequests;
 use SineMacula\Laravel\Authentication\Passwords\ResetSubmissions;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Testing\FakePasswordResetLinkSender;
-use Tests\Concerns\InteractsWithDevices;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Integration\Fixtures\SeparateConnectionCutoffIdentity;
-use Tests\Integration\Fixtures\SeparateConnectionDevice;
+use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\TestCase;
 
 /**
  * Integration tests of a password reset for identities on the default
- * connection while the package's tables, the devices and the codes, live on a
+ * connection while the package's tables, the sessions and the codes, live on a
  * storage connection of their own: the proof, the password and the revocation
  * cannot be one transaction, so a request and a reset are refused as a
  * misconfiguration before anything is counted when the provider's configuration
@@ -46,16 +46,16 @@ use Tests\TestCase;
 #[CoversClass(SharedConnection::class)]
 final class SeparateConnectionResetSubmissionsTest extends TestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
     /** @var string The refusal every reset here throws. */
     private const string REFUSAL = 'A password reset spends its proof with its change to the identity in one transaction, so '
         . SeparateConnectionCutoffIdentity::class . ' must be on the storage connection (`authentication.storage.connection`): the identity is on [testing],'
-        . ' the package\'s tables on [device_store].';
+        . ' the package\'s tables on [session_store].';
 
     /**
-     * Create the identity table on the default connection and the device and
-     * code tables on the device connection, which is made the storage
+     * Create the identity table on the default connection and the session and
+     * code tables on the session connection, which is made the storage
      * connection once the shipped migrations have run on the default one, while
      * the counters stay there.
      *
@@ -66,7 +66,7 @@ final class SeparateConnectionResetSubmissionsTest extends TestCase
     {
         parent::setUp();
 
-        config()->set('authentication.storage.connection', SeparateConnectionDevice::CONNECTION);
+        config()->set('authentication.storage.connection', SeparateConnectionSession::CONNECTION);
         config()->set('authentication.rate_limits.connection', 'testing');
 
         Schema::create('cutoff_identities', static function (Blueprint $blueprint): void {
@@ -77,9 +77,9 @@ final class SeparateConnectionResetSubmissionsTest extends TestCase
             $blueprint->timestamps();
         });
 
-        self::createDeviceTable('devices', 'id', SeparateConnectionDevice::CONNECTION);
+        self::createSessionRecordTable('authentication_sessions', 'id', SeparateConnectionSession::CONNECTION);
 
-        self::createCodeTableOn(SeparateConnectionDevice::CONNECTION);
+        self::createCodeTableOn(SeparateConnectionSession::CONNECTION);
 
         SeparateConnectionCutoffIdentity::query()->create(['email' => 'ada@example.test', 'password' => app(Hasher::class)->make('the old passphrase')]);
 
@@ -127,7 +127,7 @@ final class SeparateConnectionResetSubmissionsTest extends TestCase
         }
 
         self::assertSame(0, DB::table('rate_limits')->count());
-        self::assertSame(0, DB::connection(SeparateConnectionDevice::CONNECTION)->table('one_time_codes')->count());
+        self::assertSame(0, DB::connection(SeparateConnectionSession::CONNECTION)->table('one_time_codes')->count());
     }
 
     /**
@@ -162,11 +162,11 @@ final class SeparateConnectionResetSubmissionsTest extends TestCase
             self::assertSame(self::REFUSAL, $exception->getMessage());
         }
 
-        self::assertNull(DB::connection(SeparateConnectionDevice::CONNECTION)->table('one_time_codes')->value('consumed_at'));
+        self::assertNull(DB::connection(SeparateConnectionSession::CONNECTION)->table('one_time_codes')->value('consumed_at'));
     }
 
     /**
-     * Keep the devices and codes on their own connection and configure the
+     * Keep the sessions and codes on their own connection and configure the
      * `api` guard.
      *
      * @param  mixed  $app
@@ -183,8 +183,8 @@ final class SeparateConnectionResetSubmissionsTest extends TestCase
 
         $config = $app->make(ConfigRepository::class);
 
-        $config->set('database.connections.' . SeparateConnectionDevice::CONNECTION, ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
-        $config->set('authentication.device.model', SeparateConnectionDevice::class);
+        $config->set('database.connections.' . SeparateConnectionSession::CONNECTION, ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
+        $config->set('authentication.session.model', SeparateConnectionSession::class);
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => SeparateConnectionCutoffIdentity::class]);
         $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities']);
         $config->set('hashing.bcrypt.rounds', 4);

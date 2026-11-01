@@ -16,18 +16,18 @@ use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesIdentifierVerification;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
  * 2D identity fixture for the password helpers, stored in
  * `password_identities`: a normalised email address and phone number, each with
  * a verification time, a password, a nickname a test leaves dirty, an activity
- * flag, a "tokens valid after" cutoff, devices of the shipped model, and
+ * flag, a "tokens valid after" cutoff, sessions of the shipped model, and
  * Laravel's password reset notification.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -46,7 +46,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
  *
  * @internal
  */
-final class PasswordIdentity extends Model implements CanBeActive, CanResetPasswordContract, HasDevices, HasTokensValidAfter, HasVerifiableIdentifiers, Identity, Principal
+final class PasswordIdentity extends Model implements CanBeActive, CanResetPasswordContract, HasSessions, HasTokensValidAfter, HasVerifiableIdentifiers, Identity, Principal
 {
     use ActsAsPrincipal, Authenticatable, CanResetPassword, Notifiable, ProvidesActiveState, ProvidesIdentifierVerification, ProvidesTokensValidAfter;
 
@@ -57,14 +57,14 @@ final class PasswordIdentity extends Model implements CanBeActive, CanResetPassw
     protected $guarded = [];
 
     /**
-     * The identity's devices of the shipped model.
+     * The identity's sessions of the shipped model.
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
     #[\Override]
-    public function devices(): Builder
+    public function sessions(): Builder
     {
-        return Device::query()
+        return Session::query()
             ->where('authenticatable_type', self::class)
             ->where('authenticatable_id', (string) $this->getKey()); // @phpstan-ignore cast.string
     }

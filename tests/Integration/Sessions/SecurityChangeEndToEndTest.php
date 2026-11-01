@@ -23,9 +23,9 @@ use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Listeners\Concerns\RevokesOnceCommitted;
-use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnDeactivation;
-use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordChange;
-use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordReset;
+use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnDeactivation;
+use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasswordChange;
+use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasswordReset;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\AttributeObservedIdentity;
@@ -44,9 +44,9 @@ use Tests\TestCase;
  *
  * @internal
  */
-#[CoversClass(RevokeDevicesOnPasswordChange::class)]
-#[CoversClass(RevokeDevicesOnPasswordReset::class)]
-#[CoversClass(RevokeDevicesOnDeactivation::class)]
+#[CoversClass(RevokeSessionsOnPasswordChange::class)]
+#[CoversClass(RevokeSessionsOnPasswordReset::class)]
+#[CoversClass(RevokeSessionsOnDeactivation::class)]
 #[CoversTrait(RevokesOnceCommitted::class)]
 final class SecurityChangeEndToEndTest extends TestCase
 {
@@ -78,9 +78,9 @@ final class SecurityChangeEndToEndTest extends TestCase
             return ['refreshed' => self::sessionsOf($guard)->refresh($request->string('refresh_token')->toString())->isRefreshed()];
         });
 
-        IntegrationIdentity::observe([RevokeDevicesOnPasswordChange::class, RevokeDevicesOnDeactivation::class]);
+        IntegrationIdentity::observe([RevokeSessionsOnPasswordChange::class, RevokeSessionsOnDeactivation::class]);
 
-        Event::listen(PasswordReset::class, RevokeDevicesOnPasswordReset::class);
+        Event::listen(PasswordReset::class, RevokeSessionsOnPasswordReset::class);
     }
 
     /**

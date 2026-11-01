@@ -92,24 +92,24 @@ final class BenchSchema
     }
 
     /**
-     * Create the devices table.
+     * Create the sessions table.
      *
      * @return void
      */
-    public static function ensureDeviceTable(): void
+    public static function ensureSessionTable(): void
     {
-        self::ensureTable('devices', static function (Blueprint $blueprint): void {
-            self::defineDeviceColumns($blueprint);
+        self::ensureTable('authentication_sessions', static function (Blueprint $blueprint): void {
+            self::defineSessionColumns($blueprint);
         });
     }
 
     /**
-     * Define the columns and indexes of the shipped devices migration.
+     * Define the columns and indexes of the shipped sessions migration.
      *
      * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
      * @return void
      */
-    public static function defineDeviceColumns(Blueprint $blueprint): void
+    public static function defineSessionColumns(Blueprint $blueprint): void
     {
         $blueprint->uuid('id')->primary();
         $blueprint->string('authenticatable_type')->nullable();
@@ -264,7 +264,7 @@ final class BenchSchema
 
     /**
      * A session the guard's password sign-in started now: the guard and method
-     * a device records, which refresh and the bearer path check, with the
+     * a session records, which refresh and the bearer path check, with the
      * deadlines of `liveSession()`.
      *
      * @param  string  $guard

@@ -15,21 +15,21 @@ use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
-use SineMacula\Laravel\Authentication\Contracts\Device;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 use Tests\Unit\Stubs\Stub3dPrincipal;
-use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubPinnedContextGuard;
+use Tests\Unit\Stubs\StubSession;
 
 /**
- * Feature tests for the principal and device a caller pins on `attempt()`: each
- * is bound only once proven to belong to the authenticated identity, and a pin
- * that fails the check fails the attempt.
+ * Feature tests for the principal and session a caller pins on `attempt()`:
+ * each is bound only once proven to belong to the authenticated identity, and a
+ * pin that fails the check fails the attempt.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -39,8 +39,8 @@ use Tests\Unit\Stubs\StubPinnedContextGuard;
 #[CoversTrait(VerifiesPinnedContext::class)]
 final class VerifiesPinnedContextTest extends AbstractGuardTestCase
 {
-    /** @var string A key with the shape of a `StubDevice` UUID key. */
-    private const string DEVICE_ID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
+    /** @var string A key with the shape of a `StubSession` UUID key. */
+    private const string SESSION_ID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
 
     /** @var array<int, class-string> Classes of the dispatched events. */
     private array $dispatched = [];
@@ -185,7 +185,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
 
         $this->acceptIdentity($identity);
 
-        $other = $this->mockIdentity(HasDevices::class);
+        $other = $this->mockIdentity(HasSessions::class);
         $other->shouldReceive('getAuthIdentifier')->andReturn(7);
 
         $pinned = $this->principal('p-1', $other);
@@ -364,27 +364,27 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * An owned, live pinned device binds the identity's own row rather than the
-     * caller's instance.
+     * An owned, live pinned session binds the identity's own row rather than
+     * the caller's instance.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testOwnedLivePinnedDeviceBindsTheIdentitysOwnRow(): void
+    public function testOwnedLivePinnedSessionBindsTheIdentitysOwnRow(): void
     {
         $principal = $this->principal('p-1');
-        $pinned    = $this->device(self::DEVICE_ID, null, $principal);
-        $owned     = $this->device(self::DEVICE_ID, null, $principal);
+        $pinned    = $this->record(self::SESSION_ID, null, $principal);
+        $owned     = $this->record(self::SESSION_ID, null, $principal);
 
-        $guard = $this->guardWithDevices($owned, $principal);
+        $guard = $this->guardWithSessions($owned, $principal);
 
         self::assertTrue($guard->attempt(['email' => 'x'], null, $pinned));
-        self::assertSame($owned, $guard->device());
+        self::assertSame($owned, $guard->session());
     }
 
     /**
-     * Rows of `[identifier of the principal the device records, or null for
+     * Rows of `[identifier of the principal the session records, or null for
      * none]` other than the principal being bound.
      *
      * @return iterable<string, array{0: ?string}>
@@ -398,9 +398,8 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * An owned, live pinned device whose session acts as another principal, or
-     * as none, fails the attempt: a device is bound only for the principal it
-     * records.
+     * An owned, live pinned session that acts as another principal, or as none,
+     * fails the attempt: a session is bound only for the principal it records.
      *
      * @param  ?string  $recorded
      * @return void
@@ -408,46 +407,46 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
      * @throws \Throwable
      */
     #[DataProvider('provideOtherPrincipals')]
-    public function testPinnedDeviceActingAsAnotherPrincipalFailsTheAttempt(?string $recorded): void
+    public function testPinnedSessionActingAsAnotherPrincipalFailsTheAttempt(?string $recorded): void
     {
-        $owned = $this->device(self::DEVICE_ID, null, $recorded === null ? null : $this->principal($recorded));
-        $guard = $this->guardWithDevices($owned, $this->principal('p-1'));
+        $owned = $this->record(self::SESSION_ID, null, $recorded === null ? null : $this->principal($recorded));
+        $guard = $this->guardWithSessions($owned, $this->principal('p-1'));
 
         $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $owned), $guard);
     }
 
     /**
-     * A pinned device the identity does not own fails the attempt.
+     * A pinned session the identity does not own fails the attempt.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testPinnedDeviceTheIdentityDoesNotOwnFailsTheAttempt(): void
+    public function testPinnedSessionTheIdentityDoesNotOwnFailsTheAttempt(): void
     {
-        $guard = $this->guardWithDevices(null);
+        $guard = $this->guardWithSessions(null);
 
-        $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $this->device(self::DEVICE_ID, null)), $guard);
+        $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $this->record(self::SESSION_ID, null)), $guard);
     }
 
     /**
-     * A revoked pinned device fails the attempt.
+     * A revoked pinned session fails the attempt.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testRevokedPinnedDeviceFailsTheAttempt(): void
+    public function testRevokedPinnedSessionFailsTheAttempt(): void
     {
-        $revoked = $this->device(self::DEVICE_ID, CarbonImmutable::now());
+        $revoked = $this->record(self::SESSION_ID, CarbonImmutable::now());
 
-        $guard = $this->guardWithDevices($revoked);
+        $guard = $this->guardWithSessions($revoked);
 
         $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $revoked), $guard);
     }
 
     /**
-     * Rows of `[guard]` a device may record other than the attempting guard.
+     * Rows of `[guard]` a session may record other than the attempting guard.
      *
      * @return iterable<string, array{0: ?string}>
      */
@@ -460,7 +459,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * A pinned device of another guard's sessions, or of none, fails the
+     * A pinned session of another guard's sessions, or of none, fails the
      * attempt like a missing one.
      *
      * @param  ?string  $guard
@@ -469,131 +468,131 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
      * @throws \Throwable
      */
     #[DataProvider('provideOtherGuards')]
-    public function testPinnedDeviceOfAnotherGuardFailsTheAttempt(?string $guard): void
+    public function testPinnedSessionOfAnotherGuardFailsTheAttempt(?string $guard): void
     {
-        $foreign = \Mockery::mock(Device::class);
-        $foreign->shouldReceive('getDeviceIdentifier')->andReturn(self::DEVICE_ID);
+        $foreign = \Mockery::mock(Session::class);
+        $foreign->shouldReceive('getSessionIdentifier')->andReturn(self::SESSION_ID);
         $foreign->shouldReceive('getRevokedAt')->andReturnNull();
         $foreign->shouldReceive('getGuard')->andReturn($guard);
         $foreign->shouldReceive('getIdleExpiresAt')->andReturn(CarbonImmutable::now()->addDays(90));
         $foreign->shouldReceive('getAbsoluteExpiresAt')->andReturn(CarbonImmutable::now()->addDays(180));
 
-        $guard = $this->guardWithDevices($foreign);
+        $guard = $this->guardWithSessions($foreign);
 
         $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $foreign), $guard);
     }
 
     /**
-     * A pinned device whose session has ended fails the attempt, like a revoked
-     * one.
+     * A pinned session that has ended fails the attempt, like a revoked one.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testEndedPinnedDeviceFailsTheAttempt(): void
+    public function testEndedPinnedSessionFailsTheAttempt(): void
     {
-        $ended = \Mockery::mock(Device::class);
-        $ended->shouldReceive('getDeviceIdentifier')->andReturn(self::DEVICE_ID);
+        $ended = \Mockery::mock(Session::class);
+        $ended->shouldReceive('getSessionIdentifier')->andReturn(self::SESSION_ID);
         $ended->shouldReceive('getGuard')->andReturn(self::GUARD_NAME);
         $ended->shouldReceive('getRevokedAt')->andReturnNull();
         $ended->shouldReceive('getIdleExpiresAt')->andReturn(CarbonImmutable::now());
         $ended->shouldReceive('getAbsoluteExpiresAt')->andReturn(CarbonImmutable::now()->addDay());
 
-        $guard = $this->guardWithDevices($ended);
+        $guard = $this->guardWithSessions($ended);
 
         $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $ended), $guard);
     }
 
     /**
-     * A pinned device of another class that shares the identifier of a device
+     * A pinned session of another class that shares the identifier of a session
      * the identity owns fails the attempt.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testPinnedDeviceOfAnotherClassWithACollidingIdentifierFailsTheAttempt(): void
+    public function testPinnedSessionOfAnotherClassWithACollidingIdentifierFailsTheAttempt(): void
     {
-        $pinned = \Mockery::mock(Device::class, CanBeActive::class);
-        $pinned->shouldReceive('getDeviceIdentifier')->andReturn(self::DEVICE_ID);
+        $pinned = \Mockery::mock(Session::class, CanBeActive::class);
+        $pinned->shouldReceive('getSessionIdentifier')->andReturn(self::SESSION_ID);
 
-        $guard = $this->guardWithDevices($this->device(self::DEVICE_ID, null));
+        $guard = $this->guardWithSessions($this->record(self::SESSION_ID, null));
 
         $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $pinned), $guard);
     }
 
     /**
-     * A pinned device with no identifier cannot be looked up and fails the
+     * A pinned session with no identifier cannot be looked up and fails the
      * attempt without querying.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testPinnedDeviceWithoutIdentifierFailsTheAttempt(): void
+    public function testPinnedSessionWithoutIdentifierFailsTheAttempt(): void
     {
-        $devices = \Mockery::mock(Builder::class);
-        $devices->shouldNotReceive('useWritePdo');
-        $devices->shouldNotReceive('find');
+        $sessions = \Mockery::mock(Builder::class);
+        $sessions->shouldNotReceive('useWritePdo');
+        $sessions->shouldNotReceive('find');
 
-        $identity = $this->mockIdentity(HasDevices::class);
-        $identity->shouldReceive('devices')->andReturn($devices);
+        $identity = $this->mockIdentity(HasSessions::class);
+        $identity->shouldReceive('sessions')->andReturn($sessions);
 
         $this->acceptIdentity($identity);
         $this->resolver->shouldReceive('resolve')->andReturn($this->principal('p-1'));
 
         $guard = $this->makeGuard();
 
-        $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $this->device(null, null)), $guard);
+        $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $this->record(null, null)), $guard);
     }
 
     /**
-     * A pinned device whose identifier cannot be a key of the identity's device
-     * model fails the attempt without querying, as a malformed `did` does.
+     * A pinned session whose identifier cannot be a key of the identity's
+     * session model fails the attempt without querying, as a malformed `did`
+     * does.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testPinnedDeviceWithMalformedIdentifierFailsTheAttemptWithoutQuerying(): void
+    public function testPinnedSessionWithMalformedIdentifierFailsTheAttemptWithoutQuerying(): void
     {
-        $devices = $this->writerDevices();
-        $devices->shouldNotReceive('find');
+        $sessions = $this->writerSessions();
+        $sessions->shouldNotReceive('find');
 
-        $identity = $this->mockIdentity(HasDevices::class);
-        $identity->shouldReceive('devices')->andReturn($devices);
+        $identity = $this->mockIdentity(HasSessions::class);
+        $identity->shouldReceive('sessions')->andReturn($sessions);
 
         $this->acceptIdentity($identity);
         $this->resolver->shouldReceive('resolve')->andReturn($this->principal('p-1'));
 
         $guard = $this->makeGuard();
 
-        $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $this->device('not-a-uuid', null)), $guard);
+        $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $this->record('not-a-uuid', null)), $guard);
     }
 
     /**
-     * A pinned device on an identity that cannot own devices cannot be proven
+     * A pinned session on an identity that cannot own sessions cannot be proven
      * and fails the attempt.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testPinnedDeviceOnIdentityWithoutDevicesFailsTheAttempt(): void
+    public function testPinnedSessionOnIdentityWithoutSessionsFailsTheAttempt(): void
     {
         $this->acceptIdentity($this->mockIdentity());
         $this->resolver->shouldReceive('resolve')->andReturn($this->principal('p-1'));
 
         $guard = $this->makeGuard();
 
-        $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $this->device(self::DEVICE_ID, null)), $guard);
+        $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $this->record(self::SESSION_ID, null)), $guard);
     }
 
     /**
-     * The pinned-principal, pinned-device, and device-hint checks are callable
-     * from a guard subclass, as `JwtGuard` calls the device-hint lookup, and
-     * return the identity's own instances.
+     * The pinned-principal, pinned-session, and session-hint checks are
+     * callable from a guard subclass, as `JwtGuard` calls the session-hint
+     * lookup, and return the identity's own instances.
      *
      * @return void
      */
@@ -601,24 +600,24 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     {
         $guard = $this->makeStubGuard();
 
-        $identity  = $this->mockIdentity(HasDevices::class);
+        $identity  = $this->mockIdentity(HasSessions::class);
         $principal = $this->principal('p-1', $identity);
-        $device    = $this->device(self::DEVICE_ID, null, $principal);
+        $session   = $this->record(self::SESSION_ID, null, $principal);
 
         $identity->shouldReceive('getAuthIdentifier')->andReturn(7);
 
-        $devices = \Mockery::mock(Builder::class);
-        $devices->shouldReceive('useWritePdo')->twice()->andReturnSelf();
-        $devices->shouldReceive('getModel')->andReturn(new StubDevice);
-        $devices->shouldReceive('find')->twice()->with(self::DEVICE_ID)->andReturn($device);
+        $sessions = \Mockery::mock(Builder::class);
+        $sessions->shouldReceive('useWritePdo')->twice()->andReturnSelf();
+        $sessions->shouldReceive('getModel')->andReturn(new StubSession);
+        $sessions->shouldReceive('find')->twice()->with(self::SESSION_ID)->andReturn($session);
 
-        $identity->shouldReceive('devices')->andReturn($devices);
+        $identity->shouldReceive('sessions')->andReturn($sessions);
 
         $this->resolver->shouldReceive('resolve')->once()->with($identity, 'p-1')->andReturn($principal);
 
         self::assertSame($principal, $guard->pinnedPrincipal($identity, $principal));
-        self::assertSame($device, $guard->pinnedDevice($identity, $principal, $device));
-        self::assertSame($device, $guard->deviceFromHint($identity, self::DEVICE_ID));
+        self::assertSame($session, $guard->pinnedSession($identity, $principal, $session));
+        self::assertSame($session, $guard->sessionFromHint($identity, self::SESSION_ID));
     }
 
     /**
@@ -680,20 +679,20 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * Build a guard whose authenticated identity owns the supplied device (or
+     * Build a guard whose authenticated identity owns the supplied session (or
      * none) and resolves the principal, or an active one.
      *
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $owned
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $owned
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return \SineMacula\Laravel\Authentication\Guards\AbstractGuard
      */
-    private function guardWithDevices(?Device $owned, ?Principal $principal = null): AbstractGuard
+    private function guardWithSessions(?Session $owned, ?Principal $principal = null): AbstractGuard
     {
-        $devices = $this->writerDevices();
-        $devices->shouldReceive('find')->once()->with(self::DEVICE_ID)->andReturn($owned);
+        $sessions = $this->writerSessions();
+        $sessions->shouldReceive('find')->once()->with(self::SESSION_ID)->andReturn($owned);
 
-        $identity = $this->mockIdentity(HasDevices::class);
-        $identity->shouldReceive('devices')->andReturn($devices);
+        $identity = $this->mockIdentity(HasSessions::class);
+        $identity->shouldReceive('sessions')->andReturn($sessions);
 
         $this->acceptIdentity($identity);
         $this->resolver->shouldReceive('resolve')->once()->with($identity)->andReturn($principal ?? $this->principal('p-1'));
@@ -702,18 +701,18 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * Build a devices relation over `StubDevice` that expects to be routed to
+     * Build a sessions relation over `StubSession` that expects to be routed to
      * the write connection once.
      *
-     * @return \Illuminate\Database\Eloquent\Builder<\Tests\Unit\Stubs\StubDevice>&\Mockery\MockInterface
+     * @return \Illuminate\Database\Eloquent\Builder<\Tests\Unit\Stubs\StubSession>&\Mockery\MockInterface
      */
-    private function writerDevices(): MockInterface
+    private function writerSessions(): MockInterface
     {
-        $devices = \Mockery::mock(Builder::class);
-        $devices->shouldReceive('useWritePdo')->once()->andReturnSelf();
-        $devices->shouldReceive('getModel')->andReturn(new StubDevice);
+        $sessions = \Mockery::mock(Builder::class);
+        $sessions->shouldReceive('useWritePdo')->once()->andReturnSelf();
+        $sessions->shouldReceive('getModel')->andReturn(new StubSession);
 
-        return $devices;
+        return $sessions;
     }
 
     /**
@@ -738,18 +737,18 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * Build a device with the supplied identifier and revocation time, in a
+     * Build a session with the supplied identifier and revocation time, in a
      * session of the guard that started now, acting as the principal when one
      * is given.
      *
      * @param  ?string  $identifier
      * @param  ?\Carbon\CarbonImmutable  $revokedAt
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @return \Tests\Unit\Stubs\StubDevice
+     * @return \Tests\Unit\Stubs\StubSession
      */
-    private function device(?string $identifier, ?CarbonImmutable $revokedAt, ?Principal $principal = null): StubDevice
+    private function record(?string $identifier, ?CarbonImmutable $revokedAt, ?Principal $principal = null): StubSession
     {
-        return new StubDevice([
+        return new StubSession([
             'id'                  => $identifier,
             'guard'               => self::GUARD_NAME,
             'principal_type'      => $principal === null ? null : PrincipalReference::type($principal),

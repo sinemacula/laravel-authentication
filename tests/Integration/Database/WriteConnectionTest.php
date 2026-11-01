@@ -14,9 +14,9 @@ use Illuminate\Database\Schema\Blueprint;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Database\PinningConnectionResolver;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
-use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Concerns\InteractsWithDevices;
+use SineMacula\Laravel\Authentication\Models\Session;
 use Tests\Concerns\InteractsWithLaggingReplica;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Integration\Fixtures\LandlordTenant;
 use Tests\TestCase;
 
@@ -24,7 +24,7 @@ use Tests\TestCase;
  * Integration tests for `WriteConnection` against a read/write split connection
  * whose replica lags behind the primary.
  *
- * Each test writes a device through the split connection, so the row exists on
+ * Each test writes a session through the split connection, so the row exists on
  * the primary only. A read that finds it was served by the write connection; a
  * read that misses it was served by the replica.
  *
@@ -37,7 +37,7 @@ use Tests\TestCase;
 #[CoversClass(PinningConnectionResolver::class)]
 final class WriteConnectionTest extends TestCase
 {
-    use InteractsWithDevices, InteractsWithLaggingReplica;
+    use InteractsWithLaggingReplica, InteractsWithSessionRecords;
 
     /**
      * Remove the temporary primary and replica files.
@@ -62,14 +62,14 @@ final class WriteConnectionTest extends TestCase
      */
     public function testQueryRoutesTheLookupToTheWriteConnection(): void
     {
-        $device = $this->seedDevice();
+        $session = $this->seedSession();
 
-        self::assertNull(Device::query()->find($device->getKey()));
+        self::assertNull(Session::query()->find($session->getKey()));
 
-        $builder = Device::query();
+        $builder = Session::query();
 
         self::assertSame($builder, WriteConnection::query($builder));
-        self::assertInstanceOf(Device::class, $builder->find($device->getKey()));
+        self::assertInstanceOf(Session::class, $builder->find($session->getKey()));
     }
 
     /**
@@ -80,12 +80,12 @@ final class WriteConnectionTest extends TestCase
      */
     public function testDuringRoutesReadsToTheWriteConnectionOnlyForTheCallback(): void
     {
-        $device = $this->seedDevice();
+        $session = $this->seedSession();
 
-        $found = WriteConnection::during(new Device, static fn (): ?Device => Device::query()->whereKey($device->getKey())->first());
+        $found = WriteConnection::during(new Session, static fn (): ?Session => Session::query()->whereKey($session->getKey())->first());
 
-        self::assertInstanceOf(Device::class, $found);
-        self::assertNull(Device::query()->find($device->getKey()));
+        self::assertInstanceOf(Session::class, $found);
+        self::assertNull(Session::query()->find($session->getKey()));
     }
 
     /**
@@ -96,13 +96,13 @@ final class WriteConnectionTest extends TestCase
      */
     public function testDuringKeepsAConnectionThatAlreadyReadsFromTheWriter(): void
     {
-        $device = $this->seedDevice();
+        $session = $this->seedSession();
 
         $this->splitConnection()->useWriteConnectionWhenReading();
 
-        WriteConnection::during(new Device, static fn (): null => null);
+        WriteConnection::during(new Session, static fn (): null => null);
 
-        self::assertInstanceOf(Device::class, Device::query()->find($device->getKey()));
+        self::assertInstanceOf(Session::class, Session::query()->find($session->getKey()));
     }
 
     /**
@@ -113,17 +113,17 @@ final class WriteConnectionTest extends TestCase
      */
     public function testDuringRestoresTheReadModeWhenTheCallbackThrows(): void
     {
-        $device = $this->seedDevice();
+        $session = $this->seedSession();
 
         try {
-            WriteConnection::during(new Device, static fn (): Device => Device::query()->whereKey('missing')->firstOrFail());
+            WriteConnection::during(new Session, static fn (): Session => Session::query()->whereKey('missing')->firstOrFail());
 
             self::fail('The lookup inside the callback should have thrown.');
         } catch (ModelNotFoundException $exception) {
-            self::assertSame(Device::class, $exception->getModel());
+            self::assertSame(Session::class, $exception->getModel());
         }
 
-        self::assertNull(Device::query()->find($device->getKey()));
+        self::assertNull(Session::query()->find($session->getKey()));
     }
 
     /**
@@ -138,7 +138,7 @@ final class WriteConnectionTest extends TestCase
     {
         $tenant = $this->seedLandlordTenant();
 
-        $found = WriteConnection::during(new Device, static fn (): ?LandlordTenant => LandlordTenant::query()->whereKey($tenant->getKey())->first());
+        $found = WriteConnection::during(new Session, static fn (): ?LandlordTenant => LandlordTenant::query()->whereKey($tenant->getKey())->first());
 
         self::assertInstanceOf(LandlordTenant::class, $found);
         self::assertNull(LandlordTenant::query()->find($tenant->getKey()));
@@ -155,13 +155,13 @@ final class WriteConnectionTest extends TestCase
     {
         $resolver = Model::getConnectionResolver();
 
-        $inside = WriteConnection::during(new Device, static fn (): ?ConnectionResolverInterface => Model::getConnectionResolver());
+        $inside = WriteConnection::during(new Session, static fn (): ?ConnectionResolverInterface => Model::getConnectionResolver());
 
         self::assertInstanceOf(PinningConnectionResolver::class, $inside);
         self::assertSame($resolver, Model::getConnectionResolver());
 
         try {
-            WriteConnection::during(new Device, static fn (): Device => Device::query()->whereKey('missing')->firstOrFail());
+            WriteConnection::during(new Session, static fn (): Session => Session::query()->whereKey('missing')->firstOrFail());
 
             self::fail('The lookup inside the callback should have thrown.');
         } catch (ModelNotFoundException) {
@@ -178,17 +178,17 @@ final class WriteConnectionTest extends TestCase
      */
     public function testNestedDuringKeepsTheOuterPin(): void
     {
-        $device = $this->seedDevice();
+        $session = $this->seedSession();
 
-        $found = WriteConnection::during(new Device, static function () use ($device): ?Device {
+        $found = WriteConnection::during(new Session, static function () use ($session): ?Session {
 
-            WriteConnection::during(new Device, static fn (): ?Device => Device::query()->whereKey($device->getKey())->first());
+            WriteConnection::during(new Session, static fn (): ?Session => Session::query()->whereKey($session->getKey())->first());
 
-            return Device::query()->whereKey($device->getKey())->first();
+            return Session::query()->whereKey($session->getKey())->first();
         });
 
-        self::assertInstanceOf(Device::class, $found);
-        self::assertNull(Device::query()->find($device->getKey()));
+        self::assertInstanceOf(Session::class, $found);
+        self::assertNull(Session::query()->find($session->getKey()));
     }
 
     /**
@@ -200,17 +200,17 @@ final class WriteConnectionTest extends TestCase
      */
     public function testDuringPinsTheSubjectsConnectionWithoutAModelConnectionResolver(): void
     {
-        $device     = $this->seedDevice();
+        $session    = $this->seedSession();
         $connection = $this->splitConnection();
         $resolver   = Model::getConnectionResolver();
 
-        $subject = \Mockery::mock(Device::class)->makePartial();
+        $subject = \Mockery::mock(Session::class)->makePartial();
         $subject->shouldReceive('getConnection')->andReturn($connection);
 
         Model::unsetConnectionResolver();
 
         try {
-            $found = WriteConnection::during($subject, static fn (): ?object => $connection->table('devices')->where('id', $device->getKey())->first());
+            $found = WriteConnection::during($subject, static fn (): ?object => $connection->table('authentication_sessions')->where('id', $session->getKey())->first());
 
             self::assertNull(Model::getConnectionResolver());
         } finally {
@@ -218,7 +218,7 @@ final class WriteConnectionTest extends TestCase
         }
 
         self::assertNotNull($found);
-        self::assertNull($connection->table('devices')->where('id', $device->getKey())->first());
+        self::assertNull($connection->table('authentication_sessions')->where('id', $session->getKey())->first());
     }
 
     /**
@@ -231,17 +231,17 @@ final class WriteConnectionTest extends TestCase
      */
     public function testDuringPinsModelReadsForANonModelSubject(): void
     {
-        $device     = $this->seedDevice();
+        $session    = $this->seedSession();
         $connection = $this->splitConnection();
 
         $found = WriteConnection::during(new \stdClass, static fn (): array => [
-            'row'    => $connection->table('devices')->where('id', $device->getKey())->first(),
-            'device' => Device::query()->find($device->getKey()),
+            'row'     => $connection->table('authentication_sessions')->where('id', $session->getKey())->first(),
+            'session' => Session::query()->find($session->getKey()),
         ]);
 
         self::assertNull($found['row']);
-        self::assertInstanceOf(Device::class, $found['device']);
-        self::assertNull(Device::query()->find($device->getKey()));
+        self::assertInstanceOf(Session::class, $found['session']);
+        self::assertNull(Session::query()->find($session->getKey()));
     }
 
     /**
@@ -255,19 +255,19 @@ final class WriteConnectionTest extends TestCase
      */
     public function testStoredHandsOverACopyWithoutRelationsReadOnTheWriter(): void
     {
-        $device  = $this->seedDevice();
-        $subject = new Device;
-        $subject->forceFill(['id' => $device->getKey()]);
-        $subject->setRelation('authenticatable', new Device);
+        $session = $this->seedSession();
+        $subject = new Session;
+        $subject->forceFill(['id' => $session->getKey()]);
+        $subject->setRelation('authenticatable', new Session);
 
-        [$copy, $found] = WriteConnection::stored($subject, static fn (Device $stored): array => [$stored, Device::query()->find($device->getKey())]);
+        [$copy, $found] = WriteConnection::stored($subject, static fn (Session $stored): array => [$stored, Session::query()->find($session->getKey())]);
 
         self::assertNotSame($subject, $copy);
-        self::assertSame($device->getKey(), $copy->getKey());
+        self::assertSame($session->getKey(), $copy->getKey());
         self::assertFalse($copy->relationLoaded('authenticatable'));
         self::assertTrue($subject->relationLoaded('authenticatable'));
-        self::assertInstanceOf(Device::class, $found);
-        self::assertNull(Device::query()->find($device->getKey()));
+        self::assertInstanceOf(Session::class, $found);
+        self::assertNull(Session::query()->find($session->getKey()));
     }
 
     /**
@@ -279,10 +279,10 @@ final class WriteConnectionTest extends TestCase
      */
     public function testStoredLetsTheCopyLazyLoadUnderStrictMode(): void
     {
-        $subject                      = new Device;
+        $subject                      = new Session;
         $subject->preventsLazyLoading = true;
 
-        $copy = WriteConnection::stored($subject, static fn (Device $stored): Device => $stored);
+        $copy = WriteConnection::stored($subject, static fn (Session $stored): Session => $stored);
 
         self::assertFalse($copy->preventsLazyLoading);
         self::assertTrue($subject->preventsLazyLoading);
@@ -296,13 +296,13 @@ final class WriteConnectionTest extends TestCase
      */
     public function testStoredHandsOverANonModelSubjectAsItIs(): void
     {
-        $device  = $this->seedDevice();
+        $session = $this->seedSession();
         $subject = new \stdClass;
 
-        [$given, $found] = WriteConnection::stored($subject, static fn (\stdClass $stored): array => [$stored, Device::query()->find($device->getKey())]);
+        [$given, $found] = WriteConnection::stored($subject, static fn (\stdClass $stored): array => [$stored, Session::query()->find($session->getKey())]);
 
         self::assertSame($subject, $given);
-        self::assertInstanceOf(Device::class, $found);
+        self::assertInstanceOf(Session::class, $found);
     }
 
     /**
@@ -357,21 +357,21 @@ final class WriteConnectionTest extends TestCase
     }
 
     /**
-     * Write a device through the split connection, so it exists on the primary
+     * Write a session through the split connection, so it exists on the primary
      * only.
      *
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private function seedDevice(): Device
+    private function seedSession(): Session
     {
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => 'identity',
             'authenticatable_id'   => '1',
         ])->save();
 
-        return $device;
+        return $session;
     }
 
     /**

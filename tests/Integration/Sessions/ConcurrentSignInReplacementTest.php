@@ -11,11 +11,11 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Events\DeviceCreated;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
+use SineMacula\Laravel\Authentication\Events\SessionCreated;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -29,14 +29,14 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Races a sign-in that proves the client's previous device, and so replaces it,
- * against another such sign-in, a refresh, a revocation of that device and a
- * revocation of every device of the identity, on PostgreSQL and MySQL, each
+ * Races a sign-in that proves the client's previous session, and so replaces
+ * it, against another such sign-in, a refresh, a revocation of that session and
+ * a revocation of every session of the identity, on PostgreSQL and MySQL, each
  * side in a process with a database connection of its own: one side writes
  * inside a transaction it holds open, and the other, started meanwhile, waits
- * on the previous device's row. The compare-and-swap that revokes the previous
- * device orders only that row: the first to commit changes it, and a
- * replacement that loses is reconsidered without the proof, creating a device
+ * on the previous session's row. The compare-and-swap that revokes the previous
+ * session orders only that row: the first to commit changes it, and a
+ * replacement that loses is reconsidered without the proof, creating a session
  * and revoking nothing. When the first side rolls back, the second goes ahead
  * as if alone.
  *
@@ -64,7 +64,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
     private const int START_TIMEOUT_SECONDS = 10;
 
     /** @var list<class-string> The events both sides record. */
-    private const array EVENTS = [DeviceRevoked::class, DeviceCreated::class, SignedIn::class, Refreshed::class, SignedOutEverywhere::class];
+    private const array EVENTS = [SessionRevoked::class, SessionCreated::class, SignedIn::class, Refreshed::class, SignedOutEverywhere::class];
 
     /** @var string Directory the second side reports its outcome in. */
     private string $outcomes;
@@ -123,15 +123,15 @@ final class ConcurrentSignInReplacementTest extends TestCase
 
     /**
      * Two sign-ins presenting the same proof: the first to commit revokes the
-     * previous device, once; the one that waited misses the swap and starts a
-     * device of its own, revoking nothing. When the first rolls back, the
-     * second replaces the device itself.
+     * previous session, once; the one that waited misses the swap and starts a
+     * session of its own, revoking nothing. When the first rolls back, the
+     * second replaces the session itself.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testTwoSignInsWithTheSameProofRevokeThePreviousDeviceOnce(): void
+    public function testTwoSignInsWithTheSameProofRevokeThePreviousSessionOnce(): void
     {
         foreach ([true, false] as $commit) {
 
@@ -147,15 +147,15 @@ final class ConcurrentSignInReplacementTest extends TestCase
             self::assertSame('superseded', $this->reasonOf($previous));
 
             if ($commit) {
-                self::assertSame([DeviceRevoked::class, DeviceCreated::class, SignedIn::class], $this->recordedClasses());
-                self::assertSame([DeviceCreated::class, SignedIn::class], $second['events']);
-                self::assertSame(3, DB::table('devices')->count());
-                self::assertSame(2, DB::table('devices')->whereNull('revoked_at')->count());
+                self::assertSame([SessionRevoked::class, SessionCreated::class, SignedIn::class], $this->recordedClasses());
+                self::assertSame([SessionCreated::class, SignedIn::class], $second['events']);
+                self::assertSame(3, DB::table('authentication_sessions')->count());
+                self::assertSame(2, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
                 self::assertNull($this->reasonOf($first));
             } else {
                 self::assertSame([], $this->recordedClasses());
-                self::assertSame([DeviceRevoked::class, DeviceCreated::class, SignedIn::class], $second['events']);
-                self::assertSame(2, DB::table('devices')->count());
+                self::assertSame([SessionRevoked::class, SessionCreated::class, SignedIn::class], $second['events']);
+                self::assertSame(2, DB::table('authentication_sessions')->count());
             }
 
             self::assertNull($this->reasonOf($second['result']));
@@ -167,8 +167,8 @@ final class ConcurrentSignInReplacementTest extends TestCase
     /**
      * A sign-in waiting on a refresh of the token it proves with: once the
      * refresh commits, the digest it proved is gone, so the sign-in starts a
-     * device of its own and the refreshed device stays live; when the refresh
-     * rolls back, the sign-in replaces the device.
+     * session of its own and the refreshed session stays live; when the refresh
+     * rolls back, the sign-in replaces the session.
      *
      * @return void
      *
@@ -188,15 +188,15 @@ final class ConcurrentSignInReplacementTest extends TestCase
             );
 
             self::assertTrue($refreshed);
-            self::assertNotSame(IdentifierCoercion::stringify($previous->device->getKey()), $second['result']);
+            self::assertNotSame(IdentifierCoercion::stringify($previous->record->getKey()), $second['result']);
 
             if ($commit) {
                 self::assertSame([Refreshed::class, SignedIn::class], $this->recordedClasses());
-                self::assertSame([DeviceCreated::class, SignedIn::class], $second['events']);
+                self::assertSame([SessionCreated::class, SignedIn::class], $second['events']);
                 self::assertNull($this->revokedAtOf($previous));
             } else {
                 self::assertSame([], $this->recordedClasses());
-                self::assertSame([DeviceRevoked::class, DeviceCreated::class, SignedIn::class], $second['events']);
+                self::assertSame([SessionRevoked::class, SessionCreated::class, SignedIn::class], $second['events']);
                 self::assertSame('superseded', $this->reasonOf($previous));
             }
 
@@ -205,9 +205,9 @@ final class ConcurrentSignInReplacementTest extends TestCase
     }
 
     /**
-     * A refresh waiting on a sign-in that replaces the refreshed device: once
-     * the sign-in commits, the refresh finds the device revoked
-     * (`device_revoked`), not replayed, and the new device is untouched; when
+     * A refresh waiting on a sign-in that replaces the refreshed session: once
+     * the sign-in commits, the refresh finds the session revoked
+     * (`session_revoked`), not replayed, and the new session is untouched; when
      * the sign-in rolls back, the refresh goes ahead.
      *
      * @return void
@@ -228,7 +228,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
             );
 
             if ($commit) {
-                self::assertSame(FailureReason::DEVICE_REVOKED->value, $second['result']);
+                self::assertSame(FailureReason::SESSION_REVOKED->value, $second['result']);
                 self::assertSame([], $second['events']);
                 self::assertSame('superseded', $this->reasonOf($previous));
                 self::assertNull($this->revokedAtOf($replacement));
@@ -243,30 +243,30 @@ final class ConcurrentSignInReplacementTest extends TestCase
     }
 
     /**
-     * A revocation of the one device racing a sign-in that replaces it, in both
-     * orders: the first to commit revokes it and reports it, the other changes
-     * nothing there, and a replacement that loses starts a device of its own,
-     * revoking nothing.
+     * A revocation of the one session racing a sign-in that replaces it, in
+     * both orders: the first to commit revokes it and reports it, the other
+     * changes nothing there, and a replacement that loses starts a session of
+     * its own, revoking nothing.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testARevocationOfTheDeviceAndAReplacementRevokeItOnce(): void
+    public function testARevocationOfTheSessionAndAReplacementRevokeItOnce(): void
     {
         $identity = $this->seedIdentity();
         $previous = $this->signIn($identity);
 
         [$revoked, $second] = $this->race(
-            fn (): bool => $this->sessions()->revokeDevice($identity, $previous->device->getKey(), RevocationReason::REVOKED),
+            fn (): bool => $this->sessions()->revokeSession($identity, $previous->record->getKey(), RevocationReason::REVOKED),
             fn (): string => $this->replacing($identity, $previous),
             true,
         );
 
         self::assertTrue($revoked);
         self::assertSame('revoked', $this->reasonOf($previous));
-        self::assertSame([DeviceRevoked::class], $this->recordedClasses());
-        self::assertSame([DeviceCreated::class, SignedIn::class], $second['events']);
+        self::assertSame([SessionRevoked::class], $this->recordedClasses());
+        self::assertSame([SessionCreated::class, SignedIn::class], $second['events']);
         self::assertNull($this->revokedAtOf($second['result']));
 
         $this->reset();
@@ -276,24 +276,24 @@ final class ConcurrentSignInReplacementTest extends TestCase
 
         [$replacement, $second] = $this->race(
             fn (): string => $this->replacing($identity, $previous),
-            fn (): bool => $this->sessions()->revokeDevice($identity, $previous->device->getKey(), RevocationReason::REVOKED),
+            fn (): bool => $this->sessions()->revokeSession($identity, $previous->record->getKey(), RevocationReason::REVOKED),
             true,
         );
 
         self::assertFalse($second['result']);
         self::assertSame([], $second['events']);
         self::assertSame('superseded', $this->reasonOf($previous));
-        self::assertSame([DeviceRevoked::class, DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame([SessionRevoked::class, SessionCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertNull($this->revokedAtOf($replacement));
     }
 
     /**
-     * A sign-in that replaces a device waiting on a revocation of every device
-     * of the identity, which is not synchronized with sign-ins: once the bulk
-     * revocation commits, the previous device carries its reason, and the
-     * sign-in, admitted on its own credentials, starts a device the bulk call
-     * never saw. When the bulk call rolls back, the sign-in replaces the
-     * device.
+     * A sign-in that replaces a session waiting on a revocation of every
+     * session of the identity, which is not synchronised with sign-ins: once
+     * the bulk revocation commits, the previous session carries its reason, and
+     * the sign-in, admitted on its own credentials, starts a session the bulk
+     * call never saw. When the bulk call rolls back, the sign-in replaces the
+     * session.
      *
      * @return void
      *
@@ -307,7 +307,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
             $previous = $this->signIn($identity);
 
             [$count, $second] = $this->race(
-                fn (): int => $this->sessions()->revokeDevices($identity, RevocationReason::SIGNED_OUT_EVERYWHERE),
+                fn (): int => $this->sessions()->revokeSessions($identity, RevocationReason::SIGNED_OUT_EVERYWHERE),
                 fn (): string => $this->replacing($identity, $previous),
                 $commit,
             );
@@ -316,12 +316,12 @@ final class ConcurrentSignInReplacementTest extends TestCase
             self::assertNull($this->revokedAtOf($second['result']));
 
             if ($commit) {
-                self::assertSame([DeviceRevoked::class, SignedOutEverywhere::class], $this->recordedClasses());
-                self::assertSame([DeviceCreated::class, SignedIn::class], $second['events']);
+                self::assertSame([SessionRevoked::class, SignedOutEverywhere::class], $this->recordedClasses());
+                self::assertSame([SessionCreated::class, SignedIn::class], $second['events']);
                 self::assertSame('signed_out_everywhere', $this->reasonOf($previous));
             } else {
                 self::assertSame([], $this->recordedClasses());
-                self::assertSame([DeviceRevoked::class, DeviceCreated::class, SignedIn::class], $second['events']);
+                self::assertSame([SessionRevoked::class, SessionCreated::class, SignedIn::class], $second['events']);
                 self::assertSame('superseded', $this->reasonOf($previous));
             }
 
@@ -330,12 +330,12 @@ final class ConcurrentSignInReplacementTest extends TestCase
     }
 
     /**
-     * A revocation of every device of the identity waiting on a sign-in that
-     * replaces one: once the sign-in commits, the previous device is already
-     * `superseded` and the bulk call, which read the devices before the new one
-     * was committed, revokes and reports none of them, leaving the new device
-     * live. When the sign-in rolls back, the bulk call revokes the previous
-     * device itself.
+     * A revocation of every session of the identity waiting on a sign-in that
+     * replaces one: once the sign-in commits, the previous session is already
+     * `superseded` and the bulk call, which read the sessions before the new
+     * one was committed, revokes and reports none of them, leaving the new
+     * session live. When the sign-in rolls back, the bulk call revokes the
+     * previous session itself.
      *
      * @return void
      *
@@ -350,21 +350,21 @@ final class ConcurrentSignInReplacementTest extends TestCase
 
             [$replacement, $second] = $this->race(
                 fn (): string => $this->replacing($identity, $previous),
-                fn (): int => $this->sessions()->revokeDevices($identity, RevocationReason::SIGNED_OUT_EVERYWHERE),
+                fn (): int => $this->sessions()->revokeSessions($identity, RevocationReason::SIGNED_OUT_EVERYWHERE),
                 $commit,
             );
 
             if ($commit) {
                 self::assertSame(0, $second['result']);
                 self::assertSame([SignedOutEverywhere::class], $second['events']);
-                self::assertSame([DeviceRevoked::class, DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+                self::assertSame([SessionRevoked::class, SessionCreated::class, SignedIn::class], $this->recordedClasses());
                 self::assertSame('superseded', $this->reasonOf($previous));
                 self::assertNull($this->revokedAtOf($replacement));
             } else {
                 self::assertSame(1, $second['result']);
-                self::assertSame([DeviceRevoked::class, SignedOutEverywhere::class], $second['events']);
+                self::assertSame([SessionRevoked::class, SignedOutEverywhere::class], $second['events']);
                 self::assertSame('signed_out_everywhere', $this->reasonOf($previous));
-                self::assertSame(1, DB::table('devices')->count());
+                self::assertSame(1, DB::table('authentication_sessions')->count());
             }
 
             $this->reset();
@@ -411,9 +411,9 @@ final class ConcurrentSignInReplacementTest extends TestCase
 
     /**
      * Start a session for the identity proving the previous one with its
-     * refresh token, and return the new device's key. `start()` takes no
+     * refresh token, and return the new session's key. `start()` takes no
      * attempt-limit slot, so the only row both sides contend for is the
-     * previous device's.
+     * previous session's.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $previous
@@ -428,44 +428,44 @@ final class ConcurrentSignInReplacementTest extends TestCase
 
         self::assertNotNull($session);
 
-        return (string) IdentifierCoercion::stringify($session->device->getKey());
+        return (string) IdentifierCoercion::stringify($session->record->getKey());
     }
 
     /**
-     * The revocation reason the device's row records.
+     * The revocation reason the session's row records.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession|string  $device
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession|string  $record
      * @return ?string
      */
-    private function reasonOf(SignedInSession|string $device): ?string
+    private function reasonOf(SignedInSession|string $record): ?string
     {
-        $value = DB::table('devices')->where('id', self::keyOf($device))->value('revoked_reason');
+        $value = DB::table('authentication_sessions')->where('id', self::keyOf($record))->value('revoked_reason');
 
         return is_string($value) ? $value : null;
     }
 
     /**
-     * The revocation time the device's row records, as stored.
+     * The revocation time the session's row records, as stored.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession|string  $device
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession|string  $record
      * @return mixed
      */
-    private function revokedAtOf(SignedInSession|string $device): mixed
+    private function revokedAtOf(SignedInSession|string $record): mixed
     {
-        self::assertTrue(DB::table('devices')->where('id', self::keyOf($device))->exists());
+        self::assertTrue(DB::table('authentication_sessions')->where('id', self::keyOf($record))->exists());
 
-        return DB::table('devices')->where('id', self::keyOf($device))->value('revoked_at');
+        return DB::table('authentication_sessions')->where('id', self::keyOf($record))->value('revoked_at');
     }
 
     /**
-     * The key of the session's device, or the key itself.
+     * The key of the session, or the key itself.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession|string  $device
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession|string  $record
      * @return string
      */
-    private static function keyOf(SignedInSession|string $device): string
+    private static function keyOf(SignedInSession|string $record): string
     {
-        return is_string($device) ? $device : (string) IdentifierCoercion::stringify($device->device->getKey());
+        return is_string($record) ? $record : (string) IdentifierCoercion::stringify($record->record->getKey());
     }
 
     /**
@@ -553,7 +553,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
      */
     private function reset(): void
     {
-        foreach (['devices', 'pending_sign_ins', 'rate_limits', 'integration_identities'] as $table) {
+        foreach (['authentication_sessions', 'pending_sign_ins', 'rate_limits', 'integration_identities'] as $table) {
             DB::table($table)->delete();
         }
 

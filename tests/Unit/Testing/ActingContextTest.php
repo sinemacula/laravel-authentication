@@ -19,9 +19,9 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Testing\ActingContext;
-use Tests\Unit\Stubs\PlainDeviceFixture;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
+use Tests\Unit\Stubs\PlainSessionFixture;
 use Tests\Unit\Stubs\PlainTenantFixture;
 
 /**
@@ -115,11 +115,11 @@ final class ActingContextTest extends TestCase
         $guard     = $this->guard('api');
         $identity  = new PlainIdentityFixture(1);
         $principal = new PlainPrincipalFixture(10, $identity);
-        $device    = new PlainDeviceFixture('device-1');
+        $session   = new PlainSessionFixture('session-1');
 
-        ActingContext::current()->act($guard, $identity, $principal, $device);
+        ActingContext::current()->act($guard, $identity, $principal, $session);
 
-        self::assertSame([$identity, $principal, $device], [$guard->identity(), $guard->principal(), $guard->device()]);
+        self::assertSame([$identity, $principal, $session], [$guard->identity(), $guard->principal(), $guard->session()]);
         self::assertSame(1, $this->authenticated);
 
         $request = Request::create('/me');
@@ -127,7 +127,7 @@ final class ActingContextTest extends TestCase
         $this->container->instance('request', $request);
 
         self::assertSame($request, $guard->getRequest());
-        self::assertSame([$identity, $principal, $device], [$guard->identity(), $guard->principal(), $guard->device()]);
+        self::assertSame([$identity, $principal, $session], [$guard->identity(), $guard->principal(), $guard->session()]);
         self::assertSame(2, $this->authenticated);
     }
 

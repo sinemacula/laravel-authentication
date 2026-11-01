@@ -10,18 +10,18 @@ use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
  * Minimal Eloquent fixture used by the integration tests.
  *
  * Implements `Identity` and `Principal` so the package guards can operate in 2D
- * mode, and `HasDevices` so the JwtGuard's device-hint resolution path has a
- * real relation to query against the shipped Device model. Tests create rows in
- * the backing `integration_identities` table (seeded in
+ * mode, and `HasSessions` so the JwtGuard's session-hint resolution path has a
+ * real relation to query against the shipped Session model. Tests create rows
+ * in the backing `integration_identities` table (seeded in
  * `Tests\TestCase::defineDatabaseMigrations()`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -34,7 +34,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
  *
  * @internal
  */
-final class IntegrationIdentity extends Model implements CanBeActive, HasDevices, Identity, Principal
+final class IntegrationIdentity extends Model implements CanBeActive, HasSessions, Identity, Principal
 {
     use ActsAsPrincipal, Authenticatable, ProvidesActiveState;
 
@@ -45,18 +45,18 @@ final class IntegrationIdentity extends Model implements CanBeActive, HasDevices
     protected $guarded = [];
 
     /**
-     * Eloquent relation builder for the identity's devices.
+     * Eloquent relation builder for the identity's sessions.
      *
-     * Filters the shipped Device model by the polymorphic authenticatable
-     * columns so the guard's `resolveDeviceFromHint()` can resolve a device by
-     * its id through a real query.
+     * Filters the shipped Session model by the polymorphic authenticatable
+     * columns so the guard's `resolveSessionFromHint()` can resolve a session
+     * by its id through a real query.
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
     #[\Override]
-    public function devices(): Builder
+    public function sessions(): Builder
     {
-        return Device::query()
+        return Session::query()
             ->where('authenticatable_type', self::class)
             ->where('authenticatable_id', (string) $this->getKey()); // @phpstan-ignore cast.string
     }

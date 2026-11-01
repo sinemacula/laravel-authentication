@@ -11,16 +11,16 @@ use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesIdentifierChanges;
 use SineMacula\Laravel\Authentication\Contracts\HasChangeableIdentifiers;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
  * 2D identity fixture whose identifiers can be changed, stored in
  * `changeable_identities`: a designated email address and phone number, each
  * normalised, unique and with a verification time beside it, a password, and
- * devices, so the session service can sign it in and the identifier change
+ * sessions, so the session service can sign it in and the identifier change
  * service can change either identifier.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -36,7 +36,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
  *
  * @internal
  */
-final class ChangeableIdentity extends Model implements HasChangeableIdentifiers, HasDevices, Identity, Principal
+final class ChangeableIdentity extends Model implements HasChangeableIdentifiers, HasSessions, Identity, Principal
 {
     use ActsAsPrincipal, Authenticatable, ProvidesIdentifierChanges;
 
@@ -47,14 +47,14 @@ final class ChangeableIdentity extends Model implements HasChangeableIdentifiers
     protected $guarded = [];
 
     /**
-     * Eloquent relation builder for the identity's devices.
+     * Eloquent relation builder for the identity's sessions.
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
     #[\Override]
-    public function devices(): Builder
+    public function sessions(): Builder
     {
-        return Device::query()
+        return Session::query()
             ->where('authenticatable_type', self::class)
             ->where('authenticatable_id', (string) $this->getKey()); // @phpstan-ignore cast.string
     }

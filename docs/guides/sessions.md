@@ -3,7 +3,7 @@
 ## Switching principal
 
 An identity that may act as several principals (memberships of several tenants, say) switches the session it is signed
-in with to another one, on the same device, proven by the session's refresh token:
+in with to another one, in the same session, proven by the session's refresh token:
 
 ```php
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
@@ -30,7 +30,7 @@ $tokens = $result->session->tokens;
 
 return $result->source === RefreshTokenSource::COOKIE
     ? response()->json(['access_token' => $tokens->accessToken])
-        ->withCookie(Auth::refreshTransport('api')->cookie($tokens->refreshToken, $result->session->device))
+        ->withCookie(Auth::refreshTransport('api')->cookie($tokens->refreshToken, $result->session->record))
     : response()->json(['access_token' => $tokens->accessToken, 'refresh_token' => $tokens->refreshToken]);
 ```
 
@@ -40,51 +40,51 @@ refresh credential. `switchPrincipalFromRequest()` reads it as the session servi
 allows and a token from the refresh cookie gets the cookie's cross-site checks; put the switch route under the cookie's
 path. It returns `null` when the request carries no token, and a token the transport refuses fails with its reason
 (`refresh_token_conflict`, `cross_site_request`, `token_invalid`, reported as an `AuthenticationFailed` of flow
-`principal_switch`) without the device being touched. The result's `source` says where the token came from, so a switch
+`principal_switch`) without the session being touched. The result's `source` says where the token came from, so a switch
 read from the cookie answers with the new refresh token in the cookie, as a refresh does.
 `switchPrincipal($refreshToken, $target)` remains for a token your code reads itself; never pass it one read from the
 refresh cookie.
 
 A switch is judged as a refresh is: counted against the same refresh limits (`rate_limited`, with the wait in the
 result's `retryAfter`: a switch returns its refusal, as a refresh does, so answer it with `Retry-After` as above), the
-token parsed for this guard, the device found, of this guard, live, and the rotation id current, or the previous one
-inside the grace window; any other id is a replay and revokes the device (`rotation_reuse`). On every path the device's
+token parsed for this guard, the session found, of this guard, live, and the rotation id current, or the previous one
+inside the grace window; any other id is a replay and revokes the session (`rotation_reuse`). On every path the session's
 owner must still be returned by the guard's provider and be active, the target must resolve through the resolver's
 hinted path as the very principal named, of its class, owned by that identity (read from the principal's own key, not
 trusted to the resolver), active, in an active tenant and admitted by the application policy, also with the type of
-identifier the session's sign-in used (which the device records), so a principal your policy refuses to that identifier
+identifier the session's sign-in used (which the session records), so a principal your policy refuses to that identifier
 cannot be reached by switching to it, the session's sign-in method must still be allowed, and the additional-factor
 policy must not ask for a further factor (`additional_factor_required`: sign in again as the target).
 
-With the current rotation id, the token's principal must be the one the device records (`device_principal_mismatch`).
+With the current rotation id, the token's principal must be the one the session records (`session_principal_mismatch`).
 The switch keeps the session's absolute deadline, held to the guard's absolute lifetime counted from the sign-in
 (`session_expired` when that has passed), restarts the idle one under the guard's lifetimes, issues both tokens for the
 target, then records the target, the switch time (`principal_switched_at`), the rotation and both deadlines in one
 compare-and-swap. The access tokens of the principal switched from stop at once, and switching back does not revive them
-(see [Device](configuration.md#device)). A switch to the principal the device already records rotates the credential
+(see [Session](configuration.md#session)). A switch to the principal the session already records rotates the credential
 like a refresh and reports no switch.
 
 With the previous rotation id inside the grace window, the current credential for the target is handed back, writing
-nothing, only when the device records the target and either its last rotation was the switch to it (a lost switch
+nothing, only when the session records the target and either its last rotation was the switch to it (a lost switch
 response, retried) or the token's own principal is the target; anything else is `rotation_conflict`, without revoking,
-and the client retries with its current token. When another request changes the device between the switch's read and its
+and the client retries with its current token. When another request changes the session between the switch's read and its
 write, the row is read again with a lock and judged once more under the same rules; the swap is never tried twice.
 
-A switch schedules `PrincipalSwitched` for its commit on the device's connection, with the new principal and tenant in
-its context, and the previous principal as the device recorded it (`previousPrincipalMorphClass`, `previousPrincipalId`)
+A switch schedules `PrincipalSwitched` for its commit on the session's connection, with the new principal and tenant in
+its context, and the previous principal as the session recorded it (`previousPrincipalMorphClass`, `previousPrincipalId`)
 and, when it still resolves for the identity, the principal itself (`previousPrincipal`), before it binds the guard to
-the target (`Authenticated`, `PrincipalAssigned`, `DeviceAuthenticated`, no `Login`), so a listener that throws on those
+the target (`Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`, no `Login`), so a listener that throws on those
 cannot withhold the report. Outside a transaction `PrincipalSwitched` is therefore dispatched before the bind events,
 and a listener on it reads the event's context, not the guard, which still holds the previous principal; inside your
 transaction it follows the commit, after the bind events, and a rollback drops it.
 
 ## Signing out and revoking sessions
 
-`Auth::logout()` (or `Auth::guard('api')->logout()`) signs the request's session out: the device the guard is bound to
-is revoked with reason `signed_out`, `DeviceRevoked` reports it once committed, Laravel's `Logout` follows, and the
+`Auth::logout()` (or `Auth::guard('api')->logout()`) signs the request's session out: the session the guard is bound to
+is revoked with reason `signed_out`, `SessionRevoked` reports it once committed, Laravel's `Logout` follows, and the
 guard stays signed out for the rest of the request. The session's access and refresh tokens stop at once. A session
-without a persisted device (an access-only token) has nothing to revoke and is only forgotten; a guest request does
-nothing. `Auth::sessions('api')->signOut()` does the same and returns whether it revoked a device. `logout()` cannot
+without a persisted session (an access-only token) has nothing to revoke and is only forgotten; a guest request does
+nothing. `Auth::sessions('api')->signOut()` does the same and returns whether it revoked a session. `logout()` cannot
 reach the response, so clear a browser's refresh cookie on it with `Auth::refreshTransport('api')->forgetCookie()` (see
 [Refresh token cookie](refreshing.md#refresh-token-cookie)).
 
@@ -96,87 +96,86 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 
 $sessions = Auth::sessions('api');
 
-// "Sign out of all other devices": every session of the identity, of every guard, but this one.
-$sessions->signOutEverywhere(keepCurrentDevice: true);
+// "Sign out of all other sessions": every session of the identity, of every guard, but this one.
+$sessions->signOutEverywhere(keepCurrentSession: true);
 
-// A device list's "sign out" button: only the identity's own device is found.
-$sessions->revokeDevice(Auth::identity(), $deviceId, RevocationReason::REVOKED);
+// A session list's "sign out" button: only the identity's own session is found.
+$sessions->revokeSession(Auth::identity(), $sessionId, RevocationReason::REVOKED);
 
 // An administrator ends every session of an identity, or every session acting as a principal.
-$sessions->revokeDevices($identity, RevocationReason::REVOKED, except: null);
-$sessions->revokePrincipalDevices($membership, RevocationReason::REVOKED);
+$sessions->revokeSessions($identity, RevocationReason::REVOKED, except: null);
+$sessions->revokePrincipalSessions($membership, RevocationReason::REVOKED);
 ```
 
-Each device is revoked by one conditional update that only applies while it is not revoked yet, so every call is
-idempotent: the first revocation's time and reason are kept, and of two calls racing for a device only the one that
-revoked it reports `DeviceRevoked`. `revokeDevice()` finds the device through the owner's `devices()` relation on the
-write connection, so another identity's device is simply not found and the call returns `false`, as it does for an
-unknown or already revoked one. `revokeDevices()` covers every device the identity's relation returns, of every guard;
-`revokePrincipalDevices()` every device of the configured model that records the principal. Both keep the `except`
-device when one is given, return how many devices they revoked, and also end the scope's pending sign-ins (a further
+Each session is revoked by one conditional update that only applies while it is not revoked yet, so every call is
+idempotent: the first revocation's time and reason are kept, and of two calls racing for a session only the one that
+revoked it reports `SessionRevoked`. `revokeSession()` finds the session through the owner's `sessions()` relation on
+the write connection, so another identity's session is simply not found and the call returns `false`, as it does for an
+unknown or already revoked one. `revokeSessions()` covers every session the identity's relation returns, of every guard;
+`revokePrincipalSessions()` every session of the configured model that records the principal. Both keep the `except`
+session when one is given, return how many sessions they revoked, and also end the scope's pending sign-ins (a further
 factor or a principal choice waiting to be completed), so a credential issued before the revocation cannot start a
-session after it. `revokeDevices()` also cancels the identity's pending identifier changes, of every type and through
+session after it. `revokeSessions()` also cancels the identity's pending identifier changes, of every type and through
 every guard: a change link needs no session, so one requested from a session that ends could otherwise still move the
-account to an identifier of the requester's (see [Changing identifiers](identifier-changes.md)). `revokeDevice()` and
-`revokePrincipalDevices()` leave them, since the identity keeps its other sessions. `signOutEverywhere()` is
-`revokeDevices()` for the request's identity with reason
-`signed_out_everywhere`; it returns `0` on a guest request, and it leaves the guard bound for the rest of the request
-(call `signOut()` as well to end the current session too). With `keepCurrentDevice: true` on a request whose session has
-no device (an access-only token), the session is kept by leaving the identity's "tokens valid after" cutoff where it is,
-since a device-less token can only be ended through it: every device is still revoked, but the identity's other
-device-less tokens keep working too, until they expire.
+account to an identifier of the requester's (see [Changing identifiers](identifier-changes.md)). `revokeSession()` and
+`revokePrincipalSessions()` leave them, since the identity keeps its other sessions. `signOutEverywhere()` is
+`revokeSessions()` for the request's identity with reason `signed_out_everywhere`; it returns `0` on a guest request,
+and it leaves the guard bound for the rest of the request (call `signOut()` as well to end the current session too).
+With `keepCurrentSession: true` on a request with an access-only token, which names no session, the token is kept by
+leaving the identity's "tokens valid after" cutoff where it is, since a session-less token can only be ended through it:
+every session is still revoked, but the identity's other session-less tokens keep working too, until they expire.
 
 A bulk revocation first moves the scope's "tokens valid after" cutoff to now, when the identity or principal records one
-(`HasTokensValidAfter`), then, in one transaction on the storage connection, revokes each unrevoked device, read on the
+(`HasTokensValidAfter`), then, in one transaction on the storage connection, revokes each unrevoked session, read on the
 write connection in key order 500 at a time, and deletes the pending sign-ins and, for an identity, its pending
-identifier changes. Once that transaction commits, `DeviceRevoked` reports each device it revoked (with the device's own
-guard) and then `SignedOutEverywhere` reports the scope, with the acting guard, the reason, the count (also `0`, so the
-action itself is recorded), the cutoff it set (or `null`), and the device it kept. If the device transaction fails, the
-cutoff it already moved stands: more is cut off, never less, and calling again finishes the job. One window stays open:
-a sign-in that has already passed its credential check when a bulk revocation reads the devices can still create its
-device afterwards. Closing it would take a lock that every sign-in and every revocation take on the identity, which the
-package does not add. A sign-in that proves the client's previous device races a bulk revocation the same way: when the
-revocation reads that device first, it is revoked with the bulk reason and the sign-in revokes nothing and still
-creates its device; when the sign-in commits first, the previous device is already `superseded` (the bulk call skips
-it) and the new device is revoked by the bulk call if its read finds it.
+identifier changes. Once that transaction commits, `SessionRevoked` reports each session it revoked (with the session's
+own guard) and then `SignedOutEverywhere` reports the scope, with the acting guard, the reason, the count (also `0`, so
+the action itself is recorded), the cutoff it set (or `null`), and the session it kept. If the session transaction
+fails, the cutoff it already moved stands: more is cut off, never less, and calling again finishes the job. One window
+stays open: a sign-in that has already passed its credential check when a bulk revocation reads the sessions can still
+create its session afterwards. Closing it would take a lock that every sign-in and every revocation take on the
+identity, which the package does not add. A sign-in that proves the client's previous session races a bulk revocation
+the same way: when the revocation reads that session first, it is revoked with the bulk reason and the sign-in revokes
+nothing and still creates its session; when the sign-in commits first, the previous session is already `superseded` (the
+bulk call skips it) and the new session is revoked by the bulk call if its read finds it.
 
 ### Signing in again
 
-Every sign-in starts a new session on a new device; the previous session of the same client is not reused. A sign-in
-revokes the client's previous device only when the client proves it holds it, with that session's current refresh token
-in the `SignInContext` (see [Signing in](signing-in.md#signing-in-the-session-service)); the device is then revoked
-with the reason `superseded` in the same transaction, and `DeviceRevoked` reports it before the new device's
-`DeviceCreated`. The IP address and user agent never count, so an application that does not pass the refresh token
+Every sign-in starts a new session; the previous session of the same client is not reused. A sign-in
+revokes the client's previous session only when the client proves it holds it, with that session's current refresh token
+in the `SignInContext` (see [Signing in](signing-in.md#signing-in-the-session-service)); the session is then revoked
+with the reason `superseded` in the same transaction, and `SessionRevoked` reports it before the new session's
+`SessionCreated`. The IP address and user agent never count, so an application that does not pass the refresh token
 keeps every earlier session of the client until it expires, is signed out or is revoked. A refresh and a switch of
-principal keep their device.
+principal keep their session.
 
-### Listing devices
+### Listing sessions
 
-`devices()` returns one page of an identity's active devices for a "where you're signed in" screen: every session it
+`sessions()` returns one page of an identity's active sessions for a "where you're signed in" screen: every session it
 holds on any guard that is not revoked and is before both its idle and absolute deadline, most recently used first
-(devices never used last), then newest first:
+(sessions never used last), then newest first:
 
 ```php
 use SineMacula\Laravel\Authentication\Facades\Auth;
 
-Route::middleware('auth:api')->get('/devices', fn () => Auth::sessions('api')->devices(Auth::identity(), perPage: 20));
+Route::middleware('auth:api')->get('/sessions', fn () => Auth::sessions('api')->sessions(Auth::identity(), perPage: 20));
 ```
 
-Each item is a `DeviceSummary`, safe to return as it is: the device id (its `did`), guard, sign-in method, client name
+Each item is a `SessionSummary`, safe to return as it is: the session id (its `did`), guard, sign-in method, client name
 and platform, the creation time (for a model with Eloquent timestamps), IP address and user agent, when the session
-started (the sign-in that created the device), the last use and its IP address and user agent, both deadlines, and
-`current`, which marks the device the request is authenticated with on that guard. It never holds a refresh digest, the
+started (the sign-in that created the session), the last use and its IP address and user agent, both deadlines, and
+`current`, which marks the session the request is authenticated with on that guard. It never holds a refresh digest, the
 rotation time, the revocation columns, the owner or the principal, and `toArray()` and JSON use snake_case keys and
-ISO-8601 times. A page holds 1 to 100 devices (15 by default; anything else is an `InvalidArgumentException`), and the
+ISO-8601 times. A page holds 1 to 100 sessions (15 by default; anything else is an `InvalidArgumentException`), and the
 page is the request's `page` parameter unless you pass one. The list is read on the write connection through the
-identity's `devices()` relation, in two queries (a count and a select), so a device revoked a moment ago is never shown.
-An identity that does not implement `HasDevices`, or whose `devices()` relation queries a model that is not an
-`EloquentDevice`, is a `LogicException`.
+identity's `sessions()` relation, in two queries (a count and a select), so a session revoked a moment ago is never
+shown. An identity that does not implement `HasSessions`, or whose `sessions()` relation queries a model that is not an
+`EloquentSession`, is a `LogicException`.
 
-The same rule is a query scope on any model that uses `ActsAsDevice`, for your own queries:
+The same rule is a query scope on any model that uses `ActsAsSession`, for your own queries:
 
 ```php
-Device::query()->active()->where('guard', 'api')->count();
+Session::query()->active()->where('guard', 'api')->count();
 ```
 
 ### Revoking on security changes
@@ -187,9 +186,9 @@ and, for the four that end an identity's sessions, its pending identifier change
 
 | Method                                             | Ends                                       | Reason                  |
 |----------------------------------------------------|--------------------------------------------|-------------------------|
-| `passwordChanged($identity, ?Device $except)`      | The identity's sessions, but `$except`     | `password_changed`      |
+| `passwordChanged($identity, ?Session $except)`     | The identity's sessions, but `$except`     | `password_changed`      |
 | `passwordReset($identity)`                         | Every session of the identity              | `password_reset`        |
-| `factorRemoved($identity, ?Device $except)`        | The identity's sessions, but `$except`     | `factor_removed`        |
+| `factorRemoved($identity, ?Session $except)`       | The identity's sessions, but `$except`     | `factor_removed`        |
 | `identityDeactivated($identity)`                   | Every session of the identity              | `identity_deactivated`  |
 | `principalDeactivated($principal)`                 | Every session acting as the principal      | `principal_deactivated` |
 | `tenantDeactivated($tenant, iterable $principals)` | Every session acting as a listed principal | `tenant_deactivated`    |
@@ -200,16 +199,16 @@ methods end sessions, pending sign-ins and pending identifier changes only. A ch
 other proofs that could take the account back without a session: the reset links and codes and the sign-in codes of the
 identity. A registration calls none of them and ends only the reset links and codes. A password your own flow saves
 another way leaves those proofs as they are. `factorRemoved()` is the seam a further-factor package calls when an
-identity removes a factor. Devices record principals, not tenants, so `tenantDeactivated()` takes the tenant's
+identity removes a factor. Sessions record principals, not tenants, so `tenantDeactivated()` takes the tenant's
 principals from you: each must act within the tenant (read on the write connection from the principal as stored, so a
 `tenant` relation you loaded does not decide and Eloquent's strict mode does not stop the read), or an
 `InvalidArgumentException` is thrown before anything is written. A `CanBeActive` tenant already deleted or soft-deleted
 still works, since a principal whose `TenantUnavailableException` names that very tenant (its class and key, as
 `ActsAsPrincipal` reports it) acts within it, so restoring the tenant later revives no session; a tenant that does not
 implement `CanBeActive` reads as no tenant once it cannot be loaded, so call `tenantDeactivated()` before deleting it; a
-principal listed twice counts once, and every principal's sessions end in one device transaction, with one
-`SignedOutEverywhere` per principal. Deactivation already stops every token at once through the live activity checks
-(see [Active-state enforcement](identity-models.md#active-state-enforcement)); revoking makes the end outlast a
+principal listed twice counts once, and every principal's sessions end in one transaction on the storage connection,
+with one `SignedOutEverywhere` per principal. Deactivation already stops every token at once through the live activity
+checks (see [Active-state enforcement](identity-models.md#active-state-enforcement)); revoking makes the end outlast a
 reactivation and records why.
 
 Three optional listeners call them for you. Registering one is the opt-in, and each revokes only once the change that
@@ -218,20 +217,20 @@ triggered it is committed on the changed model's connection, so a change that is
 ```php
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Support\Facades\Event;
-use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnDeactivation;
-use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordChange;
-use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordReset;
+use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnDeactivation;
+use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasswordChange;
+use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasswordReset;
 
-Event::listen(PasswordReset::class, RevokeDevicesOnPasswordReset::class);
-User::observe(RevokeDevicesOnPasswordChange::class);
-User::observe(RevokeDevicesOnDeactivation::class);
-Membership::observe(RevokeDevicesOnDeactivation::class);
+Event::listen(PasswordReset::class, RevokeSessionsOnPasswordReset::class);
+User::observe(RevokeSessionsOnPasswordChange::class);
+User::observe(RevokeSessionsOnDeactivation::class);
+Membership::observe(RevokeSessionsOnDeactivation::class);
 ```
 
-- `RevokeDevicesOnPasswordReset` answers Laravel's `PasswordReset` (the password broker's) with `passwordReset()`.
-- `RevokeDevicesOnPasswordChange` observes an identity model and answers a saved change of its password column with
-  `passwordChanged()`, revoking every device, the one the change was made from included; to keep that one, call
-  `passwordChanged($identity, Auth::device())` yourself instead. The automatic rehash on sign-in is not a change, and
+- `RevokeSessionsOnPasswordReset` answers Laravel's `PasswordReset` (the password broker's) with `passwordReset()`.
+- `RevokeSessionsOnPasswordChange` observes an identity model and answers a saved change of its password column with
+  `passwordChanged()`, revoking every session, the one the change was made from included; to keep that one, call
+  `passwordChanged($identity, Auth::session())` yourself instead. The automatic rehash on sign-in is not a change, and
   the observer ignores it: the package's own sign-ins run it marked, and so do Laravel's guards (`attempt()`,
   `attemptWhen()`, `once()`, as a web login over the same user model does), whose attempt the package follows through
   Laravel's auth events. A save is the rehash only when it re-encodes the password signed in with (both the hash it
@@ -249,16 +248,16 @@ Membership::observe(RevokeDevicesOnDeactivation::class);
   save it takes for a rehash until the request or job ends, and the `OtherDeviceLogout` event that follows a forced
   rehash runs it, so a sign-out after an attempt's rehash in the same request may revoke twice. Only changes saved
   through Eloquent fire model events.
-- `RevokeDevicesOnDeactivation` observes a `CanBeActive` identity or principal model and answers an update that turns
+- `RevokeSessionsOnDeactivation` observes a `CanBeActive` identity or principal model and answers an update that turns
   it from active to inactive with `identityDeactivated()` or `principalDeactivated()` (a 2D model is treated as the
   identity). It compares a copy holding the attributes from before the update with the model as it is now, so it suits
   activity held in the model's own attributes (`ProvidesActiveState`); for activity derived from anything else, call
-  the method yourself. A tenant has no listener: devices record principals, not tenants, so call
+  the method yourself. A tenant has no listener: sessions record principals, not tenants, so call
   `tenantDeactivated()` with the tenant's principals. Registering the observer on a model that is neither an identity
   nor a principal throws a `LogicException` when that model is deactivated.
 
 A password reset through Laravel's broker saves the new password through Eloquent before your code fires
-`PasswordReset`, so with both password listeners registered the observer revokes every device first, as
+`PasswordReset`, so with both password listeners registered the observer revokes every session first, as
 `password_changed`, and the reset listener then finds none left to revoke (its `SignedOutEverywhere` reports
 `password_reset` with a count of `0`). Register one of them for each flow: the observer alone ends sessions on every
 change of password, resets included, as `password_changed`; to record resets as `password_reset`, register the reset
@@ -270,15 +269,15 @@ events report. It is the current default guard when that is a `jwt` guard, else 
 still revokes. To name it, bind the listener's `$guard`:
 
 ```php
-$this->app->when(RevokeDevicesOnPasswordChange::class)->needs('$guard')->give('api');
+$this->app->when(RevokeSessionsOnPasswordChange::class)->needs('$guard')->give('api');
 ```
 
 With no `jwt` guard configured at all, a listener throws an `InvalidArgumentException`.
 
-### Access tokens without a device
+### Access tokens without a session
 
-An access token issued without a device (access-only mode, see
-[Access-only mode](installation.md#access-only-mode-no-devices-no-refresh)) has no device to revoke. To end those too,
+An access token issued without a session (access-only mode, see
+[Access-only mode](installation.md#access-only-mode-no-sessions-no-refresh)) has no session to revoke. To end those too,
 an identity or principal implements `HasTokensValidAfter`, with the `ProvidesTokensValidAfter` trait over a nullable
 whole-second column you add:
 
@@ -299,33 +298,33 @@ class User extends Model implements HasTokensValidAfter, Identity, Principal
 ```
 
 Every bulk revocation of its sessions (including the security-change methods above) then moves its cutoff to the
-revocation's second first, except `signOutEverywhere(keepCurrentDevice: true)` from a session without a device, which
-keeps the identity's cutoff where it is (see above), and the bearer path rejects a device-less access token whose `iat`
+revocation's second first, except `signOutEverywhere(keepCurrentSession: true)` from an access-only token, which
+keeps the identity's cutoff where it is (see above), and the bearer path rejects a session-less access token whose `iat`
 is at or before the identity's or the principal's cutoff (`issued_before_cutoff`). The whole second is cut off, because
 a token's whole-second `iat` cannot tell an earlier token from one issued after the call in the same second, so a
-device-less token issued in that second is rejected too. Tokens that name a device are not checked against the cutoff
-(revoking the device ends them, and the device a sign-out everywhere keeps must keep working). The cutoff only ever
+session-less token issued in that second is rejected too. Tokens that name a session are not checked against the cutoff
+(revoking the session ends them, and the session a sign-out everywhere keeps must keep working). The cutoff only ever
 moves forward, with one conditional update on the model's own connection (`invalidateTokensIssuedBefore()`); the column
 must be loaded, or reading it throws a `LogicException`, and the column name comes from `getTokensValidAfterName()`.
 
 ### Revocation reasons
 
-Every revocation records one of these reasons in the device's `revoked_reason` and in `DeviceRevoked::$reason`
+Every revocation records one of these reasons in the session's `revoked_reason` and in `SessionRevoked::$reason`
 (`RevocationReason`); a bulk revocation reports it in `SignedOutEverywhere::$reason` as well:
 
-| Reason                  | Recorded when                                                                                                               |
-|-------------------------|-----------------------------------------------------------------------------------------------------------------------------|
-| `signed_out`            | The session signed itself out: `logout()`, `Auth::sessions()->signOut()`                                                    |
-| `signed_out_everywhere` | `signOutEverywhere()` ended the identity's sessions                                                                         |
-| `revoked`               | The application revoked it: `revokeDevice()`, `revokeDevices()`, `revokePrincipalDevices()`                                 |
-| `rotation_reuse`        | A rotated refresh token was replayed, by a refresh or a switch of principal                                                 |
-| `superseded`            | A sign-in that proved the client holds the device, with its current refresh token, replaced it with a new device            |
-| `password_changed`      | `passwordChanged()`: directly, through `Auth::passwords()->set()` with `CHANGE`, or through `RevokeDevicesOnPasswordChange` |
-| `password_reset`        | `passwordReset()`: directly, through a reset or `set()` with `RESET`, or through `RevokeDevicesOnPasswordReset`             |
-| `factor_removed`        | `factorRemoved()`, directly or through `RevokeDevicesOnPasskeyRemoval`                                                      |
-| `identity_deactivated`  | `identityDeactivated()`, directly or through `RevokeDevicesOnDeactivation`                                                  |
-| `principal_deactivated` | `principalDeactivated()`, directly or through `RevokeDevicesOnDeactivation`                                                 |
-| `tenant_deactivated`    | `tenantDeactivated()`                                                                                                       |
+| Reason                  | Recorded when                                                                                                                |
+|-------------------------|------------------------------------------------------------------------------------------------------------------------------|
+| `signed_out`            | The session signed itself out: `logout()`, `Auth::sessions()->signOut()`                                                     |
+| `signed_out_everywhere` | `signOutEverywhere()` ended the identity's sessions                                                                          |
+| `revoked`               | The application revoked it: `revokeSession()`, `revokeSessions()`, `revokePrincipalSessions()`                               |
+| `rotation_reuse`        | A rotated refresh token was replayed, by a refresh or a switch of principal                                                  |
+| `superseded`            | A sign-in that proved the client holds the session, with its current refresh token, replaced it with a new session           |
+| `password_changed`      | `passwordChanged()`: directly, through `Auth::passwords()->set()` with `CHANGE`, or through `RevokeSessionsOnPasswordChange` |
+| `password_reset`        | `passwordReset()`: directly, through a reset or `set()` with `RESET`, or through `RevokeSessionsOnPasswordReset`             |
+| `factor_removed`        | `factorRemoved()`, directly or through `RevokeSessionsOnPasskeyRemoval`                                                      |
+| `identity_deactivated`  | `identityDeactivated()`, directly or through `RevokeSessionsOnDeactivation`                                                  |
+| `principal_deactivated` | `principalDeactivated()`, directly or through `RevokeSessionsOnDeactivation`                                                 |
+| `tenant_deactivated`    | `tenantDeactivated()`                                                                                                        |
 
-`revokeDevice()`, `revokeDevices()` and `revokePrincipalDevices()` take the reason as an argument (`REVOKED` in the
+`revokeSession()`, `revokeSessions()` and `revokePrincipalSessions()` take the reason as an argument (`REVOKED` in the
 examples above); the others set their own.

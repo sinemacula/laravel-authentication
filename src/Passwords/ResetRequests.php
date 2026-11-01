@@ -84,7 +84,7 @@ final readonly class ResetRequests
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     public function link(#[\SensitiveParameter] array $input, ?ClientContext $client): CodeRequest
     {
@@ -109,7 +109,7 @@ final readonly class ResetRequests
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     public function code(string $type, #[\SensitiveParameter] array $input, ?ClientContext $client): CodeRequest
     {
@@ -135,7 +135,7 @@ final readonly class ResetRequests
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     private function send(CodePurpose $purpose, string $type, #[\SensitiveParameter] array $input, ?ClientContext $client): CodeRequest
     {

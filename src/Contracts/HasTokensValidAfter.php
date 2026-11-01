@@ -8,13 +8,13 @@ use Carbon\CarbonInterface;
 
 /**
  * Capability contract: an identity or principal that records from when its
- * access tokens issued without a device are valid.
+ * access tokens issued without a session are valid.
  *
  * Optional supplement to `Identity` and `Principal`. A token that names a
- * device stops when its device is revoked; one issued without a device (access
- * only) has nothing to revoke, so signing out everywhere moves this time
- * forward instead, and the bearer path rejects every such token issued at or
- * before it. The time is read on the write connection.
+ * session stops when the session is revoked; one issued without a session
+ * (access only) has nothing to revoke, so signing out everywhere moves this
+ * time forward instead, and the bearer path rejects every such token issued at
+ * or before it. The time is read on the write connection.
  *
  * @api
  *
@@ -24,7 +24,7 @@ use Carbon\CarbonInterface;
 interface HasTokensValidAfter
 {
     /**
-     * Return the time at or before which access tokens issued without a device
+     * Return the time at or before which access tokens issued without a session
      * are rejected, or `null` when there is none. A value that was not loaded
      * must not read as `null`: throw a `LogicException` instead.
      *

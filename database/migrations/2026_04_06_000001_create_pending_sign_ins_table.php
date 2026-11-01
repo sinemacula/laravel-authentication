@@ -45,8 +45,8 @@ return new class extends Migration {
             $blueprint->string('sign_in_method');
             $blueprint->string('identifier_type')->nullable();
 
-            // Plain string polymorphic columns, as on the devices table, so any
-            // key type fits. A sign-in waiting for its identity to choose a
+            // Plain string polymorphic columns, as on the sessions table, so
+            // any key type fits. A sign-in waiting for its identity to choose a
             // principal records none yet.
             $blueprint->string('authenticatable_type');
             $blueprint->string('authenticatable_id');
@@ -58,10 +58,10 @@ return new class extends Migration {
             $blueprint->string('created_ip', 45)->nullable();
             $blueprint->string('created_user_agent', 512)->nullable();
 
-            // The device the client proved it holds, and the digest it was
+            // The session the client proved it holds, and the digest it was
             // proven against, so completion continues it only if unchanged.
-            $blueprint->string('device_id')->nullable();
-            $blueprint->string('device_refresh_key', 64)->nullable();
+            $blueprint->string('proven_session_id')->nullable();
+            $blueprint->string('proven_session_refresh_key', 64)->nullable();
 
             // The windows of the attempt-limit slots the sign-in took, as JSON,
             // kept until it completes and given back only then, so a further
@@ -75,7 +75,7 @@ return new class extends Migration {
 
             // Signing an identity or a principal out everywhere deletes the
             // pending sign-ins that record it, in the same transaction as its
-            // devices. Named short, so a long configured table name still fits
+            // sessions. Named short, so a long configured table name still fits
             // MySQL's 64-character identifiers.
             $blueprint->index(['authenticatable_type', 'authenticatable_id'], $table . '_owner_index');
             $blueprint->index(['principal_type', 'principal_id'], $table . '_principal_index');

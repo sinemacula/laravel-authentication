@@ -11,10 +11,10 @@ a guard's JWT settings are read once and kept (see [Configuration lifetimes](ope
 | Key                                                 | Default                                                                      | Env                                                               | Per guard | See                                                                   |
 |-----------------------------------------------------|------------------------------------------------------------------------------|-------------------------------------------------------------------|-----------|-----------------------------------------------------------------------|
 | `storage.connection`                                | `null`                                                                       | `AUTHENTICATION_STORAGE_CONNECTION`                               |           | [Storage](#storage)                                                   |
-| `device.model`                                      | `Device::class`                                                              | `AUTHENTICATION_DEVICE_MODEL`                                     |           | [Device](#device)                                                     |
-| `device.table`                                      | `devices`                                                                    | `AUTHENTICATION_DEVICE_TABLE`                                     |           | [Device](#device)                                                     |
-| `device.last_used_throttle_seconds`                 | `60`                                                                         | `AUTHENTICATION_DEVICE_LAST_USED_THROTTLE_SECONDS`                |           | [Device](#device)                                                     |
-| `device.prune_after_days`                           | `30`                                                                         | `AUTHENTICATION_DEVICE_PRUNE_AFTER_DAYS`                          |           | [Pruning](operations.md#pruning)                                      |
+| `session.model`                                     | `Session::class`                                                             | `AUTHENTICATION_SESSION_MODEL`                                    |           | [Session](#session)                                                   |
+| `session.table`                                     | `authentication_sessions`                                                    | `AUTHENTICATION_SESSION_TABLE`                                    |           | [Session](#session)                                                   |
+| `session.last_used_throttle_seconds`                | `60`                                                                         | `AUTHENTICATION_SESSION_LAST_USED_THROTTLE_SECONDS`               |           | [Session](#session)                                                   |
+| `session.prune_after_days`                          | `30`                                                                         | `AUTHENTICATION_SESSION_PRUNE_AFTER_DAYS`                         |           | [Pruning](operations.md#pruning)                                      |
 | `sign_in.password_identifier`                       | `email`                                                                      | `AUTHENTICATION_SIGN_IN_PASSWORD_IDENTIFIER`                      | yes       | [Sign-in](#sign-in)                                                   |
 | `sign_in.pending_table`                             | `pending_sign_ins`                                                           | `AUTHENTICATION_SIGN_IN_PENDING_TABLE`                            |           | [Sign-in](#sign-in)                                                   |
 | `sign_in.pending_ttl_seconds`                       | `300`                                                                        | `AUTHENTICATION_SIGN_IN_PENDING_TTL_SECONDS`                      |           | [Sign-in](#sign-in)                                                   |
@@ -100,7 +100,7 @@ a guard's JWT settings are read once and kept (see [Configuration lifetimes](ope
 ],
 ```
 
-Every table the package ships lives on `storage.connection`, the default connection when `null`: devices, pending
+Every table the package ships lives on `storage.connection`, the default connection when `null`: sessions, pending
 sign-ins, one-time codes, passkeys and their challenges, API keys, identifier changes, and the attempt counters unless
 `rate_limits.connection` names a connection of their own (see [Rate limits](#rate-limits)). The shipped models read and
 write them there, and the published migrations create them there: each names the storage connection as its own, so
@@ -110,17 +110,17 @@ default connection, so run them on the default connection. Laravel keeps its `mi
 connection either way.
 
 The tables share one connection because a session, the completion of a pending sign-in, a password reset and an
-identifier change each write several of them in one transaction, which two connections cannot commit as one. The device
-model must therefore live there too: the shipped `Device` takes the storage connection unless a subclass names a
-connection of its own, and a device model, shipped or custom, on any other connection fails closed with an
-`InvalidDeviceModelConfigurationException` when a `jwt` guard is built or a device is looked up, rather than splitting a
-session across two transactions. Password resets and identifier changes need the identity there as well (see [Password
-reset](passwords.md#password-reset) and [Changing identifiers](identifier-changes.md)). API keys need no device model:
+identifier change each write several of them in one transaction, which two connections cannot commit as one. The session
+model must therefore live there too: the shipped `Session` takes the storage connection unless a subclass names a
+connection of its own, and a session model, shipped or custom, on any other connection fails closed with an
+`InvalidSessionModelConfigurationException` when a `jwt` guard is built or a session is looked up, rather than splitting
+a session across two transactions. Password resets and identifier changes need the identity there as well (see [Password
+reset](passwords.md#password-reset) and [Changing identifiers](identifier-changes.md)). API keys need no session model:
 an `api_key` guard never reads it. Connections are compared by name, a model's own or the default one, so two names for
 one database count as two connections.
 
 Identity and principal models may live on another connection, but Laravel gives a related model that names no connection
-its parent's, so such a model should name its own (`protected $connection = 'mysql';`) for the device's
+its parent's, so such a model should name its own (`protected $connection = 'mysql';`) for the session's
 `authenticatable()` and `principal()` relations to load it from there. The package itself never loads an owner through
 those relations.
 
@@ -162,8 +162,8 @@ entry; missing fields fall back to the defaults:
 Routes opt into a boundary via `auth:staff` or `auth:customer` middleware. Every token carries a `grd` claim naming the
 guard that issued it, and a guard rejects any token whose `grd` names another guard, so a staff token cannot
 authenticate as a customer even when both guards share the package key map and identity model. Separate keys and
-audiences, as above, are optional defence in depth on top of that. On refresh, the guard reloads the device's owner
-through its own user provider, so the provider's scoping applies and an owner it does not serve is rejected. The device
+audiences, as above, are optional defence in depth on top of that. On refresh, the guard reloads the session's owner
+through its own user provider, so the provider's scoping applies and an owner it does not serve is rejected. The session
 row stores the owner's primary key and the provider looks identities up by their auth identifier, so refresh requires an
 identity model whose auth identifier is its primary key: one that overrides `getAuthIdentifierName()` fails to refresh
 with `identity_unknown`. Every field in the package `jwt` block is overridable (`keys`, `active_kid`,
@@ -193,15 +193,15 @@ sessions:
 | `refresh_grace_seconds`        | 30      | 0 to 300     | `AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS`        |
 | `leeway_seconds`               | 30      | 0 to 300     | `AUTHENTICATION_JWT_LEEWAY_SECONDS`               |
 
-A session is a device. It ends at its idle deadline unless a refresh moves that deadline forward, and at its absolute
+A session ends at its idle deadline unless a refresh moves that deadline forward, and at its absolute
 deadline however often it is refreshed: each refresh sets the idle deadline to the idle lifetime from now, never past
-the absolute deadline, and never moves the absolute deadline. Tokens mirror the device: a refresh token expires at the
-device's idle deadline, and an access token after the access lifetime but never after the device's idle or absolute
+the absolute deadline, and never moves the absolute deadline. Tokens mirror the session: a refresh token expires at the
+session's idle deadline, and an access token after the access lifetime but never after the session's idle or absolute
 deadline. With an idle lifetime shorter than the access lifetime, access tokens therefore expire at the idle deadline,
-together with the refresh token, so clients must refresh before their access token expires. A device past either
+together with the refresh token, so clients must refresh before their access token expires. A session past either
 deadline, or without one, is over everywhere: its access tokens are rejected (with no leeway), it cannot be pinned on
 sign-in, it cannot be refreshed (`session_expired`), and no token can be issued for it. Ending a session this way does
-not revoke the device.
+not revoke the session.
 
 A guard override that is present and not `null` wins; otherwise the package value applies. Each value must be an integer
 or a string of digits (as `env()` returns it) within its range. A value that is missing, malformed, or out of range
@@ -267,7 +267,7 @@ the password method) fails with `identifier_unverified` unless the identity repo
 through `start()`, and refreshes are not gated, since the external provider or the existing session vouches for them.
 The check is made before any principal is resolved, so an unverified identifier gets `identifier_unverified` whether or
 not the identity has a principal yet, and the answer cannot tell whether it has been invited anywhere. A switch of
-principal is held to the identifier type its session's sign-in used, which the device records.
+principal is held to the identifier type its session's sign-in used, which the session records.
 
 A guard key that is present wins, `null` included; a guard `application` entry of `null` means no overrides. Nothing
 falls back to a literal: a key missing from both blocks, a value of the wrong shape (`null` or a map for `methods`, or a
@@ -305,21 +305,21 @@ By default, every guard uses the app-wide `PrincipalResolver` binding. Any guard
 Precedence: guard-local `principal_resolver` → app-wide `PrincipalResolver::class` binding → package default
 `DefaultPrincipalResolver`. The same resolver is used on bearer-token and refresh paths.
 
-## Device
+## Session
 
-The published `authentication.php` config controls the device model, table, how often a device's last use is written,
-and how long a device whose session ended is kept before pruning:
+The published `authentication.php` config controls the session model, table, how often a session's last use is written,
+and how long a session that ended is kept before pruning:
 
 ```php
-'device' => [
-    'model'                      => SineMacula\Laravel\Authentication\Models\Device::class,
-    'table'                      => 'devices',
+'session' => [
+    'model'                      => SineMacula\Laravel\Authentication\Models\Session::class,
+    'table'                      => 'authentication_sessions',
     'last_used_throttle_seconds' => 60,
     'prune_after_days'           => 30,
 ],
 ```
 
-A device is one signed-in session. The shipped migration creates these columns:
+A session is one sign-in, on one application, on one device. The shipped migration creates these columns:
 
 | Column                                                 | Holds                                                  |
 |--------------------------------------------------------|--------------------------------------------------------|
@@ -340,7 +340,7 @@ A device is one signed-in session. The shipped migration creates these columns:
 
 Every timestamp is a `datetime` stored to the whole second, so a deadline years ahead fits on every engine (MySQL's
 `timestamp` type ends in January 2038), and the table is indexed on the owner, the principal, the guard, both
-deadlines, and the revocation time. Every authentication that binds a persisted device (a bearer request or a refresh)
+deadlines, and the revocation time. Every authentication that binds a persisted session (a bearer request or a refresh)
 records its last use: the time, the request's IP address (only when it is a valid IPv4 or IPv6 address), and its user
 agent (without NUL bytes, as valid UTF-8, at most 512 characters), at most once per `last_used_throttle_seconds` (0
 records every use).
@@ -348,51 +348,51 @@ records every use).
 Like Laravel's own `datetime` columns, these times are stored as wall-clock times in the application timezone, without
 an offset, so keep `app.timezone` at Laravel's default of `UTC` or another zone without daylight saving. In a zone with
 daylight saving, both passes through the hour that repeats when the clocks go back store the same value, and
-`ActsAsDevice` reads it as the first pass, whichever pass PHP itself would pick. A time stored in the second pass
+`ActsAsSession` reads it as the first pass, whichever pass PHP itself would pick. A time stored in the second pass
 therefore reads back early by the length of the shift (an hour in most zones): a deadline stored there ends the session
 that much early (and when the idle lifetime is no longer than the shift, the refresh that sets it fails with an
 `InvalidArgumentException` and changes nothing), and a rotation stored there leaves the previous refresh token no grace
-window, so a retry of it counts as a replay and revokes the device. A last use recorded there reads early too, so for
+window, so a retry of it counts as a replay and revokes the session. A last use recorded there reads early too, so for
 the rest of that pass a `last_used_throttle_seconds` shorter than the shift records every use. The ambiguity can end a
 session early, fail a refresh, or record extra uses; it never extends a session or a grace window.
 
-The shipped `Device` model uses UUID v7 primary keys, a polymorphic `authenticatable` relation, and a polymorphic
+The shipped `Session` model uses UUID v7 primary keys, a polymorphic `authenticatable` relation, and a polymorphic
 `principal()` relation over the principal columns. Only `client_name` and `platform` are mass assignable; set the owner,
 the request-derived columns, and the session state with `forceFill()`. Both refresh digests are hidden from `toArray()`
-and `toJson()` by `ActsAsDevice`, under whatever column names the model uses. The session service writes
-every column when it creates a device (see [Signing in](signing-in.md#signing-in-the-session-service)); `getGuard()`,
+and `toJson()` by `ActsAsSession`, under whatever column names the model uses. The session service writes
+every column when it creates a session (see [Signing in](signing-in.md#signing-in-the-session-service)); `getGuard()`,
 `getSignInMethod()` and `getSignInIdentifierType()` read the guard, method and type of identifier it recorded. The
-bearer path and refresh honour a device only for the guard it records, refresh only while that guard still allows the
+bearer path and refresh honour a session only for the guard it records, refresh only while that guard still allows the
 method it records, and a switch of principal admits its target with the identifier type it records (`null` for a
-sign-in that used none, which is held to no type), so a device written outside the session service must record all
+sign-in that used none, which is held to no type), so a session written outside the session service must record all
 three.
 
-Subclass the model or swap `device.model` entirely - custom models must implement the `EloquentDevice` contract and live
-on the storage connection (see [Storage](#storage)). A device's identifier is always its primary key: tokens carry it in
-`did`, and the bearer path and refresh find the device by primary key, whatever the key column is called. Other column
+Subclass the model or swap `session.model` entirely - custom models must implement the `EloquentSession` contract and live
+on the storage connection (see [Storage](#storage)). A session's identifier is always its primary key: tokens carry it in
+`did`, and the bearer path and refresh find the session by primary key, whatever the key column is called. Other column
 names come from the contract's accessors (`getRefreshKeyName()`, `getRevokedAtName()`, and so on); the shipped migration
 creates the default names, so a model that renames a column needs its own migration.
 
-A device with `revoked_at` set is rejected everywhere: an access token naming it fails exactly as if the device were
-missing, and its refresh token fails with `device_revoked`. Revoking a device therefore ends its session at once rather
+A session with `revoked_at` set is rejected everywhere: an access token naming it fails exactly as if the session were
+missing, and its refresh token fails with `session_revoked`. Revoking a session therefore ends it at once rather
 than when its access tokens expire. Revocation marks the row, with the time and a reason in `revoked_reason`, and clears
-both refresh digests; it never deletes the row (pruning does, later). The package revokes a device when its session
+both refresh digests; it never deletes the row (pruning does, later). The package revokes a session when it
 signs out, when the application revokes it or signs an identity or principal out everywhere (see
 [Signing out and revoking sessions](sessions.md#signing-out-and-revoking-sessions)), and when the refresh exchange
-detects a replay. Revoking is idempotent, so a device that is already revoked keeps its first revocation, and
-`DeviceRevoked` reports each revocation the package makes. A device whose session has ended, past its idle or absolute
+detects a replay. Revoking is idempotent, so a session that is already revoked keeps its first revocation, and
+`SessionRevoked` reports each revocation the package makes. A session that has ended, past its idle or absolute
 deadline, is rejected the same way on the bearer path and as a sign-in pin, and fails refresh with `session_expired`
-(see [Token and session lifetimes](#token-and-session-lifetimes)). An access token that names a device is accepted only
-for the principal the device's session records (`principal_type`, `principal_id`), and only when it was issued no
+(see [Token and session lifetimes](#token-and-session-lifetimes)). An access token that names a session is accepted only
+for the principal the session records (`principal_type`, `principal_id`), and only when it was issued no
 earlier than the second of the session's last principal switch (`principal_switched_at`); otherwise it fails with
-`device_principal_mismatch`. A switch therefore ends the access tokens of the principal it switched from at once, and
-switching back does not revive the ones issued before it. A device that records no principal accepts no token, and a
-device pinned on `attempt()` must record the principal being bound. Both checks read the row already loaded, with no
-extra query. `ActsAsDevice` reads any stored timestamp as a value, with or without a `datetime` cast on the column, and
-throws a `LogicException` when the device was loaded without one of its refresh or revocation state columns (both
+`session_principal_mismatch`. A switch therefore ends the access tokens of the principal it switched from at once, and
+switching back does not revive the ones issued before it. A session that records no principal accepts no token, and a
+session pinned on `attempt()` must record the principal being bound. Both checks read the row already loaded, with no
+extra query. `ActsAsSession` reads any stored timestamp as a value, with or without a `datetime` cast on the column, and
+throws a `LogicException` when the session was loaded without one of its refresh or revocation state columns (both
 digests, the rotation time, the session's start, the principal switch time, both deadlines, and the revocation time) or
-without the sign-in's identifier type (`sign_in_identifier_type`), for example through a `devices()` relation or a
-global scope that selects other columns, so a partial select is reported instead of being read as a device that is not
+without the sign-in's identifier type (`sign_in_identifier_type`), for example through a `sessions()` relation or a
+global scope that selects other columns, so a partial select is reported instead of being read as a session that is not
 revoked, has no deadline, or whose sign-in used no identifier.
 
 ## Sign-in
@@ -509,7 +509,7 @@ recipient identity.
 A sender that throws fails the job, and your queue's retry policy applies; a retry checks the code first, so a code
 that expired or was replaced is never sent. Requests for codes are limited by the `code_request` rate limits (see
 [Rate limits](#rate-limits)). Expired codes stay in the table until they are pruned: schedule `model:prune` with
-`Models\OneTimeCode` beside the others (see [Pruning devices](operations.md#pruning)).
+`Models\OneTimeCode` beside the others (see [Pruning sessions](operations.md#pruning)).
 
 ## Passkeys
 
@@ -554,7 +554,7 @@ closed with an `InvalidArgumentException` naming the guard and the key when the 
 
 A challenge lives `challenge_ttl_seconds` (30 to 600, five minutes by default), which is also the `timeout` the options
 give the browser. Both tables live on the storage connection; prune expired challenges with `model:prune` (see [Pruning
-devices](operations.md#pruning)). Passkeys are not pruned: one lasts until its owner removes it. The algorithms offered
+sessions](operations.md#pruning)). Passkeys are not pruned: one lasts until its owner removes it. The algorithms offered
 are ES256, EdDSA (when PHP's sodium extension is loaded, as it is by default) and RS256.
 
 ## Rate limits
@@ -586,7 +586,7 @@ a cache. Publish the migration with the others (`authentication-migrations` crea
 |--------------------------|------------------|---------------------|----------------------------------------------------------------------------------------------------------------|
 | `sign_in`                | `per_identifier` | 5 per 300 seconds   | Every attempt for the identifier, and every secret a method checks against an account; a success is given back |
 | `sign_in`                | `per_ip`         | 50 per 300 seconds  | Every attempt from the IP address; a success is given back                                                     |
-| `refresh`                | `per_identifier` | 10 per 60 seconds   | Failed refreshes of the device                                                                                 |
+| `refresh`                | `per_identifier` | 10 per 60 seconds   | Failed refreshes of the session                                                                                |
 | `refresh`                | `per_ip`         | 100 per 60 seconds  | Failed refreshes from the IP address                                                                           |
 | `code_request`           | `per_identifier` | 5 per 3600 seconds  | Every request for a one-time code to the identifier, sent or not; never given back                             |
 | `code_request`           | `per_ip`         | 50 per 3600 seconds | Every request for a one-time code from the IP address; never given back                                        |
@@ -634,7 +634,7 @@ until the window ends, and the sign-in fails as `invalid_credentials`, as a wron
 not reveal that the account exists. Only your own listeners are told why: `AuthenticationFailed` carries
 `account_rate_limited` and the wait, so a lockout notice or a SIEM can tell a locked account from a wrong password. A
 refresh cannot guess a secret (its tokens are signed and its rotation ids random), so it counts only its failures, per
-device and per IP address, and a successful refresh costs one read. A refresh refused for its failures is returned as
+session and per IP address, and a successful refresh costs one read. A refresh refused for its failures is returned as
 `rate_limited` with the wait in `retryAfter`, for the route to answer with a `429` and `Retry-After` (see
 [Refreshing](refreshing.md)). A request for a one-time code costs a message whoever has the number, so every request for
 a valid number counts, whether a code is sent or the resend cooldown holds it back, and no slot is given back; the
@@ -667,7 +667,7 @@ through. The one exception is giving back a completed further factor's slots aft
 
 Ended windows stay in the table until they are pruned, as do pending sign-ins that were never completed (see
 [Additional factors](signing-in.md#additional-factors)). Schedule Laravel's pruning command with both models, and the
-device model, as shown in [Pruning devices](operations.md#pruning).
+session model, as shown in [Pruning sessions](operations.md#pruning).
 
 ## API key settings
 

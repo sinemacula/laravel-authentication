@@ -1,6 +1,6 @@
 # Testing
 
-## Acting as an identity, principal or device
+## Acting as an identity, principal or session
 
 Use `Testing\Concerns\InteractsWithAuthenticationContext` in a Laravel (or Testbench) test case to act on a package
 guard (`jwt` or `api_key`). Unlike Laravel's `actingAs()`, the context also authenticates every request the test then
@@ -22,34 +22,34 @@ final class ProfileTest extends TestCase
         $this->assertBoundIdentity($user)
             ->assertBoundPrincipal($membership)
             ->assertBoundTenant($tenant)
-            ->assertBoundDevice(null)
+            ->assertBoundSession(null)
             ->assertBoundScopes(null);
     }
 }
 ```
 
-| Method                                                                  | What it does                                                                                              |
-|-------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
-| `actingAsIdentity($identity, ?$principal, ?$device, ?$scopes, ?$guard)` | Acts as the identity, as the principal given or the resolver's default, on the device given or none       |
-| `actingAsPrincipal($principal, ?$device, ?$scopes, ?$guard)`            | Acts as the principal, for the identity its `getIdentity()` returns                                       |
-| `actingOnDevice($device, ?$guard)`                                      | Acts on a device's session: its owner, the principal it records and the guard it records                  |
-| `stopActing(?$guard)`                                                   | Ends acting: signed out for the rest of the request, and the next request uses its own credential, if any |
-| `assertBoundIdentity()`, `Principal()`, `Tenant()`, `Device()`          | What the guard has bound: `null` for nothing, otherwise the same class with the same identifier           |
-| `assertBoundScopes(?array $scopes)`                                     | The scopes, exactly and in order: `null` for no ceiling (a human's session), `[]` for none (a machine)    |
+| Method                                                                   | What it does                                                                                              |
+|--------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
+| `actingAsIdentity($identity, ?$principal, ?$session, ?$scopes, ?$guard)` | Acts as the identity, as the principal given or the resolver's default, on the session given or none      |
+| `actingAsPrincipal($principal, ?$session, ?$scopes, ?$guard)`            | Acts as the principal, for the identity its `getIdentity()` returns                                       |
+| `actingOnSession($session, ?$guard)`                                     | Acts on a session: its owner, the principal it records and the guard it records                           |
+| `stopActing(?$guard)`                                                    | Ends acting: signed out for the rest of the request, and the next request uses its own credential, if any |
+| `assertBoundIdentity()`, `Principal()`, `Tenant()`, `Session()`          | What the guard has bound: `null` for nothing, otherwise the same class with the same identifier           |
+| `assertBoundScopes(?array $scopes)`                                      | The scopes, exactly and in order: `null` for no ceiling (a human's session), `[]` for none (a machine)    |
 
 `actingAsIdentity()` without a principal throws an `InvalidArgumentException` when the identity has no default one, as
-`setUser()` does. `actingOnDevice()` finds the owner through the guard's provider and the principal through the guard's
-resolver, and throws an `InvalidArgumentException` when either is not found or when a guard is named that the device
+`setUser()` does. `actingOnSession()` finds the owner through the guard's provider and the principal through the guard's
+resolver, and throws an `InvalidArgumentException` when either is not found or when a guard is named that the session
 does not record.
 
 Every method takes the guard last and uses the default guard when it is left out; acting makes the guard the default,
 as `actingAs()` does. The context is bound through the guard's trusted `authenticateAs()`, so nothing is checked: a
-test can act as a revoked device, an inactive principal or a machine, which is limited to the scopes given (`[]`, none,
+test can act as a revoked session, an inactive principal or a machine, which is limited to the scopes given (`[]`, none,
 when the test names none), as if its credential granted them, so a test of a scope-gated route needs no real API key
 (`$this->actingAsIdentity($client, scopes: ['orders:read'], guard: 'api_keys')`); scopes for a human identity throw an
 `InvalidArgumentException`. Each request
-the test sends fires `Authenticated`, `PrincipalAssigned` and, with a device, `DeviceAuthenticated` (which records the
-device's use), as a bearer request does, and a context acted as wins over a credential the request carries.
+the test sends fires `Authenticated`, `PrincipalAssigned` and, with a session, `SessionAuthenticated` (which records the
+session's use), as a bearer request does, and a context acted as wins over a credential the request carries.
 
 Acting on a guard ends with `stopActing()`, when the request signs out (Laravel's `Logout` for the guard, which
 `Auth::logout()`, `Auth::sessions()->signOut()` and a sign-out endpoint dispatch), or when the test acts on that guard

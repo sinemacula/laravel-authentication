@@ -7,7 +7,7 @@ namespace SineMacula\Laravel\Authentication\Events;
 /**
  * Dispatched when a client credentials exchange issues an access token, at
  * once: the exchange writes nothing but a throttled last-use time, so there is
- * no commit to wait for. No device is created and no refresh token issued.
+ * no commit to wait for. No session is created and no refresh token issued.
  *
  * The context carries the `jwt` guard the token is for, the client of the
  * request, the non-human identity, the principal and its tenant, method

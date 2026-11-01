@@ -12,14 +12,14 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Schema;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use Tests\Integration\Fixtures\ChangeableIdentity;
 use Tests\Integration\Fixtures\ChangeableMachine;
 use Tests\Integration\Fixtures\VerifiableIdentity;
 
 /**
  * Shared set-up for tests that change identifiers through the package's guards:
- * the `changeable_identities` table and its identities, their devices, and
+ * the `changeable_identities` table and its identities, their sessions, and
  * guards over them, built on the session and code tests' helpers.
  *
  * Guards: `web` and `admin` are two jwt guards over `ChangeableIdentity` (each
@@ -34,7 +34,7 @@ use Tests\Integration\Fixtures\VerifiableIdentity;
  */
 trait InteractsWithChangeableIdentities
 {
-    use InteractsWithCodes, InteractsWithDevices, InteractsWithSessions;
+    use InteractsWithCodes, InteractsWithSessionRecords, InteractsWithSessions;
 
     /** @var string The seeded identity's email address. */
     protected const string EMAIL = 'ada@example.test';
@@ -138,26 +138,26 @@ trait InteractsWithChangeableIdentities
     }
 
     /**
-     * Persist a live device of the identity for the guard, signed in at the
+     * Persist a live session of the identity for the guard, signed in at the
      * time given (now by default).
      *
      * @param  \Tests\Integration\Fixtures\ChangeableIdentity  $identity
      * @param  string  $guard
      * @param  ?\Carbon\CarbonInterface  $signedInAt
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    protected static function seedDevice(ChangeableIdentity $identity, string $guard = 'web', ?CarbonInterface $signedInAt = null): Device
+    protected static function seedSession(ChangeableIdentity $identity, string $guard = 'web', ?CarbonInterface $signedInAt = null): Session
     {
-        $device = new Device;
+        $session = new Session;
 
-        $device->forceFill([
+        $session->forceFill([
             ...self::liveSession($guard, $identity),
             'signed_in_at'         => $signedInAt ?? Carbon::now(),
             'authenticatable_type' => $identity->getMorphClass(),
             'authenticatable_id'   => (string) $identity->getKey(),
         ])->save();
 
-        return $device;
+        return $session;
     }
 
     /**

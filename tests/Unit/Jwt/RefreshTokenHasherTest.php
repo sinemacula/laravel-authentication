@@ -92,7 +92,7 @@ final class RefreshTokenHasherTest extends TestCase
 
     /**
      * An empty rotation id is refused even against the digest of the empty
-     * string, so a device row holding that digest cannot be matched by a token
+     * string, so a session row holding that digest cannot be matched by a token
      * that carries no rotation id.
      *
      * @return void

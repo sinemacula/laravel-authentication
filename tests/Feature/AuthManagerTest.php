@@ -301,7 +301,7 @@ final class AuthManagerTest extends TestCase
 
         self::assertNull($manager->identity());
         self::assertNull($manager->principal());
-        self::assertNull($manager->device());
+        self::assertNull($manager->session());
         self::assertNull($manager->tenant());
     }
 

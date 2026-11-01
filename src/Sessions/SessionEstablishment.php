@@ -14,15 +14,15 @@ use SineMacula\Laravel\Authentication\Admission\SignInAdmission;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
-use SineMacula\Laravel\Authentication\Events\DeviceCreated;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
+use SineMacula\Laravel\Authentication\Events\SessionCreated;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -33,13 +33,13 @@ use SineMacula\Laravel\Authentication\Runtime\GuardContext;
  * Takes an admitted sign-in to its session, or to a pending sign-in when the
  * additional-factor policy asks for a further factor, and schedules what
  * reports it: `AdditionalFactorRequired` once a pending sign-in is committed,
- * `DeviceRevoked` (`superseded`, for the device the session replaced, if any),
- * `DeviceCreated` and `SignedIn` once a session is committed on the device's
- * connection, and the slot give-back of the pending sign-in a session completes
- * once that sign-in's delete is committed.
+ * `SessionRevoked` (`superseded`, for the session the new one replaced, if
+ * any), `SessionCreated` and `SignedIn` once a session is committed on the
+ * session's connection, and the slot give-back of the pending sign-in a session
+ * completes once that sign-in's delete is committed.
  *
- * Every session is a new device. A device the client proved it holds (with the
- * refresh token of its previous session) is revoked by the sign-in that
+ * Every sign-in is a new session. A session the client proved it holds (with
+ * the refresh token of its previous session) is revoked by the sign-in that
  * replaces it, in the same transaction; nothing else is ever revoked, however
  * alike the client is.
  *
@@ -63,7 +63,7 @@ final readonly class SessionEstablishment
      *
      * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
      * @param  \SineMacula\Laravel\Authentication\Sessions\SessionWriter  $writer
-     * @param  \SineMacula\Laravel\Authentication\Sessions\DeviceProof  $proof
+     * @param  \SineMacula\Laravel\Authentication\Sessions\ProvenSessions  $proof
      * @param  \SineMacula\Laravel\Authentication\Sessions\PendingSignIns  $pendings
      * @param  \SineMacula\Laravel\Authentication\Database\AfterCommit  $afterCommit
      * @param  \Illuminate\Contracts\Container\Container  $container
@@ -73,11 +73,11 @@ final readonly class SessionEstablishment
         /** The context of the guard whose sessions are established. */
         private GuardContext $context,
 
-        /** Writes the device, revoking the one it replaces, and issues the pair. */
+        /** Writes the session, revoking the one it replaces, and issues the pair. */
         private SessionWriter $writer,
 
-        /** Decides which device a client proved it holds. */
-        private DeviceProof $proof,
+        /** Decides which session a client proved it holds. */
+        private ProvenSessions $proof,
 
         /** Issues and completes the sign-ins waiting for a further factor. */
         private PendingSignIns $pendings,
@@ -91,8 +91,7 @@ final readonly class SessionEstablishment
 
     /**
      * Take an admitted sign-in to its session: check the client's proof of an
-     * existing device, then establish the session on a new device, replacing
-     * the proven one.
+     * existing session, then establish a new session, replacing the proven one.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  string  $method
@@ -107,25 +106,25 @@ final readonly class SessionEstablishment
     {
         $proven = $context->refreshToken === null
             ? null
-            : $this->proof->provenDevice($this->context->name(), $admitted, $context->refreshToken);
+            : $this->proof->provenSession($this->context->name(), $admitted, $context->refreshToken);
 
         return $this->establish($admitted, $proven, $method, $identifierType, $context, CarbonImmutable::now()->startOfSecond(), $attemptWindows);
     }
 
     /**
-     * Ask the additional-factor policy about the sign-in on the proven device
+     * Ask the additional-factor policy about the sign-in on the proven session
      * (or none): when it requires a further factor, hand out a pending sign-in
-     * that remembers the device and the attempt-limit slots the sign-in took,
+     * that remembers the session and the attempt-limit slots the sign-in took,
      * and dispatch `AdditionalFactorRequired` once it is committed; otherwise
-     * start the session on a new device, which replaces the proven one. When
-     * the proven device changed before it could be replaced, the sign-in is
-     * reconsidered without it, factor policy included; it never retries the
-     * device. A session that completes a spent pending sign-in (a choice of
-     * principal) gives back the slots that sign-in took once committed, and its
-     * device records the client the sign-in began from.
+     * start a new session, which replaces the proven one. When the proven
+     * session changed before it could be replaced, the sign-in is reconsidered
+     * without it, factor policy included; it never retries the session. A
+     * session that completes a spent pending sign-in (a choice of principal)
+     * gives back the slots that sign-in took once committed, and its session
+     * records the client the sign-in began from.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
-     * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null  $proven
+     * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $proven
      * @param  string  $method
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
@@ -138,7 +137,7 @@ final readonly class SessionEstablishment
      */
     public function establish(
         Admitted $admitted,
-        (EloquentDevice&Model)|null $proven,
+        (EloquentSession&Model)|null $proven,
         string $method,
         ?string $identifierType,
         SignInContext $context,
@@ -152,7 +151,7 @@ final readonly class SessionEstablishment
 
             $pending = $this->pendings->issue($this->context->name(), $admitted, $method, $identifierType, $context, $now, $attemptWindows);
             $event   = new AdditionalFactorRequired(
-                new EventContext($pending->guard, $context->client, $pending->identity, $pending->principal, $pending->tenant, $pending->provenDevice, $method),
+                new EventContext($pending->guard, $context->client, $pending->identity, $pending->principal, $pending->tenant, $pending->provenSession, $method),
                 $pending->expiresAt,
             );
 
@@ -195,8 +194,8 @@ final readonly class SessionEstablishment
 
     /**
      * Use the pending sign-in up, check it again, and write its session, all in
-     * the caller's transaction, replacing the proven device when it is
-     * unchanged; the device it replaced, if any, is returned with the session.
+     * the caller's transaction, replacing the proven session when it is
+     * unchanged; the session it replaced, if any, is returned with the session.
      *
      * @formatter:off
      *
@@ -205,7 +204,7 @@ final readonly class SessionEstablishment
      * @param  \SineMacula\Laravel\Authentication\Sessions\FoundPendingSignIn  $found
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \Carbon\CarbonImmutable  $now
-     * @return array{0: \SineMacula\Laravel\Authentication\Admission\Admitted, 1: \SineMacula\Laravel\Authentication\Sessions\SignedInSession, 2: (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null}|\SineMacula\Laravel\Authentication\Admission\Refused
+     * @return array{0: \SineMacula\Laravel\Authentication\Admission\Admitted, 1: \SineMacula\Laravel\Authentication\Sessions\SignedInSession, 2: (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null}|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -217,7 +216,7 @@ final readonly class SessionEstablishment
     {
         $factor = $found->factor;
 
-        SessionPreconditions::assertHoldsDevices($factor->identity);
+        SessionPreconditions::assertHoldsSessions($factor->identity);
 
         $policy   = $this->container->make(ApplicationPolicy::class);
         $admitted = match (true) {
@@ -238,25 +237,25 @@ final readonly class SessionEstablishment
 
         $origin     = PendingSignIns::origin($found->pending);
         $type       = $found->pending->identifier_type;
-        $proven     = $found->device;
+        $proven     = $found->provenSession;
         $replaced   = $proven   === null ? null : $this->write($admitted, $proven, $factor->method, $type, $context, $now, $origin);
         $superseded = $replaced === null ? null : $proven;
         $session    = $replaced ?? $this->write($admitted, null, $factor->method, $type, $context, $now, $origin);
 
-        return [$admitted->on($session->device), $session, $superseded];
+        return [$admitted->on($session->record), $session, $superseded];
     }
 
     /**
      * Write the session of an admitted sign-in, with the guard's lifetimes: a
-     * new device, replacing the proven one when there is one, recorded as
+     * new session, replacing the proven one when there is one, recorded as
      * created from the origin's client when that differs from the context's (a
-     * completion records where its sign-in began). The device records the
+     * completion records where its sign-in began). The session records the
      * method and the type of identifier the sign-in used, which a later switch
-     * of principal admits its target with. `null` when the proven device
+     * of principal admits its target with. `null` when the proven session
      * changed before it could be replaced.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
-     * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null  $proven
+     * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $proven
      * @param  string  $method
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
@@ -268,7 +267,7 @@ final readonly class SessionEstablishment
      */
     private function write(
         Admitted $admitted,
-        (EloquentDevice&Model)|null $proven,
+        (EloquentSession&Model)|null $proven,
         string $method,
         ?string $identifierType,
         SignInContext $context,
@@ -306,41 +305,41 @@ final readonly class SessionEstablishment
             $context->client,
             $context->clientName,
             $context->platform,
-            $admitted->device,
+            $admitted->session,
         ));
     }
 
     /**
      * Schedule the reports of a written session, and answer it, once the
-     * session is committed on the device's own connection: `DeviceRevoked`
-     * (`superseded`) for the device it replaced, if any, then `DeviceCreated`
+     * session is committed on the session's own connection: `SessionRevoked`
+     * (`superseded`) for the session it replaced, if any, then `SessionCreated`
      * and `SignedIn`, in turn, so a listener that throws stops the reports
      * after its own; and the give-back of the slots of the pending sign-in it
      * completes, if any, once that sign-in's delete is committed on its own.
      *
-     * The replaced device's revocation is reported with its guard (the
+     * The replaced session's revocation is reported with its guard (the
      * sign-in's own) and the method it records, the sign-in's client, and the
      * identity, principal and tenant the sign-in admitted, which the proof
-     * found the device records.
+     * found the session records.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
-     * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null  $superseded
+     * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $superseded
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  ?\SineMacula\Laravel\Authentication\Models\PendingSignIn  $spent
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      */
-    private function signedIn(SignedInSession $session, (EloquentDevice&Model)|null $superseded, Admitted $admitted, SignInContext $context, ?PendingSignIn $spent): SignInResult
+    private function signedIn(SignedInSession $session, (EloquentSession&Model)|null $superseded, Admitted $admitted, SignInContext $context, ?PendingSignIn $spent): SignInResult
     {
-        $event   = new EventContext($this->context->name(), $context->client, $session->identity, $session->principal, $admitted->tenant, $session->device, $session->method);
-        $revoked = $superseded === null ? null : new DeviceRevoked(
+        $event   = new EventContext($this->context->name(), $context->client, $session->identity, $session->principal, $admitted->tenant, $session->record, $session->method);
+        $revoked = $superseded === null ? null : new SessionRevoked(
             new EventContext($this->context->name(), $context->client, $session->identity, $session->principal, $admitted->tenant, $superseded, $superseded->getSignInMethod()),
             RevocationReason::SUPERSEDED,
         );
-        $created  = new DeviceCreated($event);
+        $created  = new SessionCreated($event);
         $signedIn = new SignedIn($event, false);
 
-        $this->afterCommit->run($session->device, function () use ($revoked, $created, $signedIn): void {
+        $this->afterCommit->run($session->record, function () use ($revoked, $created, $signedIn): void {
 
             if ($revoked !== null) {
                 $this->context->dispatch($revoked);

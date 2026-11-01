@@ -25,10 +25,10 @@ use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
-use SineMacula\Laravel\Authentication\Events\DeviceCreated;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
+use SineMacula\Laravel\Authentication\Events\SessionCreated;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
@@ -38,8 +38,8 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
-use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\PendingFactor;
@@ -80,7 +80,7 @@ final class PendingFactorSessionServiceTest extends TestCase
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
 
-    /** @var list<?string> Device identifiers the factor policy was told of, in order. */
+    /** @var list<?string> Session identifiers the factor policy was told of, in order. */
     private array $proven = [];
 
     /**
@@ -100,14 +100,14 @@ final class PendingFactorSessionServiceTest extends TestCase
 
         $factors = \Mockery::mock(AdditionalFactorPolicy::class);
         $factors->shouldReceive('requiresAdditionalFactor')->byDefault()->andReturnUsing(function (AdditionalFactorContext $context): bool {
-            $this->proven[] = $context->provenDevice === null ? null : (string) $context->provenDevice->getDeviceIdentifier(); // @phpstan-ignore cast.string
+            $this->proven[] = $context->provenSession === null ? null : (string) $context->provenSession->getSessionIdentifier(); // @phpstan-ignore cast.string
 
             return true;
         });
 
         app()->instance(AdditionalFactorPolicy::class, $factors);
 
-        Route::middleware('auth:api')->get('/me', static fn (): array => ['device' => Auth::device()?->getDeviceIdentifier()]);
+        Route::middleware('auth:api')->get('/me', static fn (): array => ['session' => Auth::session()?->getSessionIdentifier()]);
     }
 
     /**
@@ -131,10 +131,10 @@ final class PendingFactorSessionServiceTest extends TestCase
     /**
      * A sign-in that needs a factor starts no session and hands out a pending
      * sign-in; looking it up does not use it up; completing it from another
-     * client starts the session on a device created from the original sign-in's
-     * client and last used by the completing one, binds the guard, and
-     * dispatches the bind events, `DeviceCreated` and `SignedIn` (both with the
-     * completing client), but no `Attempting`.
+     * client starts a new session created from the original sign-in's client
+     * and last used by the completing one, binds the guard, and dispatches the
+     * bind events, `SessionCreated` and `SignedIn` (both with the completing
+     * client), but no `Attempting`.
      *
      * @return void
      *
@@ -145,7 +145,7 @@ final class PendingFactorSessionServiceTest extends TestCase
         $identity = $this->seedIdentity();
         $pending  = $this->pendingFor('password', 'Phone', 'iOS');
 
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
 
         $looked = $this->sessions()->pending($pending->token);
 
@@ -156,39 +156,39 @@ final class PendingFactorSessionServiceTest extends TestCase
         self::assertTrue($looked->identity instanceof IntegrationIdentity && $looked->identity->is($identity));
         self::assertSame($looked->identity, $looked->principal);
         self::assertSame($this->now->addMinutes(5)->getTimestamp(), $looked->expiresAt->getTimestamp());
-        self::assertNull($looked->provenDevice);
+        self::assertNull($looked->provenSession);
         self::assertSame(1, PendingSignIn::query()->count());
 
-        $this->recordEvents([Attempting::class, Validated::class, Login::class, DeviceCreated::class, SignedIn::class, Failed::class, AuthenticationFailed::class]);
+        $this->recordEvents([Attempting::class, Validated::class, Login::class, SessionCreated::class, SignedIn::class, Failed::class, AuthenticationFailed::class]);
 
         $guard  = $this->completionGuard();
         $result = self::sessionsOf($guard)->complete($pending->token);
 
         self::assertTrue($result->isSignedIn());
-        self::assertSame([DeviceCreated::class, SignedIn::class, Validated::class, Login::class], $this->recordedClasses());
+        self::assertSame([SessionCreated::class, SignedIn::class, Validated::class, Login::class], $this->recordedClasses());
         self::assertSame('password', $this->recordedEvent(SignedIn::class)->context->method);
         self::assertSame(self::COMPLETION_IP, $this->recordedEvent(SignedIn::class)->context->client->ip);
-        self::assertSame(self::COMPLETION_IP, $this->recordedEvent(DeviceCreated::class)->context->client->ip);
+        self::assertSame(self::COMPLETION_IP, $this->recordedEvent(SessionCreated::class)->context->client->ip);
         self::assertSame(0, PendingSignIn::query()->count());
 
         $session = $result->session;
 
         self::assertNotNull($session);
         self::assertSame($session->identity, $guard->user());
-        self::assertSame($session->device, $guard->device());
+        self::assertSame($session->record, $guard->session());
 
-        $device = Device::query()->whereKey($session->device->getKey())->firstOrFail();
+        $record = Session::query()->whereKey($session->record->getKey())->firstOrFail();
 
-        self::assertSame('password', $device->getSignInMethod());
-        self::assertSame('email', $device->getSignInIdentifierType());
-        self::assertSame('Phone', $device->client_name);
-        self::assertSame('iOS', $device->platform);
-        self::assertSame(self::CLIENT_IP, $device->created_ip);
-        self::assertSame(self::CLIENT_AGENT, $device->created_user_agent);
-        self::assertSame(self::COMPLETION_IP, $device->last_used_ip);
-        self::assertNotSame(self::CLIENT_AGENT, $device->last_used_user_agent);
+        self::assertSame('password', $record->getSignInMethod());
+        self::assertSame('email', $record->getSignInIdentifierType());
+        self::assertSame('Phone', $record->client_name);
+        self::assertSame('iOS', $record->platform);
+        self::assertSame(self::CLIENT_IP, $record->created_ip);
+        self::assertSame(self::CLIENT_AGENT, $record->created_user_agent);
+        self::assertSame(self::COMPLETION_IP, $record->last_used_ip);
+        self::assertNotSame(self::CLIENT_AGENT, $record->last_used_user_agent);
 
-        $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken])->getJson('/me')->assertOk()->assertJson(['device' => $device->getKey()]);
+        $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken])->getJson('/me')->assertOk()->assertJson(['session' => $record->getKey()]);
     }
 
     /**
@@ -222,7 +222,7 @@ final class PendingFactorSessionServiceTest extends TestCase
         self::assertNull($failed->context->identity);
         self::assertNull($failed->context->method);
         self::assertSame(self::COMPLETION_IP, $failed->context->client->ip);
-        self::assertSame(1, Device::query()->count());
+        self::assertSame(1, Session::query()->count());
     }
 
     /**
@@ -248,8 +248,9 @@ final class PendingFactorSessionServiceTest extends TestCase
 
     /**
      * A failure after a completion has used the pending sign-in up (here just
-     * after the device is written) rolls the whole completion back: the pending
-     * sign-in survives, no device is left, and the completion can be retried.
+     * after the session is written) rolls the whole completion back: the
+     * pending sign-in survives, no session is left, and the completion can be
+     * retried.
      *
      * @return void
      *
@@ -263,7 +264,7 @@ final class PendingFactorSessionServiceTest extends TestCase
         $failure = new \ArrayObject(['armed' => true]);
 
         DB::listen(static function (QueryExecuted $query) use ($failure): void {
-            if ($failure['armed'] && str_starts_with(strtolower($query->sql), 'insert into') && str_contains($query->sql, 'devices')) {
+            if ($failure['armed'] && str_starts_with(strtolower($query->sql), 'insert into') && str_contains($query->sql, 'authentication_sessions')) {
                 throw new \RuntimeException('failed after the write');
             }
         });
@@ -276,13 +277,13 @@ final class PendingFactorSessionServiceTest extends TestCase
         }
 
         self::assertSame(1, PendingSignIn::query()->count());
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
         self::assertNotNull($this->sessions()->pending($pending->token));
 
         $failure['armed'] = false;
 
         self::assertTrue($this->sessions()->complete($pending->token)->isSignedIn());
-        self::assertSame(1, Device::query()->count());
+        self::assertSame(1, Session::query()->count());
     }
 
     /**
@@ -307,7 +308,7 @@ final class PendingFactorSessionServiceTest extends TestCase
 
         self::assertNull($this->sessions()->pending($pending->token));
         self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->complete($pending->token)->reason);
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
     }
 
     /**
@@ -403,54 +404,54 @@ final class PendingFactorSessionServiceTest extends TestCase
     }
 
     /**
-     * A client that proved it holds a device, and was asked for a factor, has
-     * that device replaced only once it completes: issuing the pending sign-in
-     * revokes nothing, and the completion revokes the proven device as
+     * A client that proved it holds a session, and was asked for a factor, has
+     * that session replaced only once it completes: issuing the pending sign-in
+     * revokes nothing, and the completion revokes the proven session as
      * `superseded` and starts a new one, reporting the revocation, then the new
-     * device and the sign-in. The factor policy was told of the device.
+     * session and the sign-in. The factor policy was told of the session.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAProvenDeviceIsReplacedOnCompletion(): void
+    public function testAProvenSessionIsReplacedOnCompletion(): void
     {
         $this->seedIdentity();
 
         $first = $this->signedInWithoutAFactor();
 
-        $this->recordEvents([DeviceRevoked::class, DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionRevoked::class, SessionCreated::class, SignedIn::class]);
 
         $pending = $this->pendingFor(refreshToken: $first->tokens->refreshToken);
 
-        self::assertSame([$first->device->getKey()], $this->proven);
-        self::assertSame($first->device->getKey(), $pending->provenDevice?->getDeviceIdentifier());
-        self::assertNull(Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRevokedAt());
+        self::assertSame([$first->record->getKey()], $this->proven);
+        self::assertSame($first->record->getKey(), $pending->provenSession?->getSessionIdentifier());
+        self::assertNull(Session::query()->whereKey($first->record->getKey())->firstOrFail()->getRevokedAt());
         self::assertSame([], $this->recordedClasses());
 
         $session = $this->sessions()->complete($pending->token)->session;
 
         self::assertNotNull($session);
-        self::assertNotSame($first->device->getKey(), $session->device->getKey());
-        self::assertSame('superseded', Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRevokedReason());
-        self::assertNull(Device::query()->whereKey($session->device->getKey())->firstOrFail()->getRevokedAt());
-        self::assertSame('email', Device::query()->whereKey($session->device->getKey())->firstOrFail()->getSignInIdentifierType());
-        self::assertSame([DeviceRevoked::class, DeviceCreated::class, SignedIn::class], $this->recordedClasses());
-        self::assertSame(IdentifierCoercion::stringify($first->device->getKey()), $this->recordedEvent(DeviceRevoked::class)->context->deviceId);
-        self::assertSame(RevocationReason::SUPERSEDED, $this->recordedEvent(DeviceRevoked::class)->reason);
-        self::assertSame(IdentifierCoercion::stringify($session->device->getKey()), $this->recordedEvent(DeviceCreated::class)->context->deviceId);
-        self::assertSame(IdentifierCoercion::stringify($session->device->getKey()), $this->recordedEvent(SignedIn::class)->context->deviceId);
+        self::assertNotSame($first->record->getKey(), $session->record->getKey());
+        self::assertSame('superseded', Session::query()->whereKey($first->record->getKey())->firstOrFail()->getRevokedReason());
+        self::assertNull(Session::query()->whereKey($session->record->getKey())->firstOrFail()->getRevokedAt());
+        self::assertSame('email', Session::query()->whereKey($session->record->getKey())->firstOrFail()->getSignInIdentifierType());
+        self::assertSame([SessionRevoked::class, SessionCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame(IdentifierCoercion::stringify($first->record->getKey()), $this->recordedEvent(SessionRevoked::class)->context->sessionId);
+        self::assertSame(RevocationReason::SUPERSEDED, $this->recordedEvent(SessionRevoked::class)->reason);
+        self::assertSame(IdentifierCoercion::stringify($session->record->getKey()), $this->recordedEvent(SessionCreated::class)->context->sessionId);
+        self::assertSame(IdentifierCoercion::stringify($session->record->getKey()), $this->recordedEvent(SignedIn::class)->context->sessionId);
     }
 
     /**
-     * A pending sign-in that proved a device and is discarded (its factor
-     * failed) revokes nothing: the proven device stays live.
+     * A pending sign-in that proved a session and is discarded (its factor
+     * failed) revokes nothing: the proven session stays live.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testADiscardedPendingSignInLeavesTheProvenDeviceLive(): void
+    public function testADiscardedPendingSignInLeavesTheProvenSessionLive(): void
     {
         $this->seedIdentity();
 
@@ -458,46 +459,46 @@ final class PendingFactorSessionServiceTest extends TestCase
         $pending = $this->pendingFor(refreshToken: $first->tokens->refreshToken);
 
         self::assertTrue($this->sessions()->discard($pending->token));
-        self::assertNull(Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRevokedAt());
-        self::assertSame(1, Device::query()->count());
+        self::assertNull(Session::query()->whereKey($first->record->getKey())->firstOrFail()->getRevokedAt());
+        self::assertSame(1, Session::query()->count());
     }
 
     /**
-     * A revocation of every device of the identity between the issue of a
-     * pending sign-in that proved a device and its completion deletes the
+     * A revocation of every session of the identity between the issue of a
+     * pending sign-in that proved a session and its completion deletes the
      * pending sign-in: the completion fails as `pending_invalid` and starts
-     * nothing, and the proven device keeps the bulk revocation's reason.
+     * nothing, and the proven session keeps the bulk revocation's reason.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAPendingSignInEndedByASignOutEverywhereCannotReplaceItsDevice(): void
+    public function testAPendingSignInEndedByASignOutEverywhereCannotReplaceItsSession(): void
     {
         $identity = $this->seedIdentity();
 
         $first   = $this->signedInWithoutAFactor();
         $pending = $this->pendingFor(refreshToken: $first->tokens->refreshToken);
 
-        self::assertSame(1, $this->sessions()->revokeDevices($identity, RevocationReason::SIGNED_OUT_EVERYWHERE));
+        self::assertSame(1, $this->sessions()->revokeSessions($identity, RevocationReason::SIGNED_OUT_EVERYWHERE));
         self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->complete($pending->token)->reason);
-        self::assertSame('signed_out_everywhere', Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRevokedReason());
-        self::assertSame(1, Device::query()->count());
+        self::assertSame('signed_out_everywhere', Session::query()->whereKey($first->record->getKey())->firstOrFail()->getRevokedReason());
+        self::assertSame(1, Session::query()->count());
     }
 
     /**
-     * A proven device that changes after the factor was asked for is not
+     * A proven session that changes after the factor was asked for is not
      * replaced: a refresh before the completion makes it unknown to the
      * pending sign-in, and one in the middle of the completion makes the swap
-     * miss; either way the completion starts on a new device, which records the
+     * miss; either way the completion starts on a new session, which records the
      * sign-in's identifier type, reports no revocation, and leaves the changed
-     * device live.
+     * session live.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAProvenDeviceThatChangedIsNotReplaced(): void
+    public function testAProvenSessionThatChangedIsNotReplaced(): void
     {
         $this->seedIdentity();
 
@@ -506,34 +507,34 @@ final class PendingFactorSessionServiceTest extends TestCase
         $rotated = self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken)->session?->tokens;
 
         self::assertNotNull($rotated);
-        self::assertNull($this->sessions()->pending($before->token)?->provenDevice);
+        self::assertNull($this->sessions()->pending($before->token)?->provenSession);
 
-        $this->recordEvents([DeviceRevoked::class, DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionRevoked::class, SessionCreated::class, SignedIn::class]);
 
         $fallback = $this->sessions()->complete($before->token)->session;
 
         self::assertNotNull($fallback);
-        self::assertNotSame($first->device->getKey(), $fallback->device->getKey());
-        self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
-        self::assertSame(IdentifierCoercion::stringify($fallback->device->getKey()), $this->recordedEvent(SignedIn::class)->context->deviceId);
+        self::assertNotSame($first->record->getKey(), $fallback->record->getKey());
+        self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame(IdentifierCoercion::stringify($fallback->record->getKey()), $this->recordedEvent(SignedIn::class)->context->sessionId);
 
         $during = $this->pendingFor(refreshToken: $rotated->refreshToken);
 
         $this->onStatement('delete from', static function () use ($first): void {
-            Device::query()->whereKey($first->device->getKey())->update(['refresh_key' => RefreshTokenHasher::hash('rotated-in-parallel')]);
+            Session::query()->whereKey($first->record->getKey())->update(['refresh_key' => RefreshTokenHasher::hash('rotated-in-parallel')]);
         });
 
-        $this->recordEvents([DeviceRevoked::class, DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionRevoked::class, SessionCreated::class, SignedIn::class]);
 
         $result = $this->sessions()->complete($during->token);
 
         self::assertNotNull($result->session);
-        self::assertNotSame($first->device->getKey(), $result->session->device->getKey());
-        self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
-        self::assertSame(IdentifierCoercion::stringify($result->session->device->getKey()), $this->recordedEvent(DeviceCreated::class)->context->deviceId);
-        self::assertSame('email', Device::query()->whereKey($result->session->device->getKey())->value('sign_in_identifier_type'));
-        self::assertSame(RefreshTokenHasher::hash('rotated-in-parallel'), Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRefreshKey());
-        self::assertNull(Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRevokedAt());
+        self::assertNotSame($first->record->getKey(), $result->session->record->getKey());
+        self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame(IdentifierCoercion::stringify($result->session->record->getKey()), $this->recordedEvent(SessionCreated::class)->context->sessionId);
+        self::assertSame('email', Session::query()->whereKey($result->session->record->getKey())->value('sign_in_identifier_type'));
+        self::assertSame(RefreshTokenHasher::hash('rotated-in-parallel'), Session::query()->whereKey($first->record->getKey())->firstOrFail()->getRefreshKey());
+        self::assertNull(Session::query()->whereKey($first->record->getKey())->firstOrFail()->getRevokedAt());
     }
 
     /**
@@ -557,20 +558,20 @@ final class PendingFactorSessionServiceTest extends TestCase
         });
 
         self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->complete($pending->token)->reason);
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
     }
 
     /**
-     * When the proven device changes before a sign-in can continue on it, the
-     * factor policy is asked again without the device, and a pending sign-in it
-     * then asks for carries no device; its completion records the sign-in's
+     * When the proven session changes before a sign-in can continue on it, the
+     * factor policy is asked again without the session, and a pending sign-in
+     * it then asks for carries no session; its completion records the sign-in's
      * identifier type.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAFactorIsReconsideredWithoutADeviceThatChanged(): void
+    public function testAFactorIsReconsideredWithoutASessionThatChanged(): void
     {
         $identity = $this->seedIdentity();
 
@@ -579,9 +580,9 @@ final class PendingFactorSessionServiceTest extends TestCase
         $factors = \Mockery::mock(AdditionalFactorPolicy::class);
         $factors->shouldReceive('requiresAdditionalFactor')->twice()->andReturnUsing(function (AdditionalFactorContext $context) use ($first): bool {
 
-            if ($context->provenDevice !== null) {
+            if ($context->provenSession !== null) {
 
-                Device::query()->whereKey($first->device->getKey())->update(['refresh_key' => RefreshTokenHasher::hash('rotated-in-parallel')]);
+                Session::query()->whereKey($first->record->getKey())->update(['refresh_key' => RefreshTokenHasher::hash('rotated-in-parallel')]);
 
                 return false;
             }
@@ -595,14 +596,14 @@ final class PendingFactorSessionServiceTest extends TestCase
         $result  = $this->sessions()->signIn('password', self::credentials(), $context);
 
         self::assertTrue($result->requiresFactor());
-        self::assertNull($result->pending?->provenDevice);
-        self::assertNull(PendingSignIn::query()->firstOrFail()->device_id);
+        self::assertNull($result->pending?->provenSession);
+        self::assertNull(PendingSignIn::query()->firstOrFail()->proven_session_id);
         self::assertSame([1, 1], [$this->identifierHits(), $this->accountHits($identity)]);
 
         $completed = $this->sessions()->complete((string) $result->pending?->token)->session;
 
         self::assertNotNull($completed);
-        self::assertSame('email', Device::query()->whereKey($completed->device->getKey())->value('sign_in_identifier_type'));
+        self::assertSame('email', Session::query()->whereKey($completed->record->getKey())->value('sign_in_identifier_type'));
         self::assertSame([0, 0], [$this->identifierHits(), $this->accountHits($identity)]);
     }
 
@@ -630,7 +631,7 @@ final class PendingFactorSessionServiceTest extends TestCase
         self::assertFalse(app(Hasher::class)->needsRehash($stored));
         self::assertTrue(app(Hasher::class)->check(self::PASSWORD, $stored));
         self::assertSame(1, PendingSignIn::query()->count());
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
         self::assertTrue($this->sessions()->complete($pending->token)->isSignedIn());
     }
 
@@ -660,7 +661,7 @@ final class PendingFactorSessionServiceTest extends TestCase
 
         self::assertSame(FailureReason::PENDING_INVALID, $this->sessions('members')->complete($pending->token)->reason);
         self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
     }
 
     /**
@@ -723,7 +724,7 @@ final class PendingFactorSessionServiceTest extends TestCase
     /**
      * A sign-in held for a further factor reports its outcome: after
      * `Attempting`, `AdditionalFactorRequired` with the guard, identity,
-     * principal, method, client and expiry (and no tenant or device here), and
+     * principal, method, client and expiry (and no tenant or session here), and
      * never the token; nothing that reports a session or a failure fires. A
      * `start()` held for a factor reports it too, without `Attempting`.
      *
@@ -747,7 +748,7 @@ final class PendingFactorSessionServiceTest extends TestCase
         self::assertTrue($required->context->identity instanceof IntegrationIdentity && $required->context->identity->is($identity));
         self::assertSame($required->context->identity, $required->context->principal);
         self::assertNull($required->context->tenant);
-        self::assertNull($required->context->device);
+        self::assertNull($required->context->session);
         self::assertSame('password', $required->context->method);
         self::assertSame(self::CLIENT_IP, $required->context->client->ip);
         self::assertSame($pending->expiresAt->getTimestamp(), $required->expiresAt->getTimestamp());
@@ -763,7 +764,7 @@ final class PendingFactorSessionServiceTest extends TestCase
     /**
      * A sign-in within a tenant carries the tenant through the factor seam: the
      * factor policy is told of it, `AdditionalFactorRequired` reports it, and
-     * the completion's `DeviceCreated` and `SignedIn` carry it too.
+     * the completion's `SessionCreated` and `SignedIn` carry it too.
      *
      * @return void
      *
@@ -783,7 +784,7 @@ final class PendingFactorSessionServiceTest extends TestCase
 
         app()->instance(AdditionalFactorPolicy::class, $factors);
 
-        $this->recordEvents([AdditionalFactorRequired::class, DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([AdditionalFactorRequired::class, SessionCreated::class, SignedIn::class]);
 
         $pending = $this->sessions('members')->start($member, null, 'sso')->pending;
 
@@ -791,14 +792,14 @@ final class PendingFactorSessionServiceTest extends TestCase
         self::assertSame([$tenant->getKey()], $told);
         self::assertSame($tenant->getKey(), $this->recordedEvent(AdditionalFactorRequired::class)->context->tenant?->getTenantIdentifier());
         self::assertTrue($this->sessions('members')->complete($pending->token)->isSignedIn());
-        self::assertSame($tenant->getKey(), $this->recordedEvent(DeviceCreated::class)->context->tenant?->getTenantIdentifier());
+        self::assertSame($tenant->getKey(), $this->recordedEvent(SessionCreated::class)->context->tenant?->getTenantIdentifier());
         self::assertSame($tenant->getKey(), $this->recordedEvent(SignedIn::class)->context->tenant?->getTenantIdentifier());
     }
 
     /**
      * `AdditionalFactorRequired` waits for the pending sign-in to commit:
      * inside a caller's transaction it fires on commit, and never when the
-     * caller rolls the pending sign-in back. It names the device the client
+     * caller rolls the pending sign-in back. It names the session the client
      * proved.
      *
      * @return void
@@ -832,7 +833,7 @@ final class PendingFactorSessionServiceTest extends TestCase
         });
 
         self::assertSame([AdditionalFactorRequired::class], $this->recordedClasses());
-        self::assertSame($first->device->getKey(), $this->recordedEvent(AdditionalFactorRequired::class)->context->device?->getDeviceIdentifier());
+        self::assertSame($first->record->getKey(), $this->recordedEvent(AdditionalFactorRequired::class)->context->session?->getSessionIdentifier());
     }
 
     /**
@@ -1068,7 +1069,7 @@ final class PendingFactorSessionServiceTest extends TestCase
      */
     private function assertCompletionFails(FailureReason $reason, PendingFactor $pending, string $guard = 'api'): void
     {
-        $devices = Device::query()->count();
+        $sessions = Session::query()->count();
 
         $this->recordEvents([AuthenticationFailed::class]);
 
@@ -1077,7 +1078,7 @@ final class PendingFactorSessionServiceTest extends TestCase
         self::assertSame($reason, $result->reason);
         self::assertSame($reason, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertSame($pending->method, $this->recordedEvent(AuthenticationFailed::class)->context->method);
-        self::assertSame($devices, Device::query()->count());
+        self::assertSame($sessions, Session::query()->count());
         self::assertNull($this->sessions($guard)->pending($pending->token));
         self::assertSame(0, PendingSignIn::query()->whereKey(explode('.', $pending->token, 2)[0])->count());
     }

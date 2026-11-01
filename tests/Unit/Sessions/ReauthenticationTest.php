@@ -8,9 +8,9 @@ use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
-use Tests\Unit\Stubs\PlainDeviceFixture;
+use Tests\Unit\Stubs\PlainSessionFixture;
 
 /**
  * Unit tests for the proofs of a recent authentication: each kind hands its
@@ -26,15 +26,15 @@ use Tests\Unit\Stubs\PlainDeviceFixture;
 final class ReauthenticationTest extends TestCase
 {
     /**
-     * A device proof hands its device to the device callback.
+     * A session proof hands its session to the session callback.
      *
      * @return void
      */
-    public function testADeviceProofCarriesItsDevice(): void
+    public function testAProvenSessionsCarriesItsSession(): void
     {
-        $device = new PlainDeviceFixture('device-1');
+        $session = new PlainSessionFixture('session-1');
 
-        self::assertSame(['device', $device], self::kind(Reauthentication::device($device)));
+        self::assertSame(['session', $session], self::kind(Reauthentication::session($session)));
     }
 
     /**
@@ -94,7 +94,7 @@ final class ReauthenticationTest extends TestCase
     private static function kind(Reauthentication $proof): array
     {
         return $proof->apply(
-            static fn (Device $device): array => ['device', $device],
+            static fn (Session $session): array => ['session', $session],
             static fn (string $password): array => ['password', $password],
             static fn (CarbonImmutable $at): array => ['confirmed', $at],
         );

@@ -8,9 +8,9 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Validation\Rules\Password;
 use SineMacula\Laravel\Authentication\Codes\CodeRequest;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
@@ -96,7 +96,7 @@ final readonly class PasswordService
 
     /**
      * Set the identity's password, when it passes the policy, and end the
-     * sessions its flow ends: a change every session but `$except` (the device
+     * sessions its flow ends: a change every session but `$except` (the session
      * the change was made from, when the application keeps it signed in), a
      * reset every session, a registration none. `PasswordSet` follows once it
      * commits. A password that breaks the policy writes nothing and reports
@@ -112,7 +112,7 @@ final readonly class PasswordService
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $password
      * @param  \SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow  $flow
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $except
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Passwords\PasswordResult
      *
@@ -121,7 +121,7 @@ final readonly class PasswordService
      * @throws \LogicException
      * @throws \Throwable
      */
-    public function set(Identity $identity, #[\SensitiveParameter] string $password, PasswordFlow $flow, ?Device $except = null, ?ClientContext $client = null): PasswordResult
+    public function set(Identity $identity, #[\SensitiveParameter] string $password, PasswordFlow $flow, ?Session $except = null, ?ClientContext $client = null): PasswordResult
     {
         $model = self::settable($identity, $flow, $except);
         $check = $this->check($password);
@@ -154,7 +154,7 @@ final readonly class PasswordService
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     public function sendResetLink(#[\SensitiveParameter] array $input, ?ClientContext $client = null): CodeRequest
     {
@@ -178,7 +178,7 @@ final readonly class PasswordService
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     public function sendResetCode(string $type, #[\SensitiveParameter] array $input, ?ClientContext $client = null): CodeRequest
     {
@@ -224,13 +224,13 @@ final readonly class PasswordService
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow  $flow
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $except
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
      * @return \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    private static function settable(Identity $identity, PasswordFlow $flow, ?Device $except): Identity&Model
+    private static function settable(Identity $identity, PasswordFlow $flow, ?Session $except): Identity&Model
     {
         if ($identity instanceof MachineIdentity) {
             throw new \InvalidArgumentException(sprintf('%s is a machine identity: it has no password to set.', $identity::class));
@@ -245,7 +245,7 @@ final readonly class PasswordService
         }
 
         if ($except !== null && $flow !== PasswordFlow::CHANGE) {
-            throw new \InvalidArgumentException(sprintf('A device to keep signed in is for a change of password, not a %s.', $flow->value));
+            throw new \InvalidArgumentException(sprintf('A session to keep signed in is for a change of password, not a %s.', $flow->value));
         }
 
         return $identity;

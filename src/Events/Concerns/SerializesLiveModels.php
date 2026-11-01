@@ -7,14 +7,14 @@ namespace SineMacula\Laravel\Authentication\Events\Concerns;
 use Illuminate\Contracts\Database\ModelIdentifier;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 
 /**
- * Lets the live models of an event (its identity, principal, tenant and device)
- * cross a queue without being able to stop it from coming back.
+ * Lets the live models of an event (its identity, principal, tenant and
+ * session) cross a queue without being able to stop it from coming back.
  *
  * A live model that is an Eloquent model is stored as Laravel's model
  * identifier and fetched again from the writer when the event is restored, with
@@ -70,7 +70,7 @@ trait SerializesLiveModels
      */
     private static function isLive(mixed $value): bool
     {
-        return $value instanceof Identity || $value instanceof Principal || $value instanceof Tenant || $value instanceof Device;
+        return $value instanceof Identity || $value instanceof Principal || $value instanceof Tenant || $value instanceof Session;
     }
 
     /**

@@ -8,13 +8,13 @@ namespace SineMacula\Laravel\Authentication\Jwt;
  * Immutable token pair: the first pair of a session the session service
  * started, or the pair a refresh or a switch of principal rotated in.
  *
- * Either way it replaces any refresh token the client held for the device, so
+ * Either way it replaces any refresh token the client held for the session, so
  * consumers must store the value in `$refreshToken` immediately. After a
  * refresh the replaced token is honoured only for a short grace window (a retry
  * gets the current credential again); presented after it, it is treated as a
- * replay and revokes the device. A sign-in always starts a new device, and one
- * that proved the client's previous device revokes it, so that device's refresh
- * tokens are refused as revoked from then on.
+ * replay and revokes the session. A sign-in always starts a new session, and
+ * one that proved the client's previous session revokes it, so that session's
+ * refresh tokens are refused as revoked from then on.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -32,7 +32,7 @@ final readonly class TokenPair
         /** Newly issued access token returned to the client. */
         #[\SensitiveParameter] public string $accessToken,
 
-        /** Newly issued refresh token carrying the device's current rotation id. */
+        /** Newly issued refresh token carrying the session's current rotation id. */
         #[\SensitiveParameter] public string $refreshToken,
     ) {}
 }

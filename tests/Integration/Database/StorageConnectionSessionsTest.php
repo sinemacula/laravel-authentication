@@ -19,11 +19,11 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
-use Tests\Concerns\InteractsWithDevices;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithRateLimits;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\NamedConnectionIdentity;
@@ -36,7 +36,7 @@ use Tests\TestCase;
  * pending sign-in are read and written where the shipped migrations created
  * their tables; a failure while a pending sign-in starts its session rolls the
  * whole completion back there; a rollback there leaves the counters counted;
- * and a device loads an owner that names its connection from that connection.
+ * and a session loads an owner that names its connection from that connection.
  *
  * Each connection is a second connection to the test database with a table
  * prefix of its own: a database of its own on SQLite, and prefixed tables
@@ -50,7 +50,7 @@ use Tests\TestCase;
 #[CoversClass(StorageConnection::class)]
 final class StorageConnectionSessionsTest extends TestCase
 {
-    use InteractsWithDevices, InteractsWithPasskeys, InteractsWithRateLimits, InteractsWithSessions;
+    use InteractsWithPasskeys, InteractsWithRateLimits, InteractsWithSessionRecords, InteractsWithSessions;
 
     /** @var string The connection the package's tables live on. */
     private const string STORAGE = 'package_store';
@@ -72,14 +72,14 @@ final class StorageConnectionSessionsTest extends TestCase
     }
 
     /**
-     * Drop the identity tables and forget the device listeners a test added.
+     * Drop the identity tables and forget the session listeners a test added.
      *
      * @return void
      */
     #[\Override]
     protected function tearDown(): void
     {
-        Device::flushEventListeners();
+        Session::flushEventListeners();
 
         $this->dropSessionTables();
 
@@ -88,8 +88,8 @@ final class StorageConnectionSessionsTest extends TestCase
 
     /**
      * A failed sign-in counts on the counters' connection; a successful one
-     * writes its device on the storage connection, and its refresh rotates the
-     * device there.
+     * writes its session on the storage connection, and its refresh rotates the
+     * session there.
      *
      * @return void
      *
@@ -105,13 +105,13 @@ final class StorageConnectionSessionsTest extends TestCase
         $session = $this->sessions()->signIn('password', self::credentials())->session;
 
         self::assertNotNull($session);
-        self::assertSame(self::STORAGE, $session->device->getConnectionName());
-        self::assertSame(1, $this->devices()->count());
+        self::assertSame(self::STORAGE, $session->record->getConnectionName());
+        self::assertSame(1, $this->records()->count());
 
-        $digest = $this->devices()->value('refresh_key');
+        $digest = $this->records()->value('refresh_key');
 
         self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
-        self::assertNotSame($digest, $this->devices()->value('refresh_key'));
+        self::assertNotSame($digest, $this->records()->value('refresh_key'));
     }
 
     /**
@@ -132,7 +132,7 @@ final class StorageConnectionSessionsTest extends TestCase
 
         self::assertSame(1, DB::connection(self::STORAGE)->table('passkey_challenges')->count());
         self::assertTrue($this->signInWithPasskey()->isSignedIn());
-        self::assertSame(1, $this->devices()->count());
+        self::assertSame(1, $this->records()->count());
     }
 
     /**
@@ -174,7 +174,7 @@ final class StorageConnectionSessionsTest extends TestCase
         self::assertNotNull($pending);
         self::assertSame(1, DB::connection(self::STORAGE)->table('pending_sign_ins')->count());
 
-        Device::creating(static function (): never {
+        Session::creating(static function (): never {
             throw new \RuntimeException('The session could not be written.');
         });
 
@@ -187,13 +187,13 @@ final class StorageConnectionSessionsTest extends TestCase
         }
 
         self::assertSame(1, DB::connection(self::STORAGE)->table('pending_sign_ins')->count());
-        self::assertSame(0, $this->devices()->count());
+        self::assertSame(0, $this->records()->count());
 
-        Device::flushEventListeners();
+        Session::flushEventListeners();
 
         self::assertTrue($this->sessions()->complete($pending->token)->isSignedIn());
         self::assertSame(0, DB::connection(self::STORAGE)->table('pending_sign_ins')->count());
-        self::assertSame(1, $this->devices()->count());
+        self::assertSame(1, $this->records()->count());
     }
 
     /**
@@ -220,31 +220,31 @@ final class StorageConnectionSessionsTest extends TestCase
     }
 
     /**
-     * A device on the storage connection loads, lazily and eagerly, an owner
+     * A session on the storage connection loads, lazily and eagerly, an owner
      * whose model names its connection from that connection; an owner whose
-     * model names none is looked for on the device's connection, as Laravel
+     * model names none is looked for on the session's connection, as Laravel
      * relations do, where it is not.
      *
      * @return void
      */
-    public function testADeviceLoadsAnOwnerThatNamesItsConnection(): void
+    public function testASessionLoadsAnOwnerThatNamesItsConnection(): void
     {
         $identity = $this->seedIdentity();
 
-        $this->seedOwnedDevice(NamedConnectionIdentity::class, $identity->getKey());
+        $this->seedOwnedSession(NamedConnectionIdentity::class, $identity->getKey());
 
-        $owner = Device::query()->sole()->authenticatable;
+        $owner = Session::query()->sole()->authenticatable;
 
         self::assertInstanceOf(NamedConnectionIdentity::class, $owner);
         self::assertSame($identity->getKey(), $owner->getKey());
-        self::assertInstanceOf(NamedConnectionIdentity::class, Device::query()->with('authenticatable')->sole()->authenticatable);
+        self::assertInstanceOf(NamedConnectionIdentity::class, Session::query()->with('authenticatable')->sole()->authenticatable);
 
-        $this->devices()->delete();
-        $this->seedOwnedDevice(IntegrationIdentity::class, $identity->getKey());
+        $this->records()->delete();
+        $this->seedOwnedSession(IntegrationIdentity::class, $identity->getKey());
 
         $this->expectException(QueryException::class);
 
-        Device::query()->sole()->authenticatable()->getResults();
+        Session::query()->sole()->authenticatable()->getResults();
     }
 
     /**
@@ -298,15 +298,15 @@ final class StorageConnectionSessionsTest extends TestCase
     }
 
     /**
-     * Persist a live device owned by the identity of the type and key.
+     * Persist a live session owned by the identity of the type and key.
      *
      * @param  class-string  $type
      * @param  mixed  $key
      * @return void
      */
-    private function seedOwnedDevice(string $type, mixed $key): void
+    private function seedOwnedSession(string $type, mixed $key): void
     {
-        (new Device)->forceFill([...self::liveSession(), 'authenticatable_type' => $type, 'authenticatable_id' => (string) $key])->save(); // @phpstan-ignore cast.string
+        (new Session)->forceFill([...self::liveSession(), 'authenticatable_type' => $type, 'authenticatable_id' => (string) $key])->save(); // @phpstan-ignore cast.string
     }
 
     /**
@@ -323,12 +323,12 @@ final class StorageConnectionSessionsTest extends TestCase
     }
 
     /**
-     * A query on the devices table, on the storage connection.
+     * A query on the sessions table, on the storage connection.
      *
      * @return \Illuminate\Database\Query\Builder
      */
-    private function devices(): Builder
+    private function records(): Builder
     {
-        return DB::connection(self::STORAGE)->table('devices');
+        return DB::connection(self::STORAGE)->table('authentication_sessions');
     }
 }

@@ -23,8 +23,8 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Concerns\InteractsWithDevices;
+use SineMacula\Laravel\Authentication\Models\Session;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\Coexist2dIdentity;
 use Tests\Integration\Fixtures\DomainScopedModelProvider;
@@ -37,7 +37,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  * Every guard here uses the package-wide key map, the default configuration in
  * which the guards share a signing key, and none sets an issuer or audience.
  * Only the `grd` claim tells the guards' tokens apart, and refresh reloads the
- * device owner through the refreshing guard's own provider.
+ * session owner through the refreshing guard's own provider.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -48,7 +48,7 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(RefreshTokenExchange::class)]
 final class GuardBoundTokenIntegrationTest extends TestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
     /** @var string Guard over `StubPrincipal`. */
     private const string STAFF_GUARD = 'staff';
@@ -62,7 +62,7 @@ final class GuardBoundTokenIntegrationTest extends TestCase
     /** @var string Guard whose provider serves one email domain only. */
     private const string CUSTOMER_GUARD = 'customer';
 
-    /** @var string Plaintext rotation id stored on seeded devices. */
+    /** @var string Plaintext rotation id stored on seeded sessions. */
     private const string ROTATION_ID = 'stored-rotation-id';
 
     /**
@@ -152,9 +152,9 @@ final class GuardBoundTokenIntegrationTest extends TestCase
     public function testRefreshTokenRotatesOnlyOnTheIssuingGuardWithSharedKeyAndModel(): void
     {
         $identity = $this->seedPrincipal('staff@staff.test');
-        $device   = $this->seedDevice($identity, self::STAFF_GUARD);
+        $session  = $this->seedSession($identity, self::STAFF_GUARD);
 
-        $token = $this->authManager()->jwt(self::STAFF_GUARD)->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $token = $this->authManager()->jwt(self::STAFF_GUARD)->issueRefreshToken($session, self::ROTATION_ID, $identity);
 
         Event::fake([AuthenticationFailed::class]);
 
@@ -191,9 +191,10 @@ final class GuardBoundTokenIntegrationTest extends TestCase
     }
 
     /**
-     * Refresh reloads the device owner through the refreshing guard's provider:
-     * when that provider maps the owner key to a row of another model, the
-     * owner does not match and refresh fails with `identity_unknown`.
+     * Refresh reloads the session owner through the refreshing guard's
+     * provider: when that provider maps the owner key to a row of another
+     * model, the owner does not match and refresh fails with
+     * `identity_unknown`.
      *
      * @return void
      *
@@ -202,11 +203,11 @@ final class GuardBoundTokenIntegrationTest extends TestCase
     public function testRefreshRejectsAnOwnerOfAnotherModelThatSharesTheKey(): void
     {
         $identity = $this->seedPrincipal('staff@staff.test');
-        $device   = $this->seedDevice($identity, self::PARTNER_GUARD);
+        $session  = $this->seedSession($identity, self::PARTNER_GUARD);
 
         $this->seedPartner();
 
-        $token = $this->authManager()->jwt(self::PARTNER_GUARD)->issueRefreshToken($device, self::ROTATION_ID);
+        $token = $this->authManager()->jwt(self::PARTNER_GUARD)->issueRefreshToken($session, self::ROTATION_ID);
 
         $this->assertRefreshFailsWith(self::PARTNER_GUARD, $token, FailureReason::IDENTITY_UNKNOWN);
     }
@@ -227,8 +228,8 @@ final class GuardBoundTokenIntegrationTest extends TestCase
 
         $jwt = $this->authManager()->jwt(self::CUSTOMER_GUARD);
 
-        $outsideToken = $jwt->issueRefreshToken($this->seedDevice($outside, self::CUSTOMER_GUARD), self::ROTATION_ID);
-        $insideToken  = $jwt->issueRefreshToken($this->seedDevice($inside, self::CUSTOMER_GUARD), self::ROTATION_ID);
+        $outsideToken = $jwt->issueRefreshToken($this->seedSession($outside, self::CUSTOMER_GUARD), self::ROTATION_ID);
+        $insideToken  = $jwt->issueRefreshToken($this->seedSession($inside, self::CUSTOMER_GUARD), self::ROTATION_ID);
 
         $this->assertRefreshFailsWith(self::CUSTOMER_GUARD, $outsideToken, FailureReason::IDENTITY_UNKNOWN);
 
@@ -324,24 +325,24 @@ final class GuardBoundTokenIntegrationTest extends TestCase
     }
 
     /**
-     * Persist a device of the guard owned by the identity with a refresh digest
-     * for the shared rotation id.
+     * Persist a session of the guard owned by the identity with a refresh
+     * digest for the shared rotation id.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $guard
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private function seedDevice(Identity $identity, string $guard): Device
+    private function seedSession(Identity $identity, string $guard): Session
     {
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession($guard, $identity),
             'authenticatable_type' => $identity->getMorphClass(),
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 
-        return $device;
+        return $session;
     }
 
     /**

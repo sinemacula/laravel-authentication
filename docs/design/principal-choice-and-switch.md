@@ -4,7 +4,7 @@
 
 This note records how a session comes to act as one principal of an identity that may act as several: a sign-in that
 names none waits for the identity to choose (`choice()`, `choose()`), and a live session moves to another principal on
-the same device (`switchPrincipal()`). Starting a session is in `session-service.md`; the refresh judgement both paths
+the same session (`switchPrincipal()`). Starting a session is in `session-service.md`; the refresh judgement both paths
 share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old principal's tokens are in
 `fail-closed-pid-did.md`.
 
@@ -19,7 +19,7 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   `choice()` lookup, which recomputes the list, also admits the identity (`admitIdentifier()`) and each of them with the
   sign-in's identifier type (the one the choice stores): a principal the policy then refuses is neither offered nor
   listed, and when it refuses every one the sign-in fails with that reason, storing and reporting nothing.
-  `principals($identity, $identifierType)` lists the same way for a switch screen given the type the session's device
+  `principals($identity, $identifierType)` lists the same way for a switch screen given the type the session
   records, so it lists only targets the application policy lets that session switch to.
 - Each principal read with the others is checked on a stored copy (`WriteConnection::stored()`): Eloquent strict mode
   prevents lazy loading on models read together, and the activity check (and any application policy that reads it) reads
@@ -31,7 +31,7 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   asking the wrapped `admitIdentifier()`. A policy that refuses only some principals in `admit()` is asked only once a
   principal resolves, so for an identity with none the sign-in answers `principal_unresolved`.
 - A choice is a pending sign-in with `purpose = principal_choice` and no principal (the pending table's principal
-  columns are nullable for this). It keeps the client, the identifier type, the attempt windows, and a device the
+  columns are nullable for this). It keeps the client, the identifier type, the attempt windows, and a session the
   client proved for the identity whatever principal it records. Only the digest of its secret is stored.
 - Choice and factor tokens are not interchangeable: `PendingSignIns::live()` takes the purpose, so `pending()` and
   `complete()` find only factors and `choice()` and `choose()` only choices; `discard()` takes either and reports
@@ -39,24 +39,24 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
 - `choose()` deletes the choice first, with a delete only one call can make, so a choice is single use whatever the
   outcome. It then runs the sign-in admission with `PinnedPrincipal::resolve()` (`principal_mismatch`), the identifier
   type the sign-in used, and the factor policy; a required factor becomes an `additional_factor` pending sign-in with
-  the same windows. The proven device is replaced (revoked as `superseded`, with a new device for the session) only
+  the same windows. The proven session is replaced (revoked as `superseded`, with a new session in its place) only
   when it records the chosen principal and is unchanged; otherwise it is left as it is. Offering or discarding the
   choice revokes nothing.
 - The attempt slots a sign-in took stay counted while it waits for a choice and are given back only once a session
   started from it commits.
 - A switch is proven by the session's refresh token, never an access token, and judged by `RefreshJudgment::classify()`
-  as a refresh is: the refresh limits (counted against the token's device and the client's IP address), the guard, a
-  live session, and the rotation id. A replayed id revokes the device as `rotation_reuse`.
+  as a refresh is: the refresh limits (counted against the token's session and the client's IP address), the guard, a
+  live session, and the rotation id. A replayed id revokes the session as `rotation_reuse`.
 - Every path of a switch, the retry included, runs every live check: the owner reloaded through the guard's provider
   and active (`RefreshAdmission`), the target resolved through the hinted path, of the target's class and owned by the
   owner as read from the principal's own key (`principal_mismatch`), active, its tenant active, admitted by the
   application policy, the session's method allowed, the identity and then the target admitted again with the type of
-  identifier the session's sign-in used (the device's `sign_in_identifier_type`, written with `sign_in_method` at every
-  sign-in; a session whose sign-in used none is not held to one, and a device loaded without the column throws a
+  identifier the session's sign-in used (the session's `sign_in_identifier_type`, written with `sign_in_method` at every
+  sign-in; a session whose sign-in used none is not held to one, and a session loaded without the column throws a
   `LogicException` rather than reading as one that used none) so a principal a policy refuses to that identifier cannot
   be reached by switching, and no further factor asked (`additional_factor_required`).
-- With the current rotation id, the token's `pid` must be the principal the device records
-  (`device_principal_mismatch`). The absolute deadline stays the session's, held to `signed_in_at` plus the guard's
+- With the current rotation id, the token's `pid` must be the principal the session records
+  (`session_principal_mismatch`). The absolute deadline stays the session's, held to `signed_in_at` plus the guard's
   absolute lifetime (`session_expired` when that has passed), so a lifetime shortened since the sign-in applies and a
   switch never extends the session; the idle deadline restarts under the guard's lifetimes. Both tokens are issued for
   the target before the write, and end at the restarted idle deadline.
@@ -64,15 +64,15 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   row, both loaded deadlines and the loaded principal columns. It writes the rotation, both deadlines and, when the
   principal changes, the target and `principal_switched_at`. A switch to the recorded principal writes no switch.
 - With the previous rotation id inside the grace window, the current credential is reissued for the target, writing
-  nothing, only when the device records the target and either its last rotation was a switch
+  nothing, only when the session records the target and either its last rotation was a switch
   (`principal_switched_at = refresh_rotated_at`) or the token's own `pid` is the target; anything else is
   `rotation_conflict`, without revoking.
 - A missed swap re-reads the row with a lock and judges it once: a still-current id is `rotation_conflict`, a previous
   id is answered by the retry rule against the row as it now is (after the owner is checked again), and anything else
-  fails for its reason, a replay (`rotation_reuse`) revoking the device as a first judgement does. There is never a
+  fails for its reason, a replay (`rotation_reuse`) revoking the session as a first judgement does. There is never a
   second swap.
-- `PrincipalChoiceRequired` and `PrincipalSwitched` are dispatched through `AfterCommit` on the device model's
-  connection. `PrincipalSwitched` carries the device's recorded previous morph class and identifier and the previous
+- `PrincipalChoiceRequired` and `PrincipalSwitched` are dispatched through `AfterCommit` on the session model's
+  connection. `PrincipalSwitched` carries the session's recorded previous morph class and identifier and the previous
   principal only when the hinted path still returns that very principal (same type and identifier).
 
 ## Success Path
@@ -80,26 +80,26 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
 1. `signIn()` verifies the identity, finds no principal, and offers the choice: the pending row is written,
    `PrincipalChoiceRequired` follows the commit, and the result `requiresPrincipal()`.
 2. `choice($token)` lists the eligible principals; `choose($token, $principal)` starts the session as it, scheduling
-   `DeviceCreated` and `SignedIn` for the device's commit before it binds the guard (`Validated`, `Login` and the bind
-   events), and the slots are given back after the commit. With no transaction open on the device's connection that is
-   `DeviceCreated`, `SignedIn`, then `Login`; inside a caller's transaction the bind events come first, and the pair
+   `SessionCreated` and `SignedIn` for the session's commit before it binds the guard (`Validated`, `Login` and the bind
+   events), and the slots are given back after the commit. With no transaction open on the session's connection that is
+   `SessionCreated`, `SignedIn`, then `Login`; inside a caller's transaction the bind events come first, and the pair
    follows its commit or is dropped on a rollback.
 3. Later, `switchPrincipalFromRequest($other)` (or `switchPrincipal($refreshToken, $other)` with a token read by the
-   caller) rotates the device to the other principal and schedules `PrincipalSwitched` for the commit on the device's
-   connection before it binds the guard to it (`Authenticated`, `PrincipalAssigned`, `DeviceAuthenticated`), so a bind
+   caller) rotates the session to the other principal and schedules `PrincipalSwitched` for the commit on the session's
+   connection before it binds the guard to it (`Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`), so a bind
    listener that throws cannot withhold the report. With no transaction open there `PrincipalSwitched` is dispatched at
    once, before the bind events; inside a caller's transaction the bind events come first, and it follows the commit or
    is dropped on a rollback. The previous principal's access tokens fail on the bearer path as
-   `device_principal_mismatch` from then on.
+   `session_principal_mismatch` from then on.
 
 ## Failure / Edge Cases
 
 - A lost switch response: the client retries with the old token inside the grace window and receives the current
   credential for the target, with no second `PrincipalSwitched`. Presented to the session service's `refresh()`, the
-  same token fails as `device_principal_mismatch` without revoking.
+  same token fails as `session_principal_mismatch` without revoking.
 - A switch racing a refresh of the same token loses the swap and fails as `rotation_conflict`; two identical switches
   both answer with the target's credential; two switches to different principals leave the first; a switch racing a
-  revocation fails as `device_revoked`.
+  revocation fails as `session_revoked`.
 - A previous principal that no longer resolves (deleted, or recorded under a type the morph map no longer uses) is
   reported by its snapshot only.
 - A choice whose identity no longer resolves through the guard's provider is no choice (`choice()` returns `null`,
@@ -118,8 +118,8 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   `isTarget()`, `switchCurrent()`, `rotateTo()`, `retry()`, `afterLostSwitch()`, `deadlines()`.
 - `src/Jwt/RefreshRotationStore.php`: `switchPrincipal()` and `reload()`.
 - `src/Jwt/RefreshJudgment.php`: `classify()`, shared with the refresh exchange.
-- `src/Sessions/PendingSignIns.php`: `issueChoice()`, `live()` (by purpose), `delete()`, `provenDevice()`.
-- `src/Sessions/DeviceProof.php`: `provenDeviceOf()`, which proves a device without a principal for a choice.
+- `src/Sessions/PendingSignIns.php`: `issueChoice()`, `live()` (by purpose), `delete()`, `provenSession()`.
+- `src/Sessions/ProvenSessions.php`: `provenSessionOf()`, which proves a session without a principal for a choice.
 - `src/Sessions/SessionService.php`: `signInWith()`, `startFor()` and `discard()`, which route a sign-in to a choice
   and a discard to its reason.
 - `src/Events/PrincipalChoiceRequired.php`, `src/Events/PrincipalSwitched.php`, `src/Sessions/PrincipalChoice.php`,
@@ -130,7 +130,7 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
 - `tests/Feature/Sessions/PrincipalChoicesTest.php` (the choices on their own: the admissible principals, a choice
   offered and reported once committed, an identity with none, a live choice until it is used up)
 - `tests/Feature/Sessions/ChoosesPrincipalsTest.php` (the choice over HTTP and through the service, choose then factor
-  then complete, discard, the token purposes, the proven device, the slots, no choice for an unverified identifier, the
+  then complete, discard, the token purposes, the proven session, the slots, no choice for an unverified identifier, the
   listing with an identifier type, a choice under Eloquent strict mode, a choice or switch whose bind listener throws,
   reported at once or on the caller's commit and withdrawn by its rollback, and a tenant an enforced morph map leaves
   out)
@@ -139,7 +139,7 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   switch read from the request and the transport's refusals, and a switch screen's listing)
 - `tests/Integration/Sessions/PrincipalSwitchTest.php` (the switch racing a refresh, a revocation, an identical switch,
   a different switch, a deadline change, a deletion and an owner change, and a swap lost to a refresh with no grace
-  window or to two refreshes, which revokes the device)
+  window or to two refreshes, which revokes the session)
 - `tests/Integration/Sessions/ConcurrentSwitchAndRevocationTest.php` (on PostgreSQL and MySQL, two processes: a switch
   waiting on a revocation, on a refresh of its token and on an identical switch, after a commit and after a rollback)
 - `tests/Integration/Sessions/TransactionalChoosesPrincipalsTest.php` (`PrincipalSwitched` and
@@ -148,9 +148,9 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   principal)
 - `tests/Integration/Sessions/ReplicaChoosesPrincipalsTest.php` (the eligible principals read on the write connection)
 - `tests/Feature/Sessions/PendingSignInsTest.php` `testIssueChoiceStoresTheSignInWithoutAPrincipal`,
-  `testALivePendingSignInIsFoundOnlyForItsPurpose`, `testAChoicesProvenDeviceCountsOnlyForThePrincipalItRecords`
+  `testALivePendingSignInIsFoundOnlyForItsPurpose`, `testAChoicesProvenSessionCountsOnlyForThePrincipalItRecords`
 - `tests/Feature/Jwt/RefreshRotationStoreTest.php` `testSwitchPrincipalRecordsTheTargetAndMirrorsIt`,
-  `testSwitchPrincipalMissesAfterAChangeSinceTheDeviceWasLoaded`
+  `testSwitchPrincipalMissesAfterAChangeSinceTheSessionWasLoaded`
 - `tests/Integration/Http/RefreshCookieSessionLifecycleTest.php` (a switch proven by the refresh cookie, its
   cross-site checks, and the rotated cookie)
 - `tests/Performance/PrincipalSwitchQueryBudgetTest.php` (seven reads and one write per switch, from the request

@@ -5,9 +5,9 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Carbon\CarbonImmutable;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 
 /**
@@ -37,7 +37,7 @@ final readonly class PendingFactor
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  string  $method
      * @param  \Carbon\CarbonImmutable  $expiresAt
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $provenDevice
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $provenSession
      */
     public function __construct(
 
@@ -62,7 +62,7 @@ final readonly class PendingFactor
         /** When the pending credential stops working. */
         public CarbonImmutable $expiresAt,
 
-        /** Existing device the client proved it holds, which the session will replace, if any. */
-        public ?Device $provenDevice,
+        /** Existing session the client proved it holds, which the session will replace, if any. */
+        public ?Session $provenSession,
     ) {}
 }

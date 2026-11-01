@@ -14,17 +14,17 @@ use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Timebox;
-use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
-use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Listeners\RecordSessionUsage;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
-use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
+use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use Tests\Integration\Fixtures\Coexist2dIdentity;
 use Tests\Integration\Fixtures\Coexist3dIdentity;
@@ -53,8 +53,8 @@ final class JwtGuardBenchHarness
     /** @var string Coexistence 2D identity email. */
     private const string COEXIST_TWO_D_EMAIL = 'bench-coexist-2d@example.test';
 
-    /** @var string Device-bearing identity email. */
-    private const string DEVICE_EMAIL = 'bench-device@example.test';
+    /** @var string Session-bearing identity email. */
+    private const string SESSION_EMAIL = 'bench-session@example.test';
 
     /** @var string 3D identity email. */
     private const string THREE_D_EMAIL = 'bench-3d@example.test';
@@ -78,7 +78,7 @@ final class JwtGuardBenchHarness
     private readonly ModelProvider $coexistTwoDProvider;
 
     /** @var \SineMacula\Laravel\Authentication\Providers\ModelProvider */
-    private readonly ModelProvider $deviceProvider;
+    private readonly ModelProvider $sessionProvider;
 
     /** @var \SineMacula\Laravel\Authentication\Providers\ModelProvider */
     private readonly ModelProvider $threeDProvider;
@@ -101,8 +101,8 @@ final class JwtGuardBenchHarness
     /** @var string Coexist 2D bearer token. */
     private string $coexistTwoDToken;
 
-    /** @var string Device bearer with fresh timestamp; empty until seeded, which the set-up check refuses. */
-    private string $deviceFreshToken = '';
+    /** @var string Session bearer with fresh timestamp; empty until seeded, which the set-up check refuses. */
+    private string $sessionFreshToken = '';
 
     /** @var string 3D bearer token. */
     private string $threeDToken;
@@ -114,13 +114,13 @@ final class JwtGuardBenchHarness
     private string $tenantAwareSecondaryToken;
 
     /** @var list<string> */
-    private array $deviceWriteTokens = [];
+    private array $sessionWriteTokens = [];
 
-    /** @var string Device bearer token, outside the write pool, whose device has never been used, for the set-up check. */
-    private string $deviceWriteCheckToken = '';
+    /** @var string Session bearer token, outside the write pool, whose session has never been used, for the set-up check. */
+    private string $sessionWriteCheckToken = '';
 
     /** @var int Current index into the write-token pool. */
-    private int $deviceWriteIndex = 0;
+    private int $sessionWriteIndex = 0;
 
     /**
      * Seed the bearer-auth benchmark fixtures, and check that each path reaches
@@ -147,8 +147,8 @@ final class JwtGuardBenchHarness
         $this->events   = new Dispatcher($container);
         $this->events->setTransactionManagerResolver(static fn (): null => null);
         $this->events->listen(
-            DeviceAuthenticated::class,
-            new RecordDeviceUsage,
+            SessionAuthenticated::class,
+            new RecordSessionUsage,
         );
 
         $hasher = new BcryptHasher;
@@ -163,14 +163,14 @@ final class JwtGuardBenchHarness
 
         $this->accessOnlyProvider        = new ModelProvider($hasher, PerformanceAccessOnlyIdentity::class);
         $this->coexistTwoDProvider       = new ModelProvider($hasher, Coexist2dIdentity::class);
-        $this->deviceProvider            = new ModelProvider($hasher, IntegrationIdentity::class);
+        $this->sessionProvider           = new ModelProvider($hasher, IntegrationIdentity::class);
         $this->threeDProvider            = new ModelProvider($hasher, Coexist3dIdentity::class);
         $this->tenantAwareThreeDProvider = new ModelProvider($hasher, TenantAware3dIdentity::class);
 
         $this->createSchema();
         $this->seedAccessOnlyFixture($hasher);
         $this->seedCoexistenceTwoDimensionalFixture($hasher);
-        $this->seedDeviceFixtures($hasher);
+        $this->seedSessionFixtures($hasher);
         $this->seedThreeDimensionalFixtures($hasher);
         $this->seedTenantAwareThreeDimensionalFixtures($hasher);
 
@@ -178,7 +178,7 @@ final class JwtGuardBenchHarness
     }
 
     /**
-     * Benchmark the 2D bearer path with no device hint.
+     * Benchmark the 2D bearer path with no session hint.
      *
      * @return void
      */
@@ -188,28 +188,28 @@ final class JwtGuardBenchHarness
     }
 
     /**
-     * Benchmark the device-bearing bearer path when the listener should skip
+     * Benchmark the session-bearing bearer path when the listener should skip
      * the debounced timestamp write.
      *
      * @return void
      */
-    public function runDeviceBearerNoWrite(): void
+    public function runSessionBearerNoWrite(): void
     {
-        $this->bearer('device_api', $this->deviceProvider, '/bench/jwt/device-fresh', $this->deviceFreshToken);
+        $this->bearer('session_api', $this->sessionProvider, '/bench/jwt/session-fresh', $this->sessionFreshToken);
     }
 
     /**
-     * Benchmark the device-bearing bearer path when the listener must persist
+     * Benchmark the session-bearing bearer path when the listener must persist
      * `last_used_at`.
      *
      * @return void
      */
-    public function runDeviceBearerWithWrite(): void
+    public function runSessionBearerWithWrite(): void
     {
-        $token = $this->deviceWriteTokens[$this->deviceWriteIndex % count($this->deviceWriteTokens)];
-        $this->deviceWriteIndex++;
+        $token = $this->sessionWriteTokens[$this->sessionWriteIndex % count($this->sessionWriteTokens)];
+        $this->sessionWriteIndex++;
 
-        $this->bearer('device_api', $this->deviceProvider, '/bench/jwt/device-write', $token);
+        $this->bearer('session_api', $this->sessionProvider, '/bench/jwt/session-write', $token);
     }
 
     /**
@@ -274,11 +274,11 @@ final class JwtGuardBenchHarness
 
         BenchSchema::ensureCoexistPrincipalTable();
         BenchSchema::ensureTenantTables();
-        BenchSchema::ensureDeviceTable();
+        BenchSchema::ensureSessionTable();
     }
 
     /**
-     * Seed the no-device 2D bearer fixture.
+     * Seed the no-session 2D bearer fixture.
      *
      * @param  \Illuminate\Contracts\Hashing\Hasher  $hasher
      * @return void
@@ -329,77 +329,77 @@ final class JwtGuardBenchHarness
     }
 
     /**
-     * Seed the device-backed bearer fixtures.
+     * Seed the session-backed bearer fixtures.
      *
      * @param  \Illuminate\Contracts\Hashing\Hasher  $hasher
      * @return void
      *
      * @throws \Random\RandomException
      */
-    private function seedDeviceFixtures(Hasher $hasher): void
+    private function seedSessionFixtures(Hasher $hasher): void
     {
         $identity = IntegrationIdentity::query()->first();
 
         if (!$identity instanceof IntegrationIdentity) {
 
             $identity            = new IntegrationIdentity;
-            $identity->email     = self::DEVICE_EMAIL;
+            $identity->email     = self::SESSION_EMAIL;
             $identity->password  = $hasher->make(self::PASSWORD);
             $identity->is_active = true;
             $identity->save();
         }
 
-        $freshDevice = Device::query()->where('client_name', 'bench-device-fresh')->first();
+        $freshSession = Session::query()->where('client_name', 'bench-session-fresh')->first();
 
         /** @var string $identityId */
         $identityId = $identity->getKey();
 
-        if (!$freshDevice instanceof Device) {
-            $freshDevice = new Device;
-            $freshDevice->forceFill([
-                ...BenchSchema::signedIn('device_api'),
+        if (!$freshSession instanceof Session) {
+            $freshSession = new Session;
+            $freshSession->forceFill([
+                ...BenchSchema::signedIn('session_api'),
                 'authenticatable_type' => IntegrationIdentity::class,
                 'authenticatable_id'   => $identityId,
                 'principal_type'       => $identity->getMorphClass(),
                 'principal_id'         => $identityId,
-                'client_name'          => 'bench-device-fresh',
+                'client_name'          => 'bench-session-fresh',
                 'last_used_at'         => Carbon::now(),
             ])->save();
         }
 
-        $this->deviceFreshToken = $this->tokens->issueAccessToken($identity, $identity, $freshDevice);
+        $this->sessionFreshToken = $this->tokens->issueAccessToken($identity, $identity, $freshSession);
 
-        if ($this->deviceWriteTokens !== []) {
+        if ($this->sessionWriteTokens !== []) {
             return;
         }
 
-        $checkDevice = new Device;
-        $checkDevice->forceFill([
-            ...BenchSchema::signedIn('device_api'),
+        $checkSession = new Session;
+        $checkSession->forceFill([
+            ...BenchSchema::signedIn('session_api'),
             'authenticatable_type' => IntegrationIdentity::class,
             'authenticatable_id'   => $identityId,
             'principal_type'       => $identity->getMorphClass(),
             'principal_id'         => $identityId,
-            'client_name'          => 'bench-device-write-check',
+            'client_name'          => 'bench-session-write-check',
             'last_used_at'         => null,
         ])->save();
 
-        $this->deviceWriteCheckToken = $this->tokens->issueAccessToken($identity, $identity, $checkDevice);
+        $this->sessionWriteCheckToken = $this->tokens->issueAccessToken($identity, $identity, $checkSession);
 
         for ($index = 0; $index < self::TOKEN_POOL_SIZE; $index++) {
 
-            $device = new Device;
-            $device->forceFill([
-                ...BenchSchema::signedIn('device_api'),
+            $session = new Session;
+            $session->forceFill([
+                ...BenchSchema::signedIn('session_api'),
                 'authenticatable_type' => IntegrationIdentity::class,
                 'authenticatable_id'   => $identityId,
                 'principal_type'       => $identity->getMorphClass(),
                 'principal_id'         => $identityId,
-                'client_name'          => 'bench-device-write-' . $index,
+                'client_name'          => 'bench-session-write-' . $index,
                 'last_used_at'         => null,
             ])->save();
 
-            $this->deviceWriteTokens[] = $this->tokens->issueAccessToken($identity, $identity, $device);
+            $this->sessionWriteTokens[] = $this->tokens->issueAccessToken($identity, $identity, $session);
         }
     }
 
@@ -480,10 +480,11 @@ final class JwtGuardBenchHarness
 
     /**
      * Run each benchmarked path once and throw unless it reaches the outcome
-     * its name describes: every bearer authenticates, a device bearer binds its
-     * device, writing its last use only on the path that measures the write, a
-     * 3D bearer binds its principal, and a tenant-aware one its tenant. The
-     * write path runs on a device of its own, outside the benchmark's pool.
+     * its name describes: every bearer authenticates, a session bearer binds
+     * its session, writing its last use only on the path that measures the
+     * write, a 3D bearer binds its principal, and a tenant-aware one its
+     * tenant. The write path runs on a session row of its own, outside the
+     * benchmark's pool.
      *
      * @return void
      *
@@ -499,16 +500,16 @@ final class JwtGuardBenchHarness
             BenchOutcome::assert('tenant-aware 3D bearer', $this->bearer('tenant_api_3d', $this->tenantAwareThreeDProvider, self::CHECK_PATH, $token)->tenant() !== null);
         }
 
-        $devicePaths = [
-            'device bearer without a write' => [$this->deviceFreshToken, false],
-            'device bearer with a write'    => [$this->deviceWriteCheckToken, true],
+        $sessionPaths = [
+            'session bearer without a write' => [$this->sessionFreshToken, false],
+            'session bearer with a write'    => [$this->sessionWriteCheckToken, true],
         ];
 
-        foreach ($devicePaths as $path => [$token, $writes]) {
+        foreach ($sessionPaths as $path => [$token, $writes]) {
 
             $bound      = false;
             $statements = BenchOutcome::statementsOf(function () use ($token, &$bound): void {
-                $bound = $this->bearer('device_api', $this->deviceProvider, self::CHECK_PATH, $token)->device() !== null;
+                $bound = $this->bearer('session_api', $this->sessionProvider, self::CHECK_PATH, $token)->session() !== null;
             });
 
             $wrote = array_filter($statements, static fn (string $statement): bool => str_starts_with($statement, 'update')) !== [];
@@ -555,7 +556,7 @@ final class JwtGuardBenchHarness
             $this->tokens,
             static fn (GuardContext $context): SessionRevocations => new SessionRevocations(
                 $context,
-                new DeviceRevocations(BenchDatabase::connectionResolver(), static fn (): null => null),
+                new RevocationWriter(BenchDatabase::connectionResolver(), static fn (): null => null),
                 new Container,
             ),
             BenchRequest::refreshTransport(...),

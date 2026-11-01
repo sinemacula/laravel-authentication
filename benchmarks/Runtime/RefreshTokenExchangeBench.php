@@ -12,7 +12,7 @@ use PhpBench\Attributes\Warmup;
 /**
  * PHPBench suite for refresh-token exchange paths.
  *
- * Exercises the full refresh rotation pipeline across success, unknown-device
+ * Exercises the full refresh rotation pipeline across success, unknown-session
  * failure, rotation-mismatch failure, and tenant-aware 3D scenarios.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -39,7 +39,7 @@ final class RefreshTokenExchangeBench
     }
 
     /**
-     * Benchmark the unknown-device failure path.
+     * Benchmark the unknown-session failure path.
      *
      * @return void
      *
@@ -47,9 +47,9 @@ final class RefreshTokenExchangeBench
      */
     #[Iterations(5)]
     #[Revs(25)]
-    public function benchUnknownDeviceFailure(): void
+    public function benchUnknownSessionFailure(): void
     {
-        $this->harness()->runUnknownDeviceFailure();
+        $this->harness()->runUnknownSessionFailure();
     }
 
     /**

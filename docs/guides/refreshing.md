@@ -27,10 +27,10 @@ return [
 ];
 ```
 
-A refresh rotates the session's refresh token on its device and binds the guard to the refreshed session for the rest of
-the request. The result's `session` is that session: its `identity`, `principal`, `device` (the one to set a refresh
-cookie for), the `method` its sign-in used, and the new pair in `tokens`. Every refusal is returned, never thrown, with
-its `reason`; `rate_limited` also carries the seconds to wait in `retryAfter`, which the route answers with a 429 and
+A refresh rotates the session's refresh token and binds the guard to the refreshed session for the rest of the request.
+The result's `session` is that session: its `identity`, `principal`, `record` (the session row to set a refresh cookie
+for), the `method` its sign-in used, and the new pair in `tokens`. Every refusal is returned, never thrown, with its
+`reason`; `rate_limited` also carries the seconds to wait in `retryAfter`, which the route answers with a 429 and
 `Retry-After` so the client waits.
 
 The guard reads the token only from the sources its `refresh_token` settings list: `body` and `header` by default, the
@@ -39,7 +39,7 @@ The guard reads the token only from the sources its `refresh_token` settings lis
 equal or not, is refused as `refresh_token_conflict`: the server never chooses between two tokens, and a request cannot
 get past the cookie's cross-site checks by also sending the token another way. A value that is not one non-empty string
 is `token_invalid`. A refusal by the transport dispatches `Attempting`, `Failed` and `AuthenticationFailed` (flow
-`refresh`) like any failed refresh, without touching a device or counting against a limit; a token the exchange refuses
+`refresh`) like any failed refresh, without touching a session or counting against a limit; a token the exchange refuses
 fails with the exchange's reason, `rate_limited` included. The result's `source` (`RefreshTokenSource::COOKIE`, `BODY`
 or `HEADER`) says where the token came from, so a refresh read from the cookie can be answered with a cookie.
 `Auth::refreshTransport('api')->read($request)` reads a request the same way without refreshing.
@@ -61,27 +61,27 @@ when the guard reads a token. `Auth::sessions('api')->refresh($refreshToken)` re
 itself and answers the same `RefreshResult`, without a `source`; never pass it a token read from the refresh cookie,
 which only `refreshFromRequest()` reads with the cookie's cross-site checks.
 
-A refresh is held to the guard as well as the token. A device the row records for another guard (or for none) fails
-with `device_guard_mismatch` and is left alone, even for a token that would be a replay, and a bearer token naming it
-is rejected as if the device were missing. The application policy is asked again on every refresh: the method that
-started the session (the device's `sign_in_method`) must still be one the guard allows (`method_not_allowed`; a device
+A refresh is held to the guard as well as the token. A session the row records for another guard (or for none) fails
+with `session_guard_mismatch` and is left alone, even for a token that would be a replay, and a bearer token naming it
+is rejected as if the session were missing. The application policy is asked again on every refresh: the method that
+started the session (the session's `sign_in_method`) must still be one the guard allows (`method_not_allowed`; a session
 that records none fails too), and the policy must still admit the owner as the principal (`principal_ineligible`).
-Neither revokes the device, so the session refreshes again once the policy allows it. Each rotation moves the idle
+Neither revokes the session, so the session refreshes again once the policy allows it. Each rotation moves the idle
 deadline by the idle lifetime the policy gives the guard.
 
-A refresh token is accepted only for the principal its device records. After a switch (see [Switching
+A refresh token is accepted only for the principal its session records. After a switch (see [Switching
 principal](sessions.md#switching-principal)), the refresh token of the principal switched from fails with
-`device_principal_mismatch`, even inside the grace window, and the device is left alone; a token presented after the
+`session_principal_mismatch`, even inside the grace window, and the session is left alone; a token presented after the
 grace window is a replay, as any rotated token is. A refresh that loses its write to a switch is judged the same way.
 
-Failed refreshes are counted against the token's device and the request's IP address by the bound `AttemptLimiter`;
+Failed refreshes are counted against the token's session and the request's IP address by the bound `AttemptLimiter`;
 successful ones are not. Once either count is full, a refresh dispatches `Failed` and `AuthenticationFailed`
-(`rate_limited`) without looking the device up, and returns `rate_limited` with the seconds until the full count's
+(`rate_limited`) without looking the session up, and returns `rate_limited` with the seconds until the full count's
 window ends in `retryAfter`; answer it with Laravel's `ThrottleRequestsException`, as above, which renders as a 429 with
 `Retry-After`.
 
 A failure before the stored rotation commits, such as an error while signing the new pair, leaves the presented refresh
-token valid for a retry. Once the rotation is written, the refresh schedules `Refreshed` for its commit on the device's
+token valid for a retry. Once the rotation is written, the refresh schedules `Refreshed` for its commit on the session's
 connection (dispatched at once outside a transaction, after your transaction commits inside one, and never when it is
 rolled back) before it binds the new context, so a listener that throws on a bind event cannot keep `Refreshed` from
 being reported; an exception from a listener on any of those events still loses the new pair, but a retry with the
@@ -103,7 +103,7 @@ $result->accessToken; $result->refreshToken; $result->source;
 $result = Auth::sessions('api')->refreshFromRequest(); // ?Sessions\RefreshResult, null: no token in the request
 $result = Auth::sessions('api')->refresh($token);      // Sessions\RefreshResult
 $result->session->tokens->accessToken; $result->session->tokens->refreshToken; $result->source;
-$result->session->device;                              // the device, without reading the guard
+$result->session->record;                              // the session, without reading the guard
 ```
 
 A check written for the old shape can now be wrong without failing: `$result !== null` and `if ($result)` hold for a
@@ -131,7 +131,7 @@ stateless. List the cookie as the guard's source and give it the path its routes
 ```
 
 Put the routes that read the cookie under that path (refresh, a switch of principal, see
-[Switching principal](sessions.md#switching-principal), and sign-in for a browser that proves its device), and set the
+[Switching principal](sessions.md#switching-principal), and sign-in for a browser that proves its session), and set the
 cookie with the guard's transport whenever the API hands out a pair:
 
 ```php
@@ -148,7 +148,7 @@ Route::post('/auth/sign-in', function (Request $request) {
 
     abort_unless($transport->isSameSiteRequest($request), 403);
 
-    // A browser that still holds a refresh cookie proves its device, which the sign-in then replaces.
+    // A browser that still holds a refresh cookie proves its session, which the sign-in then replaces.
     $presented = $transport->read($request);
     $context   = SignInContext::fromRequest($request, refreshToken: $presented instanceof PresentedRefreshToken ? $presented->token : null);
     $session   = Auth::sessions('browser')->signIn('password', $request->only('email', 'password'), $context)->session;
@@ -156,7 +156,7 @@ Route::post('/auth/sign-in', function (Request $request) {
     abort_if($session === null, 401);
 
     return response()->json(['access_token' => $session->tokens->accessToken])
-        ->withCookie($transport->cookie($session->tokens->refreshToken, $session->device));
+        ->withCookie($transport->cookie($session->tokens->refreshToken, $session->record));
 });
 
 Route::post('/auth/refresh', function () {
@@ -171,7 +171,7 @@ Route::post('/auth/refresh', function () {
     $session = $result->session;
 
     return response()->json(['access_token' => $session->tokens->accessToken])
-        ->withCookie(Auth::refreshTransport('browser')->cookie($session->tokens->refreshToken, $session->device));
+        ->withCookie(Auth::refreshTransport('browser')->cookie($session->tokens->refreshToken, $session->record));
 });
 
 Route::post('/logout', function () {
@@ -182,7 +182,7 @@ Route::post('/logout', function () {
 ```
 
 The cookie is `HttpOnly`, `Secure` and `SameSite=Strict`, named `__Secure-refresh_token` by default, scoped to the
-configured `path` and `domain` (`null`, the default, keeps it to the API's host), and expires when the device's session
+configured `path` and `domain` (`null`, the default, keeps it to the API's host), and expires when the session
 does, as the refresh token in it does. `forgetCookie()` returns the same cookie already expired; any route may send it,
 a logout route outside the cookie's path included, since a path limits where the browser sends a cookie, not which
 response may set it. On a guard that reads the cookie, a `__Host-` name is accepted only with the path `/` and no
@@ -241,40 +241,40 @@ add it.
 
 ## Refresh token replay
 
-Refresh tokens stay signed JWTs, and each one carries the device's rotation id, which the device stores only as a
-SHA-256 digest. Every successful refresh rotates the device to the next rotation id and remembers the one it replaced,
-with the time of the rotation. A validly signed refresh token for a live device then carries one of three ids:
+Refresh tokens stay signed JWTs, and each one carries the session's rotation id, which the session stores only as a
+SHA-256 digest. Every successful refresh rotates the session to the next rotation id and remembers the one it replaced,
+with the time of the rotation. A validly signed refresh token for a live session then carries one of three ids:
 
 - the current one: the refresh rotates it and returns a new pair;
 - the one the current one replaced, presented within `refresh_grace_seconds` (30 by default) of that rotation: the
-  refresh returns a new pair carrying the device's current rotation id, and writes no rotation state, so a client that
+  refresh returns a new pair carrying the session's current rotation id, and writes no rotation state, so a client that
   lost the response, or a second tab that refreshed at the same moment, keeps its session, and retries never extend the
   window;
-- any other id: the token was rotated before, so it has been replayed, perhaps stolen. The device is revoked at once
-  (`revoked_at` and `revoked_reason = rotation_reuse`, both digests cleared), `DeviceRevoked` and `AuthenticationFailed`
-  (`rotation_reuse`) are dispatched, and every token of the device stops working, access tokens included.
+- any other id: the token was rotated before, so it has been replayed, perhaps stolen. The session is revoked at once
+  (`revoked_at` and `revoked_reason = rotation_reuse`, both digests cleared), `SessionRevoked` and `AuthenticationFailed`
+  (`rotation_reuse`) are dispatched, and every token of the session stops working, access tokens included.
 
 Only the immediately previous id is honoured: after two quick refreshes, a delayed retry of the first token is a
-replay. With `refresh_grace_seconds` set to 0 the previous id is a replay too. A device that holds no refresh
-credential cannot tell a replay from anything else, so its tokens fail with `refresh_key_missing` and the device is
-left alone. When a parallel refresh changes the device between this refresh's read and its write, the row is judged
+replay. With `refresh_grace_seconds` set to 0 the previous id is a replay too. A session that holds no refresh
+credential cannot tell a replay from anything else, so its tokens fail with `refresh_key_missing` and the session is
+left alone. When a parallel refresh changes the session between this refresh's read and its write, the row is judged
 again as it now is: usually that makes this refresh a grace retry; a deadline that moved in between fails it with
 `rotation_conflict`, without revoking anything, and the client can simply retry.
 
-A refresh token for a rotation id the device never held is a replay too. A client that signs in again with its current
-refresh token (see [Signing in](signing-in.md#signing-in-the-session-service)) gets a new device, and its previous
-device is revoked as `superseded`: that device's refresh tokens are then refused as `device_revoked`, not judged as
-replays, so they cannot touch the new device. A client that loses the sign-in response and retries with the old token
-proves nothing (its device is already revoked) and gets another new device; the one whose response was lost lingers
-unused until it expires or is pruned. Do not give an existing device a new `refresh_key` yourself; let the session
+A refresh token for a rotation id the session never held is a replay too. A client that signs in again with its current
+refresh token (see [Signing in](signing-in.md#signing-in-the-session-service)) gets a new session, and its previous
+session is revoked as `superseded`: that session's refresh tokens are then refused as `session_revoked`, not judged as
+replays, so they cannot touch the new session. A client that loses the sign-in response and retries with the old token
+proves nothing (its session is already revoked) and gets another new session; the one whose response was lost lingers
+unused until it expires or is pruned. Do not give an existing session a new `refresh_key` yourself; let the session
 service do it.
 
-Every refresh judges the device at one moment, taken when it starts, so application servers should keep synchronised
+Every refresh judges the session at one moment, taken when it starts, so application servers should keep synchronised
 clocks. The package opens no transaction. If you call `refresh()` inside your own transaction, do not roll it back after
-a failed refresh: a rollback also undoes a replay revocation. `DeviceRevoked` is dispatched once the revocation is
-committed on the device's own connection: at once outside a transaction, so before `Failed` and `AuthenticationFailed`,
+a failed refresh: a rollback also undoes a replay revocation. `SessionRevoked` is dispatched once the revocation is
+committed on the session's own connection: at once outside a transaction, so before `Failed` and `AuthenticationFailed`,
 and after the commit inside one, so after them; a rolled-back revocation is never reported, and a transaction on another
 connection neither delays nor withdraws it. The transaction that Laravel's `DatabaseTransactions` and `RefreshDatabase`
-testing traits wrap around each test does not count either, so a test sees `DeviceRevoked` when the application would.
-Under PostgreSQL's REPEATABLE READ, a parallel refresh that commits first makes this one fail with a serialisation
+testing traits wrap around each test does not count either, so a test sees `SessionRevoked` when the application would.
+Under PostgreSQL's REPEATABLE READ, a parallel refresh that commits first makes this one fail with a serialization
 error, which surfaces as a server error for you to retry.

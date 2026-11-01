@@ -8,31 +8,31 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
-use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Devices\DeviceLookup;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
+use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * Writes a session the session service starts: always a new device, which
- * replaces the existing device a client proved it holds, if any, and the first
+ * Writes a session the session service starts: always a new session, which
+ * replaces the existing session a client proved it holds, if any, and the first
  * token pair.
  *
- * Each runs in one transaction on the device's connection. The device is
- * written first (after the revocation of the device it replaces) and the tokens
- * are issued after it, inside the transaction, so any failure while issuing
- * (signing, randomness, an identifier that cannot be read) rolls every write
- * back: no device is left without a client that holds its refresh token, and no
- * device is revoked for a replacement that was not written. Only the digest of
- * the new rotation id is stored. Every time is the one `$now` of the sign-in,
- * formatted with the device model's own date format.
+ * Each runs in one transaction on the session's connection. The session is
+ * written first (after the revocation of the session it replaces) and the
+ * tokens are issued after it, inside the transaction, so any failure while
+ * issuing (signing, randomness, an identifier that cannot be read) rolls every
+ * write back: no session is left without a client that holds its refresh token,
+ * and no session is revoked for a replacement that was not written. Only the
+ * digest of the new rotation id is stored. Every time is the one `$now` of the
+ * sign-in, formatted with the session model's own date format.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -56,15 +56,15 @@ final readonly class SessionWriter
         /** The guard's token service, which issues the pair. */
         private JwtTokenService $tokens,
 
-        /** Resolver for the device's own connection. */
+        /** Resolver for the session's own connection. */
         private ConnectionResolverInterface $connections,
     ) {}
 
     /**
-     * Create a device of the configured model for the admitted sign-in and
+     * Create a session of the configured model for the admitted sign-in and
      * issue its first pair.
      *
-     * The device records its owner (the identity, which must be an Eloquent
+     * The session records its owner (the identity, which must be an Eloquent
      * model), the principal, the guard, the sign-in method and the type of
      * identifier it used, the client's name and platform, the IP address and
      * user agent of the client the sign-in came from (`$origin`) as its
@@ -94,34 +94,34 @@ final readonly class SessionWriter
         ClientContext $origin,
     ): SignedInSession {
         $rotationId = RefreshTokenHasher::generate();
-        $device     = $this->newDevice($admitted, $method, $identifierType, $context, $origin);
+        $session    = $this->newSession($admitted, $method, $identifierType, $context, $origin);
 
-        $device->forceFill(self::sessionState($device, $rotationId, $context, $lifetimes, $now));
+        $session->forceFill(self::sessionState($session, $rotationId, $context, $lifetimes, $now));
 
-        return $device->getConnection()->transaction(function () use ($device, $admitted, $method, $rotationId, $now): SignedInSession {
+        return $session->getConnection()->transaction(function () use ($session, $admitted, $method, $rotationId, $now): SignedInSession {
 
-            $device->save();
+            $session->save();
 
-            return $this->issue($device, $admitted, $method, $rotationId, $now);
+            return $this->issue($session, $admitted, $method, $rotationId, $now);
         });
     }
 
     /**
-     * Replace the device the client proved it holds, the admitted sign-in's
-     * device, with a new one for the sign-in, and issue the new device's first
-     * pair; `null` when the proven device changed after it was proven, so it
-     * cannot be replaced.
+     * Replace the session the client proved it holds, the admitted sign-in's
+     * session, with a new one for the sign-in, and issue the new session's
+     * first pair; `null` when the proven session changed after it was proven,
+     * so it cannot be replaced.
      *
-     * Every sign-in is a new session, so the new device is written exactly as
+     * Every sign-in is a new session, so the new session is written exactly as
      * `create()` writes one, except that a client name or platform the context
-     * does not give is the proven device's (the client proved it is the same
-     * one). The proven device is revoked first, with the reason `superseded`
+     * does not give is the proven session's (the client proved it is the same
+     * one). The proven session is revoked first, with the reason `superseded`
      * and both of its digests forgotten, by one compare-and-swap that applies
      * only while the row still holds the digest the client proved, is not
      * revoked, and records the owner, principal and guard it was proven for;
      * any concurrent refresh, revocation or change makes it affect no row, and
-     * then nothing is written. The revocation, the new device and its pair are
-     * one transaction, so a failure while issuing leaves the proven device as
+     * then nothing is written. The revocation, the new session and its pair are
+     * one transaction, so a failure while issuing leaves the proven session as
      * it was.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
@@ -145,16 +145,16 @@ final readonly class SessionWriter
         CarbonImmutable $now,
         ClientContext $origin,
     ): ?SignedInSession {
-        $previous   = self::provenDevice($admitted);
+        $previous   = self::provenSession($admitted);
         $rotationId = RefreshTokenHasher::generate();
         $described  = new SignInContext(
             $context->client,
             $context->clientName ?? self::recorded($previous, $previous->getClientNameName()),
             $context->platform   ?? self::recorded($previous, $previous->getPlatformName()),
         );
-        $device = $this->newDevice($admitted, $method, $identifierType, $described, $origin);
+        $session = $this->newSession($admitted, $method, $identifierType, $described, $origin);
 
-        $device->forceFill(self::sessionState($device, $rotationId, $described, $lifetimes, $now));
+        $session->forceFill(self::sessionState($session, $rotationId, $described, $lifetimes, $now));
 
         $revoked = [
             $previous->getRevokedAtName()          => $previous->fromDateTime($now),
@@ -163,20 +163,20 @@ final readonly class SessionWriter
             $previous->getPreviousRefreshKeyName() => null,
         ];
 
-        return $device->getConnection()->transaction(function () use ($previous, $revoked, $device, $admitted, $method, $rotationId, $now): ?SignedInSession {
+        return $session->getConnection()->transaction(function () use ($previous, $revoked, $session, $admitted, $method, $rotationId, $now): ?SignedInSession {
 
             if (!$this->swap($previous, $revoked)) {
                 return null;
             }
 
-            $device->save();
+            $session->save();
 
-            return $this->issue($device, $admitted, $method, $rotationId, $now);
+            return $this->issue($session, $admitted, $method, $rotationId, $now);
         });
     }
 
     /**
-     * A new, unsaved device of the configured model for the admitted sign-in,
+     * A new, unsaved session of the configured model for the admitted sign-in,
      * created from the origin's client, with the context's client name and
      * platform, and no session yet.
      *
@@ -185,71 +185,71 @@ final readonly class SessionWriter
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $origin
-     * @return \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice
+     * @return \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession
      *
      * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    private function newDevice(Admitted $admitted, string $method, ?string $identifierType, SignInContext $context, ClientContext $origin): EloquentDevice&Model
+    private function newSession(Admitted $admitted, string $method, ?string $identifierType, SignInContext $context, ClientContext $origin): EloquentSession&Model
     {
-        $device   = DeviceLookup::model();
+        $session  = SessionLookup::model();
         $identity = self::eloquentIdentity($admitted);
-        $owner    = $device->authenticatable();
+        $owner    = $session->authenticatable();
 
-        [$principalType, $principalId] = PrincipalReference::columns($device);
+        [$principalType, $principalId] = PrincipalReference::columns($session);
 
-        return $device->forceFill([
-            $owner->getMorphType()                 => $identity->getMorphClass(),
-            $owner->getForeignKeyName()            => IdentifierCoercion::stringify($identity->getKey()),
-            $principalType                         => PrincipalReference::type($admitted->principal),
-            $principalId                           => PrincipalReference::id($admitted->principal),
-            $device->getGuardName()                => $this->guard,
-            $device->getSignInMethodName()         => $method,
-            $device->getSignInIdentifierTypeName() => $identifierType,
-            $device->getClientNameName()           => $context->clientName,
-            $device->getPlatformName()             => $context->platform,
-            $device->getCreatedIpName()            => $origin->ip,
-            $device->getCreatedUserAgentName()     => $origin->userAgent,
+        return $session->forceFill([
+            $owner->getMorphType()                  => $identity->getMorphClass(),
+            $owner->getForeignKeyName()             => IdentifierCoercion::stringify($identity->getKey()),
+            $principalType                          => PrincipalReference::type($admitted->principal),
+            $principalId                            => PrincipalReference::id($admitted->principal),
+            $session->getGuardName()                => $this->guard,
+            $session->getSignInMethodName()         => $method,
+            $session->getSignInIdentifierTypeName() => $identifierType,
+            $session->getClientNameName()           => $context->clientName,
+            $session->getPlatformName()             => $context->platform,
+            $session->getCreatedIpName()            => $origin->ip,
+            $session->getCreatedUserAgentName()     => $origin->userAgent,
         ]);
     }
 
     /**
-     * The device the admitted sign-in is on, which the client proved it holds
-     * and which must be an Eloquent device to be replaced.
+     * The session the admitted sign-in is on, which the client proved it holds
+     * and which must be an Eloquent session to be replaced.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
-     * @return \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice
+     * @return \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession
      *
      * @throws \LogicException
      */
-    private static function provenDevice(Admitted $admitted): EloquentDevice&Model
+    private static function provenSession(Admitted $admitted): EloquentSession&Model
     {
-        $device = $admitted->device;
+        $session = $admitted->session;
 
-        if (!$device instanceof EloquentDevice || !$device instanceof Model) {
-            throw new \LogicException('The session service can only replace an Eloquent device the client proved it holds.');
+        if (!$session instanceof EloquentSession || !$session instanceof Model) {
+            throw new \LogicException('The session service can only replace an Eloquent session the client proved it holds.');
         }
 
-        return $device;
+        return $session;
     }
 
     /**
-     * A description the device recorded, as loaded: its text, or `null` when it
-     * recorded none.
+     * A description the session recorded, as loaded: its text, or `null` when
+     * it recorded none.
      *
-     * @param  \Illuminate\Database\Eloquent\Model  $device
+     * @param  \Illuminate\Database\Eloquent\Model  $session
      * @param  string  $column
      * @return ?string
      */
-    private static function recorded(Model $device, string $column): ?string
+    private static function recorded(Model $session, string $column): ?string
     {
-        $value = $device->getRawOriginal($column);
+        $value = $session->getRawOriginal($column);
 
         return is_scalar($value) ? (string) $value : null;
     }
 
     /**
-     * The admitted identity, which must be an Eloquent model to own a device.
+     * The admitted identity, which must be an Eloquent model to own a session.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @return \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity
@@ -261,7 +261,7 @@ final readonly class SessionWriter
         $identity = $admitted->identity;
 
         if (!$identity instanceof Model) {
-            throw new \LogicException(sprintf('The session service can only create a device for an Eloquent identity; %s is not a model.', $identity::class));
+            throw new \LogicException(sprintf('The session service can only create a session for an Eloquent identity; %s is not a model.', $identity::class));
         }
 
         return $identity;
@@ -272,7 +272,7 @@ final readonly class SessionWriter
      * the digest of the new rotation id with no previous one, the start itself,
      * and both deadlines.
      *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  string  $rotationId
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  $lifetimes
@@ -280,7 +280,7 @@ final readonly class SessionWriter
      * @return array<string, mixed>
      */
     private static function sessionState(
-        EloquentDevice&Model $device,
+        EloquentSession&Model $session,
         #[\SensitiveParameter] string $rotationId,
         SignInContext $context,
         TokenLifetimes $lifetimes,
@@ -289,61 +289,63 @@ final readonly class SessionWriter
         $absolute = $lifetimes->absoluteDeadline($now);
 
         return [
-            $device->getLastUsedAtName()         => $device->fromDateTime($now),
-            $device->getLastUsedIpName()         => $context->client->ip,
-            $device->getLastUsedUserAgentName()  => $context->client->userAgent,
-            $device->getRefreshKeyName()         => RefreshTokenHasher::hash($rotationId),
-            $device->getPreviousRefreshKeyName() => null,
-            $device->getRefreshRotatedAtName()   => null,
-            $device->getSignedInAtName()         => $device->fromDateTime($now),
-            $device->getIdleExpiresAtName()      => $device->fromDateTime($lifetimes->idleDeadline($now, $absolute)),
-            $device->getAbsoluteExpiresAtName()  => $device->fromDateTime($absolute),
+            $session->getLastUsedAtName()         => $session->fromDateTime($now),
+            $session->getLastUsedIpName()         => $context->client->ip,
+            $session->getLastUsedUserAgentName()  => $context->client->userAgent,
+            $session->getRefreshKeyName()         => RefreshTokenHasher::hash($rotationId),
+            $session->getPreviousRefreshKeyName() => null,
+            $session->getRefreshRotatedAtName()   => null,
+            $session->getSignedInAtName()         => $session->fromDateTime($now),
+            $session->getIdleExpiresAtName()      => $session->fromDateTime($lifetimes->idleDeadline($now, $absolute)),
+            $session->getAbsoluteExpiresAtName()  => $session->fromDateTime($absolute),
         ];
     }
 
     /**
-     * Apply the values to the proven device with one compare-and-swap on its
+     * Apply the values to the proven session with one compare-and-swap on its
      * own connection: only while the row still holds the digest, owner,
      * principal and guard it was loaded with, exactly as stored, and is not
-     * revoked. The values are mirrored on the in-memory device as persisted
+     * revoked. The values are mirrored on the in-memory session as persisted
      * state when the swap changed the row. Returns whether it did.
      *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  array<string, mixed>  $values
      * @return bool
      *
      * @imperative
      */
-    private function swap(EloquentDevice&Model $device, array $values): bool
+    private function swap(EloquentSession&Model $session, array $values): bool
     {
-        $owner  = $device->authenticatable();
+        $owner  = $session->authenticatable();
         $proven = [];
 
-        foreach ([$device->getRefreshKeyName(), $owner->getMorphType(), $owner->getForeignKeyName(), ...PrincipalReference::columns($device), $device->getGuardName()] as $column) {
-            $proven[$column] = $device->getRawOriginal($column);
+        $columns = [$session->getRefreshKeyName(), $owner->getMorphType(), $owner->getForeignKeyName(), ...PrincipalReference::columns($session), $session->getGuardName()];
+
+        foreach ($columns as $column) {
+            $proven[$column] = $session->getRawOriginal($column);
         }
 
         $affected = $this->connections
-            ->connection($device->getConnectionName())
-            ->table($device->getTable())
-            ->where($device->getKeyName(), $device->getKey())
+            ->connection($session->getConnectionName())
+            ->table($session->getTable())
+            ->where($session->getKeyName(), $session->getKey())
             ->where($proven)
-            ->whereNull($device->getRevokedAtName())
+            ->whereNull($session->getRevokedAtName())
             ->update($values);
 
         if ($affected !== 1) {
             return false;
         }
 
-        $device->forceFill($values)->syncOriginalAttributes(array_keys($values));
+        $session->forceFill($values)->syncOriginalAttributes(array_keys($values));
 
         return true;
     }
 
     /**
-     * Issue the session's first pair at `$now`, after the device was written.
+     * Issue the session's first pair at `$now`, after the session was written.
      *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  string  $method
      * @param  string  $rotationId
@@ -354,13 +356,13 @@ final readonly class SessionWriter
      * @throws \LogicException
      * @throws \Random\RandomException
      */
-    private function issue(EloquentDevice&Model $device, Admitted $admitted, string $method, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): SignedInSession
+    private function issue(EloquentSession&Model $session, Admitted $admitted, string $method, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): SignedInSession
     {
         $tokens = new TokenPair(
-            $this->tokens->issueAccessToken($admitted->identity, $admitted->principal, $device, $now),
-            $this->tokens->issueRefreshToken($device, $rotationId, $admitted->principal, $now),
+            $this->tokens->issueAccessToken($admitted->identity, $admitted->principal, $session, $now),
+            $this->tokens->issueRefreshToken($session, $rotationId, $admitted->principal, $now),
         );
 
-        return new SignedInSession($admitted->identity, $admitted->principal, $device, $tokens, $method);
+        return new SignedInSession($admitted->identity, $admitted->principal, $session, $tokens, $method);
     }
 }

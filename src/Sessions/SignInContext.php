@@ -12,7 +12,7 @@ use SineMacula\Laravel\Authentication\Http\ClientText;
 /**
  * Where a sign-in comes from and what it asks for: the client (its IP address
  * and user agent), the name and platform it gives itself, the principal it
- * wants to act as, and the refresh token it holds for a device it signed in on
+ * wants to act as, and the refresh token it holds for a session it signed in on
  * before.
  *
  * The client name and platform come from the client, so they are made safe to
@@ -24,7 +24,7 @@ use SineMacula\Laravel\Authentication\Http\ClientText;
  * resolver's hinted path to the same principal of the same class, owned by the
  * identity signing in. The refresh token, which an application passes only when
  * it wants a re-sign-in to replace the client's previous session, proves the
- * client holds that device: the sign-in then revokes it (`superseded`) as it
+ * client holds that session: the sign-in then revokes it (`superseded`) as it
  * creates the new one (see the session service). Without it nothing else is
  * revoked.
  *
@@ -67,7 +67,7 @@ final readonly class SignInContext
         /** Principal the sign-in asks to act as, verified before it is used. */
         public ?Principal $principal = null,
 
-        /** Refresh token of the client's previous device, which the sign-in replaces when it proves it. */
+        /** Refresh token of the client's previous session, which the sign-in replaces when it proves it. */
         #[\SensitiveParameter] public ?string $refreshToken = null,
     ) {
         $this->clientName = ClientText::clean($clientName, self::DESCRIPTION_MAX_LENGTH);

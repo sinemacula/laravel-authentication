@@ -9,13 +9,13 @@ use Carbon\CarbonInterface;
 
 /**
  * A guard's token and session lifetimes, and the deadline arithmetic every
- * token and device follows.
+ * token and session follows.
  *
  * An access token lives for the access lifetime, never past the end of its
- * session. A session (a device) ends at its idle deadline unless a refresh
- * moves that deadline forward, and at its absolute deadline however often it is
- * refreshed: each refresh sets the idle deadline to the idle lifetime from now,
- * never past the absolute deadline, which is fixed when the session starts.
+ * session. A session ends at its idle deadline unless a refresh moves that
+ * deadline forward, and at its absolute deadline however often it is refreshed:
+ * each refresh sets the idle deadline to the idle lifetime from now, never past
+ * the absolute deadline, which is fixed when the session starts.
  *
  * A refresh token that was just rotated stays usable for a short grace window,
  * so a client that lost the response, or a second tab refreshing at the same

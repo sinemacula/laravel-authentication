@@ -37,14 +37,14 @@ final class RebindsCollaboratorsTest extends AbstractGuardTestCase
 
         $guard = $this->makeCountingGuard();
 
-        $guard->authenticateAs($this->mockIdentity(), $this->mockPrincipal(), $this->mockDevice());
+        $guard->authenticateAs($this->mockIdentity(), $this->mockPrincipal(), $this->mockSession());
 
         $next = \Mockery::mock(Request::class);
 
         self::assertSame($guard, $guard->setRequest($next));
         self::assertFalse($guard->hasUser());
         self::assertSame(0, $guard->resolutions);
-        self::assertNull($guard->device());
+        self::assertNull($guard->session());
         self::assertSame(1, $guard->resolutions);
         self::assertSame($next, $guard->getRequest());
 

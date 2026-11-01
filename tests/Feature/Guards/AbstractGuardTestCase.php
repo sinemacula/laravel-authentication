@@ -12,16 +12,16 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use Orchestra\Testbench\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 use Tests\Concerns\BindsSignInPolicyDoubles;
-use Tests\Unit\Stubs\StubDevice;
+use Tests\Unit\Stubs\StubSession;
 
 /**
  * Shared base case for the AbstractGuard split tests.
@@ -153,36 +153,36 @@ abstract class AbstractGuardTestCase extends TestCase
     }
 
     /**
-     * Build a Mockery mock of the Device contract whose identifier is
-     * `device-1` and whose session records no sign-in method, unless a test
+     * Build a Mockery mock of the Session contract whose identifier is
+     * `session-1` and whose session records no sign-in method, unless a test
      * says otherwise.
      *
-     * @return \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Device
+     * @return \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Session
      */
-    protected function mockDevice(): MockInterface
+    protected function mockSession(): MockInterface
     {
-        $device = \Mockery::mock(Device::class);
-        $device->shouldReceive('getDeviceIdentifier')
+        $session = \Mockery::mock(Session::class);
+        $session->shouldReceive('getSessionIdentifier')
             ->byDefault()
-            ->andReturn('device-1');
-        $device->shouldReceive('getSignInMethod')
+            ->andReturn('session-1');
+        $session->shouldReceive('getSignInMethod')
             ->byDefault()
             ->andReturnNull();
 
-        return $device;
+        return $session;
     }
 
     /**
-     * A live device of the guard, as a stored row would load, whose session
+     * A live session of the guard, as a stored row would load, whose session
      * acts as the principal (so it can be pinned for it).
      *
      * @param  string  $id
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @return \Tests\Unit\Stubs\StubDevice
+     * @return \Tests\Unit\Stubs\StubSession
      */
-    protected function pinnableDevice(string $id, Principal $principal): StubDevice
+    protected function pinnableSession(string $id, Principal $principal): StubSession
     {
-        return new StubDevice([
+        return new StubSession([
             'id'                  => $id,
             'guard'               => self::GUARD_NAME,
             'sign_in_method'      => 'password',

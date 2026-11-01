@@ -11,16 +11,16 @@ use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
  * Activatable 2D identity that records, through `ProvidesTokensValidAfter`,
- * when its access tokens issued without a device become valid, in the
- * `tokens_valid_after` column of `cutoff_identities`, and owns devices of the
+ * when its access tokens issued without a session become valid, in the
+ * `tokens_valid_after` column of `cutoff_identities`, and owns sessions of the
  * shipped model.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -34,7 +34,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
  *
  * @internal
  */
-final class CutoffIdentity extends Model implements CanBeActive, HasDevices, HasTokensValidAfter, Identity, Principal
+final class CutoffIdentity extends Model implements CanBeActive, HasSessions, HasTokensValidAfter, Identity, Principal
 {
     use ActsAsPrincipal, Authenticatable, ProvidesActiveState, ProvidesTokensValidAfter;
 
@@ -45,14 +45,14 @@ final class CutoffIdentity extends Model implements CanBeActive, HasDevices, Has
     protected $guarded = [];
 
     /**
-     * The identity's devices of the shipped model.
+     * The identity's sessions of the shipped model.
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
     #[\Override]
-    public function devices(): Builder
+    public function sessions(): Builder
     {
-        return Device::query()
+        return Session::query()
             ->where('authenticatable_type', self::class)
             ->where('authenticatable_id', (string) $this->id);
     }

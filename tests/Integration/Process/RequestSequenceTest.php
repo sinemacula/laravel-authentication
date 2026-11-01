@@ -16,15 +16,15 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -34,7 +34,7 @@ use Tests\TestCase;
  * End-to-end tests for one application serving many requests, as Octane and the
  * test kernel do: each request rebinds the request, which resets every package
  * guard already resolved, so nothing one request bound (an identity, a
- * principal, a device, a refusal) is seen by the next, and a dispatcher or a
+ * principal, a session, a refusal) is seen by the next, and a dispatcher or a
  * principal resolver swapped in after the guard resolved reaches the guard, its
  * refresh exchange and its session service, the switch of principal and the
  * revocations included.
@@ -78,7 +78,7 @@ final class RequestSequenceTest extends TestCase
             return [
                 'identity'  => $guard->id(),
                 'principal' => $guard->principal()?->getPrincipalIdentifier(),
-                'device'    => $guard->device()?->getDeviceIdentifier(),
+                'session'   => $guard->session()?->getSessionIdentifier(),
             ];
         });
 
@@ -144,12 +144,12 @@ final class RequestSequenceTest extends TestCase
         [$ada, $session] = $this->signedIn('ada@example.test');
 
         $this->me($session)->assertJson(['identity' => $ada->getKey()]);
-        $this->me(null)->assertExactJson(['identity' => null, 'principal' => null, 'device' => null]);
+        $this->me(null)->assertExactJson(['identity' => null, 'principal' => null, 'session' => null]);
     }
 
     /**
      * A request with one identity's token, then one with another's: the second
-     * sees only the second identity, principal and device.
+     * sees only the second identity, principal and session.
      *
      * @return void
      *
@@ -164,7 +164,7 @@ final class RequestSequenceTest extends TestCase
         $this->me($second)->assertExactJson([
             'identity'  => $grace->getKey(),
             'principal' => $grace->getKey(),
-            'device'    => $second->device->getKey(),
+            'session'   => $second->record->getKey(),
         ]);
     }
 
@@ -220,9 +220,9 @@ final class RequestSequenceTest extends TestCase
     }
 
     /**
-     * A switch of the principal a device acts as, between two requests with the
-     * same token: the second is refused, though the first was accepted by the
-     * same guard.
+     * A switch of the principal a session acts as, between two requests with
+     * the same token: the second is refused, though the first was accepted by
+     * the same guard.
      *
      * @return void
      *
@@ -234,13 +234,13 @@ final class RequestSequenceTest extends TestCase
 
         $this->me($session)->assertJson(['identity' => $ada->getKey()]);
 
-        Device::query()->whereKey($session->device->getKey())->update(['principal_id' => 'another-principal', 'principal_switched_at' => Carbon::now()]);
+        Session::query()->whereKey($session->record->getKey())->update(['principal_id' => 'another-principal', 'principal_switched_at' => Carbon::now()]);
 
         $this->recordEvents([AuthenticationFailed::class]);
 
         $this->me($session)->assertJson(['identity' => null]);
 
-        self::assertSame(FailureReason::DEVICE_PRINCIPAL_MISMATCH, $this->recordedEvent(AuthenticationFailed::class)->reason);
+        self::assertSame(FailureReason::SESSION_PRINCIPAL_MISMATCH, $this->recordedEvent(AuthenticationFailed::class)->reason);
     }
 
     /**
@@ -299,7 +299,7 @@ final class RequestSequenceTest extends TestCase
 
         self::assertNotNull(self::sessionsOf($guard)->refresh($session->tokens->refreshToken)->session);
 
-        Event::fake([AuthenticationFailed::class, DeviceRevoked::class, SignedIn::class]);
+        Event::fake([AuthenticationFailed::class, SessionRevoked::class, SignedIn::class]);
 
         $later = CarbonImmutable::now()->addMinute();
 
@@ -313,7 +313,7 @@ final class RequestSequenceTest extends TestCase
         self::sessionsOf($guard)->signIn('password', self::credentials('ada@example.test'));
 
         Event::assertDispatched(AuthenticationFailed::class, static fn (AuthenticationFailed $event): bool => $event->reason === FailureReason::ROTATION_REUSE);
-        Event::assertDispatched(DeviceRevoked::class);
+        Event::assertDispatched(SessionRevoked::class);
         Event::assertDispatched(SignedIn::class);
     }
 
@@ -362,13 +362,13 @@ final class RequestSequenceTest extends TestCase
 
         self::assertNotNull($session);
 
-        Event::fake([PrincipalSwitched::class, DeviceRevoked::class, SignedOutEverywhere::class]);
+        Event::fake([PrincipalSwitched::class, SessionRevoked::class, SignedOutEverywhere::class]);
 
         self::assertTrue(self::sessionsOf($guard)->switchPrincipal($session->tokens->refreshToken, $second)->isSwitched());
         self::assertSame(1, self::sessionsOf($guard)->signOutEverywhere());
 
         Event::assertDispatched(PrincipalSwitched::class, static fn (PrincipalSwitched $event): bool => $event->previousPrincipalId === (string) $first->id);
-        Event::assertDispatched(DeviceRevoked::class, static fn (DeviceRevoked $event): bool => $event->reason === RevocationReason::SIGNED_OUT_EVERYWHERE);
+        Event::assertDispatched(SessionRevoked::class, static fn (SessionRevoked $event): bool => $event->reason === RevocationReason::SIGNED_OUT_EVERYWHERE);
         Event::assertDispatched(SignedOutEverywhere::class, static fn (SignedOutEverywhere $event): bool => $event->revoked === 1);
     }
 
@@ -418,7 +418,7 @@ final class RequestSequenceTest extends TestCase
     }
 
     /**
-     * Seed an identity and sign it in on a new device of the `api` guard.
+     * Seed an identity and sign it in on a new session of the `api` guard.
      *
      * @param  string  $email
      * @return array{0: \Tests\Integration\Fixtures\IntegrationIdentity, 1: \SineMacula\Laravel\Authentication\Sessions\SignedInSession}

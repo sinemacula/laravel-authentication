@@ -4,9 +4,9 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Admission;
 
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 
@@ -28,7 +28,7 @@ final readonly class Refused
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?int  $retryAfter
      */
     public function __construct(
@@ -45,8 +45,8 @@ final readonly class Refused
         /** The tenant the principal acts within, if the flow got that far. */
         public ?Tenant $tenant = null,
 
-        /** The device the flow concerned, if any. */
-        public ?Device $device = null,
+        /** The session the flow concerned, if any. */
+        public ?Session $session = null,
 
         /** Seconds until another attempt may be made, for `rate_limited` and `account_rate_limited` only. */
         public ?int $retryAfter = null,
@@ -61,6 +61,6 @@ final readonly class Refused
      */
     public static function after(FailureReason $reason, Admitted $admitted): self
     {
-        return new self($reason, $admitted->identity, $admitted->principal, $admitted->tenant, $admitted->device);
+        return new self($reason, $admitted->identity, $admitted->principal, $admitted->tenant, $admitted->session);
     }
 }

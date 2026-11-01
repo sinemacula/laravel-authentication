@@ -17,8 +17,8 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Concerns\InteractsWithDevices;
+use SineMacula\Laravel\Authentication\Models\Session;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
@@ -27,7 +27,7 @@ use Tests\Unit\Stubs\StubMutablePrincipalResolver;
 
 /**
  * Integration tests for cross-request freshness on the JWT bearer and refresh
- * paths: identity, principal, and device state are read live on every request.
+ * paths: identity, principal, and session state are read live on every request.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -37,7 +37,7 @@ use Tests\Unit\Stubs\StubMutablePrincipalResolver;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
     /** @var string Guard name used by all freshness tests. */
     private const string GUARD = 'api';
@@ -144,7 +144,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     }
 
     /**
-     * Bearer device resolution remains live-only, so deleting the device row
+     * Bearer session resolution remains live-only, so deleting the session row
      * causes the next request with that `did` claim to fail closed.
      *
      * @return void
@@ -152,20 +152,20 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testBearerRejectsPreviouslyIssuedTokenWhenHintedDeviceIsDeletedBetweenRequests(): void
+    public function testBearerRejectsPreviouslyIssuedTokenWhenHintedSessionIsDeletedBetweenRequests(): void
     {
-        $identity = $this->seedIdentity('device-delete@example.test');
-        $device   = $this->seedDevice($identity);
+        $identity = $this->seedIdentity('session-delete@example.test');
+        $session  = $this->seedSession($identity);
 
         $this->resolver()->setHintedPrincipal((string) $identity->getKey(), $identity); // @phpstan-ignore cast.string
 
         $jwt = PackageAuth::jwt(self::GUARD);
 
-        $token = $jwt->issueAccessToken($identity, $identity, $device);
+        $token = $jwt->issueAccessToken($identity, $identity, $session);
 
         self::assertTrue($this->guardForBearer($token)->check());
 
-        $device->delete();
+        $session->delete();
 
         self::assertFalse($this->guardForBearer($token)->check());
     }
@@ -180,11 +180,11 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     public function testRefreshRejectsTokenWhenIdentityBecomesInactiveAfterIssuance(): void
     {
         $identity = $this->seedIdentity('refresh-identity@example.test');
-        $device   = $this->seedDevice($identity, 'stored-rotation-id');
+        $session  = $this->seedSession($identity, 'stored-rotation-id');
 
         $jwt = PackageAuth::jwt(self::GUARD);
 
-        $token = $jwt->issueRefreshToken($device, 'stored-rotation-id', $identity);
+        $token = $jwt->issueRefreshToken($session, 'stored-rotation-id', $identity);
 
         $identity->is_active = false;
         $identity->save();
@@ -203,14 +203,14 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     public function testRefreshRejectsTokenWhenPrincipalBecomesInactiveAfterIssuance(): void
     {
         $identity = $this->seedIdentity('refresh-principal@example.test');
-        $device   = $this->seedDevice($identity, 'refresh-principal-rotation');
+        $session  = $this->seedSession($identity, 'refresh-principal-rotation');
 
         $activePrincipal   = new PlainPrincipalFixture('principal-refresh', $identity, null, true);
         $inactivePrincipal = new PlainPrincipalFixture('principal-refresh', $identity, null, false);
 
         $jwt = PackageAuth::jwt(self::GUARD);
 
-        $token = $jwt->issueRefreshToken($device, 'refresh-principal-rotation', $activePrincipal);
+        $token = $jwt->issueRefreshToken($session, 'refresh-principal-rotation', $activePrincipal);
 
         $this->resolver()->setHintedPrincipal('principal-refresh', $inactivePrincipal);
 
@@ -218,23 +218,23 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     }
 
     /**
-     * Refresh remains device-row-backed and must fail immediately when the
-     * referenced device has been deleted.
+     * Refresh remains session-row-backed and must fail immediately when the
+     * referenced session has been deleted.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testRefreshRejectsTokenWhenDeviceIsDeletedAfterIssuance(): void
+    public function testRefreshRejectsTokenWhenSessionIsDeletedAfterIssuance(): void
     {
-        $identity = $this->seedIdentity('refresh-device-delete@example.test');
-        $device   = $this->seedDevice($identity, 'refresh-device-delete');
+        $identity = $this->seedIdentity('refresh-session-delete@example.test');
+        $session  = $this->seedSession($identity, 'refresh-session-delete');
 
         $jwt = PackageAuth::jwt(self::GUARD);
 
-        $token = $jwt->issueRefreshToken($device, 'refresh-device-delete', $identity);
+        $token = $jwt->issueRefreshToken($session, 'refresh-session-delete', $identity);
 
-        $device->delete();
+        $session->delete();
 
         self::assertNull(GuardSessions::of($this->freshGuard())->refresh($token)->session);
     }
@@ -377,16 +377,16 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     }
 
     /**
-     * Persist and return a device row for the supplied identity.
+     * Persist and return a session row for the supplied identity.
      *
      * @param  \Tests\Unit\Stubs\StubActiveAwarePrincipal  $identity
      * @param  ?string  $rotationId
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private function seedDevice(StubActiveAwarePrincipal $identity, ?string $rotationId = null): Device
+    private function seedSession(StubActiveAwarePrincipal $identity, ?string $rotationId = null): Session
     {
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => StubActiveAwarePrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
@@ -395,7 +395,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
             'refresh_key'          => $rotationId === null ? null : RefreshTokenHasher::hash($rotationId),
         ])->save();
 
-        return $device;
+        return $session;
     }
 
     /**

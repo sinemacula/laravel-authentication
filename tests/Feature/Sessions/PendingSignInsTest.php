@@ -19,8 +19,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\FoundPendingSignIn;
@@ -37,7 +37,7 @@ use Tests\TestCase;
  * Feature tests for the sign-ins waiting for a further factor: what issuing one
  * stores (never the secret), which tokens find one (live, of the guard, for an
  * identity and principal that still resolve as recorded), when its proven
- * device still counts, and that it is used up exactly once.
+ * session still counts, and that it is used up exactly once.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -95,8 +95,8 @@ final class PendingSignInsTest extends TestCase
 
     /**
      * Issuing stores who signed in, as whom, how, from which client, on which
-     * proven device at which digest, the attempt-limit windows, and until when,
-     * but only the digest of the token's secret; the token is the row's
+     * proven session at which digest, the attempt-limit windows, and until
+     * when, but only the digest of the token's secret; the token is the row's
      * identifier and the secret. Neither digest nor the windows, which hold the
      * counters' keys, are serialised.
      *
@@ -107,10 +107,10 @@ final class PendingSignInsTest extends TestCase
     public function testIssueStoresTheSignInButNotTheSecret(): void
     {
         $identity = $this->seedIdentity();
-        $device   = $this->seedDevice($identity);
+        $session  = $this->seedSession($identity);
         $context  = new SignInContext(new ClientContext('192.0.2.1', 'Pending/1.0'), 'Phone', 'iOS');
         $windows  = [['counter-key' => '2026-04-06 12:05:00']];
-        $pending  = $this->pendings()->issue('api', (new Admitted($identity, $identity, null))->on($device), 'password', 'email', $context, $this->now, $windows);
+        $pending  = $this->pendings()->issue('api', (new Admitted($identity, $identity, null))->on($session), 'password', 'email', $context, $this->now, $windows);
 
         [$id, $secret] = explode('.', $pending->token, 2);
 
@@ -130,11 +130,11 @@ final class PendingSignInsTest extends TestCase
         self::assertSame('iOS', $row->platform);
         self::assertSame('192.0.2.1', $row->created_ip);
         self::assertSame('Pending/1.0', $row->created_user_agent);
-        self::assertSame($device->getKey(), $row->device_id);
-        self::assertSame($device->getRefreshKey(), $row->device_refresh_key);
+        self::assertSame($session->getKey(), $row->proven_session_id);
+        self::assertSame($session->getRefreshKey(), $row->proven_session_refresh_key);
         self::assertSame($this->now->addMinutes(5)->getTimestamp(), $row->expires_at->getTimestamp());
         self::assertArrayNotHasKey('token_digest', $row->toArray());
-        self::assertArrayNotHasKey('device_refresh_key', $row->toArray());
+        self::assertArrayNotHasKey('proven_session_refresh_key', $row->toArray());
         self::assertSame($windows, $row->attempt_windows);
         self::assertArrayNotHasKey('attempt_windows', $row->toArray());
 
@@ -144,7 +144,7 @@ final class PendingSignInsTest extends TestCase
         self::assertNull($pending->tenant);
         self::assertSame('password', $pending->method);
         self::assertSame($this->now->addMinutes(5)->getTimestamp(), $pending->expiresAt->getTimestamp());
-        self::assertSame($device, $pending->provenDevice);
+        self::assertSame($session, $pending->provenSession);
     }
 
     /**
@@ -272,11 +272,11 @@ final class PendingSignInsTest extends TestCase
     public function testIssueChoiceStoresTheSignInWithoutAPrincipal(): void
     {
         $identity = $this->seedIdentity();
-        $device   = $this->seedDevice($identity);
+        $session  = $this->seedSession($identity);
         $context  = new SignInContext(new ClientContext('192.0.2.1', 'Pending/1.0'), 'Phone', 'iOS');
         $windows  = [['counter-key' => '2026-04-06 12:05:00']];
 
-        [$token, $expiresAt] = $this->pendings()->issueChoice('api', $identity, $device, 'password', 'email', $context, $this->now, $windows);
+        [$token, $expiresAt] = $this->pendings()->issueChoice('api', $identity, $session, 'password', 'email', $context, $this->now, $windows);
 
         [$id, $secret] = explode('.', $token, 2);
 
@@ -292,8 +292,8 @@ final class PendingSignInsTest extends TestCase
         self::assertNull($row->principal_id);
         self::assertSame('Phone', $row->client_name);
         self::assertSame('192.0.2.1', $row->created_ip);
-        self::assertSame($device->getKey(), $row->device_id);
-        self::assertSame($device->getRefreshKey(), $row->device_refresh_key);
+        self::assertSame($session->getKey(), $row->proven_session_id);
+        self::assertSame($session->getRefreshKey(), $row->proven_session_refresh_key);
         self::assertSame($windows, $row->attempt_windows);
         self::assertSame($this->now->addMinutes(5)->getTimestamp(), $expiresAt->getTimestamp());
         self::assertSame($expiresAt->getTimestamp(), $row->expires_at->getTimestamp());
@@ -349,7 +349,7 @@ final class PendingSignInsTest extends TestCase
     }
 
     /**
-     * The device a choice proved is continued for a principal only while it is
+     * The session a choice proved is continued for a principal only while it is
      * the identity's unchanged, unrevoked session of the guard that records
      * that principal.
      *
@@ -357,17 +357,17 @@ final class PendingSignInsTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testAChoicesProvenDeviceCountsOnlyForThePrincipalItRecords(): void
+    public function testAChoicesProvenSessionCountsOnlyForThePrincipalItRecords(): void
     {
         $identity = $this->seedIdentity();
-        $device   = $this->seedDevice($identity);
+        $session  = $this->seedSession($identity);
 
-        $this->pendings()->issueChoice('api', $identity, $device, 'password', null, $this->context(), $this->now, null);
+        $this->pendings()->issueChoice('api', $identity, $session, 'password', null, $this->context(), $this->now, null);
 
         $pending = PendingSignIn::query()->firstOrFail();
 
-        self::assertSame($device->getKey(), PendingSignIns::provenDevice($pending, $identity, $identity)?->getKey());
-        self::assertNull(PendingSignIns::provenDevice($pending, $this->seedIdentity('grace@example.test'), $identity));
+        self::assertSame($session->getKey(), PendingSignIns::provenSession($pending, $identity, $identity)?->getKey());
+        self::assertNull(PendingSignIns::provenSession($pending, $this->seedIdentity('grace@example.test'), $identity));
 
         $changes = [
             ['refresh_key' => RefreshTokenHasher::hash('rotated')],
@@ -380,22 +380,22 @@ final class PendingSignInsTest extends TestCase
 
         foreach ($changes as $change) {
 
-            $original = (array) DB::table('devices')->where('id', $device->getKey())->first();
+            $original = (array) DB::table('authentication_sessions')->where('id', $session->getKey())->first();
 
-            DB::table('devices')->where('id', $device->getKey())->update($change);
+            DB::table('authentication_sessions')->where('id', $session->getKey())->update($change);
 
-            self::assertNull(PendingSignIns::provenDevice($pending, $identity, $identity));
+            self::assertNull(PendingSignIns::provenSession($pending, $identity, $identity));
 
-            DB::table('devices')->where('id', $device->getKey())->update($original);
+            DB::table('authentication_sessions')->where('id', $session->getKey())->update($original);
         }
 
-        $device->delete();
+        $session->delete();
 
-        self::assertNull(PendingSignIns::provenDevice($pending, $identity, $identity));
+        self::assertNull(PendingSignIns::provenSession($pending, $identity, $identity));
 
-        $pending->forceFill(['device_id' => null]);
+        $pending->forceFill(['proven_session_id' => null]);
 
-        self::assertNull(PendingSignIns::provenDevice($pending, $identity, $identity));
+        self::assertNull(PendingSignIns::provenSession($pending, $identity, $identity));
     }
 
     /**
@@ -442,7 +442,7 @@ final class PendingSignInsTest extends TestCase
         self::assertSame($pending->token, $found->factor->token);
         self::assertSame('api', $found->factor->guard);
         self::assertSame($pending->expiresAt->getTimestamp(), $found->factor->expiresAt->getTimestamp());
-        self::assertNull($found->device);
+        self::assertNull($found->provenSession);
         self::assertSame(1, PendingSignIn::query()->count());
         self::assertNotNull($this->find($pending->token));
     }
@@ -615,7 +615,7 @@ final class PendingSignInsTest extends TestCase
     }
 
     /**
-     * The proven device still counts when it is the identity's live session of
+     * The proven session still counts when it is the identity's live session of
      * the guard for the principal at the digest it was proven against;
      * otherwise the pending sign-in is found without it.
      *
@@ -623,14 +623,14 @@ final class PendingSignInsTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testTheProvenDeviceCountsOnlyWhileItIsUnchanged(): void
+    public function testTheProvenSessionCountsOnlyWhileItIsUnchanged(): void
     {
         $identity = $this->seedIdentity();
-        $device   = $this->seedDevice($identity);
-        $pending  = $this->pendings()->issue('api', (new Admitted($identity, $identity, null))->on($device), 'password', 'email', $this->context(), $this->now);
+        $session  = $this->seedSession($identity);
+        $pending  = $this->pendings()->issue('api', (new Admitted($identity, $identity, null))->on($session), 'password', 'email', $this->context(), $this->now);
 
-        self::assertSame($device->getKey(), $this->find($pending->token)?->device?->getKey());
-        self::assertSame($device->getKey(), $this->find($pending->token)?->factor->provenDevice?->getDeviceIdentifier());
+        self::assertSame($session->getKey(), $this->find($pending->token)?->provenSession?->getKey());
+        self::assertSame($session->getKey(), $this->find($pending->token)?->factor->provenSession?->getSessionIdentifier());
 
         $changes = [
             ['refresh_key' => RefreshTokenHasher::hash('rotated')],
@@ -642,27 +642,27 @@ final class PendingSignInsTest extends TestCase
 
         foreach ($changes as $change) {
 
-            $original = (array) DB::table('devices')->where('id', $device->getKey())->first();
+            $original = (array) DB::table('authentication_sessions')->where('id', $session->getKey())->first();
 
-            DB::table('devices')->where('id', $device->getKey())->update($change);
+            DB::table('authentication_sessions')->where('id', $session->getKey())->update($change);
 
             $found = $this->find($pending->token);
 
             self::assertNotNull($found);
-            self::assertNull($found->device);
-            self::assertNull($found->factor->provenDevice);
+            self::assertNull($found->provenSession);
+            self::assertNull($found->factor->provenSession);
 
-            DB::table('devices')->where('id', $device->getKey())->update($original);
+            DB::table('authentication_sessions')->where('id', $session->getKey())->update($original);
         }
 
-        DB::table('devices')->where('id', $device->getKey())->update(['refresh_key' => null]);
-        PendingSignIn::query()->update(['device_refresh_key' => null]);
+        DB::table('authentication_sessions')->where('id', $session->getKey())->update(['refresh_key' => null]);
+        PendingSignIn::query()->update(['proven_session_refresh_key' => null]);
 
-        self::assertNull($this->find($pending->token)?->device);
+        self::assertNull($this->find($pending->token)?->provenSession);
 
-        $device->delete();
+        $session->delete();
 
-        self::assertNull($this->find($pending->token)?->device);
+        self::assertNull($this->find($pending->token)?->provenSession);
     }
 
     /**
@@ -936,16 +936,16 @@ final class PendingSignInsTest extends TestCase
     }
 
     /**
-     * Persist a live device of the `api` guard for the 2D identity, holding a
+     * Persist a live session of the `api` guard for the 2D identity, holding a
      * refresh credential.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private function seedDevice(IntegrationIdentity $identity): Device
+    private function seedSession(IntegrationIdentity $identity): Session
     {
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             'authenticatable_type' => IntegrationIdentity::class,
             'authenticatable_id'   => (string) $identity->id,
             'principal_type'       => IntegrationIdentity::class,
@@ -957,6 +957,6 @@ final class PendingSignInsTest extends TestCase
             'absolute_expires_at'  => $this->now->addDays(180),
         ])->save();
 
-        return Device::query()->whereKey($device->getKey())->firstOrFail();
+        return Session::query()->whereKey($session->getKey())->firstOrFail();
     }
 }

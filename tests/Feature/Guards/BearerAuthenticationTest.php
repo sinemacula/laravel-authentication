@@ -22,9 +22,10 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 /**
  * Feature tests for the bearer path's principal and "tokens valid after"
  * checks: a token whose principal does not resolve exactly is a mismatch, and
- * an access token issued without a device is rejected as `issued_before_cutoff`
- * when it was issued at or before the time its identity or its principal
- * records, and a token that names a device is never held to it.
+ * an access token issued without a session is rejected as
+ * `issued_before_cutoff` when it was issued at or before the time its identity
+ * or its principal records, and a token that names a session is never held to
+ * it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -59,7 +60,7 @@ final class BearerAuthenticationTest extends JwtGuardTestCase
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     #[DataProvider('provideCutoffs')]
-    public function testTheIdentitysTimeLimitsADevicelessToken(int $offset, bool $accepted): void
+    public function testTheIdentitysTimeLimitsASessionlessToken(int $offset, bool $accepted): void
     {
         $identity  = $this->identity($this->now->copy()->addSeconds($offset));
         $principal = $this->principal(null);
@@ -79,7 +80,7 @@ final class BearerAuthenticationTest extends JwtGuardTestCase
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     #[DataProvider('provideCutoffs')]
-    public function testThePrincipalsTimeLimitsADevicelessToken(int $offset, bool $accepted): void
+    public function testThePrincipalsTimeLimitsASessionlessToken(int $offset, bool $accepted): void
     {
         $identity  = $this->identity(null);
         $principal = $this->principal($this->now->copy()->addSeconds($offset));
@@ -183,7 +184,7 @@ final class BearerAuthenticationTest extends JwtGuardTestCase
         self::assertInstanceOf(AuthenticationFailed::class, $failure);
         self::assertSame($identity, $failure->context->identity);
         self::assertSame($principal, $failure->context->principal);
-        self::assertNull($failure->context->device);
+        self::assertNull($failure->context->session);
     }
 
     /**
@@ -314,7 +315,7 @@ final class BearerAuthenticationTest extends JwtGuardTestCase
     }
 
     /**
-     * A guard serving a device-less token for the identity and principal, or
+     * A guard serving a session-less token for the identity and principal, or
      * the given token.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity

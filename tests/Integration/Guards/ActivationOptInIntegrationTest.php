@@ -16,8 +16,8 @@ use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Concerns\InteractsWithDevices;
+use SineMacula\Laravel\Authentication\Models\Session;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\DefaultUsersTableIdentity;
 use Tests\TestCase;
@@ -37,7 +37,7 @@ use Tests\TestCase;
 #[CoversClass(JwtGuard::class)]
 final class ActivationOptInIntegrationTest extends TestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
     /** @var string */
     private const string PASSWORD = 'correct horse battery staple';
@@ -118,7 +118,7 @@ final class ActivationOptInIntegrationTest extends TestCase
     }
 
     /**
-     * A user with no activation column refreshes a device-backed session.
+     * A user with no activation column refreshes a session-backed session.
      *
      * @return void
      *
@@ -128,15 +128,15 @@ final class ActivationOptInIntegrationTest extends TestCase
     {
         $user = $this->seedUser();
 
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession('api', $user),
             'authenticatable_type' => DefaultUsersTableIdentity::class,
             'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID, $user);
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $user);
 
         $guard = $this->freshGuard();
 

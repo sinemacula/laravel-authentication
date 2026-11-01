@@ -8,11 +8,11 @@ use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
  * 2D identity fixture, stored in `mapped_email_identities`, whose email address
@@ -31,7 +31,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
  *
  * @internal
  */
-final class MappedEmailIdentity extends Model implements HasDevices, HasVerifiableIdentifiers, Identity, Principal
+final class MappedEmailIdentity extends Model implements HasSessions, HasVerifiableIdentifiers, Identity, Principal
 {
     use ActsAsPrincipal, Authenticatable;
 
@@ -42,14 +42,14 @@ final class MappedEmailIdentity extends Model implements HasDevices, HasVerifiab
     protected $guarded = [];
 
     /**
-     * The identity's devices of the shipped model.
+     * The identity's sessions of the shipped model.
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
     #[\Override]
-    public function devices(): Builder
+    public function sessions(): Builder
     {
-        return Device::query()
+        return Session::query()
             ->where('authenticatable_type', self::class)
             ->where('authenticatable_id', (string) $this->getKey()); // @phpstan-ignore cast.string
     }

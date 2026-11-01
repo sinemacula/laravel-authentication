@@ -17,10 +17,10 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
-use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
@@ -29,12 +29,12 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
-use Tests\Concerns\InteractsWithDevices;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
-use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubPrincipal;
+use Tests\Unit\Stubs\StubSession;
 
 /**
  * Feature tests for the identity and principal resolution paths within
@@ -54,7 +54,7 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(IdentifierCoercion::class)]
 final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
     /**
      * When the bound identity reports `isActive() === false`, refresh fails
@@ -83,21 +83,21 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         };
         $identity->forceFill(['id' => 21]);
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => $identity->getMorphClass(),
             'authenticatable_id'   => '21',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $this->expectOwnerReload($device, $identity);
+        $this->expectOwnerReload($session, $identity);
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $this->swapSessionModelToInMemoryInstance($session);
 
         $guard = $this->makeGuard($this->makeRequest(null));
 
         $token = $this->encodeRefreshToken([
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -115,12 +115,12 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Provider answers for the owner key `9` of a `StubIdentity` device that
+     * Provider answers for the owner key `9` of a `StubIdentity` session that
      * are not that owner.
      *
      * @return iterable<string, array{0: \Closure(): mixed}>
      */
-    public static function provideAnswersThatAreNotTheDeviceOwner(): iterable
+    public static function provideAnswersThatAreNotTheSessionOwner(): iterable
     {
         yield from [
             'no identity through the provider'           => [static fn (): null => null],
@@ -132,8 +132,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Refresh reloads the device owner through the guard's provider by the
-     * owner key on the device row and accepts only that exact owner; any other
+     * Refresh reloads the session owner through the guard's provider by the
+     * owner key on the session row and accepts only that exact owner; any other
      * answer fails with `identity_unknown` before a principal is resolved.
      *
      * @param  \Closure(): mixed  $answer
@@ -142,26 +142,26 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    #[DataProvider('provideAnswersThatAreNotTheDeviceOwner')]
-    public function testRefreshRejectsAProviderAnswerThatIsNotTheDeviceOwner(\Closure $answer): void
+    #[DataProvider('provideAnswersThatAreNotTheSessionOwner')]
+    public function testRefreshRejectsAProviderAnswerThatIsNotTheSessionOwner(\Closure $answer): void
     {
         $plainRotationId = 'stored-rotation-id';
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '9',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $this->expectOwnerReload($device, $answer());
+        $this->expectOwnerReload($session, $answer());
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $this->swapSessionModelToInMemoryInstance($session);
 
         $guard = $this->makeGuard($this->makeRequest(null));
 
         $token = $this->encodeRefreshToken([
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -172,39 +172,39 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
-                    && $event->reason            === FailureReason::IDENTITY_UNKNOWN
-                    && $event->context->deviceId === $device->id),
+                    && $event->reason             === FailureReason::IDENTITY_UNKNOWN
+                    && $event->context->sessionId === $session->id),
             );
 
         self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
     }
 
     /**
-     * A device row with no owner key has no owner to reload: refresh fails with
-     * `identity_unknown` without asking the provider.
+     * A session row with no owner key has no owner to reload: refresh fails
+     * with `identity_unknown` without asking the provider.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testRefreshRejectsADeviceWithoutAnOwnerKeyWithoutAskingTheProvider(): void
+    public function testRefreshRejectsASessionWithoutAnOwnerKeyWithoutAskingTheProvider(): void
     {
         $plainRotationId = 'stored-rotation-id';
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $this->swapSessionModelToInMemoryInstance($session);
 
         $guard = $this->makeGuard($this->makeRequest(null));
 
         $token = $this->encodeRefreshToken([
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -239,16 +239,16 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $identity = new StubIdentity;
         $identity->forceFill(['id' => 9]);
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '9',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $this->expectOwnerReload($device, $identity);
+        $this->expectOwnerReload($session, $identity);
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $this->swapSessionModelToInMemoryInstance($session);
 
         $guard = $this->makeGuard($this->makeRequest(null));
 
@@ -259,7 +259,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $token = $this->encodeRefreshToken([
             'pid' => 'p-hinted',
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -268,8 +268,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
-                    && $event->reason            === FailureReason::PRINCIPAL_MISMATCH
-                    && $event->context->deviceId === $device->id),
+                    && $event->reason             === FailureReason::PRINCIPAL_MISMATCH
+                    && $event->context->sessionId === $session->id),
             );
 
         self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
@@ -291,16 +291,16 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $identity = new StubIdentity;
         $identity->forceFill(['id' => 10]);
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '10',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $this->expectOwnerReload($device, $identity);
+        $this->expectOwnerReload($session, $identity);
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $this->swapSessionModelToInMemoryInstance($session);
 
         $guard = $this->makeGuard($this->makeRequest(null));
 
@@ -316,7 +316,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $token = $this->encodeRefreshToken([
             'pid' => 'p-hinted',
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -325,8 +325,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
-                    && $event->reason            === FailureReason::PRINCIPAL_MISMATCH
-                    && $event->context->deviceId === $device->id),
+                    && $event->reason             === FailureReason::PRINCIPAL_MISMATCH
+                    && $event->context->sessionId === $session->id),
             );
 
         self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
@@ -348,16 +348,16 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $identity = new StubIdentity;
         $identity->forceFill(['id' => 15]);
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '15',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $this->expectOwnerReload($device, $identity);
+        $this->expectOwnerReload($session, $identity);
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $this->swapSessionModelToInMemoryInstance($session);
 
         $guard = $this->makeGuard($this->makeRequest(null));
 
@@ -373,7 +373,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $token = $this->encodeRefreshToken([
             'pid' => 'p-hinted',
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -382,8 +382,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
-                    && $event->reason            === FailureReason::PRINCIPAL_MISMATCH
-                    && $event->context->deviceId === $device->id),
+                    && $event->reason             === FailureReason::PRINCIPAL_MISMATCH
+                    && $event->context->sessionId === $session->id),
             );
 
         self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
@@ -405,16 +405,16 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $identity = new StubIdentity;
         $identity->forceFill(['id' => 11]);
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '11',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $this->expectOwnerReload($device, $identity);
+        $this->expectOwnerReload($session, $identity);
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $this->swapSessionModelToInMemoryInstance($session);
 
         $guard = $this->makeGuard($this->makeRequest(null));
 
@@ -429,7 +429,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $token = $this->encodeRefreshToken([
             'pid' => 'p-11',
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -462,16 +462,16 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $identity = new StubIdentity;
         $identity->forceFill(['id' => 25]);
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '25',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $this->expectOwnerReload($device, $identity);
+        $this->expectOwnerReload($session, $identity);
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $this->swapSessionModelToInMemoryInstance($session);
 
         $guard = $this->makeGuard($this->makeRequest(null));
 
@@ -482,7 +482,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $token = $this->encodeRefreshToken([
             'pid' => 'p-hinted',
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -515,17 +515,17 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $identity = new StubIdentity;
         $identity->forceFill(['id' => 7]);
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '7',
             'refresh_key'          => $oldDigest,
         ])->save();
 
-        $this->expectOwnerReload($device, $identity);
+        $this->expectOwnerReload($session, $identity);
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $this->swapSessionModelToInMemoryInstance($session);
 
         $guard = $this->makeGuard($this->makeRequest(null));
 
@@ -542,11 +542,11 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-1')
             ->andReturn($principal);
 
-        $device->forceFill(self::recordedPrincipal($principal))->save();
+        $session->forceFill(self::recordedPrincipal($principal))->save();
 
         $token = $this->encodeRefreshToken([
             'pid' => 'p-1',
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -565,16 +565,16 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         self::assertIsArray($accessClaims);
         self::assertSame('7', $accessClaims[Claims::SUBJECT->value]);
         self::assertSame('p-1', $accessClaims[Claims::PRINCIPAL_ID->value]);
-        self::assertSame($device->id, $accessClaims[Claims::DEVICE_ID->value]);
+        self::assertSame($session->id, $accessClaims[Claims::SESSION_ID->value]);
 
         $refreshClaims = $this->tokens->parse($result->refreshToken, TokenType::REFRESH);
         self::assertIsArray($refreshClaims);
-        self::assertSame($device->id, $refreshClaims[Claims::DEVICE_ID->value]);
+        self::assertSame($session->id, $refreshClaims[Claims::SESSION_ID->value]);
         self::assertSame('p-1', $refreshClaims[Claims::PRINCIPAL_ID->value]);
         self::assertIsString($refreshClaims[Claims::JWT_ID->value]);
         self::assertNotSame($plainRotationId, $refreshClaims[Claims::JWT_ID->value]);
 
-        $fresh = StubDevice::query()->findOrFail($device->id);
+        $fresh = StubSession::query()->findOrFail($session->id);
         self::assertNotSame($oldDigest, $fresh->refresh_key);
         self::assertTrue(RefreshTokenHasher::verify($refreshClaims[Claims::JWT_ID->value], $fresh->refresh_key));
 
@@ -590,12 +590,12 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         self::assertSame(self::GUARD_NAME, $refreshed[0]->context->guard);
         self::assertSame($identity, $refreshed[0]->context->identity);
         self::assertSame($principal, $refreshed[0]->context->principal);
-        self::assertSame($device, $refreshed[0]->context->device);
+        self::assertSame($session, $refreshed[0]->context->session);
     }
 
     /**
      * A successful refresh is a sign-in: `Attempting`, the package `Refreshed`
-     * and `SignedIn` (a refresh, on the device it continued), reported before
+     * and `SignedIn` (a refresh, on the session it continued), reported before
      * the bind, then `Validated`, `Login` and the bind events.
      *
      * @return void
@@ -610,17 +610,17 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $identity = new StubIdentity;
         $identity->forceFill(['id' => 19]);
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '19',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 
-        $this->expectOwnerReload($device, $identity);
+        $this->expectOwnerReload($session, $identity);
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $this->swapSessionModelToInMemoryInstance($session);
 
         $guard = $this->makeGuard($this->makeRequest(null));
 
@@ -637,11 +637,11 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-19')
             ->andReturn($principal);
 
-        $device->forceFill(self::recordedPrincipal($principal))->save();
+        $session->forceFill(self::recordedPrincipal($principal))->save();
 
         $token = $this->encodeRefreshToken([
             'pid' => 'p-19',
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -662,7 +662,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             Login::class,
             Authenticated::class,
             PrincipalAssigned::class,
-            DeviceAuthenticated::class,
+            SessionAuthenticated::class,
         ], array_map(static fn (object $event): string => $event::class, $dispatched));
 
         $refreshed = $dispatched[1];
@@ -673,36 +673,36 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         self::assertSame($refreshed->context, $signedIn->context);
         self::assertTrue($signedIn->refresh);
         self::assertSame('password', $signedIn->context->method);
-        self::assertSame($device, $signedIn->context->device);
+        self::assertSame($session, $signedIn->context->session);
     }
 
     /**
      * After a successful refresh the guard has the identity, principal, and
-     * device bound for the rest of the request.
+     * session bound for the rest of the request.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testRefreshBindsIdentityPrincipalAndDeviceOnSuccess(): void
+    public function testRefreshBindsIdentityPrincipalAndSessionOnSuccess(): void
     {
         $plainRotationId = 'stored-rotation-id';
 
         $identity = new StubIdentity;
         $identity->forceFill(['id' => 7]);
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '7',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 
-        $this->expectOwnerReload($device, $identity);
+        $this->expectOwnerReload($session, $identity);
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $this->swapSessionModelToInMemoryInstance($session);
 
         $guard = $this->makeGuard($this->makeRequest(null));
 
@@ -719,10 +719,10 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             ->with($identity)
             ->andReturn($principal);
 
-        $device->forceFill(self::recordedPrincipal($principal))->save();
+        $session->forceFill(self::recordedPrincipal($principal))->save();
 
         $token = $this->encodeRefreshToken([
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -731,7 +731,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         self::assertTrue(GuardSessions::of($guard)->refresh($token)->isRefreshed());
         self::assertSame($identity, $guard->identity());
         self::assertSame($principal, $guard->principal());
-        self::assertSame($device, $guard->device());
+        self::assertSame($session, $guard->session());
     }
 
     /**
@@ -751,17 +751,17 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $identity = new StubIdentity;
         $identity->forceFill(['id' => 17]);
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '17',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 
-        $this->expectOwnerReload($device, $identity);
+        $this->expectOwnerReload($session, $identity);
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $this->swapSessionModelToInMemoryInstance($session);
 
         $guard = $this->makeGuard($this->makeRequest(null));
 
@@ -784,10 +784,10 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $guard->setPrincipalResolver($replacement);
 
-        $device->forceFill(self::recordedPrincipal($principal))->save();
+        $session->forceFill(self::recordedPrincipal($principal))->save();
 
         $token = $this->encodeRefreshToken([
-            'did' => $device->id,
+            'did' => $session->id,
             'jti' => $plainRotationId,
         ]);
 

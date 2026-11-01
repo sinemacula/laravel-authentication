@@ -30,12 +30,12 @@ final readonly class PasswordResult
         /** The rules the password breaks, when it was not set. */
         public array $violations,
 
-        /** How many devices the flow revoked, when it was set. */
+        /** How many sessions the flow revoked, when it was set. */
         public int $revoked,
     ) {}
 
     /**
-     * The password was set, and the flow revoked this many devices.
+     * The password was set, and the flow revoked this many sessions.
      *
      * @param  int  $revoked
      * @return self

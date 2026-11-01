@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
-use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordChange;
+use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasswordChange;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\AbandonedAttemptJob;
@@ -96,7 +96,7 @@ final class QueueWorkerRehashingTest extends TestCase
         $this->runBothJobs(SavePasswordJob::class);
 
         self::assertSame($this->app?->make('abandoned.mark'), $this->app?->make(Rehashing::class));
-        self::assertSame('password_changed', DB::table('devices')->value('revoked_reason'));
+        self::assertSame('password_changed', DB::table('authentication_sessions')->value('revoked_reason'));
     }
 
     /**
@@ -113,7 +113,7 @@ final class QueueWorkerRehashingTest extends TestCase
         $this->runBothJobs(SavePasswordJob::class);
 
         self::assertNotSame($this->app?->make('abandoned.mark'), $this->app?->make(Rehashing::class));
-        self::assertSame('password_changed', DB::table('devices')->value('revoked_reason'));
+        self::assertSame('password_changed', DB::table('authentication_sessions')->value('revoked_reason'));
     }
 
     /**
@@ -130,7 +130,7 @@ final class QueueWorkerRehashingTest extends TestCase
 
         $this->runBothJobs(LogoutOtherDevicesJob::class);
 
-        self::assertSame('password_changed', DB::table('devices')->value('revoked_reason'));
+        self::assertSame('password_changed', DB::table('authentication_sessions')->value('revoked_reason'));
     }
 
     /**
@@ -195,7 +195,7 @@ final class QueueWorkerRehashingTest extends TestCase
 
         self::assertTrue($this->sessions()->signIn('password', self::credentials())->isSignedIn());
 
-        IntegrationIdentity::observe(RevokeDevicesOnPasswordChange::class);
+        IntegrationIdentity::observe(RevokeSessionsOnPasswordChange::class);
 
         $hash = $identity->getAuthPassword();
 

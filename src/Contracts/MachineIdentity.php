@@ -8,7 +8,7 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  * Machine identity contract.
  *
  * Marks an identity as non-human: an API client or a service account. Such an
- * identity has no password, no interactive sign-in and no device: it
+ * identity has no password, no interactive sign-in and no session: it
  * authenticates only with a credential issued to it (an API key, or a client
  * credentials exchange), each bound to one principal in one tenant, and the
  * package refuses it on every path that signs in, starts, continues or switches

@@ -13,9 +13,9 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * 2D identity fixture for access-only mode: it holds no devices (no
- * `HasDevices`) and records when its device-less access tokens become valid, in
- * the `access_only_cutoff_identities` table the test creates.
+ * 2D identity fixture for access-only mode: it holds no sessions (no
+ * `HasSessions`) and records when its session-less access tokens become valid,
+ * in the `access_only_cutoff_identities` table the test creates.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -77,7 +77,7 @@ final class PendingSignInsTableSchemaTest extends TestCase
 
     /**
      * The table holds the token digest and purpose, the guard, method and
-     * identifier type, the owner and principal, the client, the proven device,
+     * identifier type, the owner and principal, the client, the proven session,
      * the windows of the attempt-limit slots the sign-in holds, the expiry and
      * the timestamps; only what a sign-in may lack is nullable, the principal
      * included, which a sign-in waiting for a choice of principal lacks.
@@ -91,26 +91,26 @@ final class PendingSignInsTableSchemaTest extends TestCase
         ksort($columns);
 
         self::assertSame([
-            'attempt_windows'      => true,
-            'authenticatable_id'   => false,
-            'authenticatable_type' => false,
-            'client_name'          => true,
-            'created_at'           => true,
-            'created_ip'           => true,
-            'created_user_agent'   => true,
-            'device_id'            => true,
-            'device_refresh_key'   => true,
-            'expires_at'           => false,
-            'guard'                => false,
-            'id'                   => false,
-            'identifier_type'      => true,
-            'platform'             => true,
-            'principal_id'         => true,
-            'principal_type'       => true,
-            'purpose'              => false,
-            'sign_in_method'       => false,
-            'token_digest'         => false,
-            'updated_at'           => true,
+            'attempt_windows'            => true,
+            'authenticatable_id'         => false,
+            'authenticatable_type'       => false,
+            'client_name'                => true,
+            'created_at'                 => true,
+            'created_ip'                 => true,
+            'created_user_agent'         => true,
+            'expires_at'                 => false,
+            'guard'                      => false,
+            'id'                         => false,
+            'identifier_type'            => true,
+            'platform'                   => true,
+            'principal_id'               => true,
+            'principal_type'             => true,
+            'proven_session_id'          => true,
+            'proven_session_refresh_key' => true,
+            'purpose'                    => false,
+            'sign_in_method'             => false,
+            'token_digest'               => false,
+            'updated_at'                 => true,
         ], $columns);
 
         $primary = array_values(array_filter(Schema::getIndexes(self::TABLE), static fn (array $index): bool => $index['primary']));
@@ -164,7 +164,7 @@ final class PendingSignInsTableSchemaTest extends TestCase
         $types = array_column(Schema::getColumns(self::TABLE), 'type', 'name');
 
         self::assertStringContainsString('(64)', $types['token_digest']);
-        self::assertStringContainsString('(64)', $types['device_refresh_key']);
+        self::assertStringContainsString('(64)', $types['proven_session_refresh_key']);
         self::assertStringContainsString('(64)', $types['purpose']);
         self::assertStringContainsString('(45)', $types['created_ip']);
         self::assertStringContainsString('(512)', $types['created_user_agent']);

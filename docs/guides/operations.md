@@ -6,22 +6,22 @@ the configuration before a deploy.
 
 ## Read replicas
 
-Every read that decides authentication - the identity, the principal and the tenant it acts within, and the device with
+Every read that decides authentication - the identity, the principal and the tenant it acts within, and the session with
 its guard, sign-in method, refresh digests, rotation time, session deadlines and revocation state - goes to the write
 connection, even when the database connection has `read` and `write` hosts. A replica can lag behind a revocation, a
 deactivation, a refresh rotation, or an ended session, and a lookup it served could admit a credential the primary has
 already rejected.
 
-The package pins the lookups it makes, including the relations the identity, principal and device models eager-load
+The package pins the lookups it makes, including the relations the identity, principal and session models eager-load
 (`$with`), on whichever connection those relations live (a tenant in a separate landlord database, say). Code you plug
 in carries the same obligation:
 
 - a custom `IdentityProvider`, a `ModelProvider` subclass that builds its own query, or a custom `PrincipalResolver`
   must read from the write connection, including the relations its results eager-load;
-- `resolveDefaultPrincipal()`, `resolveHintedPrincipal()`, `devices()` and, when `ModelProvider` checks a password,
+- `resolveDefaultPrincipal()`, `resolveHintedPrincipal()`, `sessions()` and, when `ModelProvider` checks a password,
   `getAuthPassword()` already run inside `WriteConnection::during()` for the identity, `getTenant()` for the principal,
-  `isActive()` for the model it belongs to, a device's guard, sign-in method, refresh state, session deadlines and
-  revocation for the device, and an application policy's `admitIdentifier()` for the identity and `admit()` for the
+  `isActive()` for the model it belongs to, a session's guard, sign-in method, refresh state, session deadlines and
+  revocation for the session, and an application policy's `admitIdentifier()` for the identity and `admit()` for the
   identity and the principal (so a policy of your own that admits on a grant or a membership row reads the primary's):
   every model read made there, on any connection, goes to that connection's writer, and so does a query-builder read on
   the model's own connection. A query-builder or `DB` read on another connection, or made by a principal or identity
@@ -51,9 +51,9 @@ and the request bound, and it forgets the booted application's scoped instances 
 instance is resolved afresh for every request but one the application resolved at boot, which serves the first. Its
 `FlushAuthenticationState` listener hands the auth manager the sandbox and forgets the guards, so each request resolves
 the package guards again and authenticates from its own token or API key, or not at all: the identity, principal,
-device, tenant and scopes one request bound, a refusal and a logout are gone for the next. `Auth::sessions()`,
+session, tenant and scopes one request bound, a refusal and a logout are gone for the next. `Auth::sessions()`,
 `Auth::jwt()`, `Auth::codes()`, `Auth::apiKeys()`, `Auth::clientCredentials()` and the other services act on the
-sandbox: its request (the client their events and devices record), its configuration (a value one request changes
+sandbox: its request (the client their events and sessions record), its configuration (a value one request changes
 applies to that request alone) and the dispatcher bound in it. The sign-in methods are built with the sandbox too, a
 method registered at boot included, and so are the revoking listeners' session services, though the event dispatcher
 builds those listeners with the booted application. Keep Octane's default listeners (`FlushAuthenticationState` and
@@ -62,7 +62,7 @@ at boot keeps the booted configuration, so a request that changes its own would 
 through Octane's own worker, sandbox and listeners (without a server), across sequences of requests.
 
 Outside Octane, each request rebinds Laravel's `request`, which resets every package guard already resolved: the
-identity, principal and device it bound, and whether it has resolved the request. A queue worker forgets only scoped
+identity, principal and session it bound, and whether it has resolved the request. A queue worker forgets only scoped
 instances between jobs, so the package resets its guards when each job a worker runs starts (on `JobProcessing`,
 through `AuthManager::forgetGuardState()`): a guard a job signs in with `login()` or `setUser()` is signed out again
 for the next job. Only jobs a worker runs are reset: a job on the `sync` connection (the `sync` driver, or
@@ -153,22 +153,22 @@ Removing a kid immediately rejects every token signed under it, which is also ho
 Rows whose use has ended stay in their tables until Laravel's `model:prune` deletes them, each model in chunks of one
 conditional `DELETE` that reads nothing:
 
-| Model                     | Pruned once                                                                           |
-|---------------------------|---------------------------------------------------------------------------------------|
-| `Models\Device`           | its session has been over (revoked, or past a deadline) for `device.prune_after_days` |
-| `Models\PendingSignIn`    | it has expired                                                                        |
-| `Models\RateLimit`        | its window has ended                                                                  |
-| `Models\OneTimeCode`      | it has expired                                                                        |
-| `Models\PasskeyChallenge` | it has expired                                                                        |
-| `Models\ApiKey`           | it was revoked or expired more than `api_keys.prune_after_days` ago                   |
-| `Models\IdentifierChange` | it has expired                                                                        |
+| Model                     | Pruned once                                                                   |
+|---------------------------|-------------------------------------------------------------------------------|
+| `Models\Session`          | it has been over (revoked, or past a deadline) for `session.prune_after_days` |
+| `Models\PendingSignIn`    | it has expired                                                                |
+| `Models\RateLimit`        | its window has ended                                                          |
+| `Models\OneTimeCode`      | it has expired                                                                |
+| `Models\PasskeyChallenge` | it has expired                                                                |
+| `Models\ApiKey`           | it was revoked or expired more than `api_keys.prune_after_days` ago           |
+| `Models\IdentifierChange` | it has expired                                                                |
 
 Passkeys are never pruned: one lasts until its owner removes it.
 
-Revoked and ended devices are kept for audit: a device is pruned once its session has been over for
-`device.prune_after_days` (default 30, from 0 to 3650), counted from when it was revoked or passed its idle or absolute
+Revoked and ended sessions are kept for audit: a session is pruned once it has been over for
+`session.prune_after_days` (default 30, from 0 to 3650), counted from when it was revoked or passed its idle or absolute
 deadline, whichever came first, never from when it was created, so a long session is kept as long after it ends as a
-short one. With 0, a device is pruned from the second its session ends. The value must be an integer, or a digit string
+short one. With 0, a session is pruned from the second it ends. The value must be an integer, or a digit string
 as `env()` returns one; anything else fails with an `InvalidArgumentException` when pruning runs. Each chunk is one
 conditional `DELETE`, and nothing is read.
 
@@ -177,7 +177,7 @@ The package's models live outside your application's `app/Models`, so name them 
 ```php
 use Illuminate\Support\Facades\Schedule;
 use SineMacula\Laravel\Authentication\Models\ApiKey;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\IdentifierChange;
 use SineMacula\Laravel\Authentication\Models\OneTimeCode;
 use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
@@ -186,7 +186,7 @@ use SineMacula\Laravel\Authentication\Models\RateLimit;
 
 Schedule::command('model:prune', [
     '--model' => [
-        Device::class,
+        Session::class,
         PendingSignIn::class,
         RateLimit::class,
         OneTimeCode::class,
@@ -197,17 +197,17 @@ Schedule::command('model:prune', [
 ])->hourly();
 ```
 
-A custom device model opts in with the `PrunesDevices` trait alone (it brings Laravel's `MassPrunable` with it, and
-using `MassPrunable` beside it is a PHP trait collision), and pruning reads its columns from the `EloquentDevice` name
-accessors; schedule it under its own class name. Run `php artisan model:prune --model="App\Models\Device" --pretend` to
-see how many devices would go. Pruning changes nothing about authentication: a pruned device's tokens fail as an unknown
-device, exactly as they already failed once it was revoked or ended. Queued listeners of an event about a device that
+A custom session model opts in with the `PrunesSessions` trait alone (it brings Laravel's `MassPrunable` with it, and
+using `MassPrunable` beside it is a PHP trait collision), and pruning reads its columns from the `EloquentSession` name
+accessors; schedule it under its own class name. Run `php artisan model:prune --model="App\Models\Session" --pretend` to
+see how many sessions would go. Pruning changes nothing about authentication: a pruned session's tokens fail as an unknown
+session, exactly as they already failed once it was revoked or ended. Queued listeners of an event about a session that
 has since been pruned cannot re-fetch it (see [Events](events.md#events)).
 
-Before a token's `did` is looked up, it is checked against the device model's primary key: a UUID for `HasUuids`, a
+Before a token's `did` is looked up, it is checked against the session model's primary key: a UUID for `HasUuids`, a
 ULID for `HasUlids`, an integer for an integer key, and a non-empty string otherwise. A `did` that cannot be a key is
-treated as an unknown device without a query. A model whose key has some other format implements `ValidatesDeviceKey`
-to describe it. Database errors are never read as an unknown device: they propagate as server errors.
+treated as an unknown session without a query. A model whose key has some other format implements `ValidatesSessionKey`
+to describe it. Database errors are never read as an unknown session: they propagate as server errors.
 
 ## Checking the configuration
 
@@ -222,16 +222,16 @@ relying party; each `api_key` guard's provider, `principal_resolver` override, a
 whatever the policy, since an `api_key` guard has no other use, and with the package's policy, its settings) and rate
 limits; and, for the whole package, the storage and rate limit connections (`authentication.storage.connection`,
 `authentication.rate_limits.connection`: a connection name configured in `database.connections`, or none), the
-configured device model, which must live on the storage connection, and the pruning retention while any `jwt` guard is
-configured (`authentication.device.prune_after_days`, otherwise checked only when `model:prune` runs), the pending
+configured session model, which must live on the storage connection, and the pruning retention while any `jwt` guard is
+configured (`authentication.session.prune_after_days`, otherwise checked only when `model:prune` runs), the pending
 sign-in lifetime (`authentication.sign_in.pending_ttl_seconds`, otherwise checked only when a sign-in waits for a
 further factor or a choice of principal), the password policy settings (`authentication.passwords`), the one-time code
 settings and key (`authentication.codes`) and a bound `OneTimeCodeSender` when any guard allows a code sign-in method
 (`phone_code`, `email_code`, or a `CodeSignIn` you registered), the delivery queue (`authentication.delivery.queue`),
 the passkey challenge lifetime (`authentication.passkeys.challenge_ttl_seconds`), the API key settings
 (`authentication.api_keys`) and the identifier change settings (`authentication.identifier_changes`). Every check runs,
-so one run lists every problem, each as `[<guard>] <message>` (`[storage]` for the connections, `[device]` for the
-device model and retention, `[sign_in]` for the pending lifetime, `[passwords]` for the password policy, `[codes]` for
+so one run lists every problem, each as `[<guard>] <message>` (`[storage]` for the connections, `[session]` for the
+session model and retention, `[sign_in]` for the pending lifetime, `[passwords]` for the password policy, `[codes]` for
 the code settings and sender, `[delivery]` for the delivery queue, `[passkeys]` for the challenge lifetime, `[api_keys]`
 for the API key settings, `[identifier_changes]` for the identifier change settings), and a subject without one as
 `[<guard>] OK`. Delivery on a `sync` queue connection, or on a `failover` one that can fall back to `sync`, while any

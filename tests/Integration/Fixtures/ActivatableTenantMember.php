@@ -7,11 +7,11 @@ namespace Tests\Integration\Fixtures;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
  * 3D identity fixture whose memberships act within `ActivatableTenant` rows.
@@ -25,7 +25,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
  *
  * @internal
  */
-final class ActivatableTenantMember extends Model implements HasDevices, HasPrincipals, Identity
+final class ActivatableTenantMember extends Model implements HasPrincipals, HasSessions, Identity
 {
     use Authenticatable;
 
@@ -61,14 +61,14 @@ final class ActivatableTenantMember extends Model implements HasDevices, HasPrin
     }
 
     /**
-     * Eloquent relation builder for the identity's devices.
+     * Eloquent relation builder for the identity's sessions.
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
     #[\Override]
-    public function devices(): Builder
+    public function sessions(): Builder
     {
-        return Device::query()
+        return Session::query()
             ->where('authenticatable_type', self::class)
             ->where('authenticatable_id', (string) $this->getKey()); // @phpstan-ignore cast.string
     }

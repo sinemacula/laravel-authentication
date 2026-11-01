@@ -14,8 +14,8 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use Tests\Unit\Stubs\PlainDeviceFixture;
 use Tests\Unit\Stubs\PlainIdentityFixture;
+use Tests\Unit\Stubs\PlainSessionFixture;
 
 /**
  * SignedOutEverywhere event unit tests.
@@ -50,7 +50,7 @@ final class SignedOutEverywhereTest extends TestCase
     /**
      * The event serialises its models for queued listeners and survives a round
      * trip, and it does not ask the dispatcher to wait for a transaction: the
-     * package dispatches it once the device connection commits.
+     * package dispatches it once the session connection commits.
      *
      * @return void
      */
@@ -65,18 +65,18 @@ final class SignedOutEverywhereTest extends TestCase
 
         self::assertInstanceOf(SignedOutEverywhere::class, $copy);
         self::assertSame('7', $copy->context->identityId);
-        self::assertSame('kept-device', $copy->context->deviceId);
+        self::assertSame('kept-session', $copy->context->sessionId);
         self::assertSame(0, $copy->revoked);
         self::assertNull($copy->tokensValidAfter);
     }
 
     /**
-     * A context for an identity's scope that kept one device.
+     * A context for an identity's scope that kept one session.
      *
      * @return \SineMacula\Laravel\Authentication\Events\EventContext
      */
     private static function context(): EventContext
     {
-        return new EventContext('api', new ClientContext('203.0.113.7', 'agent'), new PlainIdentityFixture(7), null, null, new PlainDeviceFixture('kept-device'));
+        return new EventContext('api', new ClientContext('203.0.113.7', 'agent'), new PlainIdentityFixture(7), null, null, new PlainSessionFixture('kept-session'));
     }
 }

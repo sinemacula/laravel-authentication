@@ -12,8 +12,8 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * 3D identity fixture for access-only mode: it holds no devices (no
- * `HasDevices`) and records no "tokens valid after" of its own, while its
+ * 3D identity fixture for access-only mode: it holds no sessions (no
+ * `HasSessions`) and records no "tokens valid after" of its own, while its
  * `CutoffMembership` principals do, in the `access_only_members` table the test
  * creates.
  *

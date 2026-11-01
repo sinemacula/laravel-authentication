@@ -20,22 +20,22 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
-use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
-use SineMacula\Laravel\Authentication\Events\DeviceCreated;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
+use SineMacula\Laravel\Authentication\Events\SessionCreated;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use SineMacula\Laravel\Authentication\Models\Device;
-use SineMacula\Laravel\Authentication\Sessions\DeviceProof;
-use SineMacula\Laravel\Authentication\Sessions\DeviceSummary;
+use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Sessions\ProvenSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Sessions\SessionSummary;
 use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
@@ -48,9 +48,9 @@ use Tests\Unit\Stubs\StubFixedPrincipalResolver;
 /**
  * End-to-end tests for sessions the session service starts, against a real
  * database on whichever engine the suite runs on: the tokens work through the
- * `auth` middleware and refresh, a client that proves it holds a device has it
+ * `auth` middleware and refresh, a client that proves it holds a session has it
  * replaced when it signs in again (and only then), the session commits or rolls
- * back as one, and its lifecycle events follow the device connection's commit.
+ * back as one, and its lifecycle events follow the session connection's commit.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -60,7 +60,7 @@ use Tests\Unit\Stubs\StubFixedPrincipalResolver;
 #[CoversClass(SessionService::class)]
 #[CoversClass(SessionEstablishment::class)]
 #[CoversClass(SessionWriter::class)]
-#[CoversClass(DeviceProof::class)]
+#[CoversClass(ProvenSessions::class)]
 #[CoversClass(SignedInSession::class)]
 final class SessionServiceTest extends TestCase
 {
@@ -86,7 +86,7 @@ final class SessionServiceTest extends TestCase
 
         Route::middleware('auth:api')->get('/me', static fn (): array => [
             'identity' => Auth::identity()?->getAuthIdentifier(),
-            'device'   => Auth::device()?->getDeviceIdentifier(),
+            'session'  => Auth::session()?->getSessionIdentifier(),
         ]);
     }
 
@@ -110,7 +110,7 @@ final class SessionServiceTest extends TestCase
 
     /**
      * The access token of a new session authenticates a request through the
-     * `auth` middleware with its device, and its refresh token refreshes.
+     * `auth` middleware with its session, and its refresh token refreshes.
      *
      * @return void
      *
@@ -123,7 +123,7 @@ final class SessionServiceTest extends TestCase
 
         $this->bearer($session->tokens->accessToken)
             ->assertOk()
-            ->assertJson(['identity' => $identity->getKey(), 'device' => $session->device->getKey()]);
+            ->assertJson(['identity' => $identity->getKey(), 'session' => $session->record->getKey()]);
 
         $refreshed = self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session?->tokens;
 
@@ -133,18 +133,18 @@ final class SessionServiceTest extends TestCase
 
     /**
      * A client that signs in again with its current refresh token gets a new
-     * device, and the proven one is revoked as `superseded`, both digests
+     * session, and the proven one is revoked as `superseded`, both digests
      * forgotten: a new key and rotation id, both deadlines from the sign-in,
      * the method and the client's new name recorded, its platform inherited
      * when it gives none, and the client it came from as the creation. The
      * replacement is reported in order, and the old refresh token is refused as
-     * revoked without touching the new device.
+     * revoked without touching the new session.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testSigningInAgainWithTheCurrentRefreshTokenReplacesTheDevice(): void
+    public function testSigningInAgainWithTheCurrentRefreshTokenReplacesTheSession(): void
     {
         $this->seedIdentity();
 
@@ -160,18 +160,18 @@ final class SessionServiceTest extends TestCase
 
         $this->advance(10 * 86400);
 
-        $this->recordEvents([DeviceRevoked::class, DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionRevoked::class, SessionCreated::class, SignedIn::class]);
 
         $again = $this->signIn(refreshToken: $current->refreshToken, clientName: 'Renamed laptop', method: 'sso');
 
-        self::assertNotSame($first->device->getKey(), $again->device->getKey());
-        self::assertSame([DeviceRevoked::class, DeviceCreated::class, SignedIn::class], $this->recordedClasses());
-        self::assertSame(RevocationReason::SUPERSEDED, $this->recordedEvent(DeviceRevoked::class)->reason);
-        self::assertSame(IdentifierCoercion::stringify($first->device->getKey()), $this->recordedEvent(DeviceRevoked::class)->context->deviceId);
-        self::assertSame(IdentifierCoercion::stringify($again->device->getKey()), $this->recordedEvent(DeviceCreated::class)->context->deviceId);
-        self::assertSame(IdentifierCoercion::stringify($again->device->getKey()), $this->recordedEvent(SignedIn::class)->context->deviceId);
+        self::assertNotSame($first->record->getKey(), $again->record->getKey());
+        self::assertSame([SessionRevoked::class, SessionCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame(RevocationReason::SUPERSEDED, $this->recordedEvent(SessionRevoked::class)->reason);
+        self::assertSame(IdentifierCoercion::stringify($first->record->getKey()), $this->recordedEvent(SessionRevoked::class)->context->sessionId);
+        self::assertSame(IdentifierCoercion::stringify($again->record->getKey()), $this->recordedEvent(SessionCreated::class)->context->sessionId);
+        self::assertSame(IdentifierCoercion::stringify($again->record->getKey()), $this->recordedEvent(SignedIn::class)->context->sessionId);
 
-        $previous = Device::query()->whereKey($first->device->getKey())->firstOrFail();
+        $previous = Session::query()->whereKey($first->record->getKey())->firstOrFail();
 
         self::assertSame(Carbon::now()->getTimestamp(), $previous->getRevokedAt()?->getTimestamp());
         self::assertSame('superseded', $previous->getRevokedReason());
@@ -179,39 +179,39 @@ final class SessionServiceTest extends TestCase
         self::assertNull($previous->getPreviousRefreshKey());
         self::assertSame('password', $previous->getSignInMethod());
 
-        $device = Device::query()->whereKey($again->device->getKey())->firstOrFail();
+        $record = Session::query()->whereKey($again->record->getKey())->firstOrFail();
         $claims = Auth::manager()->jwt('api')->parse($again->tokens->refreshToken);
 
         self::assertIsString($claims['jti'] ?? null);
-        self::assertTrue(RefreshTokenHasher::verify($claims['jti'], (string) $device->getRefreshKey()));
-        self::assertNull($device->getPreviousRefreshKey());
-        self::assertNull($device->getRefreshRotatedAt());
-        self::assertNull($device->getRevokedAt());
-        self::assertSame(Carbon::now()->getTimestamp(), $device->getSignedInAt()?->getTimestamp());
-        self::assertSame(Carbon::now()->addDays(30)->getTimestamp(), $device->getIdleExpiresAt()?->getTimestamp());
-        self::assertSame(Carbon::now()->addDays(180)->getTimestamp(), $device->getAbsoluteExpiresAt()?->getTimestamp());
-        self::assertSame('sso', $device->getSignInMethod());
-        self::assertSame('Renamed laptop', $device->client_name);
-        self::assertSame('macOS', $device->platform);
-        self::assertSame('api', $device->getGuard());
-        self::assertSame(self::CLIENT_IP, $device->created_ip);
-        self::assertSame(Carbon::now()->getTimestamp(), $device->getLastUsedAt()?->getTimestamp());
-        self::assertSame(2, Device::query()->count());
+        self::assertTrue(RefreshTokenHasher::verify($claims['jti'], (string) $record->getRefreshKey()));
+        self::assertNull($record->getPreviousRefreshKey());
+        self::assertNull($record->getRefreshRotatedAt());
+        self::assertNull($record->getRevokedAt());
+        self::assertSame(Carbon::now()->getTimestamp(), $record->getSignedInAt()?->getTimestamp());
+        self::assertSame(Carbon::now()->addDays(30)->getTimestamp(), $record->getIdleExpiresAt()?->getTimestamp());
+        self::assertSame(Carbon::now()->addDays(180)->getTimestamp(), $record->getAbsoluteExpiresAt()?->getTimestamp());
+        self::assertSame('sso', $record->getSignInMethod());
+        self::assertSame('Renamed laptop', $record->client_name);
+        self::assertSame('macOS', $record->platform);
+        self::assertSame('api', $record->getGuard());
+        self::assertSame(self::CLIENT_IP, $record->created_ip);
+        self::assertSame(Carbon::now()->getTimestamp(), $record->getLastUsedAt()?->getTimestamp());
+        self::assertSame(2, Session::query()->count());
 
-        $this->bearer($again->tokens->accessToken)->assertOk()->assertJson(['device' => $device->getKey()]);
+        $this->bearer($again->tokens->accessToken)->assertOk()->assertJson(['session' => $record->getKey()]);
 
         $refused = self::sessionsOf($this->freshGuard())->refresh($current->refreshToken);
 
-        self::assertSame(FailureReason::DEVICE_REVOKED, $refused->reason);
-        self::assertNull(Device::query()->whereKey($device->getKey())->firstOrFail()->getRevokedAt());
-        self::assertSame('superseded', Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRevokedReason());
+        self::assertSame(FailureReason::SESSION_REVOKED, $refused->reason);
+        self::assertNull(Session::query()->whereKey($record->getKey())->firstOrFail()->getRevokedAt());
+        self::assertSame('superseded', Session::query()->whereKey($first->record->getKey())->firstOrFail()->getRevokedReason());
     }
 
     /**
      * The replaced session ends at once: its access token, still within its
      * lifetime, is refused by `auth:api`, its refresh token is refused as
      * revoked, and only the new session is listed. The new session's refresh
-     * keeps its device.
+     * keeps its session.
      *
      * @return void
      *
@@ -223,26 +223,26 @@ final class SessionServiceTest extends TestCase
 
         $first = $this->signIn();
 
-        $this->bearer($first->tokens->accessToken)->assertOk()->assertJson(['device' => $first->device->getKey()]);
+        $this->bearer($first->tokens->accessToken)->assertOk()->assertJson(['session' => $first->record->getKey()]);
 
         $again = $this->signIn(refreshToken: $first->tokens->refreshToken);
 
         $this->bearer($first->tokens->accessToken)->assertUnauthorized();
-        $this->bearer($again->tokens->accessToken)->assertOk()->assertJson(['device' => $again->device->getKey()]);
+        $this->bearer($again->tokens->accessToken)->assertOk()->assertJson(['session' => $again->record->getKey()]);
 
-        self::assertSame(FailureReason::DEVICE_REVOKED, self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken)->reason);
-        $listed = Auth::sessions('api')->devices($identity)->items();
+        self::assertSame(FailureReason::SESSION_REVOKED, self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken)->reason);
+        $listed = Auth::sessions('api')->sessions($identity)->items();
 
-        self::assertSame([IdentifierCoercion::stringify($again->device->getKey())], array_map(static fn (DeviceSummary $summary): string => $summary->id, $listed));
+        self::assertSame([IdentifierCoercion::stringify($again->record->getKey())], array_map(static fn (SessionSummary $summary): string => $summary->id, $listed));
 
         $refreshed = self::sessionsOf($this->freshGuard())->refresh($again->tokens->refreshToken)->session;
 
-        self::assertSame($again->device->getKey(), $refreshed?->device->getKey());
+        self::assertSame($again->record->getKey(), $refreshed?->record->getKey());
     }
 
     /**
      * Signing in twice from the same IP address and user agent, without the
-     * refresh token, starts two sessions and revokes nothing: only the device
+     * refresh token, starts two sessions and revokes nothing: only the session
      * key counts.
      *
      * @return void
@@ -255,12 +255,12 @@ final class SessionServiceTest extends TestCase
 
         $first = $this->signIn(clientName: 'Laptop', platform: 'macOS');
 
-        $this->recordEvents([DeviceRevoked::class]);
+        $this->recordEvents([SessionRevoked::class]);
 
         $again = $this->signIn(clientName: 'Laptop', platform: 'macOS');
 
-        self::assertNotSame($first->device->getKey(), $again->device->getKey());
-        self::assertSame(2, Device::query()->whereNull('revoked_at')->count());
+        self::assertNotSame($first->record->getKey(), $again->record->getKey());
+        self::assertSame(2, Session::query()->whereNull('revoked_at')->count());
         self::assertSame([], $this->recordedClasses());
         $this->bearer($first->tokens->accessToken)->assertOk();
         $this->bearer($again->tokens->accessToken)->assertOk();
@@ -268,14 +268,14 @@ final class SessionServiceTest extends TestCase
 
     /**
      * The proof may have expired, and so may the session: a client signing in
-     * again after its session ended replaces its device, which is revoked even
-     * though it had already expired.
+     * again after its session ended replaces it, which is revoked even though
+     * it had already expired.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAnExpiredRefreshTokenStillProvesTheDevice(): void
+    public function testAnExpiredRefreshTokenStillProvesTheSession(): void
     {
         $this->seedIdentity();
 
@@ -287,15 +287,15 @@ final class SessionServiceTest extends TestCase
 
         $again = $this->signIn(refreshToken: $first->tokens->refreshToken);
 
-        self::assertNotSame($first->device->getKey(), $again->device->getKey());
-        self::assertSame('superseded', Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRevokedReason());
+        self::assertNotSame($first->record->getKey(), $again->record->getKey());
+        self::assertSame('superseded', Session::query()->whereKey($first->record->getKey())->firstOrFail()->getRevokedReason());
         $this->bearer($again->tokens->accessToken)->assertOk();
     }
 
     /**
-     * Only the current rotation id proves a device: a refresh token the device
-     * has rotated past, whether just before or long before, gets a new device,
-     * and the old one is left as it is, not revoked.
+     * Only the current rotation id proves a session: a refresh token the
+     * session has rotated past, whether just before or long before, gets a new
+     * session, and the old one is left as it is, not revoked.
      *
      * @return void
      *
@@ -318,63 +318,63 @@ final class SessionServiceTest extends TestCase
 
         $older = $this->signIn(refreshToken: $first->tokens->refreshToken);
 
-        self::assertNotSame($first->device->getKey(), $previous->device->getKey());
-        self::assertNotSame($first->device->getKey(), $older->device->getKey());
-        self::assertSame(3, Device::query()->whereNull('revoked_at')->count());
+        self::assertNotSame($first->record->getKey(), $previous->record->getKey());
+        self::assertNotSame($first->record->getKey(), $older->record->getKey());
+        self::assertSame(3, Session::query()->whereNull('revoked_at')->count());
     }
 
     /**
-     * A revoked device is never replaced, whatever its refresh token says:
+     * A revoked session is never replaced, whatever its refresh token says:
      * revocation is final, and the revocation keeps its own time and reason.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testARevokedDeviceIsNeverReplaced(): void
+    public function testARevokedSessionIsNeverReplaced(): void
     {
         $this->seedIdentity();
 
         $first = $this->signIn();
 
-        Device::query()->whereKey($first->device->getKey())->update(['revoked_at' => Carbon::now(), 'revoked_reason' => 'revoked']);
+        Session::query()->whereKey($first->record->getKey())->update(['revoked_at' => Carbon::now(), 'revoked_reason' => 'revoked']);
 
-        $before = (array) DB::table('devices')->where('id', $first->device->getKey())->first();
+        $before = (array) DB::table('authentication_sessions')->where('id', $first->record->getKey())->first();
 
-        self::assertNotSame($first->device->getKey(), $this->signIn(refreshToken: $first->tokens->refreshToken)->device->getKey());
-        self::assertSame($before, (array) DB::table('devices')->where('id', $first->device->getKey())->first());
+        self::assertNotSame($first->record->getKey(), $this->signIn(refreshToken: $first->tokens->refreshToken)->record->getKey());
+        self::assertSame($before, (array) DB::table('authentication_sessions')->where('id', $first->record->getKey())->first());
     }
 
     /**
-     * A refresh token proves a device only for its own owner, guard and
+     * A refresh token proves a session only for its own owner, guard and
      * principal: another identity, another guard (by its token's `grd`, or by
-     * the guard the device records), or another principal of the same identity
-     * gets a device of its own, and the proven device is untouched; only the
+     * the guard the session records), or another principal of the same identity
+     * gets a session of its own, and the proven session is untouched; only the
      * same principal replaces it.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testARefreshTokenProvesADeviceOnlyForItsOwnerGuardAndPrincipal(): void
+    public function testARefreshTokenProvesASessionOnlyForItsOwnerGuardAndPrincipal(): void
     {
         $this->seedIdentity();
         $this->seedIdentity('bea@example.test');
 
         $ada = $this->signIn();
-        $row = (array) DB::table('devices')->where('id', $ada->device->getKey())->first();
+        $row = (array) DB::table('authentication_sessions')->where('id', $ada->record->getKey())->first();
 
-        self::assertNotSame($ada->device->getKey(), $this->signIn('bea@example.test', refreshToken: $ada->tokens->refreshToken)->device->getKey());
-        self::assertNotSame($ada->device->getKey(), $this->signIn(guard: 'admin', refreshToken: $ada->tokens->refreshToken)->device->getKey());
-        self::assertSame($row, (array) DB::table('devices')->where('id', $ada->device->getKey())->first());
+        self::assertNotSame($ada->record->getKey(), $this->signIn('bea@example.test', refreshToken: $ada->tokens->refreshToken)->record->getKey());
+        self::assertNotSame($ada->record->getKey(), $this->signIn(guard: 'admin', refreshToken: $ada->tokens->refreshToken)->record->getKey());
+        self::assertSame($row, (array) DB::table('authentication_sessions')->where('id', $ada->record->getKey())->first());
 
         $admin = $this->signIn(guard: 'admin');
 
-        Device::query()->whereKey($admin->device->getKey())->update(['guard' => 'api']);
+        Session::query()->whereKey($admin->record->getKey())->update(['guard' => 'api']);
 
         $this->signIn(guard: 'admin', refreshToken: $admin->tokens->refreshToken);
 
-        self::assertNull(Device::query()->whereKey($admin->device->getKey())->firstOrFail()->getRevokedAt());
+        self::assertNull(Session::query()->whereKey($admin->record->getKey())->firstOrFail()->getRevokedAt());
 
         [$member, $first, $tenant] = $this->seedMember();
 
@@ -382,14 +382,14 @@ final class SessionServiceTest extends TestCase
         $session = $this->signIn('member@example.test', guard: 'members', principal: $first);
         $other   = $this->signIn('member@example.test', guard: 'members', refreshToken: $session->tokens->refreshToken, principal: $second);
 
-        self::assertNotSame($session->device->getKey(), $other->device->getKey());
-        self::assertNull(Device::query()->whereKey($session->device->getKey())->firstOrFail()->getRevokedAt());
+        self::assertNotSame($session->record->getKey(), $other->record->getKey());
+        self::assertNull(Session::query()->whereKey($session->record->getKey())->firstOrFail()->getRevokedAt());
 
         $same = $this->signIn('member@example.test', guard: 'members', refreshToken: $session->tokens->refreshToken, principal: $first);
 
-        self::assertNotSame($session->device->getKey(), $same->device->getKey());
-        self::assertSame('superseded', Device::query()->whereKey($session->device->getKey())->firstOrFail()->getRevokedReason());
-        self::assertNull(Device::query()->whereKey($other->device->getKey())->firstOrFail()->getRevokedAt());
+        self::assertNotSame($session->record->getKey(), $same->record->getKey());
+        self::assertSame('superseded', Session::query()->whereKey($session->record->getKey())->firstOrFail()->getRevokedReason());
+        self::assertNull(Session::query()->whereKey($other->record->getKey())->firstOrFail()->getRevokedAt());
     }
 
     /**
@@ -409,21 +409,21 @@ final class SessionServiceTest extends TestCase
         $this->signIn(refreshToken: 'not-a-jwt');
         $this->signIn(refreshToken: $first->tokens->accessToken);
 
-        self::assertSame(3, Device::query()->whereNull('revoked_at')->count());
+        self::assertSame(3, Session::query()->whereNull('revoked_at')->count());
     }
 
     /**
-     * When the proven device changes before it can be replaced (here a parallel
-     * refresh rotates it while the factor policy deliberates), the sign-in is
-     * reconsidered without it, factor policy included, and starts on a new
-     * device that records the sign-in's identifier type; the changed device is
-     * left as the refresh made it, not revoked.
+     * When the proven session changes before it can be replaced (here a
+     * parallel refresh rotates it while the factor policy deliberates), the
+     * sign-in is reconsidered without it, factor policy included, and starts on
+     * a new session that records the sign-in's identifier type; the changed
+     * session is left as the refresh made it, not revoked.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testADeviceChangedBeforeItIsReplacedIsReconsideredWithoutIt(): void
+    public function testASessionChangedBeforeItIsReplacedIsReconsideredWithoutIt(): void
     {
         $this->seedIdentity();
 
@@ -433,10 +433,10 @@ final class SessionServiceTest extends TestCase
         $factors = \Mockery::mock(AdditionalFactorPolicy::class);
         $factors->shouldReceive('requiresAdditionalFactor')->twice()->andReturnUsing(function (AdditionalFactorContext $context) use (&$proven, $first): bool {
 
-            $proven[] = $context->provenDevice?->getDeviceIdentifier();
+            $proven[] = $context->provenSession?->getSessionIdentifier();
 
-            if ($context->provenDevice !== null) {
-                Device::query()->whereKey($first->device->getKey())->update(['refresh_key' => RefreshTokenHasher::hash('rotated-in-parallel')]);
+            if ($context->provenSession !== null) {
+                Session::query()->whereKey($first->record->getKey())->update(['refresh_key' => RefreshTokenHasher::hash('rotated-in-parallel')]);
             }
 
             return false;
@@ -446,17 +446,17 @@ final class SessionServiceTest extends TestCase
 
         $again = $this->signIn(refreshToken: $first->tokens->refreshToken);
 
-        self::assertSame([$first->device->getKey(), null], $proven);
-        self::assertNotSame($first->device->getKey(), $again->device->getKey());
-        self::assertSame('email', Device::query()->whereKey($again->device->getKey())->value('sign_in_identifier_type'));
-        self::assertSame(RefreshTokenHasher::hash('rotated-in-parallel'), Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRefreshKey());
-        self::assertNull(Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRevokedAt());
+        self::assertSame([$first->record->getKey(), null], $proven);
+        self::assertNotSame($first->record->getKey(), $again->record->getKey());
+        self::assertSame('email', Session::query()->whereKey($again->record->getKey())->value('sign_in_identifier_type'));
+        self::assertSame(RefreshTokenHasher::hash('rotated-in-parallel'), Session::query()->whereKey($first->record->getKey())->firstOrFail()->getRefreshKey());
+        self::assertNull(Session::query()->whereKey($first->record->getKey())->firstOrFail()->getRevokedAt());
     }
 
     /**
      * Inside a caller's transaction the guard is bound at once, but
-     * `DeviceCreated` and `SignedIn` wait for the commit, and a rollback
-     * withdraws them with the device.
+     * `SessionCreated` and `SignedIn` wait for the commit, and a rollback
+     * withdraws them with the session.
      *
      * @return void
      *
@@ -466,19 +466,19 @@ final class SessionServiceTest extends TestCase
     {
         $this->seedIdentity();
 
-        $this->recordEvents([DeviceAuthenticated::class, DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionAuthenticated::class, SessionCreated::class, SignedIn::class]);
 
         DB::beginTransaction();
 
         $this->signIn();
 
-        self::assertSame([DeviceAuthenticated::class], $this->recordedClasses());
+        self::assertSame([SessionAuthenticated::class], $this->recordedClasses());
 
         DB::commit();
 
-        self::assertSame([DeviceAuthenticated::class, DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame([SessionAuthenticated::class, SessionCreated::class, SignedIn::class], $this->recordedClasses());
 
-        $this->recordEvents([DeviceAuthenticated::class, DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionAuthenticated::class, SessionCreated::class, SignedIn::class]);
 
         DB::beginTransaction();
 
@@ -486,19 +486,19 @@ final class SessionServiceTest extends TestCase
 
         DB::rollBack();
 
-        self::assertSame([DeviceAuthenticated::class], $this->recordedClasses());
-        self::assertNull(Device::query()->whereKey($rolledBack->device->getKey())->first());
+        self::assertSame([SessionAuthenticated::class], $this->recordedClasses());
+        self::assertNull(Session::query()->whereKey($rolledBack->record->getKey())->first());
     }
 
     /**
      * A failure while issuing the first pair (here a principal whose identifier
-     * cannot be written into `pid`) rolls the new device back.
+     * cannot be written into `pid`) rolls the new session back.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAFailureWhileIssuingRollsTheDeviceBack(): void
+    public function testAFailureWhileIssuingRollsTheSessionBack(): void
     {
         $this->seedIdentity();
 
@@ -515,29 +515,29 @@ final class SessionServiceTest extends TestCase
             self::assertStringContainsString('`pid`', $exception->getMessage());
         }
 
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
     }
 
     /**
-     * A failure after the compare-and-swap that revokes a proven device (here
-     * as the new device is inserted) rolls the revocation back with it: the
-     * device stays live at the refresh key the client holds, so its current
-     * refresh token still refreshes, and no new device is left.
+     * A failure after the compare-and-swap that revokes a proven session (here
+     * as the new session is inserted) rolls the revocation back with it: the
+     * session stays live at the refresh key the client holds, so its current
+     * refresh token still refreshes, and no new session is left.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAFailureAfterRevokingAProvenDeviceRollsTheRevocationBack(): void
+    public function testAFailureAfterRevokingAProvenSessionRollsTheRevocationBack(): void
     {
         $this->seedIdentity();
 
         $first   = $this->signIn();
-        $key     = Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRefreshKey();
+        $key     = Session::query()->whereKey($first->record->getKey())->firstOrFail()->getRefreshKey();
         $failure = new \ArrayObject(['armed' => true]);
 
         DB::listen(static function (QueryExecuted $query) use ($failure): void {
-            if ($failure['armed'] && str_starts_with(strtolower($query->sql), 'insert into') && str_contains($query->sql, 'devices')) {
+            if ($failure['armed'] && str_starts_with(strtolower($query->sql), 'insert into') && str_contains($query->sql, 'authentication_sessions')) {
                 throw new \RuntimeException('failed after the swap');
             }
         });
@@ -550,18 +550,18 @@ final class SessionServiceTest extends TestCase
         }
 
         $failure['armed'] = false;
-        $device           = Device::query()->whereKey($first->device->getKey())->firstOrFail();
+        $record           = Session::query()->whereKey($first->record->getKey())->firstOrFail();
 
-        self::assertSame($key, $device->getRefreshKey());
-        self::assertNull($device->getRevokedAt());
-        self::assertSame(1, Device::query()->count());
+        self::assertSame($key, $record->getRefreshKey());
+        self::assertNull($record->getRevokedAt());
+        self::assertSame(1, Session::query()->count());
         self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken)->session);
-        self::assertNull(Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRevokedAt());
+        self::assertNull(Session::query()->whereKey($first->record->getKey())->firstOrFail()->getRevokedAt());
     }
 
     /**
      * A listener that throws on a bind event fails the sign-in after the
-     * session committed, but the session is reported: `DeviceCreated` and
+     * session committed, but the session is reported: `SessionCreated` and
      * `SignedIn` were dispatched before the bind.
      *
      * @return void
@@ -574,17 +574,17 @@ final class SessionServiceTest extends TestCase
 
         $this->throwOnLogin();
 
-        $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionCreated::class, SignedIn::class]);
 
         self::assertSame('listener failed', $this->failedSignIn());
-        self::assertSame(1, Device::query()->count());
-        self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame(1, Session::query()->count());
+        self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
     }
 
     /**
      * Inside a caller's transaction that catches a throwing bind listener and
      * commits, the session's events follow the commit; one that rolls back
-     * withdraws them with the device.
+     * withdraws them with the session.
      *
      * @return void
      *
@@ -596,7 +596,7 @@ final class SessionServiceTest extends TestCase
 
         $this->throwOnLogin();
 
-        $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionCreated::class, SignedIn::class]);
 
         DB::beginTransaction();
 
@@ -605,10 +605,10 @@ final class SessionServiceTest extends TestCase
 
         DB::commit();
 
-        self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
-        self::assertSame(1, Device::query()->count());
+        self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame(1, Session::query()->count());
 
-        $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionCreated::class, SignedIn::class]);
 
         DB::beginTransaction();
 
@@ -617,13 +617,13 @@ final class SessionServiceTest extends TestCase
         DB::rollBack();
 
         self::assertSame([], $this->recordedClasses());
-        self::assertSame(1, Device::query()->count());
+        self::assertSame(1, Session::query()->count());
     }
 
     /**
      * A refresh whose bind listener throws is reported once its rotation
      * commits, and not at all when the caller rolls it back, which leaves the
-     * device's rotation as it was.
+     * session's rotation as it was.
      *
      * @return void
      *
@@ -634,7 +634,7 @@ final class SessionServiceTest extends TestCase
         $this->seedIdentity();
 
         $session = $this->signIn();
-        $before  = Device::query()->whereKey($session->device->getKey())->firstOrFail()->getRefreshKey();
+        $before  = Session::query()->whereKey($session->record->getKey())->firstOrFail()->getRefreshKey();
 
         $this->throwOnLogin();
 
@@ -648,7 +648,7 @@ final class SessionServiceTest extends TestCase
         DB::rollBack();
 
         self::assertSame([], $this->recordedClasses());
-        self::assertSame($before, Device::query()->whereKey($session->device->getKey())->firstOrFail()->getRefreshKey());
+        self::assertSame($before, Session::query()->whereKey($session->record->getKey())->firstOrFail()->getRefreshKey());
 
         DB::beginTransaction();
 
@@ -657,7 +657,7 @@ final class SessionServiceTest extends TestCase
         DB::commit();
 
         self::assertSame([Refreshed::class, SignedIn::class], $this->recordedClasses());
-        self::assertNotSame($before, Device::query()->whereKey($session->device->getKey())->firstOrFail()->getRefreshKey());
+        self::assertNotSame($before, Session::query()->whereKey($session->record->getKey())->firstOrFail()->getRefreshKey());
     }
 
     /**
@@ -673,10 +673,10 @@ final class SessionServiceTest extends TestCase
         $this->seedIdentity();
 
         $session = $this->signIn(clientName: "Lap\0top\xFF" . str_repeat('é', 300), platform: "\0");
-        $device  = Device::query()->whereKey($session->device->getKey())->firstOrFail();
+        $record  = Session::query()->whereKey($session->record->getKey())->firstOrFail();
 
-        self::assertSame('Laptop?' . str_repeat('é', 248), $device->client_name);
-        self::assertNull($device->platform);
+        self::assertSame('Laptop?' . str_repeat('é', 248), $record->client_name);
+        self::assertNull($record->platform);
     }
 
     /**

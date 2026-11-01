@@ -26,10 +26,10 @@ use Tests\TestCase;
 
 /**
  * End-to-end tests of revocation in access-only mode, against a database that
- * has none of the package's tables: an identity without `HasDevices`, and a
- * principal owned by one, can hold neither a device nor a pending sign-in, so
+ * has none of the package's tables: an identity without `HasSessions`, and a
+ * principal owned by one, can hold neither a session nor a pending sign-in, so
  * revoking their sessions only moves their "tokens valid after" cutoff, which
- * is how their device-less tokens end.
+ * is how their session-less tokens end.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -107,7 +107,7 @@ final class RevocationScopeTest extends TestCase
 
     /**
      * Every security change of an access-only identity moves its cutoff and
-     * reports it, without touching the device or pending sign-in tables, which
+     * reports it, without touching the session or pending sign-in tables, which
      * do not exist.
      *
      * @return void
@@ -116,7 +116,7 @@ final class RevocationScopeTest extends TestCase
      */
     public function testAnAccessOnlyIdentitysRevocationsOnlyMoveItsCutoff(): void
     {
-        self::assertFalse(Schema::hasTable('devices'));
+        self::assertFalse(Schema::hasTable('authentication_sessions'));
         self::assertFalse(Schema::hasTable('pending_sign_ins'));
 
         $identity = AccessOnlyCutoffIdentity::query()->create(['email' => 'ada@example.test', 'password' => 'unused']);
@@ -125,7 +125,7 @@ final class RevocationScopeTest extends TestCase
         self::assertSame(0, $sessions->passwordChanged($identity));
         self::assertSame(0, $sessions->passwordReset($identity));
         self::assertSame(0, $sessions->identityDeactivated($identity));
-        self::assertSame(0, $sessions->revokeDevices($identity, RevocationReason::REVOKED));
+        self::assertSame(0, $sessions->revokeSessions($identity, RevocationReason::REVOKED));
 
         self::assertSame(self::NOW, $identity->fresh()?->getTokensValidAfter()?->format('Y-m-d H:i:s'));
         self::assertCount(4, $this->reported);
@@ -134,7 +134,7 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * A principal whose owner holds no devices has none to revoke either: its
+     * A principal whose owner holds no sessions has none to revoke either: its
      * deactivation moves its cutoff, reports its owner, and touches neither of
      * the package's tables.
      *
@@ -148,7 +148,7 @@ final class RevocationScopeTest extends TestCase
         $membership = CutoffMembership::query()->create(['identity_id' => $member->id]);
 
         self::assertSame(0, Auth::sessions('api')->principalDeactivated($membership));
-        self::assertSame(0, Auth::sessions('api')->revokePrincipalDevices($membership->fresh() ?? $membership, RevocationReason::REVOKED));
+        self::assertSame(0, Auth::sessions('api')->revokePrincipalSessions($membership->fresh() ?? $membership, RevocationReason::REVOKED));
 
         self::assertSame(self::NOW, $membership->fresh()?->getTokensValidAfter()?->format('Y-m-d H:i:s'));
         self::assertCount(2, $this->reported);
@@ -158,7 +158,7 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * An access-only identity's device-less access token passes the `auth`
+     * An access-only identity's session-less access token passes the `auth`
      * middleware until the identity is deactivated, and is refused from then
      * on, while a token issued afterwards passes: the cutoff alone ends it.
      *
@@ -166,7 +166,7 @@ final class RevocationScopeTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testAnAccessOnlyIdentitysDeactivationEndsItsDevicelessToken(): void
+    public function testAnAccessOnlyIdentitysDeactivationEndsItsSessionlessToken(): void
     {
         Route::middleware('auth:api')->get('/me', static fn (): array => ['identity' => Auth::id()]);
 
@@ -221,7 +221,7 @@ final class RevocationScopeTest extends TestCase
     protected function defineDatabaseMigrations(): void {}
 
     /**
-     * A device-less access token of the `api` guard for the identity, issued
+     * A session-less access token of the `api` guard for the identity, issued
      * now.
      *
      * @param  \Tests\Integration\Fixtures\AccessOnlyCutoffIdentity  $identity

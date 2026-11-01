@@ -194,7 +194,7 @@ final class TokenLifetimesTest extends TestCase
 
     /**
      * An access token expires after the access lifetime, and never after the
-     * end of its device's session.
+     * end of its session.
      *
      * @param  ?int  $sessionEndsIn
      * @param  int  $expectedIn

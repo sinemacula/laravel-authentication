@@ -12,11 +12,11 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch;
 use SineMacula\Laravel\Authentication\Jwt\RefreshJudgment;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use Tests\TestCase;
 
 /**
- * Feature tests of judging a presented refresh rotation id against its device:
+ * Feature tests of judging a presented refresh rotation id against its session:
  * the session's state first, then the id, current, previous inside the grace
  * window, or a replay.
  *
@@ -28,7 +28,7 @@ use Tests\TestCase;
 #[CoversClass(RefreshJudgment::class)]
 final class RefreshJudgmentTest extends TestCase
 {
-    /** @var string The rotation id the device was rotated from. */
+    /** @var string The rotation id the session was rotated from. */
     private const string PREVIOUS = 'previous-rotation-id';
 
     /** @var \Carbon\CarbonImmutable The time of judgement. */
@@ -76,8 +76,8 @@ final class RefreshJudgmentTest extends TestCase
      */
     public function testTheCurrentIdIsCurrent(): void
     {
-        $device  = $this->rotatedDevice(10);
-        $verdict = $this->judge($device, RefreshTokenHasher::successor(self::PREVIOUS));
+        $session = $this->rotatedSession(10);
+        $verdict = $this->judge($session, RefreshTokenHasher::successor(self::PREVIOUS));
 
         self::assertIsArray($verdict);
         self::assertSame(RotationMatch::CURRENT, $verdict[0]);
@@ -92,7 +92,7 @@ final class RefreshJudgmentTest extends TestCase
      */
     public function testThePreviousIdInsideTheGraceWindowIsPrevious(): void
     {
-        $verdict = $this->judge($this->rotatedDevice(29), self::PREVIOUS);
+        $verdict = $this->judge($this->rotatedSession(29), self::PREVIOUS);
 
         self::assertIsArray($verdict);
         self::assertSame(RotationMatch::PREVIOUS, $verdict[0]);
@@ -100,7 +100,7 @@ final class RefreshJudgmentTest extends TestCase
     }
 
     /**
-     * Rows of `[device changes, presented id, grace seconds]` judged as a
+     * Rows of `[session changes, presented id, grace seconds]` judged as a
      * replay.
      *
      * @return iterable<string, array{0: array<string, mixed>, 1: string, 2: int}>
@@ -131,15 +131,15 @@ final class RefreshJudgmentTest extends TestCase
     #[DataProvider('provideReplays')]
     public function testAnythingElseIsAReplay(array $changes, string $presented, int $grace): void
     {
-        $device = $this->rotatedDevice(10);
+        $session = $this->rotatedSession(10);
 
-        $this->change($device, $changes);
+        $this->change($session, $changes);
 
-        self::assertSame(FailureReason::ROTATION_REUSE, $this->judge($device, $presented, $grace));
+        self::assertSame(FailureReason::ROTATION_REUSE, $this->judge($session, $presented, $grace));
     }
 
     /**
-     * Rows of `[device changes, failure]` for a device that holds no live
+     * Rows of `[session changes, failure]` for a session that holds no live
      * session.
      *
      * @return iterable<string, array{0: array<string, mixed>, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
@@ -147,8 +147,8 @@ final class RefreshJudgmentTest extends TestCase
     public static function provideEndedSessions(): iterable
     {
         yield from [
-            'revoked'                   => [['revoked_at' => '-1 second'], FailureReason::DEVICE_REVOKED],
-            'revoked and ended'         => [['revoked_at' => '-1 second', 'idle_expires_at' => '-1 second'], FailureReason::DEVICE_REVOKED],
+            'revoked'                   => [['revoked_at' => '-1 second'], FailureReason::SESSION_REVOKED],
+            'revoked and ended'         => [['revoked_at' => '-1 second', 'idle_expires_at' => '-1 second'], FailureReason::SESSION_REVOKED],
             'idle deadline reached'     => [['idle_expires_at' => '+0 seconds'], FailureReason::SESSION_EXPIRED],
             'absolute deadline reached' => [['absolute_expires_at' => '+0 seconds'], FailureReason::SESSION_EXPIRED],
             'no idle deadline'          => [['idle_expires_at' => null], FailureReason::SESSION_EXPIRED],
@@ -158,7 +158,7 @@ final class RefreshJudgmentTest extends TestCase
     }
 
     /**
-     * A revoked device, an ended session and a device with no credential fail
+     * A revoked session, an ended session and a session with no credential fail
      * for that reason before the id is compared.
      *
      * @param  array<string, mixed>  $changes
@@ -168,26 +168,26 @@ final class RefreshJudgmentTest extends TestCase
      * @throws \DateMalformedStringException
      */
     #[DataProvider('provideEndedSessions')]
-    public function testADeviceWithoutALiveSessionFailsFirst(array $changes, FailureReason $reason): void
+    public function testASessionWithoutALiveSessionFailsFirst(array $changes, FailureReason $reason): void
     {
-        $device = $this->rotatedDevice(10);
+        $session = $this->rotatedSession(10);
 
-        $this->change($device, $changes);
+        $this->change($session, $changes);
 
-        self::assertSame($reason, $this->judge($device, RefreshTokenHasher::successor(self::PREVIOUS)));
+        self::assertSame($reason, $this->judge($session, RefreshTokenHasher::successor(self::PREVIOUS)));
     }
 
     /**
-     * A device rotated from the previous id the given seconds ago, its session
+     * A session rotated from the previous id the given seconds ago, its session
      * live for days.
      *
      * @param  int  $rotatedSecondsAgo
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private function rotatedDevice(int $rotatedSecondsAgo): Device
+    private function rotatedSession(int $rotatedSecondsAgo): Session
     {
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             'revoked_at'           => null,
             'idle_expires_at'      => $this->now->addDays(30),
             'absolute_expires_at'  => $this->now->addDays(180),
@@ -196,36 +196,36 @@ final class RefreshJudgmentTest extends TestCase
             'refresh_rotated_at'   => $this->now->subSeconds($rotatedSecondsAgo),
         ]);
 
-        return $device;
+        return $session;
     }
 
     /**
-     * Apply the changes to the device: a time column given as a string is moved
-     * that far from now.
+     * Apply the changes to the session: a time column given as a string is
+     * moved that far from now.
      *
-     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @param  array<string, mixed>  $changes
      * @return void
      *
      * @throws \DateMalformedStringException
      */
-    private function change(Device $device, array $changes): void
+    private function change(Session $session, array $changes): void
     {
         foreach ($changes as $column => $value) {
-            $device->setAttribute($column, is_string($value) && str_ends_with($column, '_at') ? $this->now->modify($value) : $value);
+            $session->setAttribute($column, is_string($value) && str_ends_with($column, '_at') ? $this->now->modify($value) : $value);
         }
     }
 
     /**
-     * Judge the presented id against the device now, with the grace window.
+     * Judge the presented id against the session now, with the grace window.
      *
-     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @param  string  $presented
      * @param  int  $grace
      * @return array{0: \SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch, 1: \Carbon\CarbonInterface}|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      */
-    private function judge(Device $device, string $presented, int $grace = 30): array|FailureReason
+    private function judge(Session $session, string $presented, int $grace = 30): array|FailureReason
     {
-        return RefreshJudgment::classify($device, $presented, $this->now, new TokenLifetimes(5, 60 * 24 * 30, 60 * 24 * 180, $grace));
+        return RefreshJudgment::classify($session, $presented, $this->now, new TokenLifetimes(5, 60 * 24 * 30, 60 * 24 * 180, $grace));
     }
 }

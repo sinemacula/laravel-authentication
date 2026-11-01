@@ -9,23 +9,23 @@ use Firebase\JWT\JWT;
 use Illuminate\Support\Carbon;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
-use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidScopeException;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\MachineTokens;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
-use SineMacula\Laravel\Authentication\Models\Device as DeviceModel;
+use SineMacula\Laravel\Authentication\Models\Session as SessionModel;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
-use Tests\Unit\Stubs\StubBareDevice;
+use Tests\Unit\Stubs\StubBareSession;
 
 /**
  * Feature tests holding the token service to issuing no session token to a
  * non-human identity: no access token for one, and no refresh token for a
- * device one owns or for one as the principal, while human sessions are issued
+ * session one owns or for one as the principal, while human sessions are issued
  * as before.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -79,7 +79,7 @@ final class MachineJwtTokenServiceTest extends TestCase
     }
 
     /**
-     * No access token is issued to a machine, with or without a device.
+     * No access token is issued to a machine, with or without a session.
      *
      * @return void
      *
@@ -96,8 +96,8 @@ final class MachineJwtTokenServiceTest extends TestCase
     }
 
     /**
-     * No refresh token is issued for a device a machine owns, nor with a
-     * machine as the principal; a human's device, plain or Eloquent, gets one.
+     * No refresh token is issued for a session a machine owns, nor with a
+     * machine as the principal; a human's session, plain or Eloquent, gets one.
      *
      * @return void
      */
@@ -105,11 +105,11 @@ final class MachineJwtTokenServiceTest extends TestCase
     {
         $tokens  = $this->tokens();
         $machine = self::machine();
-        $human   = self::device(IntegrationIdentity::class);
+        $human   = self::record(IntegrationIdentity::class);
 
-        foreach ([[self::device(MachineClient::class), null], [$human, $machine]] as [$device, $principal]) {
+        foreach ([[self::record(MachineClient::class), null], [$human, $machine]] as [$session, $principal]) {
             try {
-                $tokens->issueRefreshToken($device, 'rotation-id', $principal);
+                $tokens->issueRefreshToken($session, 'rotation-id', $principal);
 
                 self::fail('Expected the token service to refuse the machine.');
             } catch (\LogicException $exception) {
@@ -117,8 +117,8 @@ final class MachineJwtTokenServiceTest extends TestCase
             }
         }
 
-        $plain = \Mockery::mock(Device::class);
-        $plain->shouldReceive('getDeviceIdentifier')->andReturn('plain');
+        $plain = \Mockery::mock(Session::class);
+        $plain->shouldReceive('getSessionIdentifier')->andReturn('plain');
         $plain->shouldReceive('getIdleExpiresAt')->andReturn(CarbonImmutable::now()->addDay());
         $plain->shouldReceive('getAbsoluteExpiresAt')->andReturn(CarbonImmutable::now()->addDays(2));
 
@@ -127,25 +127,25 @@ final class MachineJwtTokenServiceTest extends TestCase
     }
 
     /**
-     * A device that is a model but not the package's Eloquent device records no
-     * owner the service can read, so only its own state decides: here, its
+     * A session that is a model but not the package's Eloquent session records
+     * no owner the service can read, so only its own state decides: here, its
      * missing deadlines.
      *
      * @return void
      */
-    public function testAModelDeviceThatRecordsNoOwnerIsJudgedByItsState(): void
+    public function testAModelSessionThatRecordsNoOwnerIsJudgedByItsState(): void
     {
-        $device = (new StubBareDevice)->forceFill(['id' => 'bare']);
+        $session = (new StubBareSession)->forceFill(['id' => 'bare']);
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Cannot issue a token for a device whose session has ended or that has no idle and absolute deadlines.');
+        $this->expectExceptionMessage('Cannot issue a token for a session that has ended or that has no idle and absolute deadlines.');
 
-        $this->tokens()->issueRefreshToken($device, 'rotation-id');
+        $this->tokens()->issueRefreshToken($session, 'rotation-id');
     }
 
     /**
      * A client token carries the access claims of its machine and principal, no
-     * device, the key's id in `cid` and the scopes, space-separated, in
+     * session, the key's id in `cid` and the scopes, space-separated, in
      * `scope`; it lives the guard's access lifetime, never past the time it is
      * bounded by.
      *
@@ -166,7 +166,7 @@ final class MachineJwtTokenServiceTest extends TestCase
         self::assertSame('read write', $claims[Claims::SCOPE->value]);
         self::assertSame('7', $claims[Claims::SUBJECT->value]);
         self::assertSame('7', $claims[Claims::PRINCIPAL_ID->value]);
-        self::assertNull($claims[Claims::DEVICE_ID->value]);
+        self::assertNull($claims[Claims::SESSION_ID->value]);
         self::assertSame('access', $claims[Claims::TYPE->value]);
         self::assertSame($now->getTimestamp(), $claims[Claims::ISSUED_AT->value]);
         self::assertSame($now->addMinutes(15)->getTimestamp(), $claims[Claims::EXPIRES_AT->value]);
@@ -216,7 +216,7 @@ final class MachineJwtTokenServiceTest extends TestCase
 
     /**
      * Rows of `[claims a forged token carries, accepted]`: a token with `cid`
-     * must name a key by UUID, carry a scope string, and name no device.
+     * must name a key by UUID, carry a scope string, and name no session.
      *
      * @return iterable<string, array{0: array<string, mixed>, 1: bool}>
      */
@@ -232,7 +232,7 @@ final class MachineJwtTokenServiceTest extends TestCase
             'a malformed scope'      => [['cid' => self::KEY_ID, 'scope' => 'read  write'], false],
             'a key id not a uuid'    => [['cid' => 'key-1', 'scope' => ''], false],
             'a numeric key id'       => [['cid' => 7, 'scope' => ''], false],
-            'a device'               => [['cid' => self::KEY_ID, 'scope' => '', 'did' => 'device-1'], false],
+            'a session'              => [['cid' => self::KEY_ID, 'scope' => '', 'did' => 'session-1'], false],
         ];
     }
 
@@ -286,15 +286,15 @@ final class MachineJwtTokenServiceTest extends TestCase
     }
 
     /**
-     * A live device row recording an owner of the class.
+     * A live session row recording an owner of the class.
      *
      * @param  class-string  $owner
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private static function device(string $owner): DeviceModel
+    private static function record(string $owner): SessionModel
     {
-        return (new DeviceModel)->forceFill([
-            'id'                   => 'device-1',
+        return (new SessionModel)->forceFill([
+            'id'                   => 'session-1',
             'authenticatable_type' => $owner,
             'authenticatable_id'   => '7',
             'idle_expires_at'      => CarbonImmutable::now()->addDay(),

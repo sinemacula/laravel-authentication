@@ -23,7 +23,7 @@ use Tests\Concerns\InteractsWithPasswords;
  * Query-budget contracts for password reset: a request writes its limits and
  * the token and reads no identity; a reset counts its submission, reads the
  * identity and the token once each, spends the token, writes the password and
- * the cutoff, revokes each device with one statement after one read of them,
+ * the cutoff, revokes each session with one statement after one read of them,
  * ends the pending sign-ins, and gives its slots back.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -110,12 +110,12 @@ final class PasswordResetQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A reset of an identity with two devices reads the identity, its row under
-     * the lock taken before the token, the token and the devices once each, and
-     * the row it updated once more, and writes the submission's limits, the
-     * token's use, the password, one `DELETE` of every other reset link and
-     * code, the cutoff, one revocation per device, the pending sign-ins' end,
-     * and the slots it gives back.
+     * A reset of an identity with two sessions reads the identity, its row
+     * under the lock taken before the token, the token and the sessions once
+     * each, and the row it updated once more, and writes the submission's
+     * limits, the token's use, the password, one `DELETE` of every other reset
+     * link and code, the cutoff, one revocation per session, the pending
+     * sign-ins' end, and the slots it gives back.
      *
      * @return void
      *

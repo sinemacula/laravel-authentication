@@ -9,9 +9,9 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\Refused;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 
@@ -42,29 +42,29 @@ final class RefusedTest extends TestCase
         self::assertNull($refused->identity);
         self::assertNull($refused->principal);
         self::assertNull($refused->tenant);
-        self::assertNull($refused->device);
+        self::assertNull($refused->session);
         self::assertSame(42, $refused->retryAfter);
     }
 
     /**
      * A refusal after admission keeps the admitted context, including the
-     * device the sign-in was continuing on.
+     * session the sign-in was continuing on.
      *
      * @return void
      */
     public function testARefusalAfterAdmissionKeepsTheAdmittedContext(): void
     {
         $admitted = new Admitted(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), \Mockery::mock(Tenant::class));
-        $device   = \Mockery::mock(Device::class);
+        $session  = \Mockery::mock(Session::class);
 
-        $refused = Refused::after(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $admitted->on($device));
+        $refused = Refused::after(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $admitted->on($session));
 
         self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $refused->reason);
         self::assertSame($admitted->identity, $refused->identity);
         self::assertSame($admitted->principal, $refused->principal);
         self::assertSame($admitted->tenant, $refused->tenant);
-        self::assertSame($device, $refused->device);
+        self::assertSame($session, $refused->session);
         self::assertNull($refused->retryAfter);
-        self::assertNull(Refused::after(FailureReason::DEVICE_MISMATCH, $admitted)->device);
+        self::assertNull(Refused::after(FailureReason::SESSION_MISMATCH, $admitted)->session);
     }
 }

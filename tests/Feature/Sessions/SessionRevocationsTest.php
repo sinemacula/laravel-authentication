@@ -14,18 +14,18 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
-use SineMacula\Laravel\Authentication\Models\Device as DeviceModel;
+use SineMacula\Laravel\Authentication\Models\Session as SessionModel;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
-use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
+use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -35,7 +35,7 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\EagerTenantMembership;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
-use Tests\Unit\Stubs\StubBareDevice;
+use Tests\Unit\Stubs\StubBareSession;
 use Tests\Unit\Stubs\StubTenant;
 
 /**
@@ -85,7 +85,7 @@ final class SessionRevocationsTest extends TestCase
 
     /**
      * Signing out the binding resolves the session the request carries, then
-     * revokes its device (`signed_out`), reports `DeviceRevoked` and then
+     * revokes its session (`signed_out`), reports `SessionRevoked` and then
      * `Logout` under the guard's name, and forgets the binding; signing out
      * again revokes and reports nothing.
      *
@@ -93,60 +93,60 @@ final class SessionRevocationsTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testSigningOutRevokesTheBindingsDeviceThenReportsTheLogout(): void
+    public function testSigningOutRevokesTheBindingsSessionThenReportsTheLogout(): void
     {
         $identity    = $this->seedIdentity();
         $session     = $this->signIn();
         $guard       = $this->bearing($session);
         $revocations = SessionRevocations::forContext($guard->context(), app());
 
-        $this->recordEvents([DeviceRevoked::class, Logout::class]);
+        $this->recordEvents([SessionRevoked::class, Logout::class]);
 
         self::assertTrue($revocations->signOut($guard));
-        self::assertSame([DeviceRevoked::class, Logout::class], $this->recordedClasses());
+        self::assertSame([SessionRevoked::class, Logout::class], $this->recordedClasses());
 
-        $revoked = $this->recordedEvent(DeviceRevoked::class);
+        $revoked = $this->recordedEvent(SessionRevoked::class);
         $logout  = $this->recordedEvent(Logout::class);
 
         self::assertSame(RevocationReason::SIGNED_OUT, $revoked->reason);
-        self::assertSame(self::idOf($session), $revoked->context->deviceId);
+        self::assertSame(self::idOf($session), $revoked->context->sessionId);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $revoked->context->principalId);
         self::assertSame('198.51.100.40', $revoked->context->client->ip);
         self::assertSame('api', $logout->guard);
         self::assertTrue($identity->is($logout->user));
         self::assertTrue($guard->guest());
-        self::assertSame('signed_out', DB::table('devices')->value('revoked_reason'));
+        self::assertSame('signed_out', DB::table('authentication_sessions')->value('revoked_reason'));
 
-        $this->recordEvents([DeviceRevoked::class, Logout::class]);
+        $this->recordEvents([SessionRevoked::class, Logout::class]);
 
         self::assertFalse($revocations->signOut($guard));
         self::assertSame([], $this->recordedClasses());
     }
 
     /**
-     * Signing out a binding that holds only a device (no identity) revokes it
+     * Signing out a binding that holds only a session (no identity) revokes it
      * without `Logout`, and the revocation names the owner and the principal
-     * the device row records.
+     * the session row records.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testSigningOutADeviceBoundWithoutAnIdentityNamesWhatTheRowRecords(): void
+    public function testSigningOutASessionBoundWithoutAnIdentityNamesWhatTheRowRecords(): void
     {
         $identity    = $this->seedIdentity();
         $session     = $this->signIn();
         $guard       = $this->freshGuard();
         $revocations = SessionRevocations::forContext($guard->context(), app());
 
-        $guard->setDevice(DeviceModel::query()->findOrFail(self::idOf($session)));
+        $guard->setSession(SessionModel::query()->findOrFail(self::idOf($session)));
 
-        $this->recordEvents([DeviceRevoked::class, Logout::class]);
+        $this->recordEvents([SessionRevoked::class, Logout::class]);
 
         self::assertTrue($revocations->signOut($guard));
-        self::assertSame([DeviceRevoked::class], $this->recordedClasses());
+        self::assertSame([SessionRevoked::class], $this->recordedClasses());
 
-        $context = $this->recordedEvent(DeviceRevoked::class)->context;
+        $context = $this->recordedEvent(SessionRevoked::class)->context;
 
         self::assertNull($context->identity);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $context->identityId);
@@ -155,15 +155,15 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * Signing out a binding whose device is an Eloquent model but not a package
-     * device only forgets it: nothing is revoked, and only `Logout` reports the
-     * sign-out.
+     * Signing out a binding whose session is an Eloquent model but not a
+     * package session only forgets it: nothing is revoked, and only `Logout`
+     * reports the sign-out.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testSigningOutAModelDeviceThatIsNotAPackageDeviceOnlyForgetsIt(): void
+    public function testSigningOutAModelSessionThatIsNotAPackageSessionOnlyForgetsIt(): void
     {
         $identity    = $this->seedIdentity();
         $guard       = $this->freshGuard();
@@ -171,14 +171,14 @@ final class SessionRevocationsTest extends TestCase
 
         $this->signIn();
 
-        $guard->login($identity, $identity, (new StubBareDevice)->forceFill(['id' => 'bare-device']));
+        $guard->login($identity, $identity, (new StubBareSession)->forceFill(['id' => 'bare-session']));
 
-        $this->recordEvents([DeviceRevoked::class, Logout::class]);
+        $this->recordEvents([SessionRevoked::class, Logout::class]);
 
         self::assertFalse($revocations->signOut($guard));
         self::assertSame([Logout::class], $this->recordedClasses());
         self::assertTrue($guard->guest());
-        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
     }
 
     /**
@@ -197,18 +197,18 @@ final class SessionRevocationsTest extends TestCase
         $guard       = $this->freshGuard();
         $revocations = SessionRevocations::forContext($guard->context(), app());
 
-        $this->recordEvents([DeviceRevoked::class, Logout::class, SignedOutEverywhere::class]);
+        $this->recordEvents([SessionRevoked::class, Logout::class, SignedOutEverywhere::class]);
 
         self::assertFalse($revocations->signOut($guard));
         self::assertSame(0, $revocations->signOutEverywhere($guard, false));
         self::assertSame([], $this->recordedClasses());
-        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
     }
 
     /**
      * Signing the binding out everywhere ends the identity's other sessions and
      * keeps the binding's own when asked, with the binding still bound, each
-     * revoked device reported with the principal its row records; without
+     * revoked session reported with the principal its row records; without
      * keeping it, the binding's session ends too.
      *
      * @return void
@@ -224,34 +224,34 @@ final class SessionRevocationsTest extends TestCase
         $guard       = $this->bearing($current);
         $revocations = SessionRevocations::forContext($guard->context(), app());
 
-        $this->recordEvents([DeviceRevoked::class, SignedOutEverywhere::class]);
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class]);
 
         self::assertSame(1, $revocations->signOutEverywhere($guard, true));
-        self::assertSame([DeviceRevoked::class, SignedOutEverywhere::class], $this->recordedClasses());
+        self::assertSame([SessionRevoked::class, SignedOutEverywhere::class], $this->recordedClasses());
 
-        $revoked = $this->recordedEvent(DeviceRevoked::class)->context;
+        $revoked = $this->recordedEvent(SessionRevoked::class)->context;
 
-        self::assertSame(self::idOf($other), $revoked->deviceId);
+        self::assertSame(self::idOf($other), $revoked->sessionId);
         self::assertNull($revoked->principal);
         self::assertSame($identity->getMorphClass(), $revoked->principalMorphClass);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $revoked->principalId);
-        self::assertNull(DB::table('devices')->where('id', self::idOf($current))->value('revoked_at'));
-        self::assertSame('signed_out_everywhere', DB::table('devices')->where('id', self::idOf($other))->value('revoked_reason'));
+        self::assertNull(DB::table('authentication_sessions')->where('id', self::idOf($current))->value('revoked_at'));
+        self::assertSame('signed_out_everywhere', DB::table('authentication_sessions')->where('id', self::idOf($other))->value('revoked_reason'));
         self::assertNotNull($guard->user());
 
         self::assertSame(1, $revocations->signOutEverywhere($guard, false));
-        self::assertSame('signed_out_everywhere', DB::table('devices')->where('id', self::idOf($current))->value('revoked_reason'));
+        self::assertSame('signed_out_everywhere', DB::table('authentication_sessions')->where('id', self::idOf($current))->value('revoked_reason'));
     }
 
     /**
-     * Rows of `[the change, its reason, whether it keeps the device it is
+     * Rows of `[the change, its reason, whether it keeps the session it is
      * given]`.
      *
      * @formatter:off
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
-     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionRevocations, \SineMacula\Laravel\Authentication\Contracts\Identity, \SineMacula\Laravel\Authentication\Contracts\Device): int, 1: \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason, 2: bool}>
+     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionRevocations, \SineMacula\Laravel\Authentication\Contracts\Identity, \SineMacula\Laravel\Authentication\Contracts\Session): int, 1: \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason, 2: bool}>
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -259,14 +259,14 @@ final class SessionRevocationsTest extends TestCase
      */
     public static function provideChanges(): iterable
     {
-        yield 'devices revoked' => [
-            static fn (SessionRevocations $revocations, Identity $identity, Device $device): int => $revocations->revokeDevices($identity, RevocationReason::REVOKED, $device),
+        yield 'sessions revoked' => [
+            static fn (SessionRevocations $revocations, Identity $identity, Session $record): int => $revocations->revokeSessions($identity, RevocationReason::REVOKED, $record),
             RevocationReason::REVOKED,
             true,
         ];
 
         yield 'password changed' => [
-            static fn (SessionRevocations $revocations, Identity $identity, Device $device): int => $revocations->passwordChanged($identity, $device),
+            static fn (SessionRevocations $revocations, Identity $identity, Session $record): int => $revocations->passwordChanged($identity, $record),
             RevocationReason::PASSWORD_CHANGED,
             true,
         ];
@@ -278,7 +278,7 @@ final class SessionRevocationsTest extends TestCase
         ];
 
         yield 'factor removed' => [
-            static fn (SessionRevocations $revocations, Identity $identity, Device $device): int => $revocations->factorRemoved($identity, $device),
+            static fn (SessionRevocations $revocations, Identity $identity, Session $record): int => $revocations->factorRemoved($identity, $record),
             RevocationReason::FACTOR_REMOVED,
             true,
         ];
@@ -292,13 +292,13 @@ final class SessionRevocationsTest extends TestCase
 
     /**
      * Each change ends the identity's sessions with its own reason, keeping the
-     * device given where the change takes one.
+     * session given where the change takes one.
      *
      * @formatter:off
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
-     * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionRevocations, \SineMacula\Laravel\Authentication\Contracts\Identity, \SineMacula\Laravel\Authentication\Contracts\Device): int  $change
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionRevocations, \SineMacula\Laravel\Authentication\Contracts\Identity, \SineMacula\Laravel\Authentication\Contracts\Session): int  $change
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
      * @param  bool  $keeps
      * @return void
@@ -317,65 +317,65 @@ final class SessionRevocationsTest extends TestCase
         $ended       = $this->signIn();
         $revocations = SessionRevocations::forContext($this->freshGuard()->context(), app());
 
-        self::assertSame($keeps ? 1 : 2, $change($revocations, $identity, $kept->device));
-        self::assertSame($reason->value, DB::table('devices')->where('id', self::idOf($ended))->value('revoked_reason'));
-        self::assertSame($keeps ? null : $reason->value, DB::table('devices')->where('id', self::idOf($kept))->value('revoked_reason'));
+        self::assertSame($keeps ? 1 : 2, $change($revocations, $identity, $kept->record));
+        self::assertSame($reason->value, DB::table('authentication_sessions')->where('id', self::idOf($ended))->value('revoked_reason'));
+        self::assertSame($keeps ? null : $reason->value, DB::table('authentication_sessions')->where('id', self::idOf($kept))->value('revoked_reason'));
     }
 
     /**
-     * Revoking one device of its owner, or every device acting as a principal
+     * Revoking one session of its owner, or every session acting as a principal
      * on its deactivation, ends those sessions with the reason given or the
-     * principal's; the one device's revocation names the principal its row
+     * principal's; the one session's revocation names the principal its row
      * records.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testOneDeviceOrAPrincipalsDevicesEnd(): void
+    public function testOneSessionOrAPrincipalsSessionsEnd(): void
     {
         $identity    = $this->seedIdentity();
         $first       = $this->signIn();
         $second      = $this->signIn();
         $revocations = SessionRevocations::forContext($this->freshGuard()->context(), app());
 
-        $this->recordEvents([DeviceRevoked::class]);
+        $this->recordEvents([SessionRevoked::class]);
 
-        self::assertTrue($revocations->revokeDevice($identity, self::idOf($first), RevocationReason::REVOKED));
-        self::assertFalse($revocations->revokeDevice($identity, self::idOf($first), RevocationReason::REVOKED));
+        self::assertTrue($revocations->revokeSession($identity, self::idOf($first), RevocationReason::REVOKED));
+        self::assertFalse($revocations->revokeSession($identity, self::idOf($first), RevocationReason::REVOKED));
 
-        $context = $this->recordedEvent(DeviceRevoked::class)->context;
+        $context = $this->recordedEvent(SessionRevoked::class)->context;
 
         self::assertNull($context->principal);
         self::assertSame($identity->getMorphClass(), $context->principalMorphClass);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $context->principalId);
         self::assertSame(1, $revocations->principalDeactivated($identity));
-        self::assertSame('revoked', DB::table('devices')->where('id', self::idOf($first))->value('revoked_reason'));
-        self::assertSame('principal_deactivated', DB::table('devices')->where('id', self::idOf($second))->value('revoked_reason'));
+        self::assertSame('revoked', DB::table('authentication_sessions')->where('id', self::idOf($first))->value('revoked_reason'));
+        self::assertSame('principal_deactivated', DB::table('authentication_sessions')->where('id', self::idOf($second))->value('revoked_reason'));
     }
 
     /**
-     * Revoking every device acting as a principal keeps the one given, and ends
-     * the rest with the reason given.
+     * Revoking every session acting as a principal keeps the one given, and
+     * ends the rest with the reason given.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAPrincipalsDevicesEndButTheOneKept(): void
+    public function testAPrincipalsSessionsEndButTheOneKept(): void
     {
         $identity    = $this->seedIdentity();
         $kept        = $this->signIn();
         $ended       = $this->signIn();
         $revocations = SessionRevocations::forContext($this->freshGuard()->context(), app());
 
-        self::assertSame(1, $revocations->revokePrincipalDevices($identity, RevocationReason::REVOKED, $kept->device));
-        self::assertNull(DB::table('devices')->where('id', self::idOf($kept))->value('revoked_at'));
-        self::assertSame('revoked', DB::table('devices')->where('id', self::idOf($ended))->value('revoked_reason'));
+        self::assertSame(1, $revocations->revokePrincipalSessions($identity, RevocationReason::REVOKED, $kept->record));
+        self::assertNull(DB::table('authentication_sessions')->where('id', self::idOf($kept))->value('revoked_at'));
+        self::assertSame('revoked', DB::table('authentication_sessions')->where('id', self::idOf($ended))->value('revoked_reason'));
     }
 
     /**
-     * Revoking every device of an identity whose identifiers can be changed
+     * Revoking every session of an identity whose identifiers can be changed
      * cancels its pending changes; another identity's, whose identifiers cannot
      * be changed, keeps the row its key would name.
      *
@@ -395,8 +395,8 @@ final class SessionRevocationsTest extends TestCase
             self::insertPendingChange(PendingChanges::key($changeable, 'email'), '0195f4a2-7b1c-4000-8000-000000000001');
             self::insertPendingChange(PendingChanges::key($plain, 'email'), '0195f4a2-7b1c-4000-8000-000000000002');
 
-            $revocations->revokeDevices($changeable, RevocationReason::REVOKED);
-            $revocations->revokeDevices($plain, RevocationReason::REVOKED);
+            $revocations->revokeSessions($changeable, RevocationReason::REVOKED);
+            $revocations->revokeSessions($plain, RevocationReason::REVOKED);
 
             self::assertSame([PendingChanges::key($plain, 'email')], DB::table('identifier_changes')->pluck('id')->all());
         } finally {
@@ -433,7 +433,7 @@ final class SessionRevocationsTest extends TestCase
         $principals = array_map(static fn (object $event): ?string => $event instanceof SignedOutEverywhere ? $event->context->principalMorphClass : null, $this->recorded);
 
         self::assertSame([ActivatableTenantMembership::class, EagerTenantMembership::class], $principals);
-        self::assertSame('tenant_deactivated', DB::table('devices')->value('revoked_reason'));
+        self::assertSame('tenant_deactivated', DB::table('authentication_sessions')->value('revoked_reason'));
     }
 
     /**
@@ -505,11 +505,11 @@ final class SessionRevocationsTest extends TestCase
             self::assertStringContainsString('does not act within tenant ' . $deactivated::class, $exception->getMessage());
         }
 
-        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
     }
 
     /**
-     * A revocation inside a transaction reports `DeviceRevoked` once it
+     * A revocation inside a transaction reports `SessionRevoked` once it
      * commits, to the guard's dispatcher as it is then: a dispatcher swapped in
      * before the commit receives it, and the one replaced receives nothing.
      *
@@ -526,14 +526,14 @@ final class SessionRevocationsTest extends TestCase
         $swapped     = new Dispatcher(app());
         $received    = [];
 
-        $swapped->listen(DeviceRevoked::class, static function (DeviceRevoked $event) use (&$received): void {
+        $swapped->listen(SessionRevoked::class, static function (SessionRevoked $event) use (&$received): void {
             $received[] = $event->reason;
         });
 
-        $this->recordEvents([DeviceRevoked::class]);
+        $this->recordEvents([SessionRevoked::class]);
 
         DB::transaction(static function () use ($revocations, $identity, $session, $guard, $swapped): void {
-            self::assertTrue($revocations->revokeDevice($identity, self::idOf($session), RevocationReason::REVOKED));
+            self::assertTrue($revocations->revokeSession($identity, self::idOf($session), RevocationReason::REVOKED));
 
             $guard->setDispatcher($swapped);
         });
@@ -545,7 +545,7 @@ final class SessionRevocationsTest extends TestCase
     /**
      * A JWT guard's `logout()` signs the session out through session
      * revocations it builds on its own context for the sign-out, with no
-     * session service, and the device is revoked and reported before `Logout`.
+     * session service, and the session is revoked and reported before `Logout`.
      *
      * @return void
      *
@@ -571,21 +571,21 @@ final class SessionRevocationsTest extends TestCase
 
                 return new SessionRevocations(
                     $context,
-                    new DeviceRevocations(app(ConnectionResolverInterface::class), static fn (): mixed => app('db.transactions')),
+                    new RevocationWriter(app(ConnectionResolverInterface::class), static fn (): mixed => app('db.transactions')),
                     app(),
                 );
             },
             static fn (): RefreshTokenTransport => RefreshTokenTransport::forGuard('api', config()),
         );
 
-        $this->recordEvents([DeviceRevoked::class, Logout::class]);
+        $this->recordEvents([SessionRevoked::class, Logout::class]);
 
         $guard->logout();
 
         self::assertSame([$guard->context()], $built);
-        self::assertSame([DeviceRevoked::class, Logout::class], $this->recordedClasses());
+        self::assertSame([SessionRevoked::class, Logout::class], $this->recordedClasses());
         self::assertTrue($guard->guest());
-        self::assertSame('signed_out', DB::table('devices')->where('id', self::idOf($session))->value('revoked_reason'));
+        self::assertSame('signed_out', DB::table('authentication_sessions')->where('id', self::idOf($session))->value('revoked_reason'));
     }
 
     /**
@@ -658,13 +658,13 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
-     * The identifier of the session's device.
+     * The identifier of the session.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
      * @return string
      */
     private static function idOf(SignedInSession $session): string
     {
-        return (string) IdentifierCoercion::stringify($session->device->getDeviceIdentifier());
+        return (string) IdentifierCoercion::stringify($session->record->getSessionIdentifier());
     }
 }

@@ -8,8 +8,8 @@ use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use Tests\Unit\Stubs\StubCredentialGuard;
 
@@ -32,7 +32,7 @@ final class AbstractGuardExtensionTest extends AbstractGuardTestCase
 {
     /**
      * A subclass binding a resolved context fires `Login`, `Authenticated`,
-     * `PrincipalAssigned`, and `DeviceAuthenticated` in order and leaves the
+     * `PrincipalAssigned`, and `SessionAuthenticated` in order and leaves the
      * full context bound.
      *
      * @return void
@@ -42,7 +42,7 @@ final class AbstractGuardExtensionTest extends AbstractGuardTestCase
         $guard     = $this->makeCredentialGuard();
         $identity  = $this->mockIdentity();
         $principal = $this->mockActivePrincipal();
-        $device    = $this->mockDevice();
+        $session   = $this->mockSession();
 
         $dispatched = [];
 
@@ -51,15 +51,15 @@ final class AbstractGuardExtensionTest extends AbstractGuardTestCase
                 $dispatched[] = $event::class;
             });
 
-        $guard->bindResolvedContext($identity, $principal, $device);
+        $guard->bindResolvedContext($identity, $principal, $session);
 
         self::assertSame(
-            [Login::class, Authenticated::class, PrincipalAssigned::class, DeviceAuthenticated::class],
+            [Login::class, Authenticated::class, PrincipalAssigned::class, SessionAuthenticated::class],
             $dispatched,
         );
         self::assertSame($identity, $guard->user());
         self::assertSame($principal, $guard->principal());
-        self::assertSame($device, $guard->device());
+        self::assertSame($session, $guard->session());
     }
 
     /**

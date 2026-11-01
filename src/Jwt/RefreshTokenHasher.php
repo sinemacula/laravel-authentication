@@ -8,7 +8,7 @@ namespace SineMacula\Laravel\Authentication\Jwt;
  * Refresh-token rotation-id hashing primitive.
  *
  * Refresh tokens carry an opaque high-entropy rotation identifier in the `jti`
- * claim. The server stores a SHA-256 digest on the device row and compares
+ * claim. The server stores a SHA-256 digest on the session row and compares
  * candidates in constant time via `hash_equals()`.
  *
  * SHA-256, not bcrypt/argon2: the plaintext is already a 256-bit random value
@@ -52,7 +52,7 @@ final class RefreshTokenHasher
      * storing any rotation id in plaintext: the presented, signed token holds
      * the previous id, and the successor of it must match the stored current
      * digest. Knowing a future id gives nothing away, because a rotation id is
-     * only usable inside a token signed with the guard's key, and the device
+     * only usable inside a token signed with the guard's key, and the session
      * row holds only SHA-256 digests, from which no id can be derived.
      *
      * @param  string  $rotationId
@@ -81,7 +81,7 @@ final class RefreshTokenHasher
     }
 
     /**
-     * Hash a plaintext rotation identifier for storage on the device row.
+     * Hash a plaintext rotation identifier for storage on the session row.
      *
      * @param  string  $rotationId
      * @return string

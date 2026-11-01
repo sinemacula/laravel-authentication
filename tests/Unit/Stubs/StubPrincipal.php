@@ -8,17 +8,17 @@ use Illuminate\Contracts\Database\Eloquent\Builder as BuilderContract;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
  * Eloquent stub implementing Principal (and Identity for 2D mode) via the
  * package's ActsAsPrincipal trait.
  *
- * Also implements `HasDevices` so JWT integration tests can resolve a device
- * from a token hint via the polymorphic devices table.
+ * Also implements `HasSessions` so JWT integration tests can resolve a session
+ * from a token hint via the polymorphic sessions table.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -32,7 +32,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
  *
  * @inheritable
  */
-class StubPrincipal extends Model implements HasDevices, Identity, Principal
+class StubPrincipal extends Model implements HasSessions, Identity, Principal
 {
     use ActsAsPrincipal, Authenticatable;
 
@@ -43,15 +43,15 @@ class StubPrincipal extends Model implements HasDevices, Identity, Principal
     protected $guarded = [];
 
     /**
-     * Eloquent relation builder for the identity's devices, filtered by the
-     * polymorphic `authenticatable_*` columns on the shipped Device model.
+     * Eloquent relation builder for the identity's sessions, filtered by the
+     * polymorphic `authenticatable_*` columns on the shipped Session model.
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
     #[\Override]
-    public function devices(): BuilderContract
+    public function sessions(): BuilderContract
     {
-        return Device::query()
+        return Session::query()
             ->where('authenticatable_type', static::class)
             ->where('authenticatable_id', (string) $this->getKey()); // @phpstan-ignore cast.string
     }

@@ -28,8 +28,9 @@ use Tests\Unit\Stubs\StubReversingNormalizer;
  * `rate_limits` table, on whichever engine the suite runs against.
  *
  * The `api` guard allows 3 sign-in attempts per identifier and 5 per IP address
- * in 300-second windows, and 2 refresh failures per device and 4 per IP address
- * in 60-second windows. The clock starts 150 seconds into a sign-in window.
+ * in 300-second windows, and 2 refresh failures per session and 4 per IP
+ * address in 60-second windows. The clock starts 150 seconds into a sign-in
+ * window.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -645,29 +646,29 @@ final class DatabaseAttemptLimiterTest extends TestCase
      */
     public function testBlockedReportsTheWaitOnceFailuresFillAWindow(): void
     {
-        $device = $this->refresh('device-1');
+        $session = $this->refresh('session-1');
 
-        self::assertNull($this->limiter()->blocked($device));
+        self::assertNull($this->limiter()->blocked($session));
 
-        $this->limiter()->recordFailure($device);
+        $this->limiter()->recordFailure($session);
 
-        self::assertNull($this->limiter()->blocked($device));
+        self::assertNull($this->limiter()->blocked($session));
 
-        $this->limiter()->recordFailure($device);
+        $this->limiter()->recordFailure($session);
         $this->statements = [];
 
-        self::assertSame(30, $this->limiter()->blocked($device));
+        self::assertSame(30, $this->limiter()->blocked($session));
         self::assertCount(1, $this->recordedStatements());
-        self::assertNull($this->limiter()->blocked($this->refresh('device-2')));
+        self::assertNull($this->limiter()->blocked($this->refresh('session-2')));
 
-        $this->limiter()->recordFailure($device);
+        $this->limiter()->recordFailure($session);
 
-        self::assertSame(3, $this->hitsOf($device, 'per_identifier'));
+        self::assertSame(3, $this->hitsOf($session, 'per_identifier'));
     }
 
     /**
-     * A full IP address blocks every device behind it; with both counters full,
-     * the wait is until the later window ends.
+     * A full IP address blocks every session behind it; with both counters
+     * full, the wait is until the later window ends.
      *
      * @return void
      */
@@ -675,12 +676,12 @@ final class DatabaseAttemptLimiterTest extends TestCase
     {
         config()->set('auth.guards.' . self::GUARD . '.rate_limits.refresh.per_identifier', ['max' => 1, 'decay_seconds' => 300]);
 
-        foreach (['device-1', 'device-2', 'device-3', 'device-4'] as $device) {
-            $this->limiter()->recordFailure($this->refresh($device));
+        foreach (['session-1', 'session-2', 'session-3', 'session-4'] as $session) {
+            $this->limiter()->recordFailure($this->refresh($session));
         }
 
-        self::assertSame(30, $this->limiter()->blocked($this->refresh('device-9')));
-        self::assertSame(150, $this->limiter()->blocked($this->refresh('device-1')));
+        self::assertSame(30, $this->limiter()->blocked($this->refresh('session-9')));
+        self::assertSame(150, $this->limiter()->blocked($this->refresh('session-1')));
     }
 
     /**
@@ -691,18 +692,18 @@ final class DatabaseAttemptLimiterTest extends TestCase
      */
     public function testEndedWindowsNoLongerBlock(): void
     {
-        $device = $this->refresh('device-1');
+        $session = $this->refresh('session-1');
 
-        $this->limiter()->recordFailure($device);
-        $this->limiter()->recordFailure($device);
+        $this->limiter()->recordFailure($session);
+        $this->limiter()->recordFailure($session);
 
         Carbon::setTestNow(Carbon::createFromTimestamp(1800000180));
 
-        self::assertNull($this->limiter()->blocked($device));
+        self::assertNull($this->limiter()->blocked($session));
 
-        $this->limiter()->recordFailure($device);
+        $this->limiter()->recordFailure($session);
 
-        self::assertSame(1, $this->hitsOf($device, 'per_identifier'));
+        self::assertSame(1, $this->hitsOf($session, 'per_identifier'));
     }
 
     /**
@@ -728,12 +729,12 @@ final class DatabaseAttemptLimiterTest extends TestCase
     public function testFailureRecordedConcurrentlyIsCountedOnRetry(): void
     {
         $this->beforeFirstInsert(function (): void {
-            $this->limiter()->recordFailure($this->refresh('device-1'));
+            $this->limiter()->recordFailure($this->refresh('session-1'));
         });
 
-        $this->limiter()->recordFailure($this->refresh('device-1'));
+        $this->limiter()->recordFailure($this->refresh('session-1'));
 
-        self::assertSame(2, $this->hitsOf($this->refresh('device-1'), 'per_identifier'));
+        self::assertSame(2, $this->hitsOf($this->refresh('session-1'), 'per_identifier'));
     }
 
     /**
@@ -853,14 +854,14 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
-     * A refresh of the device on the guard.
+     * A refresh of the session on the guard.
      *
-     * @param  string  $device
+     * @param  string  $session
      * @return \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject
      */
-    private function refresh(string $device): AttemptSubject
+    private function refresh(string $session): AttemptSubject
     {
-        return new AttemptSubject(self::GUARD, AttemptFlow::REFRESH, $device, null, self::IP);
+        return new AttemptSubject(self::GUARD, AttemptFlow::REFRESH, $session, null, self::IP);
     }
 
     /**

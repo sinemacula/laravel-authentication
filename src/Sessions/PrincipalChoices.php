@@ -48,7 +48,7 @@ final readonly class PrincipalChoices
      * Constructor.
      *
      * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
-     * @param  \SineMacula\Laravel\Authentication\Sessions\DeviceProof  $proof
+     * @param  \SineMacula\Laravel\Authentication\Sessions\ProvenSessions  $proof
      * @param  \SineMacula\Laravel\Authentication\Sessions\PendingSignIns  $pendings
      * @param  \SineMacula\Laravel\Authentication\Database\AfterCommit  $afterCommit
      * @param  \Illuminate\Contracts\Container\Container  $container
@@ -58,8 +58,8 @@ final readonly class PrincipalChoices
         /** The context of the guard whose principals are chosen. */
         private GuardContext $context,
 
-        /** Decides which device a client proved it holds. */
-        private DeviceProof $proof,
+        /** Decides which session a client proved it holds. */
+        private ProvenSessions $proof,
 
         /** Issues the choices. */
         private PendingSignIns $pendings,
@@ -85,7 +85,7 @@ final readonly class PrincipalChoices
 
     /**
      * Hold a verified sign-in that lacks a principal for the identity to choose
-     * one, when it has eligible principals: store the choice with the device
+     * one, when it has eligible principals: store the choice with the session
      * the client proved it holds for the identity and the attempt-limit slots
      * it took, and report `PrincipalChoiceRequired` once committed. An identity
      * with no eligible principal fails as `principal_unresolved`.
@@ -117,11 +117,11 @@ final readonly class PrincipalChoices
         }
 
         $now    = CarbonImmutable::now()->startOfSecond();
-        $proven = $context->refreshToken === null ? null : $this->proof->provenDeviceOf($guard, $identity, null, $context->refreshToken);
+        $proven = $context->refreshToken === null ? null : $this->proof->provenSessionOf($guard, $identity, null, $context->refreshToken);
 
         [$token, $expiresAt] = $this->pendings->issueChoice($guard, $identity, $proven, $method, $identifierType, $context, $now, $attemptWindows);
 
-        $event = new PrincipalChoiceRequired(new EventContext($guard, $context->client, $identity, device: $proven, method: $method), $expiresAt);
+        $event = new PrincipalChoiceRequired(new EventContext($guard, $context->client, $identity, session: $proven, method: $method), $expiresAt);
 
         $this->afterCommit->run(new PendingSignIn, fn () => $this->context->dispatch($event));
 

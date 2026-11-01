@@ -71,7 +71,7 @@ final readonly class PasskeyChallenges
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     public function issue(ChallengePurpose $purpose, RelyingParty $rp, (Identity&Model)|null $owner, array $options, CarbonImmutable $now): CeremonyOptions
     {

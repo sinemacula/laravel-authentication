@@ -95,9 +95,9 @@ the identity already has, so an older password shorter than today's minimum stil
 
 ## Setting a password
 
-`set($identity, $password, $flow, ?Device $except = null, ?ClientContext $client = null)` applies the policy, and only
+`set($identity, $password, $flow, ?Session $except = null, ?ClientContext $client = null)` applies the policy, and only
 a password that passes is hashed with Laravel's `Hasher` and stored; a password that fails writes nothing and reports
-nothing. The result is a `PasswordResult`: `set` (or `isSet()`), the `violations` when it was not, and how many devices
+nothing. The result is a `PasswordResult`: `set` (or `isSet()`), the `violations` when it was not, and how many sessions
 the flow `revoked`. The events report `$client`, or the client of the request the guard is serving, so pass one when
 you set a password from a queued job or a console command. The `PasswordFlow` decides what else happens, in one
 transaction on the identity's connection:
@@ -131,7 +131,7 @@ Route::middleware('auth:api')->put('/password', function (Request $request, Atte
         $locked = $identity->newQuery()->lockForUpdate()->find($identity->getKey());
         $right  = $locked !== null && Auth::guard('api')->getProvider()->validateCredentials($locked, ['password' => $request->input('current_password')]);
 
-        return $right ? $passwords->set($locked, $request->input('password'), PasswordFlow::CHANGE, Auth::device()) : null;
+        return $right ? $passwords->set($locked, $request->input('password'), PasswordFlow::CHANGE, Auth::session()) : null;
     });
 
     if ($result === null) {
@@ -159,10 +159,10 @@ current password is checked against the row the transaction locked, not against 
 then another identity may hold the address the session was opened with. Take and give back the slot outside the
 transaction: inside it, the counters' rows would stay locked until the commit, and on MySQL two transactions that each
 create a counter in the same gap of the index deadlock. A change ends every session of the identity, through every
-guard, but the device in `$except` (the request's own device, to keep it signed in; `null` ends them all); a reset ends
+guard, but the session in `$except` (the request's own session, to keep it signed in; `null` ends them all); a reset ends
 every session. Both move the identity's "tokens valid after" cutoff when it keeps one and end its pending sign-ins (see
-[Revoking on security changes](sessions.md#revoking-on-security-changes)), and report each revoked device with
-`DeviceRevoked` and then `SignedOutEverywhere`. `$except` is for a change only. Whatever the flow, the same transaction
+[Revoking on security changes](sessions.md#revoking-on-security-changes)), and report each revoked session with
+`SessionRevoked` and then `SignedOutEverywhere`. `$except` is for a change only. Whatever the flow, the same transaction
 invalidates every password reset link and code still waiting for the identity's identifiers, through every guard whose
 provider returns the identity (a provider whose configuration names no model, a custom `Auth::provider()` driver, is
 assumed to; see [Password reset](#password-reset)): a link or code someone else obtained before cannot take the account
@@ -175,8 +175,8 @@ its links and codes to the identities there, so they are left alone.
 
 A stored identity gets one query-builder update of its password column (and `updated_at` when the model keeps
 timestamps) on its own row, without its scopes: nothing else you changed on the model is saved or discarded, and no
-model event fires, so an observer neither cancels the write nor revokes again behind it (`RevokeDevicesOnPasswordChange`
-does not undo the device a change kept). The model then holds the new hash. The hash is bound into that update as any
+model event fires, so an observer neither cancels the write nor revokes again behind it (`RevokeSessionsOnPasswordChange`
+does not undo the session a change kept). The model then holds the new hash. The hash is bound into that update as any
 Eloquent write binds it: every query listener sees it, and a failed update's `QueryException` carries it in
 `getBindings()` and in the SQL its message quotes, unless the connection sets `mask_bindings_in_exception_messages` (an
 option of recent Laravel versions). That option masks only the SQL: the driver's own message, which PostgreSQL's
@@ -190,10 +190,10 @@ is not an Eloquent model; a non-human identity (`MachineIdentity`) has no passwo
 `InvalidArgumentException`.
 
 `PasswordSet` reports the password set, with the flow, once the transaction commits on the identity's connection, and
-never for one rolled back; its context names the guard, the client and the identity, and, for a change, the device kept.
+never for one rolled back; its context names the guard, the client and the identity, and, for a change, the session kept.
 Called inside a transaction of yours, the hash, the cutoff and the revocations are part of it, and every event waits for
-its commit. When the identity lives on another connection than the devices (the storage connection), the devices are
-revoked in their own transaction, which commits inside the identity's: a failure after it leaves the devices revoked and
+its commit. When the identity lives on another connection than the sessions (the storage connection), the sessions are
+revoked in their own transaction, which commits inside the identity's: a failure after it leaves the sessions revoked and
 the password unchanged, so more is ended, never less, and calling again finishes the job. The automatic rehash on
 sign-in never fires `PasswordSet`.
 
@@ -305,13 +305,13 @@ stays unspent; a proof accepted for an eligible identity is spent with the new p
 identity ended, its cutoff moved, its pending sign-ins and identifier changes ended, every other reset link and code and
 every sign-in code for its identifiers invalidated, through every guard whose provider returns it (a provider whose
 configuration names no model is assumed to), and `PasswordSet` reported once that commits. Only a reset returns before
-the timebox ends. The result is a `ResetResult`: `reset` with how many devices were `revoked`, `invalid`, `rate_limited`
+the timebox ends. The result is a `ResetResult`: `reset` with how many sessions were `revoked`, `invalid`, `rate_limited`
 with `retryAfter`, or `password_rejected` with `violations`. `AuthenticationFailed` (flow `password_reset`) says why a
 reset failed: `rate_limited`, `invalid_credentials`, `code_expired`, `code_exhausted`, `link_expired`,
 `machine_identity`, `identity_inactive` or `identifier_unverified`; the result never does. A reset signs no one in and
 verifies no identifier.
 
-Spending the proof with the password and the revocation needs one transaction, so the identity must live on the device
+Spending the proof with the password and the revocation needs one transaction, so the identity must live on the session
 model's connection (which the codes' table shares): a guard whose provider's model is on another throws a
 `LogicException` naming both connections from a request for a link or code and from a reset, before anything is counted
 or issued, and `authentication:check` warns about it. A provider whose configuration names no model (a custom
@@ -325,4 +325,4 @@ The package does not use Laravel's password broker, and does not dispatch Larave
 that is your controller's). The broker answers differently for an unknown address, sends inline, can spend one token
 twice, reads its tokens from a replica, keys tokens by email address only and limits per address only; adapting it would
 mean replacing every behaviour it has (see `docs/design/passwords.md`). If you keep Laravel's broker instead,
-`RevokeDevicesOnPasswordReset` still answers its `PasswordReset`; do not combine the two flows.
+`RevokeSessionsOnPasswordReset` still answers its `PasswordReset`; do not combine the two flows.

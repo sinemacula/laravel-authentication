@@ -28,7 +28,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
 {
     /**
      * Asserts an issued access token decodes back to the supplied identity,
-     * principal, and device claims with an `exp` claim the access lifetime in
+     * principal, and session claims with an `exp` claim the access lifetime in
      * the future and `typ = access`.
      *
      * @return void
@@ -39,17 +39,17 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     {
         $identity  = $this->mockIdentity('identity-7');
         $principal = $this->mockPrincipal('principal-3');
-        $device    = $this->mockDevice('device-42');
+        $session   = $this->mockSession('session-42');
 
         $service = $this->makeService();
 
-        $token  = $service->issueAccessToken($identity, $principal, $device);
+        $token  = $service->issueAccessToken($identity, $principal, $session);
         $claims = $service->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
         self::assertSame('identity-7', $claims[Claims::SUBJECT->value]);
         self::assertSame('principal-3', $claims[Claims::PRINCIPAL_ID->value]);
-        self::assertSame('device-42', $claims[Claims::DEVICE_ID->value]);
+        self::assertSame('session-42', $claims[Claims::SESSION_ID->value]);
         self::assertSame(TokenType::ACCESS->value, $claims[Claims::TYPE->value]);
         self::assertSame($this->now->getTimestamp(), $claims[Claims::ISSUED_AT->value]);
         self::assertSame($this->now->getTimestamp() + (self::ACCESS_TTL_MINUTES * 60), $claims[Claims::EXPIRES_AT->value]);
@@ -107,15 +107,15 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Asserts issuing an access token without a device produces a token whose
+     * Asserts issuing an access token without a session produces a token whose
      * `did` claim is explicitly present with a null value, so downstream
-     * consumers see "no device hint" rather than a shape change.
+     * consumers see "no session hint" rather than a shape change.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testIssueAccessTokenWithoutDeviceSetsNullDeviceClaim(): void
+    public function testIssueAccessTokenWithoutSessionSetsNullSessionClaim(): void
     {
         $identity  = $this->mockIdentity('identity-7');
         $principal = $this->mockPrincipal('principal-3');
@@ -126,28 +126,28 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $claims = $service->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
-        self::assertArrayHasKey(Claims::DEVICE_ID->value, $claims);
-        self::assertNull($claims[Claims::DEVICE_ID->value]);
+        self::assertArrayHasKey(Claims::SESSION_ID->value, $claims);
+        self::assertNull($claims[Claims::SESSION_ID->value]);
     }
 
     /**
-     * Asserts the refresh-token claims contain the device identifier, the
-     * supplied rotation id (`jti`), and an `exp` claim at the device's idle
+     * Asserts the refresh-token claims contain the session identifier, the
+     * supplied rotation id (`jti`), and an `exp` claim at the session's idle
      * deadline. A refresh token issued without a principal omits `pid`.
      *
      * @return void
      */
-    public function testIssueRefreshTokenIncludesDeviceAndRotationId(): void
+    public function testIssueRefreshTokenIncludesSessionAndRotationId(): void
     {
-        $device = $this->mockDevice('device-42');
+        $session = $this->mockSession('session-42');
 
         $service = $this->makeService();
 
-        $token  = $service->issueRefreshToken($device, 'opaque-rotation-id');
+        $token  = $service->issueRefreshToken($session, 'opaque-rotation-id');
         $claims = $service->parse($token, TokenType::REFRESH);
 
         self::assertIsArray($claims);
-        self::assertSame('device-42', $claims[Claims::DEVICE_ID->value]);
+        self::assertSame('session-42', $claims[Claims::SESSION_ID->value]);
         self::assertSame('opaque-rotation-id', $claims[Claims::JWT_ID->value]);
         self::assertArrayNotHasKey(Claims::PRINCIPAL_ID->value, $claims);
         self::assertSame(TokenType::REFRESH->value, $claims[Claims::TYPE->value]);
@@ -163,16 +163,16 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
      */
     public function testIssueRefreshTokenIncludesPrincipalIdWhenSupplied(): void
     {
-        $device    = $this->mockDevice('device-42');
+        $session   = $this->mockSession('session-42');
         $principal = $this->mockPrincipal('principal-3');
 
         $service = $this->makeService();
 
-        $token  = $service->issueRefreshToken($device, 'opaque-rotation-id', $principal);
+        $token  = $service->issueRefreshToken($session, 'opaque-rotation-id', $principal);
         $claims = $service->parse($token, TokenType::REFRESH);
 
         self::assertIsArray($claims);
-        self::assertSame('device-42', $claims[Claims::DEVICE_ID->value]);
+        self::assertSame('session-42', $claims[Claims::SESSION_ID->value]);
         self::assertSame('opaque-rotation-id', $claims[Claims::JWT_ID->value]);
         self::assertSame('principal-3', $claims[Claims::PRINCIPAL_ID->value]);
     }
@@ -231,8 +231,8 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * An access token issued with a device whose identifier cannot become the
-     * `did` claim is refused rather than silently issued as device-less.
+     * An access token issued with a session whose identifier cannot become the
+     * `did` claim is refused rather than silently issued as session-less.
      *
      * @param  mixed  $identifier
      * @return void
@@ -240,28 +240,28 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
      * @throws \Random\RandomException
      */
     #[DataProvider('provideUnusableIdentifiers')]
-    public function testIssueAccessTokenRefusesADeviceWithoutUsableIdentifier(mixed $identifier): void
+    public function testIssueAccessTokenRefusesASessionWithoutUsableIdentifier(mixed $identifier): void
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('without its `did` claim');
 
-        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), $this->mockDevice($identifier));
+        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), $this->mockSession($identifier));
     }
 
     /**
-     * A refresh token is not issued for a device whose identifier cannot become
-     * the `did` claim, since `parse()` would reject the token.
+     * A refresh token is not issued for a session whose identifier cannot
+     * become the `did` claim, since `parse()` would reject the token.
      *
      * @param  mixed  $identifier
      * @return void
      */
     #[DataProvider('provideUnusableIdentifiers')]
-    public function testIssueRefreshTokenRefusesADeviceWithoutUsableIdentifier(mixed $identifier): void
+    public function testIssueRefreshTokenRefusesASessionWithoutUsableIdentifier(mixed $identifier): void
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('without its `did` claim');
 
-        $this->makeService()->issueRefreshToken($this->mockDevice($identifier), 'opaque-rotation-id');
+        $this->makeService()->issueRefreshToken($this->mockSession($identifier), 'opaque-rotation-id');
     }
 
     /**
@@ -278,7 +278,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('without its `pid` claim');
 
-        $this->makeService()->issueRefreshToken($this->mockDevice('device-42'), 'opaque-rotation-id', $this->mockPrincipal($identifier));
+        $this->makeService()->issueRefreshToken($this->mockSession('session-42'), 'opaque-rotation-id', $this->mockPrincipal($identifier));
     }
 
     /**
@@ -292,6 +292,6 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('without its `jti` claim');
 
-        $this->makeService()->issueRefreshToken($this->mockDevice('device-42'), '');
+        $this->makeService()->issueRefreshToken($this->mockSession('session-42'), '');
     }
 }

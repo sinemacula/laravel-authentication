@@ -76,7 +76,7 @@ trait InteractsWithLaggingReplica
     }
 
     /**
-     * Run the shipped migrations (devices, pending sign-ins and rate limits,
+     * Run the shipped migrations (sessions, pending sign-ins and rate limits,
      * and any other shipped migration files named) against the primary and the
      * replica.
      *
@@ -88,7 +88,7 @@ trait InteractsWithLaggingReplica
         /** @var \Illuminate\Database\DatabaseManager $manager */
         $manager = app(DatabaseManager::class);
         $files   = [
-            '2026_04_06_000000_create_devices_table.php',
+            '2026_04_06_000000_create_authentication_sessions_table.php',
             '2026_04_06_000001_create_pending_sign_ins_table.php',
             '2026_04_06_000002_create_rate_limits_table.php',
             ...$others,

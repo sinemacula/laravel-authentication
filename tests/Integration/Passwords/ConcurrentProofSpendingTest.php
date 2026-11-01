@@ -16,16 +16,16 @@ use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Codes\IssuedCode;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Database\IdentityLock;
-use SineMacula\Laravel\Authentication\Devices\DeviceLookup;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRequests;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\ResetSubmissions;
-use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
+use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Sessions\RecentAuthentication;
+use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use Tests\Concerns\ChangesIdentifiers;
 use Tests\Concerns\DefinesPasswordChangeRoute;
 use Tests\Integration\Fixtures\ChangeableIdentity;
@@ -40,8 +40,8 @@ use Tests\TestCase;
  * open right after the statement that would make the two lock their rows in
  * opposite orders, or let one act on what the other is about to undo; the
  * second, started meanwhile, waits for it on the identity's row (see
- * `IdentityLock`) or the device's, so both answer a result, neither throws, and
- * the second sees what the first left.
+ * `IdentityLock`) or the session's, so both answer a result, neither throws,
+ * and the second sees what the first left.
  *
  * Skipped on SQLite, whose in-memory database each process would have to
  * itself, and where `pcntl` is not available.
@@ -54,10 +54,10 @@ use Tests\TestCase;
 #[CoversClass(IdentityLock::class)]
 #[CoversClass(IdentifierChangeService::class)]
 #[CoversClass(ResetSubmissions::class)]
-#[CoversClass(DeviceRevocations::class)]
+#[CoversClass(RevocationWriter::class)]
 #[CoversClass(ChangeRequests::class)]
 #[CoversClass(RecentAuthentication::class)]
-#[CoversClass(DeviceLookup::class)]
+#[CoversClass(SessionLookup::class)]
 final class ConcurrentProofSpendingTest extends TestCase
 {
     use ChangesIdentifiers, DefinesPasswordChangeRoute;
@@ -226,7 +226,7 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * A confirmation racing a revocation of every device held after it
+     * A confirmation racing a revocation of every session held after it
      * cancelled the pending change waits for it, then finds the change gone.
      *
      * @return void
@@ -238,12 +238,12 @@ final class ConcurrentProofSpendingTest extends TestCase
         $identity = self::seedChangeable();
         $link     = $this->requestByLink($identity);
 
-        self::seedDevice($identity);
+        self::seedSession($identity);
 
         [$first, $second] = $this->race(
             'delete from',
             'identifier_changes',
-            static fn (): string => (string) Auth::sessions('web')->revokeDevices(self::reloaded($identity), RevocationReason::REVOKED),
+            static fn (): string => (string) Auth::sessions('web')->revokeSessions(self::reloaded($identity), RevocationReason::REVOKED),
             fn (): string => $this->changes()->confirmByLink(Request::create($link))->value,
         );
 
@@ -314,24 +314,24 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * A revocation of every device racing a request proven by one of them, held
-     * once it locked that device's row, waits for it, then cancels the change
-     * it wrote.
+     * A revocation of every session racing a request proven by one of them,
+     * held once it locked that session's row, waits for it, then cancels the
+     * change it wrote.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testABulkRevocationWaitsForARequestProvenByItsDeviceAndCancelsIt(): void
+    public function testABulkRevocationWaitsForARequestProvenByItsSessionAndCancelsIt(): void
     {
         $identity = self::seedChangeable();
-        $device   = self::seedDevice($identity);
+        $record   = self::seedSession($identity);
 
         [$first, $second] = $this->race(
             'select',
-            'devices',
-            fn (): string => $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::device($device), 'email.confirm')->status->value,
-            static fn (): string => (string) Auth::sessions('web')->revokeDevices(self::reloaded($identity), RevocationReason::REVOKED),
+            'authentication_sessions',
+            fn (): string => $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::session($record), 'email.confirm')->status->value,
+            static fn (): string => (string) Auth::sessions('web')->revokeSessions(self::reloaded($identity), RevocationReason::REVOKED),
             'for update',
         );
 
@@ -368,8 +368,8 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
-     * A revocation of every device made while a request proven by one of them
-     * is held after it read the device, before its transaction, is found under
+     * A revocation of every session made while a request proven by one of them
+     * is held after it read the session, before its transaction, is found under
      * the lock: reauthentication is required, nothing is written, and the
      * `identifier_change` slots are given back.
      *
@@ -380,13 +380,13 @@ final class ConcurrentProofSpendingTest extends TestCase
     public function testABulkRevocationAfterARequestsCheckIsFoundUnderItsLock(): void
     {
         $identity = self::seedChangeable();
-        $device   = self::seedDevice($identity);
+        $record   = self::seedSession($identity);
 
         [$first, $second] = $this->race(
             'select',
-            'devices',
-            fn (): string => $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::device($device), 'email.confirm')->status->value,
-            static fn (): string => (string) Auth::sessions('web')->revokeDevices(self::reloaded($identity), RevocationReason::REVOKED),
+            'authentication_sessions',
+            fn (): string => $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::session($record), 'email.confirm')->status->value,
+            static fn (): string => (string) Auth::sessions('web')->revokeSessions(self::reloaded($identity), RevocationReason::REVOKED),
         );
 
         self::assertSame(['reauthentication_required', '1'], [$first, $second['result']]);

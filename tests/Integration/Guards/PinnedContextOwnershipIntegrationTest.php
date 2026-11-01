@@ -17,8 +17,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Concerns\InteractsWithDevices;
+use SineMacula\Laravel\Authentication\Models\Session;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -27,12 +27,12 @@ use Tests\Integration\Fixtures\InverseRelationMembershipResolver;
 use Tests\Integration\Fixtures\UnscopedMembershipResolver;
 use Tests\TestCase;
 use Tests\Unit\Stubs\Stub3dPrincipal;
-use Tests\Unit\Stubs\StubDevice;
+use Tests\Unit\Stubs\StubSession;
 
 /**
- * A principal or device pinned on `attempt()`, as an endpoint might load it
+ * A principal or session pinned on `attempt()`, as an endpoint might load it
  * from request input, is bound only when it belongs to the identity whose
- * credentials were checked: another member's membership or device, or a model
+ * credentials were checked: another member's membership or session, or a model
  * of another class that shares an identifier, fails the attempt, even when the
  * guard's resolver does not scope its hinted lookup to the identity.
  *
@@ -44,7 +44,7 @@ use Tests\Unit\Stubs\StubDevice;
 #[CoversClass(AbstractGuard::class)]
 final class PinnedContextOwnershipIntegrationTest extends TestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
     /** @var string */
     private const string PASSWORD = 'correct horse battery staple';
@@ -98,21 +98,21 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
     }
 
     /**
-     * The member's own membership and live device are bound.
+     * The member's own membership and live session are bound.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testOwnMembershipAndDeviceAreBound(): void
+    public function testOwnMembershipAndSessionAreBound(): void
     {
-        [$member, $membership, $device] = $this->seedMember('own@example.test');
+        [$member, $membership, $session] = $this->seedMember('own@example.test');
 
         $guard = $this->freshGuard();
 
-        self::assertTrue($guard->attempt($this->credentials($member), $membership, $device));
+        self::assertTrue($guard->attempt($this->credentials($member), $membership, $session));
         self::assertSame($membership->getKey(), $guard->principal()?->getPrincipalIdentifier());
-        self::assertSame($device->getKey(), $guard->device()?->getDeviceIdentifier());
+        self::assertSame($session->getKey(), $guard->session()?->getSessionIdentifier());
     }
 
     /**
@@ -264,37 +264,37 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
     }
 
     /**
-     * Another member's device fails the attempt.
+     * Another member's session fails the attempt.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAnotherMembersDeviceFailsTheAttempt(): void
+    public function testAnotherMembersSessionFailsTheAttempt(): void
     {
-        [$member]          = $this->seedMember('first@example.test');
-        [, , $otherDevice] = $this->seedMember('second@example.test');
+        [$member]           = $this->seedMember('first@example.test');
+        [, , $otherSession] = $this->seedMember('second@example.test');
 
         $guard = $this->freshGuard();
 
-        self::assertFalse($guard->attempt($this->credentials($member), null, $otherDevice));
+        self::assertFalse($guard->attempt($this->credentials($member), null, $otherSession));
         self::assertFalse($guard->hasUser());
     }
 
     /**
-     * A device of another model class whose identifier equals the member's own
-     * device identifier fails the attempt.
+     * A session of another model class whose identifier equals the member's own
+     * session identifier fails the attempt.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testDeviceOfAnotherClassWithTheSameIdentifierFailsTheAttempt(): void
+    public function testSessionOfAnotherClassWithTheSameIdentifierFailsTheAttempt(): void
     {
-        [$member, , $device] = $this->seedMember('collide@example.test');
+        [$member, , $session] = $this->seedMember('collide@example.test');
 
-        $impostor = new StubDevice;
-        $impostor->forceFill(['id' => $device->getKey()]);
+        $impostor = new StubSession;
+        $impostor->forceFill(['id' => $session->getKey()]);
 
         $guard = $this->freshGuard();
 
@@ -303,42 +303,42 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
     }
 
     /**
-     * The member's own device fails the attempt once revoked, even when the
+     * The member's own session fails the attempt once revoked, even when the
      * caller's instance predates the revocation.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testRevokedDeviceFailsTheAttempt(): void
+    public function testRevokedSessionFailsTheAttempt(): void
     {
-        [$member, , $device] = $this->seedMember('revoked@example.test');
+        [$member, , $session] = $this->seedMember('revoked@example.test');
 
-        Device::query()->whereKey($device->getKey())->update(['revoked_at' => Carbon::now()]);
+        Session::query()->whereKey($session->getKey())->update(['revoked_at' => Carbon::now()]);
 
         $guard = $this->freshGuard();
 
-        self::assertFalse($guard->attempt($this->credentials($member), null, $device));
+        self::assertFalse($guard->attempt($this->credentials($member), null, $session));
         self::assertFalse($guard->hasUser());
     }
 
     /**
-     * The member's own live device fails the attempt when its session acts as
+     * The member's own live session fails the attempt when its session acts as
      * another principal than the one being bound.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testDeviceActingAsAnotherPrincipalFailsTheAttempt(): void
+    public function testSessionActingAsAnotherPrincipalFailsTheAttempt(): void
     {
-        [$member, $membership, $device] = $this->seedMember('switched@example.test');
+        [$member, $membership, $session] = $this->seedMember('switched@example.test');
 
-        Device::query()->whereKey($device->getKey())->update(['principal_id' => 'another-membership']);
+        Session::query()->whereKey($session->getKey())->update(['principal_id' => 'another-membership']);
 
         $guard = $this->freshGuard();
 
-        self::assertFalse($guard->attempt($this->credentials($member), $membership, $device));
+        self::assertFalse($guard->attempt($this->credentials($member), $membership, $session));
         self::assertFalse($guard->hasUser());
     }
 
@@ -393,14 +393,14 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
     }
 
     /**
-     * Persist a member with a membership in its own tenant and a live device.
+     * Persist a member with a membership in its own tenant and a live session.
      *
      * @formatter:off
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  string  $email
-     * @return array{0: \Tests\Integration\Fixtures\ActivatableTenantMember, 1: \Tests\Integration\Fixtures\ActivatableTenantMembership, 2: \SineMacula\Laravel\Authentication\Models\Device}
+     * @return array{0: \Tests\Integration\Fixtures\ActivatableTenantMember, 1: \Tests\Integration\Fixtures\ActivatableTenantMembership, 2: \SineMacula\Laravel\Authentication\Models\Session}
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -417,8 +417,8 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
         $membership = new ActivatableTenantMembership;
         $membership->forceFill(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()])->save();
 
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => ActivatableTenantMember::class,
             'authenticatable_id'   => (string) $member->getKey(), // @phpstan-ignore cast.string
@@ -426,7 +426,7 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
             'principal_id'         => (string) $membership->getKey(), // @phpstan-ignore cast.string
         ])->save();
 
-        return [$member, $membership, $device];
+        return [$member, $membership, $session];
     }
 
     /**

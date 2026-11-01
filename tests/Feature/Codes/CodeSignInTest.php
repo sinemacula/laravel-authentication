@@ -25,7 +25,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
@@ -99,7 +99,7 @@ final class CodeSignInTest extends TestCase
 
     /**
      * The code sent to a verified number starts a session for its identity, on
-     * a device that records the method and the identifier type, and uses the
+     * a session that records the method and the identifier type, and uses the
      * code up.
      *
      * @return void
@@ -116,7 +116,7 @@ final class CodeSignInTest extends TestCase
 
         self::assertTrue($result->isSignedIn());
         self::assertTrue($identity->is($result->session?->identity));
-        self::assertSame(['phone_code', 'phone'], [$result->session?->method, Device::query()->sole()->sign_in_identifier_type]);
+        self::assertSame(['phone_code', 'phone'], [$result->session?->method, Session::query()->sole()->sign_in_identifier_type]);
         self::assertNotNull(DB::table('one_time_codes')->value('consumed_at'));
     }
 
@@ -285,7 +285,7 @@ final class CodeSignInTest extends TestCase
         $reasons = array_map(static fn (object $event): ?FailureReason => $event instanceof AuthenticationFailed ? $event->reason : null, $this->recorded);
 
         self::assertSame([FailureReason::INVALID_CREDENTIALS, FailureReason::INVALID_CREDENTIALS], $reasons);
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
     }
 
     /**
@@ -305,7 +305,7 @@ final class CodeSignInTest extends TestCase
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->signIn('000000')->reason);
         self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->signIn(self::CODE)->reason);
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
     }
 
     /**

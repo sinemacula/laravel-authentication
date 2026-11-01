@@ -16,8 +16,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalChoices;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
@@ -89,7 +89,7 @@ final class PrincipalChoiceEndToEndTest extends TestCase
 
         Route::middleware('auth:' . self::GUARD)->get('/me', static fn (): array => [
             'principal' => Auth::principal()?->getPrincipalIdentifier(),
-            'device'    => Auth::device()?->getDeviceIdentifier(),
+            'session'   => Auth::session()?->getSessionIdentifier(),
         ]);
     }
 
@@ -115,7 +115,7 @@ final class PrincipalChoiceEndToEndTest extends TestCase
      * Offering, listing and making the choice: the chosen session records the
      * principal, the method and the identifier type of the sign-in, the choice
      * is used up and its attempt slots are given back, and its access token
-     * authenticates a request as the chosen principal on that device.
+     * authenticates a request as the chosen principal on that session.
      *
      * @return void
      *
@@ -142,11 +142,11 @@ final class PrincipalChoiceEndToEndTest extends TestCase
 
         self::assertIsString($access);
 
-        $device = Device::query()->sole();
+        $session = Session::query()->sole();
 
-        self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify($device->getAttribute('principal_id')));
-        self::assertSame('password', $device->getAttribute('sign_in_method'));
-        self::assertSame('email', $device->getAttribute('sign_in_identifier_type'));
+        self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify($session->getAttribute('principal_id')));
+        self::assertSame('password', $session->getAttribute('sign_in_method'));
+        self::assertSame('email', $session->getAttribute('sign_in_identifier_type'));
         self::assertSame(0, PendingSignIn::query()->count());
         self::assertSame([0, 0, 0], $this->hits($member));
         self::assertNull(Auth::sessions(self::GUARD)->choice($token));
@@ -154,12 +154,12 @@ final class PrincipalChoiceEndToEndTest extends TestCase
         $this->withHeaders(['Authorization' => 'Bearer ' . $access])
             ->getJson('/me')
             ->assertOk()
-            ->assertExactJson(['principal' => $second->getKey(), 'device' => $device->getKey()]);
+            ->assertExactJson(['principal' => $second->getKey(), 'session' => $session->getKey()]);
     }
 
     /**
      * A choice offered while the method was listed, then the method removed:
-     * choosing is spent and refused as `method_not_allowed`, writes no device,
+     * choosing is spent and refused as `method_not_allowed`, writes no session,
      * and the choice cannot be made again (`pending_invalid`).
      *
      * @return void
@@ -180,7 +180,7 @@ final class PrincipalChoiceEndToEndTest extends TestCase
         $this->postJson('/choose', ['choice' => $token, 'membership' => $second->getKey()])->assertOk()->assertJson(['reason' => FailureReason::PENDING_INVALID->value]);
 
         self::assertSame(0, PendingSignIn::query()->count());
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
     }
 
     /**

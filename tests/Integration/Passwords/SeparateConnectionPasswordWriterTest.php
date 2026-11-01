@@ -13,21 +13,21 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\PasswordSet;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\PasswordWriter;
-use Tests\Concerns\InteractsWithDevices;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Integration\Fixtures\SeparateConnectionCutoffIdentity;
-use Tests\Integration\Fixtures\SeparateConnectionDevice;
+use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\TestCase;
 
 /**
  * Integration tests of setting a password for an identity on the default
- * connection whose devices live on a connection of their own: the identity's
- * transaction holds the hash and the cutoff, the devices' commits inside it,
- * and a failure after that leaves the devices revoked and the password as it
+ * connection whose sessions live on a connection of their own: the identity's
+ * transaction holds the hash and the cutoff, the sessions' commits inside it,
+ * and a failure after that leaves the sessions revoked and the password as it
  * was, so more is ended, never less.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -38,7 +38,7 @@ use Tests\TestCase;
 #[CoversClass(PasswordWriter::class)]
 final class SeparateConnectionPasswordWriterTest extends TestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
     /** @var string The frozen time every write happens at. */
     private const string NOW = '2027-01-15 10:00:00';
@@ -48,9 +48,9 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
 
     /**
      * Freeze the clock and create the identity table on the default connection
-     * and the device, pending and codes tables on the device connection, which
-     * is made the storage connection once the shipped migrations have run on
-     * the default one.
+     * and the session, pending and codes tables on the session connection,
+     * which is made the storage connection once the shipped migrations have run
+     * on the default one.
      *
      * @return void
      */
@@ -59,7 +59,7 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
     {
         parent::setUp();
 
-        config()->set('authentication.storage.connection', SeparateConnectionDevice::CONNECTION);
+        config()->set('authentication.storage.connection', SeparateConnectionSession::CONNECTION);
 
         CarbonImmutable::setTestNow(CarbonImmutable::parse(self::NOW));
 
@@ -71,10 +71,10 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
             $blueprint->timestamps();
         });
 
-        self::createDeviceTable('devices', 'id', SeparateConnectionDevice::CONNECTION);
-        self::createCodeTableOn(SeparateConnectionDevice::CONNECTION);
+        self::createSessionRecordTable('authentication_sessions', 'id', SeparateConnectionSession::CONNECTION);
+        self::createCodeTableOn(SeparateConnectionSession::CONNECTION);
 
-        Schema::connection(SeparateConnectionDevice::CONNECTION)->create('pending_sign_ins', static function (Blueprint $blueprint): void {
+        Schema::connection(SeparateConnectionSession::CONNECTION)->create('pending_sign_ins', static function (Blueprint $blueprint): void {
             $blueprint->uuid('id')->primary();
             $blueprint->string('authenticatable_type');
             $blueprint->string('authenticatable_id');
@@ -100,7 +100,7 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
 
     /**
      * A reset stores the hash and the cutoff on the identity's connection and
-     * revokes the devices on theirs.
+     * revokes the sessions on theirs.
      *
      * @return void
      *
@@ -110,8 +110,8 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        $this->seedDevice($identity);
-        $this->seedDevice($identity);
+        $this->seedSession($identity);
+        $this->seedSession($identity);
 
         self::assertSame(2, Auth::passwords('api')->set($identity, 'a brand new passphrase', PasswordFlow::RESET)->revoked);
 
@@ -120,26 +120,26 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
         self::assertNotNull($stored);
         self::assertTrue(app(Hasher::class)->check('a brand new passphrase', $stored->getAuthPassword()));
         self::assertSame(self::NOW, $stored->getTokensValidAfter()?->format('Y-m-d H:i:s'));
-        self::assertSame(2, DB::connection(SeparateConnectionDevice::CONNECTION)->table('devices')->where('revoked_reason', 'password_reset')->count());
+        self::assertSame(2, DB::connection(SeparateConnectionSession::CONNECTION)->table('authentication_sessions')->where('revoked_reason', 'password_reset')->count());
     }
 
     /**
-     * A failure once the devices' revocation has committed rolls the identity's
-     * transaction back, password and cutoff with it, and leaves the devices
-     * revoked; nothing reports a password set.
+     * A failure once the sessions' revocation has committed rolls the
+     * identity's transaction back, password and cutoff with it, and leaves the
+     * sessions revoked; nothing reports a password set.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAFailureAfterTheDevicesCommitEndsMoreNeverLess(): void
+    public function testAFailureAfterTheSessionsCommitEndsMoreNeverLess(): void
     {
         $identity = $this->seedIdentity();
         $set      = 0;
 
-        $this->seedDevice($identity);
+        $this->seedSession($identity);
 
-        Event::listen(DeviceRevoked::class, static function (): never {
+        Event::listen(SessionRevoked::class, static function (): never {
             throw new \RuntimeException('a listener failed');
         });
 
@@ -159,12 +159,12 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
         self::assertNotNull($stored);
         self::assertTrue(app(Hasher::class)->check(self::OLD_PASSWORD, $stored->getAuthPassword()));
         self::assertNull($stored->getTokensValidAfter());
-        self::assertSame(1, DB::connection(SeparateConnectionDevice::CONNECTION)->table('devices')->where('revoked_reason', 'password_reset')->count());
+        self::assertSame(1, DB::connection(SeparateConnectionSession::CONNECTION)->table('authentication_sessions')->where('revoked_reason', 'password_reset')->count());
         self::assertSame(0, $set);
     }
 
     /**
-     * Keep the devices and pending sign-ins on their own connection and
+     * Keep the sessions and pending sign-ins on their own connection and
      * configure the `api` guard.
      *
      * @param  mixed  $app
@@ -181,8 +181,8 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
 
         $config = $app->make(ConfigRepository::class);
 
-        $config->set('database.connections.' . SeparateConnectionDevice::CONNECTION, ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
-        $config->set('authentication.device.model', SeparateConnectionDevice::class);
+        $config->set('database.connections.' . SeparateConnectionSession::CONNECTION, ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
+        $config->set('authentication.session.model', SeparateConnectionSession::class);
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => SeparateConnectionCutoffIdentity::class]);
         $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities']);
         $config->set('hashing.bcrypt.rounds', 4);
@@ -199,15 +199,15 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
     }
 
     /**
-     * Persist a live device of the identity on the device connection.
+     * Persist a live session of the identity on the session connection.
      *
      * @param  \Tests\Integration\Fixtures\SeparateConnectionCutoffIdentity  $identity
      * @return void
      */
-    private function seedDevice(SeparateConnectionCutoffIdentity $identity): void
+    private function seedSession(SeparateConnectionCutoffIdentity $identity): void
     {
-        $device = new SeparateConnectionDevice;
-        $device->forceFill([
+        $session = new SeparateConnectionSession;
+        $session->forceFill([
             ...self::liveSession('api', $identity),
             'authenticatable_type' => $identity->getMorphClass(),
             'authenticatable_id'   => (string) $identity->id,

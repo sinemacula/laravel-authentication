@@ -14,7 +14,7 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 
 /**
  * The registry of sign-in methods, keyed by the name each is recorded under on
- * the devices it signs in and allowed by a guard's application policy.
+ * the sessions it signs in and allowed by a guard's application policy.
  *
  * The package registers its own methods (`password`, which `attempt()` and
  * `validate()` also use directly, `phone_code`, `email_code` and `passkey`), so
@@ -32,8 +32,8 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * application is serving (the life of the process, except under Octane, where
  * each request's sandbox builds its own), which is why methods must be
  * stateless. There is no default method: every sign-in names the method it
- * uses, exactly as it was registered, since the name is what the device records
- * and the application policy allows.
+ * uses, exactly as it was registered, since the name is what the session
+ * records and the application policy allows.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

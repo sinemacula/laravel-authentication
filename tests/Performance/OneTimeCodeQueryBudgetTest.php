@@ -136,7 +136,7 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
     /**
      * A sign-in by code reads the identity and the code once each; it writes
      * the sign-in and account reservations, the code's attempt and its use, the
-     * device, and gives the three slots back.
+     * session, and gives the three slots back.
      *
      * @return void
      *

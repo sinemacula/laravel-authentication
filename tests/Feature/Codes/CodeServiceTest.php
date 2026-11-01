@@ -26,7 +26,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\IdentifierVerified;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use Tests\Concerns\InteractsWithCodeIdentities;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -400,7 +400,7 @@ final class CodeServiceTest extends TestCase
         self::assertSame('198.51.100.4', $this->recordedEvent(IdentifierVerified::class)->context->client->ip);
         self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', self::CODE));
         self::assertFalse(Auth::guard('mobile')->check());
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
     }
 
     /**

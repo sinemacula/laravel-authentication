@@ -4,9 +4,9 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Stubs;
 
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 
 /**
@@ -33,27 +33,27 @@ final class StubPinnedContextGuard extends AbstractGuard
     }
 
     /**
-     * Expose `resolveDeviceFromHint()`.
+     * Expose `resolveSessionFromHint()`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Session
      */
-    public function deviceFromHint(Identity $identity, mixed $hint): ?Device
+    public function sessionFromHint(Identity $identity, mixed $hint): ?Session
     {
-        return $this->resolveDeviceFromHint($identity, $hint);
+        return $this->resolveSessionFromHint($identity, $hint);
     }
 
     /**
-     * Expose `resolvePinnedDevice()`.
+     * Expose `resolvePinnedSession()`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $pinned
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $pinned
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Session
      */
-    public function pinnedDevice(Identity $identity, Principal $principal, Device $pinned): ?Device
+    public function pinnedSession(Identity $identity, Principal $principal, Session $pinned): ?Session
     {
-        return $this->resolvePinnedDevice($identity, $principal, $pinned);
+        return $this->resolvePinnedSession($identity, $principal, $pinned);
     }
 }

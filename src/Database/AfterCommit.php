@@ -11,11 +11,11 @@ use Illuminate\Database\Eloquent\Model;
 /**
  * Defers work until the writes made on a model's connection have committed.
  *
- * The package reports what it changed on a device (a revocation, a sign-in)
- * only once the change is durable: at once when the device's connection has no
+ * The package reports what it changed on a session (a revocation, a sign-in)
+ * only once the change is durable: at once when the session's connection has no
  * open transaction, otherwise when that transaction commits, and never when it
  * is rolled back. A transaction open on another connection neither delays nor
- * cancels the work, since the device's writes were not made in it.
+ * cancels the work, since the session's writes were not made in it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

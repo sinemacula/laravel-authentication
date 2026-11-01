@@ -14,12 +14,13 @@ use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
  * Fired only once the new hash is committed on the identity's own connection:
  * at once when that connection has no open transaction, after its transaction
  * commits otherwise, and never for one that is rolled back. The sessions the
- * flow ends are reported by their own `DeviceRevoked` and `SignedOutEverywhere`
- * events. Never fired by the automatic rehash of a password on sign-in.
+ * flow ends are reported by their own `SessionRevoked` and
+ * `SignedOutEverywhere` events. Never fired by the automatic rehash of a
+ * password on sign-in.
  *
  * The context carries the guard, the client the request came from and the
- * identity, and, for a change that kept the device it was made from signed in,
- * that device. It carries no password or hash.
+ * identity, and, for a change that kept the session it was made from signed in,
+ * that session. It carries no password or hash.
  *
  * @api
  *

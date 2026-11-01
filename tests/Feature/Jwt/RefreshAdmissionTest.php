@@ -23,15 +23,15 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
-use Tests\Concerns\InteractsWithDevices;
-use Tests\Unit\Stubs\StubDevice;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Unit\Stubs\StubIdentity;
+use Tests\Unit\Stubs\StubSession;
 
 /**
- * Feature tests for whom a device's refresh token signs in again: the device's
- * owner, as the principal the token names, active, in an active tenant, and
- * still allowed by the application policy. Each refusal carries as much of the
- * session as was resolved before it.
+ * Feature tests for whom a session's refresh token signs in again: the
+ * session's owner, as the principal the token names, active, in an active
+ * tenant, and still allowed by the application policy. Each refusal carries as
+ * much of the session as was resolved before it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -41,7 +41,7 @@ use Tests\Unit\Stubs\StubIdentity;
 #[CoversClass(RefreshAdmission::class)]
 final class RefreshAdmissionTest extends TestCase
 {
-    use InteractsWithDevices, MockeryPHPUnitIntegration;
+    use InteractsWithSessionRecords, MockeryPHPUnitIntegration;
 
     /** @var string Guard the admission is for. */
     private const string GUARD = 'api';
@@ -56,7 +56,7 @@ final class RefreshAdmissionTest extends TestCase
     private MockInterface $policy;
 
     /**
-     * Build the collaborators and the device table.
+     * Build the collaborators and the session table.
      *
      * @return void
      */
@@ -74,18 +74,18 @@ final class RefreshAdmissionTest extends TestCase
 
         $this->app?->instance(ApplicationPolicy::class, $this->policy);
 
-        self::createDeviceTable('stub_devices');
+        self::createSessionRecordTable('stub_sessions');
     }
 
     /**
-     * Drop the device table.
+     * Drop the session table.
      *
      * @return void
      */
     #[\Override]
     protected function tearDown(): void
     {
-        Schema::dropIfExists('stub_devices');
+        Schema::dropIfExists('stub_sessions');
 
         parent::tearDown();
     }
@@ -93,24 +93,24 @@ final class RefreshAdmissionTest extends TestCase
     /**
      * The owner, active, as the principal the hint names, in an active tenant
      * and allowed by the policy, is admitted with the tenant its check loaded
-     * and the device.
+     * and the session.
      *
      * @return void
      */
     public function testTheActiveOwnerIsAdmittedAsTheNamedPrincipal(): void
     {
-        $device    = $this->seedDevice();
+        $session   = $this->seedSession();
         $identity  = $this->expectOwner();
         $tenant    = self::tenant(true);
         $principal = $this->expectPrincipal($identity, 'p-1', 'p-1', $tenant);
 
-        $admitted = $this->admission()->admit($device, 'p-1');
+        $admitted = $this->admission()->admit($session, 'p-1');
 
         self::assertInstanceOf(Admitted::class, $admitted);
         self::assertSame($identity, $admitted->identity);
         self::assertSame($principal, $admitted->principal);
         self::assertSame($tenant, $admitted->tenant);
-        self::assertSame($device, $admitted->device);
+        self::assertSame($session, $admitted->session);
     }
 
     /**
@@ -120,14 +120,14 @@ final class RefreshAdmissionTest extends TestCase
      */
     public function testATokenWithoutAHintIsAdmittedAsTheDefaultPrincipal(): void
     {
-        $device    = $this->seedDevice();
+        $session   = $this->seedSession();
         $identity  = $this->expectOwner();
         $principal = \Mockery::mock(Principal::class);
         $principal->shouldReceive('getTenant')->andReturnNull();
 
         $this->resolver->shouldReceive('resolve')->once()->withArgs(static fn (mixed ...$arguments): bool => $arguments === [$identity])->andReturn($principal);
 
-        $admitted = $this->admission()->admit($device, null);
+        $admitted = $this->admission()->admit($session, null);
 
         self::assertInstanceOf(Admitted::class, $admitted);
         self::assertSame($principal, $admitted->principal);
@@ -143,12 +143,12 @@ final class RefreshAdmissionTest extends TestCase
      */
     public function testAnOwnerTheProviderDoesNotReturnIsUnknown(): void
     {
-        $device = $this->seedDevice();
+        $session = $this->seedSession();
 
         $this->provider->shouldReceive('retrieveById')->once()->with('7')->andReturnNull();
         $this->resolver->shouldNotReceive('resolve');
 
-        $refused = $this->admission()->admit($device, 'p-1');
+        $refused = $this->admission()->admit($session, 'p-1');
 
         self::assertInstanceOf(Refused::class, $refused);
         self::assertSame(FailureReason::IDENTITY_UNKNOWN, $refused->reason);
@@ -157,14 +157,14 @@ final class RefreshAdmissionTest extends TestCase
 
     /**
      * An owner that is a non-human identity is refused as `machine_identity`,
-     * carrying the owner, even when it is inactive too: a machine has no device
-     * refresh and no switch of principal, and that reason comes first.
+     * carrying the owner, even when it is inactive too: a machine has no
+     * session refresh and no switch of principal, and that reason comes first.
      *
      * @return void
      */
     public function testAMachineOwnerIsRefusedWithTheOwner(): void
     {
-        $device  = $this->seedDevice();
+        $session = $this->seedSession();
         $machine = new class extends StubIdentity implements CanBeActive, MachineIdentity {
             /**
              * Inactive as well, so the machine reason must come before the
@@ -179,7 +179,7 @@ final class RefreshAdmissionTest extends TestCase
             }
 
             /**
-             * Record the identity under the stub's own class, as the device
+             * Record the identity under the stub's own class, as the session
              * does.
              *
              * @return string
@@ -196,7 +196,7 @@ final class RefreshAdmissionTest extends TestCase
         $this->provider->shouldReceive('retrieveById')->once()->with('7')->andReturn($machine);
         $this->resolver->shouldNotReceive('resolve');
 
-        $refused = $this->admission()->admit($device, 'p-1');
+        $refused = $this->admission()->admit($session, 'p-1');
 
         self::assertInstanceOf(Refused::class, $refused);
         self::assertSame(FailureReason::MACHINE_IDENTITY, $refused->reason);
@@ -210,12 +210,12 @@ final class RefreshAdmissionTest extends TestCase
      */
     public function testAnInactiveOwnerIsRefusedWithTheOwner(): void
     {
-        $device   = $this->seedDevice();
+        $session  = $this->seedSession();
         $identity = $this->expectOwner(false);
 
         $this->resolver->shouldNotReceive('resolve');
 
-        $refused = $this->admission()->admit($device, 'p-1');
+        $refused = $this->admission()->admit($session, 'p-1');
 
         self::assertInstanceOf(Refused::class, $refused);
         self::assertSame(FailureReason::IDENTITY_INACTIVE, $refused->reason);
@@ -232,23 +232,23 @@ final class RefreshAdmissionTest extends TestCase
      */
     public function testAPrincipalThatIsNotTheNamedOneIsRefused(): void
     {
-        $device   = $this->seedDevice();
+        $session  = $this->seedSession();
         $identity = $this->expectOwner(true, 3);
 
         $this->expectPrincipal($identity, 'p-1', 'p-2', null);
 
-        $mismatch = $this->admission()->admit($device, 'p-1');
+        $mismatch = $this->admission()->admit($session, 'p-1');
 
         $this->resolver->shouldReceive('resolve')->once()->with($identity, 'p-9')->andReturnNull();
 
-        $missing = $this->admission()->admit($device, 'p-9');
+        $missing = $this->admission()->admit($session, 'p-9');
 
         self::assertInstanceOf(Refused::class, $missing);
         self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $missing->reason);
 
         $this->resolver->shouldReceive('resolve')->once()->withArgs(static fn (mixed ...$arguments): bool => $arguments === [$identity])->andReturnNull();
 
-        $unresolved = $this->admission()->admit($device, null);
+        $unresolved = $this->admission()->admit($session, null);
 
         self::assertInstanceOf(Refused::class, $mismatch);
         self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $mismatch->reason);
@@ -267,7 +267,7 @@ final class RefreshAdmissionTest extends TestCase
      */
     public function testAnInactivePrincipalOrTenantIsRefusedWithThePrincipal(): void
     {
-        $device   = $this->seedDevice();
+        $session  = $this->seedSession();
         $identity = $this->expectOwner(true, 2);
 
         $inactive = \Mockery::mock(Principal::class, CanBeActive::class);
@@ -277,11 +277,11 @@ final class RefreshAdmissionTest extends TestCase
 
         $this->resolver->shouldReceive('resolve')->once()->with($identity, 'p-1')->andReturn($inactive);
 
-        $principalRefusal = $this->admission()->admit($device, 'p-1');
+        $principalRefusal = $this->admission()->admit($session, 'p-1');
 
         $member = $this->expectPrincipal($identity, 'p-2', 'p-2', self::tenant(false));
 
-        $tenantRefusal = $this->admission()->admit($device, 'p-2');
+        $tenantRefusal = $this->admission()->admit($session, 'p-2');
 
         self::assertInstanceOf(Refused::class, $principalRefusal);
         self::assertSame(FailureReason::PRINCIPAL_INACTIVE, $principalRefusal->reason);
@@ -293,7 +293,7 @@ final class RefreshAdmissionTest extends TestCase
     }
 
     /**
-     * A method the guard no longer allows, or a device that records none, is
+     * A method the guard no longer allows, or a session that records none, is
      * refused as `method_not_allowed`, and a principal the policy no longer
      * admits as `principal_ineligible`; each carries the admitted session,
      * tenant included.
@@ -302,8 +302,8 @@ final class RefreshAdmissionTest extends TestCase
      */
     public function testThePolicyRefusesWithTheAdmittedSession(): void
     {
-        $removed  = $this->seedDevice();
-        $unstated = $this->seedDevice(['sign_in_method' => null]);
+        $removed  = $this->seedSession();
+        $unstated = $this->seedSession(['sign_in_method' => null]);
         $identity = $this->expectOwner(true, 3);
         $tenant   = self::tenant(true);
 
@@ -333,7 +333,7 @@ final class RefreshAdmissionTest extends TestCase
     }
 
     /**
-     * Use the shipped stub device model on the in-memory database.
+     * Use the shipped stub session model on the in-memory database.
      *
      * @param  mixed  $app
      * @return void
@@ -350,8 +350,8 @@ final class RefreshAdmissionTest extends TestCase
 
         $config->set('database.default', 'testing');
         $config->set('database.connections.testing', ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
-        $config->set('authentication.device.model', StubDevice::class);
-        $config->set('authentication.device.table', 'stub_devices');
+        $config->set('authentication.session.model', StubSession::class);
+        $config->set('authentication.session.table', 'stub_sessions');
     }
 
     /**
@@ -365,21 +365,21 @@ final class RefreshAdmissionTest extends TestCase
     }
 
     /**
-     * Persist a live device of the guard owned by identity 7.
+     * Persist a live session of the guard owned by identity 7.
      *
      * @param  array<string, mixed>  $state
-     * @return \Tests\Unit\Stubs\StubDevice
+     * @return \Tests\Unit\Stubs\StubSession
      */
-    private function seedDevice(array $state = []): StubDevice
+    private function seedSession(array $state = []): StubSession
     {
-        $device = new StubDevice;
-        $device->forceFill([...self::liveSession(self::GUARD), 'authenticatable_type' => StubIdentity::class, 'authenticatable_id' => '7', ...$state])->save();
+        $session = new StubSession;
+        $session->forceFill([...self::liveSession(self::GUARD), 'authenticatable_type' => StubIdentity::class, 'authenticatable_id' => '7', ...$state])->save();
 
-        return StubDevice::query()->findOrFail($device->id);
+        return StubSession::query()->findOrFail($session->id);
     }
 
     /**
-     * Expect the provider to reload the device's owner, active or not.
+     * Expect the provider to reload the session's owner, active or not.
      *
      * @param  bool  $active
      * @param  int  $times
@@ -403,7 +403,7 @@ final class RefreshAdmissionTest extends TestCase
             }
 
             /**
-             * Record the identity under the stub's own class, as the device
+             * Record the identity under the stub's own class, as the session
              * does.
              *
              * @return string

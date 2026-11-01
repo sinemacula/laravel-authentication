@@ -14,7 +14,7 @@ use SineMacula\Laravel\Authentication\Scopes\Scopes;
  * token at all, and the access token a client credentials exchange issues it
  * names the API key it was exchanged for in `cid` and carries that key's
  * granted scopes in `scope`. A token with `cid` must carry `scope` (the empty
- * string for none) and name no device.
+ * string for none) and name no session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -30,7 +30,7 @@ final class MachineTokens
 
     /**
      * Refuse to issue a session's token to a non-human identity, which has no
-     * device, no refresh and no interactive sign-in.
+     * session, no refresh and no interactive sign-in.
      *
      * @param  bool  $machine
      * @return void
@@ -66,7 +66,7 @@ final class MachineTokens
     /**
      * The API key id and scopes a token's claims name, `null` for a token that
      * names no key, or `false` for claims that name one malformed: a `cid` that
-     * is not a UUID, a `scope` that is not a scope string, or a device.
+     * is not a UUID, a `scope` that is not a scope string, or a session.
      *
      * @param  array<string, mixed>  $claims
      * @return array{0: string, 1: list<string>}|false|null
@@ -82,7 +82,7 @@ final class MachineTokens
         $scope  = $claims[Claims::SCOPE->value] ?? null;
         $scopes = is_string($scope) ? self::scopes($scope) : null;
 
-        return is_string($credentialId) && Str::isUuid($credentialId) && $scopes !== null && ($claims[Claims::DEVICE_ID->value] ?? null) === null
+        return is_string($credentialId) && Str::isUuid($credentialId) && $scopes !== null && ($claims[Claims::SESSION_ID->value] ?? null) === null
             ? [$credentialId, $scopes]
             : false;
     }

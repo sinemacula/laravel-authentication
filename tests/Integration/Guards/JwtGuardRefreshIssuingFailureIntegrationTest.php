@@ -14,8 +14,8 @@ use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Concerns\InteractsWithDevices;
+use SineMacula\Laravel\Authentication\Models\Session;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\SingleIdentifierReadPrincipal;
 use Tests\TestCase;
@@ -27,7 +27,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  * presented refresh token valid, on the suite's configured database.
  *
  * Both tokens are issued before the rotation commits, so a failure while
- * issuing cannot consume the stored digest and sign the device out.
+ * issuing cannot consume the stored digest and sign the session out.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -38,9 +38,9 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
-    /** @var string Plaintext rotation id stored on the seeded device. */
+    /** @var string Plaintext rotation id stored on the seeded session. */
     private const string ROTATION_ID = 'stored-rotation-id';
 
     /**
@@ -76,7 +76,7 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
 
     /**
      * The resolver hands back a principal whose identifier can be read once,
-     * which the check that the device records it uses up, so the token service
+     * which the check that the session records it uses up, so the token service
      * fails while issuing the access token: the refresh throws, the stored
      * digest is unchanged in the database, and the same refresh token rotates
      * once the resolver returns a principal that can be read again.
@@ -133,25 +133,25 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
     }
 
     /**
-     * Persist an identity with a device holding the stored rotation, and issue
+     * Persist an identity with a session holding the stored rotation, and issue
      * the refresh token that presents it.
      *
-     * @return array{0: \Tests\Unit\Stubs\StubPrincipal, 1: \SineMacula\Laravel\Authentication\Models\Device, 2: string}
+     * @return array{0: \Tests\Unit\Stubs\StubPrincipal, 1: \SineMacula\Laravel\Authentication\Models\Session, 2: string}
      */
-    private function seedRefreshableDevice(): array
+    private function seedRefreshableSession(): array
     {
         $identity = new StubPrincipal;
         $identity->forceFill(['email' => 'issuing@example.test', 'password' => 'irrelevant'])->save();
 
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession('api', $identity),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 
-        return [$identity, $device, $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID)];
+        return [$identity, $session, $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID)];
     }
 
     /**
@@ -167,7 +167,7 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
      */
     private function assertIssuingFailureLeavesTheTokenValid(int $readsAllowed): void
     {
-        [$identity, $device, $refreshToken] = $this->seedRefreshableDevice();
+        [$identity, $session, $refreshToken] = $this->seedRefreshableSession();
 
         $principal = SingleIdentifierReadPrincipal::query()->findOrFail($identity->getKey());
 
@@ -175,7 +175,7 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
 
         $principal->readsAllowed = $readsAllowed;
 
-        DB::table('devices')->where('id', $device->getKey())->update(['principal_type' => SingleIdentifierReadPrincipal::class]);
+        DB::table('authentication_sessions')->where('id', $session->getKey())->update(['principal_type' => SingleIdentifierReadPrincipal::class]);
 
         $resolver = new StubMutablePrincipalResolver;
         $resolver->setDefaultPrincipal($principal);
@@ -190,9 +190,9 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
 
         self::assertSame($readsAllowed + 1, $principal->identifierReads);
 
-        DB::table('devices')->where('id', $device->getKey())->update(['principal_type' => StubPrincipal::class]);
+        DB::table('authentication_sessions')->where('id', $session->getKey())->update(['principal_type' => StubPrincipal::class]);
 
-        $this->assertRefreshTokenStillRotates($identity, $device, $refreshToken, $resolver);
+        $this->assertRefreshTokenStillRotates($identity, $session, $refreshToken, $resolver);
     }
 
     /**
@@ -200,7 +200,7 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
      * same refresh token rotates once the resolver returns the saved identity.
      *
      * @param  \Tests\Unit\Stubs\StubPrincipal  $identity
-     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @param  string  $refreshToken
      * @param  \Tests\Unit\Stubs\StubMutablePrincipalResolver  $resolver
      * @return void
@@ -209,11 +209,11 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
      */
     private function assertRefreshTokenStillRotates(
         StubPrincipal $identity,
-        Device $device,
+        Session $session,
         #[\SensitiveParameter] string $refreshToken,
         StubMutablePrincipalResolver $resolver,
     ): void {
-        self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), $this->storedDigest($device));
+        self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), $this->storedDigest($session));
 
         $resolver->setDefaultPrincipal($identity);
 
@@ -221,20 +221,20 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
 
         self::assertTrue(GuardSessions::of($guard)->refresh($refreshToken)->isRefreshed());
         self::assertTrue($identity->is($guard->user()));
-        self::assertNotSame(RefreshTokenHasher::hash(self::ROTATION_ID), $this->storedDigest($device));
+        self::assertNotSame(RefreshTokenHasher::hash(self::ROTATION_ID), $this->storedDigest($session));
     }
 
     /**
-     * Read the device's stored refresh digest from the database.
+     * Read the session's stored refresh digest from the database.
      *
-     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @return ?string
      */
-    private function storedDigest(Device $device): ?string
+    private function storedDigest(Session $session): ?string
     {
-        $fresh = Device::query()->findOrFail($device->getKey());
+        $fresh = Session::query()->findOrFail($session->getKey());
 
-        assert($fresh instanceof Device);
+        assert($fresh instanceof Session);
 
         return $fresh->getRefreshKey();
     }

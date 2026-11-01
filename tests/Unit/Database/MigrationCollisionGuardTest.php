@@ -37,7 +37,7 @@ final class MigrationCollisionGuardTest extends TestCase
         $schema = \Mockery::mock(Builder::class);
         $schema->shouldReceive('hasTable')
             ->once()
-            ->with('devices')
+            ->with('authentication_sessions')
             ->andReturn(true);
 
         $connection = \Mockery::mock(Connection::class);
@@ -53,11 +53,11 @@ final class MigrationCollisionGuardTest extends TestCase
 
         $this->expectException(TableAlreadyExistsException::class);
         $this->expectExceptionMessage(
-            'Cannot install the laravel-authentication migration for the \'devices\' table: a table with that name already exists on connection \'testing\'.'
-            . ' Set `device.table` in config/authentication.php to a different name and re-run the migration.',
+            'Cannot install the laravel-authentication migration for the \'authentication_sessions\' table: a table with that name already exists on connection \'testing\'.'
+            . ' Set `session.table` in config/authentication.php to a different name and re-run the migration.',
         );
 
-        $guard->ensureNotExists('devices', 'device.table');
+        $guard->ensureNotExists('authentication_sessions', 'session.table');
     }
 
     /**
@@ -71,7 +71,7 @@ final class MigrationCollisionGuardTest extends TestCase
         $schema = \Mockery::mock(Builder::class);
         $schema->shouldReceive('hasTable')
             ->once()
-            ->with('devices')
+            ->with('authentication_sessions')
             ->andReturn(false);
 
         $guard = new MigrationCollisionGuard($schema);
@@ -79,7 +79,7 @@ final class MigrationCollisionGuardTest extends TestCase
         // ensureNotExists is `void` and the assertion lives in the Mockery
         // `->once()` expectation: if hasTable was not called exactly once,
         // Mockery will fail the test in tearDown.
-        $guard->ensureNotExists('devices', 'device.table');
+        $guard->ensureNotExists('authentication_sessions', 'session.table');
     }
 
     /**

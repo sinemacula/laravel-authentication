@@ -19,11 +19,11 @@ use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
-use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
@@ -33,8 +33,8 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use Tests\Fixtures\Sessions\GuardSessions;
-use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
+use Tests\Unit\Stubs\StubSession;
 
 /**
  * Feature tests for the session service a JWT guard hands out, for a refresh
@@ -143,14 +143,14 @@ final class JwtGuardTest extends JwtGuardTestCase
     }
 
     /**
-     * A bearer token that names no device binds the identity and principal as
-     * an authentication, with no device and no sign-in method in its context.
+     * A bearer token that names no session binds the identity and principal as
+     * an authentication, with no session and no sign-in method in its context.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testADevicelessBearerTokenReportsNoMethod(): void
+    public function testASessionlessBearerTokenReportsNoMethod(): void
     {
         $identity = \Mockery::mock(Identity::class);
         $identity->shouldReceive('getAuthIdentifier')->andReturn('i-1');
@@ -173,7 +173,7 @@ final class JwtGuardTest extends JwtGuardTestCase
         self::assertSame($identity, $guard->user());
         self::assertCount(2, $dispatched);
         self::assertInstanceOf(PrincipalAssigned::class, $dispatched[1]);
-        self::assertNull($dispatched[1]->context->device);
+        self::assertNull($dispatched[1]->context->session);
         self::assertNull($dispatched[1]->context->method);
     }
 
@@ -280,8 +280,8 @@ final class JwtGuardTest extends JwtGuardTestCase
     /**
      * A refresh with the token the request carries binds as a sign-in, with
      * `Validated` and `Login` (not remembered) before the bind events, and
-     * reports `Refreshed` and then `SignedIn` (a refresh, on no new device)
-     * only once the device's connection commits.
+     * reports `Refreshed` and then `SignedIn` (a refresh, on no new session)
+     * only once the session's connection commits.
      *
      * @return void
      *
@@ -303,7 +303,7 @@ final class JwtGuardTest extends JwtGuardTestCase
             $before = self::classesOf($dispatched);
         });
 
-        $bind = [Attempting::class, Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class, DeviceAuthenticated::class];
+        $bind = [Attempting::class, Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class, SessionAuthenticated::class];
 
         self::assertSame($bind, $before);
         self::assertSame([...$bind, Refreshed::class, SignedIn::class], self::classesOf($dispatched));
@@ -311,7 +311,7 @@ final class JwtGuardTest extends JwtGuardTestCase
         self::assertFalse($dispatched[2]->remember);
         self::assertInstanceOf(SignedIn::class, $dispatched[7]);
         self::assertTrue($dispatched[7]->refresh);
-        self::assertSame($guard->device(), $dispatched[7]->context->device);
+        self::assertSame($guard->session(), $dispatched[7]->context->session);
         self::assertTrue($guard->hasUser());
     }
 
@@ -323,11 +323,11 @@ final class JwtGuardTest extends JwtGuardTestCase
     public static function provideBindEvents(): iterable
     {
         yield from [
-            'Validated'           => [Validated::class],
-            'Login'               => [Login::class],
-            'Authenticated'       => [Authenticated::class],
-            'PrincipalAssigned'   => [PrincipalAssigned::class],
-            'DeviceAuthenticated' => [DeviceAuthenticated::class],
+            'Validated'            => [Validated::class],
+            'Login'                => [Login::class],
+            'Authenticated'        => [Authenticated::class],
+            'PrincipalAssigned'    => [PrincipalAssigned::class],
+            'SessionAuthenticated' => [SessionAuthenticated::class],
         ];
     }
 
@@ -443,7 +443,7 @@ final class JwtGuardTest extends JwtGuardTestCase
     }
 
     /**
-     * A refresh token for a new live device of an identity the guard reloads,
+     * A refresh token for a new live session of an identity the guard reloads,
      * acting as a principal the resolver resolves.
      *
      * @param  string  $rotationId
@@ -454,8 +454,8 @@ final class JwtGuardTest extends JwtGuardTestCase
         $identity = new StubIdentity;
         $identity->forceFill(['id' => 18]);
 
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '18',
@@ -467,11 +467,11 @@ final class JwtGuardTest extends JwtGuardTestCase
         $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-18');
         $principal->shouldReceive('isActive')->andReturnTrue();
 
-        $device->forceFill(self::recordedPrincipal($principal))->save();
+        $session->forceFill(self::recordedPrincipal($principal))->save();
 
         $this->provider->shouldReceive('retrieveById')->once()->with('18')->andReturn($identity);
         $this->resolver->shouldReceive('resolve')->once()->with($identity, 'p-18')->andReturn($principal);
 
-        return $this->encodeRefreshToken(['pid' => 'p-18', 'did' => $device->id, 'jti' => $rotationId]);
+        return $this->encodeRefreshToken(['pid' => 'p-18', 'did' => $session->id, 'jti' => $rotationId]);
     }
 }

@@ -26,17 +26,17 @@ use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
-use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
+use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use Tests\Concerns\BindsSignInPolicyDoubles;
-use Tests\Concerns\InteractsWithDevices;
-use Tests\Unit\Stubs\StubDevice;
-use Tests\Unit\Stubs\StubInjectableDevice;
+use Tests\Concerns\InteractsWithSessionRecords;
+use Tests\Unit\Stubs\StubInjectableSession;
+use Tests\Unit\Stubs\StubSession;
 
 /**
  * Shared base case for the JwtGuard split tests.
  *
- * Owns collaborator mocks, the in-memory `stub_devices` schema, the frozen
+ * Owns collaborator mocks, the in-memory `stub_sessions` schema, the frozen
  * Carbon and JWT clocks, and the helper factories used by every concrete
  * `JwtGuardTest` variant. Subclasses focus on a single behavioural slice of
  * JwtGuard so each class stays focused on a single concern.
@@ -48,7 +48,7 @@ use Tests\Unit\Stubs\StubInjectableDevice;
  */
 abstract class JwtGuardTestCase extends TestCase
 {
-    use BindsSignInPolicyDoubles, InteractsWithDevices, MockeryPHPUnitIntegration;
+    use BindsSignInPolicyDoubles, InteractsWithSessionRecords, MockeryPHPUnitIntegration;
 
     /** @var string The guard name forwarded to JwtGuard's constructor. */
     protected const string GUARD_NAME = 'jwt-test';
@@ -88,7 +88,7 @@ abstract class JwtGuardTestCase extends TestCase
 
     /**
      * Build fresh collaborator mocks, freeze the clock, and create the
-     * in-memory schema for StubDevice.
+     * in-memory schema for StubSession.
      *
      * @return void
      */
@@ -126,7 +126,7 @@ abstract class JwtGuardTestCase extends TestCase
             ->byDefault()
             ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));
 
-        self::createDeviceTable('stub_devices');
+        self::createSessionRecordTable('stub_sessions');
     }
 
     /**
@@ -137,7 +137,7 @@ abstract class JwtGuardTestCase extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
-        Schema::dropIfExists('stub_devices');
+        Schema::dropIfExists('stub_sessions');
 
         Carbon::setTestNow();
 
@@ -171,8 +171,8 @@ abstract class JwtGuardTestCase extends TestCase
             'prefix'   => '',
         ]);
 
-        $config->set('authentication.device.model', StubDevice::class);
-        $config->set('authentication.device.table', 'stub_devices');
+        $config->set('authentication.session.model', StubSession::class);
+        $config->set('authentication.session.table', 'stub_sessions');
     }
 
     /**
@@ -200,7 +200,7 @@ abstract class JwtGuardTestCase extends TestCase
             $this->tokens,
             static fn (GuardContext $context): SessionRevocations => new SessionRevocations(
                 $context,
-                new DeviceRevocations($app->make(ConnectionResolverInterface::class), static fn (): mixed => $app->make('db.transactions')),
+                new RevocationWriter($app->make(ConnectionResolverInterface::class), static fn (): mixed => $app->make('db.transactions')),
                 $app,
             ),
             static fn (): RefreshTokenTransport => RefreshTokenTransport::forGuard(self::GUARD_NAME, config()),
@@ -277,48 +277,48 @@ abstract class JwtGuardTestCase extends TestCase
     }
 
     /**
-     * Swap the configured device model to `StubInjectableDevice`, whose
+     * Swap the configured session model to `StubInjectableSession`, whose
      * `newQuery()` yields a Builder mock that returns the supplied in-memory
-     * device from `find()`, so the refresh tests control the exact device row
-     * the exchange sees without a database round trip. The device is reloaded
+     * session from `find()`, so the refresh tests control the exact session row
+     * the exchange sees without a database round trip. The session is reloaded
      * first so it carries every column, as the exchange's own lookup would.
      *
-     * @param  \Tests\Unit\Stubs\StubDevice  $device
+     * @param  \Tests\Unit\Stubs\StubSession  $session
      * @return void
      */
-    protected function swapDeviceModelToInMemoryInstance(StubDevice $device): void
+    protected function swapSessionModelToInMemoryInstance(StubSession $session): void
     {
-        $device->refresh();
+        $session->refresh();
 
         $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('useWritePdo')
             ->atLeast()->once()
             ->andReturnSelf();
         $builder->shouldReceive('find')
-            ->with($device->id)
-            ->andReturn($device);
+            ->with($session->id)
+            ->andReturn($session);
         $builder->shouldReceive('find')
             ->andReturn(null);
 
-        StubInjectableDevice::$injectedBuilder = $builder;
+        StubInjectableSession::$injectedBuilder = $builder;
 
-        config()->set('authentication.device.model', StubInjectableDevice::class);
+        config()->set('authentication.session.model', StubInjectableSession::class);
     }
 
     /**
-     * Expect the guard's identity provider to reload the device's owner once,
-     * by the owner key stored on the device row, and answer with the supplied
+     * Expect the guard's identity provider to reload the session's owner once,
+     * by the owner key stored on the session row, and answer with the supplied
      * identity.
      *
-     * @param  \Tests\Unit\Stubs\StubDevice  $device
+     * @param  \Tests\Unit\Stubs\StubSession  $session
      * @param  mixed  $identity
      * @return void
      */
-    protected function expectOwnerReload(StubDevice $device, mixed $identity): void
+    protected function expectOwnerReload(StubSession $session, mixed $identity): void
     {
         $this->provider->shouldReceive('retrieveById')
             ->once()
-            ->with($device->getAttribute('authenticatable_id'))
+            ->with($session->getAttribute('authenticatable_id'))
             ->andReturn($identity);
     }
 }

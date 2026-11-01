@@ -10,11 +10,10 @@ use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 
 /**
  * The shape of the outcome of a call a refresh token proves, a refresh or a
- * switch of principal: the session on the same device with its rotated token
- * pair, or why the call was refused, with the wait of a `rate_limited` refusal
- * and, for a call that read the token from the request, where it was read from.
- * The result using it names its success, aliasing `succeeded()` and
- * `hasSucceeded()`.
+ * switch of principal: the same session with its rotated token pair, or why the
+ * call was refused, with the wait of a `rate_limited` refusal and, for a call
+ * that read the token from the request, where it was read from. The result
+ * using it names its success, aliasing `succeeded()` and `hasSucceeded()`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

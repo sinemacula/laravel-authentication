@@ -20,9 +20,9 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\RefreshResult;
-use Tests\Concerns\InteractsWithDevices;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
@@ -51,9 +51,9 @@ use Tests\Integration\Fixtures\UncheckedTenantUser;
 #[CoversClass(RefreshTokenExchange::class)]
 final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
-    /** @var string Plaintext rotation id stored on the seeded devices. */
+    /** @var string Plaintext rotation id stored on the seeded sessions. */
     private const string ROTATION_ID = 'stored-rotation-id';
 
     /**
@@ -186,8 +186,8 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
 
     /**
      * A refresh for a member of a tenant that opts in reads its refresh limits,
-     * the device, the owner, the principal and the tenant once each, and writes
-     * only the rotation.
+     * the session, the owner, the principal and the tenant once each, and
+     * writes only the rotation.
      *
      * @param  string  $guard
      * @return void
@@ -199,8 +199,8 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     {
         [$member, $membership] = $this->seedMembership($guard);
 
-        $device = $this->seedDevice($member, $guard, $membership);
-        $token  = $this->tokensFor($guard)->issueRefreshToken($device, self::ROTATION_ID, $membership);
+        $session = $this->seedSession($member, $guard, $membership);
+        $token   = $this->tokensFor($guard)->issueRefreshToken($session, self::ROTATION_ID, $membership);
 
         app()->instance('request', Request::create('/refresh', 'POST'));
 
@@ -212,7 +212,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     /**
      * A refresh for a member of an inactive tenant spends the same five reads
      * to reach the tenant check, is rejected, and leaves the rotation alone.
-     * Its only writes count the failure against the device and the IP address:
+     * Its only writes count the failure against the session and the IP address:
      * on a fresh window, an update that changes nothing and the insert that
      * creates the counter, for each.
      *
@@ -226,8 +226,8 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     {
         [$member, $membership] = $this->seedMembership($guard, false);
 
-        $device = $this->seedDevice($member, $guard);
-        $token  = $this->tokensFor($guard)->issueRefreshToken($device, self::ROTATION_ID, $membership);
+        $session = $this->seedSession($member, $guard);
+        $token   = $this->tokensFor($guard)->issueRefreshToken($session, self::ROTATION_ID, $membership);
 
         app()->instance('request', Request::create('/refresh', 'POST'));
 
@@ -326,18 +326,18 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Persist a device of the guard for the member holding the stored rotation,
-     * acting as the principal when one is given.
+     * Persist a session of the guard for the member holding the stored
+     * rotation, acting as the principal when one is given.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $member
      * @param  string  $guard
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private function seedDevice(Identity&Model $member, string $guard, ?Principal $principal = null): Device
+    private function seedSession(Identity&Model $member, string $guard, ?Principal $principal = null): Session
     {
-        $device = new Device;
-        $device->forceFill([
+        $session = new Session;
+        $session->forceFill([
             ...self::liveSession($guard, $principal),
             'authenticatable_type' => $member::class,
             'authenticatable_id'   => (string) $member->getKey(), // @phpstan-ignore cast.string
@@ -345,7 +345,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
             'last_used_at'         => $this->now,
         ])->save();
 
-        return $device;
+        return $session;
     }
 
     /**

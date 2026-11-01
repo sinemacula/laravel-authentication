@@ -409,7 +409,7 @@ final class SignInMethodManagerTest extends TestCase
 
     /**
      * A method resolves only by the exact name it was registered under, so a
-     * guard cannot allow, and a device cannot record, a second spelling of one
+     * guard cannot allow, and a session cannot record, a second spelling of one
      * method; `driver()` holds to the same rule as `method()`.
      *
      * @param  string  $name

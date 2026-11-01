@@ -30,7 +30,7 @@ use Tests\Concerns\InteractsWithChangeableIdentities;
 /**
  * Query-budget contracts for changing identifiers: a request and a confirmation
  * each cost a fixed number of statements for each proof (a confirmation time,
- * the device, the password, right, wrong or rate limited, the last two waiting
+ * the session, the password, right, wrong or rate limited, the last two waiting
  * out the credential timebox), and a new password cancels every pending change
  * in one.
  *
@@ -131,18 +131,18 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A request proven by the device it is made from adds two reads to a
-     * request proven by a confirmation time: the device's row before the
+     * A request proven by the session it is made from adds two reads to a
+     * request proven by a confirmation time: the session's row before the
      * transaction, and again, locked, after the identity's.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testARequestProvenByItsDeviceHasAFixedBudget(): void
+    public function testARequestProvenByItsSessionHasAFixedBudget(): void
     {
         $identity = self::seedChangeable();
-        $proof    = Reauthentication::device(self::seedDevice($identity));
+        $proof    = Reauthentication::session(self::seedSession($identity));
         $changes  = Auth::identifierChanges('web');
 
         $request = $this->assertQueryBudget(5, 8, static fn (): IdentifierChangeRequest => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof));
@@ -151,21 +151,21 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A request a revoked device cannot prove stops at the device's row:
+     * A request a revoked session cannot prove stops at the session's row:
      * nothing is counted or written.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testARequestItsDeviceCannotProveStopsAtTheDevice(): void
+    public function testARequestItsSessionCannotProveStopsAtTheSession(): void
     {
         $identity = self::seedChangeable();
-        $device   = self::seedDevice($identity);
+        $session  = self::seedSession($identity);
 
-        $device->forceFill(['revoked_at' => now()])->save();
+        $session->forceFill(['revoked_at' => now()])->save();
 
-        $proof   = Reauthentication::device($device);
+        $proof   = Reauthentication::session($session);
         $changes = Auth::identifierChanges('web');
         $request = $this->assertQueryBudget(2, 0, static fn (): IdentifierChangeRequest => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof));
 
@@ -298,7 +298,7 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
      * A change of password of an identity whose identifiers can change, with
      * two changes pending, cancels them both in one `DELETE`, beside the
      * password's `UPDATE`, the read of its row, the `DELETE` of the codes it
-     * outdates, the read of its devices and the end of its pending sign-ins.
+     * outdates, the read of its sessions and the end of its pending sign-ins.
      *
      * @return void
      *

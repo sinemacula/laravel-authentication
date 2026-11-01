@@ -29,8 +29,8 @@ use Tests\TestCase;
 
 /**
  * End-to-end tests for "tokens valid after" against a real database: an access
- * token issued without a device stops at the second the identity's time is
- * moved to, while the tokens of its signed-in devices, which revocation
+ * token issued without a session stops at the second the identity's time is
+ * moved to, while the tokens of its signed-in sessions, which revocation
  * governs, keep working.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -76,7 +76,7 @@ final class TokensValidAfterIntegrationTest extends TestCase
             $this->reasons[] = $event->reason;
         });
 
-        Route::middleware('auth:api')->get('/me', static fn (): array => ['device' => Auth::device()?->getDeviceIdentifier()]);
+        Route::middleware('auth:api')->get('/me', static fn (): array => ['session' => Auth::session()?->getSessionIdentifier()]);
         Route::middleware('auth:members')->get('/membership', static fn (): array => ['principal' => Auth::principal()?->getPrincipalIdentifier()]);
     }
 
@@ -101,14 +101,14 @@ final class TokensValidAfterIntegrationTest extends TestCase
     }
 
     /**
-     * Moving the time ends every device-less token issued up to and including
+     * Moving the time ends every session-less token issued up to and including
      * its second; a token issued in the next second works.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testATimeEndsTheDevicelessTokensIssuedUpToItsSecond(): void
+    public function testATimeEndsTheSessionlessTokensIssuedUpToItsSecond(): void
     {
         $identity = $this->seedIdentity();
         $earlier  = $this->tokens()->issueAccessToken($identity, $identity, null);
@@ -132,15 +132,15 @@ final class TokensValidAfterIntegrationTest extends TestCase
     }
 
     /**
-     * A signed-in device's access token is not held to the time: revoking the
-     * device ends it, and a sign-out everywhere that keeps the current device
-     * must leave that device's token working.
+     * A signed-in session's access token is not held to the time: revoking the
+     * session ends it, and a sign-out everywhere that keeps the current session
+     * must leave that session's token working.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testADevicesTokenIsNotHeldToTheTime(): void
+    public function testASessionsTokenIsNotHeldToTheTime(): void
     {
         $identity = $this->seedIdentity();
         $session  = Auth::sessions('api')->signIn('password', ['email' => $identity->email, 'password' => self::PASSWORD])->session;
@@ -149,7 +149,7 @@ final class TokensValidAfterIntegrationTest extends TestCase
 
         $identity->invalidateTokensIssuedBefore($this->now->addMinute());
 
-        $this->bearer($session->tokens->accessToken)->assertOk()->assertJson(['device' => $session->device->getKey()]);
+        $this->bearer($session->tokens->accessToken)->assertOk()->assertJson(['session' => $session->record->getKey()]);
 
         self::assertSame([], $this->reasons);
     }
@@ -171,7 +171,7 @@ final class TokensValidAfterIntegrationTest extends TestCase
     }
 
     /**
-     * A principal's time limits the device-less tokens acting as it when its
+     * A principal's time limits the session-less tokens acting as it when its
      * identity records none: revoking the principal's sessions ends a token
      * issued before, and one issued in the next second works.
      *
@@ -207,7 +207,7 @@ final class TokensValidAfterIntegrationTest extends TestCase
 
         $this->moveClocksTo($this->now->addMinute());
 
-        Auth::sessions('members')->revokePrincipalDevices($membership, RevocationReason::REVOKED);
+        Auth::sessions('members')->revokePrincipalSessions($membership, RevocationReason::REVOKED);
 
         $this->bearer($earlier, '/membership')->assertUnauthorized();
 

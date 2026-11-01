@@ -14,9 +14,9 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
-use Tests\Unit\Stubs\PlainDeviceFixture;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
+use Tests\Unit\Stubs\PlainSessionFixture;
 
 /**
  * PHPBench suite for JWT token issue and parse paths.
@@ -39,8 +39,8 @@ final readonly class JwtTokenServiceBench
     /** @var \Tests\Unit\Stubs\PlainPrincipalFixture */
     private PlainPrincipalFixture $principal;
 
-    /** @var \Tests\Unit\Stubs\PlainDeviceFixture */
-    private PlainDeviceFixture $device;
+    /** @var \Tests\Unit\Stubs\PlainSessionFixture */
+    private PlainSessionFixture $session;
 
     /** @var string Pre-issued access token for parse benchmarks. */
     private string $accessToken;
@@ -67,8 +67,8 @@ final readonly class JwtTokenServiceBench
 
         $this->identity    = new PlainIdentityFixture('bench-identity');
         $this->principal   = new PlainPrincipalFixture('bench-principal', $this->identity);
-        $this->device      = new PlainDeviceFixture('bench-device', $now->copy()->addDays(90), $now->copy()->addDays(180));
-        $this->accessToken = $this->service->issueAccessToken($this->identity, $this->principal, $this->device);
+        $this->session     = new PlainSessionFixture('bench-session', $now->copy()->addDays(90), $now->copy()->addDays(180));
+        $this->accessToken = $this->service->issueAccessToken($this->identity, $this->principal, $this->session);
 
         BenchOutcome::assert('access token parse', $this->service->parse($this->accessToken, TokenType::ACCESS) !== null);
     }
@@ -84,7 +84,7 @@ final readonly class JwtTokenServiceBench
     #[Revs(100)]
     public function benchIssueAccessToken(): void
     {
-        $this->service->issueAccessToken($this->identity, $this->principal, $this->device);
+        $this->service->issueAccessToken($this->identity, $this->principal, $this->session);
     }
 
     /**

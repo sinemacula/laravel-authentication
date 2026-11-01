@@ -13,16 +13,14 @@ use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyLookup;
 use SineMacula\Laravel\Authentication\ApiKeys\CredentialBinding;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
-use SineMacula\Laravel\Authentication\Devices\IdentityDevices;
-use SineMacula\Laravel\Authentication\Devices\OwnedDevice;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -33,6 +31,8 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\MachineTokens;
 use SineMacula\Laravel\Authentication\Models\ApiKey;
+use SineMacula\Laravel\Authentication\SessionRecords\IdentitySessions;
+use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
@@ -48,15 +48,15 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * for a client credentials token) and active (`identity_inactive`); the
  * principal its `pid` names, which must resolve to exactly that principal
  * (`principal_mismatch`) and be active in an active tenant
- * (`principal_inactive`, `tenant_inactive`); for a token that names no device,
+ * (`principal_inactive`, `tenant_inactive`); for a token that names no session,
  * an issue time after the identity's and the principal's "tokens valid after"
- * time (`issued_before_cutoff`); and, for a token that names a device, that
- * device among the identity's own (`device_unknown`), of this guard
- * (`device_guard_mismatch`), not revoked (`device_revoked`), with a session
+ * time (`issued_before_cutoff`); and, for a token that names a session, that
+ * session among the identity's own (`session_unknown`), of this guard
+ * (`session_guard_mismatch`), not revoked (`session_revoked`), with a session
  * that has not ended (`session_expired`), and acting as the token's principal
  * with no principal switch after the token was issued
- * (`device_principal_mismatch`). Fail closed: a token that names a principal or
- * device that does not resolve exactly is rejected rather than downgraded.
+ * (`session_principal_mismatch`). Fail closed: a token that names a principal
+ * or session that does not resolve exactly is rejected rather than downgraded.
  *
  * Built for one request with the guard's current collaborators, so it keeps
  * nothing between requests.
@@ -94,9 +94,9 @@ final readonly class BearerAuthentication
     /**
      * Authenticate the access token for a request from the client: the admitted
      * identity, principal, the tenant its activity check loaded, and the
-     * device, with, for a client credentials token, its API key and scopes; or
+     * session, with, for a client credentials token, its API key and scopes; or
      * the failure that reports why not, with as much of the context as was
-     * established (the device id the token named included).
+     * established (the session id the token named included).
      *
      * @param  string  $token
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -115,12 +115,12 @@ final readonly class BearerAuthentication
         }
 
         $credential = MachineTokens::credential($claims) ?: null;
-        $deviceId   = $claims[Claims::DEVICE_ID->value] ?? null;
+        $sessionId  = $claims[Claims::SESSION_ID->value] ?? null;
         $admitted   = $credential === null ? $this->admit($claims, false) : $this->admitForKey($claims, $credential[0]);
-        $admitted   = $admitted instanceof Admitted ? $this->onDevice($admitted, $deviceId, $claims[Claims::ISSUED_AT->value]) : $admitted;
+        $admitted   = $admitted instanceof Admitted ? $this->onSession($admitted, $sessionId, $claims[Claims::ISSUED_AT->value]) : $admitted;
 
         return $admitted instanceof Refused
-            ? $this->failed($admitted, $client, IdentifierCoercion::stringify($deviceId), $credential)
+            ? $this->failed($admitted, $client, IdentifierCoercion::stringify($sessionId), $credential)
             : new AuthenticatedBearer($admitted, $credential[0] ?? null, $credential[1] ?? null);
     }
 
@@ -234,57 +234,56 @@ final readonly class BearerAuthentication
     }
 
     /**
-     * Hold the admitted token to the device it names, when it names one: the
-     * device must be one of the identity's own, of this guard, not revoked, and
-     * with a session that has not ended, and the session must act as the
+     * Hold the admitted token to the session it names, when it names one: the
+     * session must be one of the identity's own, of this guard, not revoked,
+     * and with a session that has not ended, and the session must act as the
      * token's principal and not have switched principal since the token was
-     * issued (`device_principal_mismatch`), so a switch ends the tokens of the
-     * principal it switched from at once. A token that names no device has no
-     * device to revoke, so it must instead have been issued after the "tokens
+     * issued (`session_principal_mismatch`), so a switch ends the tokens of the
+     * principal it switched from at once. A token that names no session has no
+     * session to revoke, so it must instead have been issued after the "tokens
      * valid after" time of its identity and of its principal, when they record
      * one (`issued_before_cutoff`).
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
-     * @param  mixed  $deviceId
+     * @param  mixed  $sessionId
      * @param  mixed  $issuedAt
      * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @throws \LogicException
      */
-    private function onDevice(Admitted $admitted, mixed $deviceId, mixed $issuedAt): Admitted|Refused
+    private function onSession(Admitted $admitted, mixed $sessionId, mixed $issuedAt): Admitted|Refused
     {
-        if ($deviceId === null) {
+        if ($sessionId === null) {
             return self::isIssuedAfterCutoff($admitted, $issuedAt) ? $admitted : Refused::after(FailureReason::ISSUED_BEFORE_CUTOFF, $admitted);
         }
 
-        $device  = IdentityDevices::find($admitted->identity, $deviceId);
-        $refusal = $device === null
-            ? FailureReason::DEVICE_UNKNOWN
-            : OwnedDevice::refusal($device, $this->guard, Carbon::now()) ?? self::principalRefusal($device, $admitted->principal, $issuedAt);
+        $session = IdentitySessions::find($admitted->identity, $sessionId);
+        $refusal = $session === null
+            ? FailureReason::SESSION_UNKNOWN
+            : OwnedSession::refusal($session, $this->guard, Carbon::now()) ?? self::principalRefusal($session, $admitted->principal, $issuedAt);
 
-        return $refusal === null ? $admitted->on($device) : Refused::after($refusal, $admitted->on($device));
+        return $refusal === null ? $admitted->on($session) : Refused::after($refusal, $admitted->on($session));
     }
 
     /**
-     * Why the device's session may not serve a token of the principal issued at
-     * the given time, or `null` when it may: the session must act as the
-     * principal, and must not have switched principal after the token was
-     * issued.
+     * Why the session may not serve a token of the principal issued at the
+     * given time, or `null` when it may: the session must act as the principal,
+     * and must not have switched principal after the token was issued.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  mixed  $issuedAt
      * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      *
      * @throws \LogicException
      */
-    private static function principalRefusal(Device $device, Principal $principal, mixed $issuedAt): ?FailureReason
+    private static function principalRefusal(Session $session, Principal $principal, mixed $issuedAt): ?FailureReason
     {
-        return OwnedDevice::actsAs($device, $principal) && OwnedDevice::isIssuedSinceSwitch($device, $issuedAt) ? null : FailureReason::DEVICE_PRINCIPAL_MISMATCH;
+        return OwnedSession::actsAs($session, $principal) && OwnedSession::isIssuedSinceSwitch($session, $issuedAt) ? null : FailureReason::SESSION_PRINCIPAL_MISMATCH;
     }
 
     /**
-     * Whether a token issued without a device was issued after the "tokens
+     * Whether a token issued without a session was issued after the "tokens
      * valid after" time of the identity and of the principal, each read on the
      * write connection from the model already loaded. Whole seconds: a token
      * issued at or before the time is rejected, since its `iat` cannot tell the
@@ -317,29 +316,29 @@ final readonly class BearerAuthentication
 
     /**
      * The failure event of a refused token, with the guard, the client, the
-     * context the refusal established, the method the device's session records
-     * when a device was found (`client_credentials` for a client credentials
-     * token, with its key and scopes), and the device id the token named.
+     * context the refusal established, the method the session records when a
+     * session was found (`client_credentials` for a client credentials token,
+     * with its key and scopes), and the session id the token named.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Refused  $refused
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @param  ?string  $deviceId
+     * @param  ?string  $sessionId
      * @param  ?array{0: string, 1: list<string>}  $credential
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed
      */
-    private function failed(Refused $refused, ClientContext $client, ?string $deviceId, #[\SensitiveParameter] ?array $credential): AuthenticationFailed
+    private function failed(Refused $refused, ClientContext $client, ?string $sessionId, #[\SensitiveParameter] ?array $credential): AuthenticationFailed
     {
-        $device  = $refused->device;
-        $method  = $credential === null ? $device?->getSignInMethod() : ClientCredentialsExchange::METHOD;
+        $session = $refused->session;
+        $method  = $credential === null ? $session?->getSignInMethod() : ClientCredentialsExchange::METHOD;
         $context = new EventContext(
             $this->guard,
             $client,
             $refused->identity,
             $refused->principal,
             $refused->tenant,
-            $device,
+            $session,
             $method,
-            $deviceId,
+            $sessionId,
             credentialId: $credential[0] ?? null,
             scopes: $credential[1]       ?? null,
         );

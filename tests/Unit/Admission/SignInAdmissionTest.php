@@ -296,7 +296,7 @@ final class SignInAdmissionTest extends TestCase
         self::assertSame($identity, $refused->identity);
         self::assertSame($principal, $refused->principal);
         self::assertSame($tenant, $refused->tenant);
-        self::assertNull($refused->device);
+        self::assertNull($refused->session);
         self::assertNull($refused->retryAfter);
     }
 

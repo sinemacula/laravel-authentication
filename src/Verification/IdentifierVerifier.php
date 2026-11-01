@@ -30,7 +30,7 @@ use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
  * changed while the proof was checked is not verified either.
  *
  * Verifying never signs anyone in: it binds no guard, issues no token and
- * creates no device. `IdentifierVerified` is dispatched only by the call that
+ * creates no session. `IdentifierVerified` is dispatched only by the call that
  * recorded the verification, once the record is committed on the identity's
  * connection.
  *

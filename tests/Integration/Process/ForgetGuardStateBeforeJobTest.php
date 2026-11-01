@@ -71,20 +71,19 @@ final class ForgetGuardStateBeforeJobTest extends TestCase
 
         self::assertTrue(self::sessionsOf($guard)->signIn('password', self::credentials())->isSignedIn());
 
-        $device = $guard->device();
+        $session = $guard->session();
 
         ObserveGuardJob::dispatchSync();
 
         self::assertSame(['identity' => $identity->getKey()], app('observed.identity'));
         self::assertSame($identity->getKey(), $guard->id());
-        self::assertNotNull($device);
-        self::assertSame($device, $guard->device());
+        self::assertNotNull($session);
+        self::assertSame($session, $guard->session());
     }
 
     /**
-     * A request that signed its device-less session out stays signed out after
-     * a job it runs through `dispatchSync()`: the bearer token is not read
-     * again.
+     * A request that signed its access-only token out stays signed out after a
+     * job it runs through `dispatchSync()`: the bearer token is not read again.
      *
      * @return void
      *
@@ -123,7 +122,7 @@ final class ForgetGuardStateBeforeJobTest extends TestCase
 
         self::assertSame(['identity' => $identity->getKey()], app('observed.identity'));
         self::assertSame($identity->getKey(), $guard->id());
-        self::assertNotNull($guard->device());
+        self::assertNotNull($guard->session());
 
         $guard->logout();
 
@@ -157,7 +156,7 @@ final class ForgetGuardStateBeforeJobTest extends TestCase
     }
 
     /**
-     * The `api` guard, resolved afresh for a request carrying a device-less
+     * The `api` guard, resolved afresh for a request carrying a session-less
      * access token of a new identity.
      *
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard

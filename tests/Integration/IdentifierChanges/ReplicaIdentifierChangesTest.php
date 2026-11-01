@@ -23,7 +23,7 @@ use Tests\TestCase;
  * is from the write connection: an identity, a session and a pending change
  * written moments ago, which only the primary holds yet, are found while the
  * replica lags behind, by `pending()`, by the queued job that delivers the
- * change's code, and by a device's reauthentication.
+ * change's code, and by a session's reauthentication.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -116,13 +116,13 @@ final class ReplicaIdentifierChangesTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testADeviceOnThePrimaryProvesARecentAuthentication(): void
+    public function testASessionOnThePrimaryProvesARecentAuthentication(): void
     {
         $identity = self::seedChangeable();
-        $device   = self::seedDevice($identity);
+        $session  = self::seedSession($identity);
 
-        self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('devices')->count());
-        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::device($device))->isSent());
+        self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('authentication_sessions')->count());
+        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session($session))->isSent());
     }
 
     /**

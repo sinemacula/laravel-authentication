@@ -9,7 +9,7 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
@@ -78,14 +78,14 @@ final class RefreshResultTest extends TestCase
     }
 
     /**
-     * A refreshed session on a device of its own.
+     * A refreshed session with a record of its own.
      *
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      */
     private static function session(): SignedInSession
     {
-        $device = \Mockery::mock(Model::class, EloquentDevice::class);
+        $record = \Mockery::mock(Model::class, EloquentSession::class);
 
-        return new SignedInSession(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), $device, new TokenPair('access', 'refresh'), 'password');
+        return new SignedInSession(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), $record, new TokenPair('access', 'refresh'), 'password');
     }
 }

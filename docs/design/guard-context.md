@@ -19,7 +19,7 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   built for the guard builds the refresh exchange on the same context with the guard's token service, so both read the
   provider, the resolver and the dispatcher the guard reads; neither keeps a copy of them, and neither has setters.
 - What a session flow may do to its guard's bound state is the internal port `Contracts\GuardBinding` (`user()`,
-  `principal()`, `device()`, `tenant()`, `login()`, `loginVerified()`, `authenticateAs()`, `forgetUser()`), which
+  `principal()`, `session()`, `tenant()`, `login()`, `loginVerified()`, `authenticateAs()`, `forgetUser()`), which
   `AbstractGuard` implements. Its four readers resolve the request's credential on first access, as the guard's
   accessors do, so a sign-out given the guard reads the session the request carries. The session revocations take the
   binding per call, only for `signOut()` and `signOutEverywhere()`, and otherwise need nothing of the guard but its
@@ -57,7 +57,7 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   operation captures what it reports when it starts: the client of the request (`client()`) and its events' payload.
   Every event deferred to a commit is dispatched by the callback the commit runs, through the context's `dispatch()`, so
   it reaches the dispatcher as it is then, and a dispatcher swapped in between the write and the commit receives it: the
-  guard's own deferred events, the refresh exchange's `DeviceRevoked`, the session revocations' `DeviceRevoked` and
+  guard's own deferred events, the refresh exchange's `SessionRevoked`, the session revocations' `SessionRevoked` and
   `SignedOutEverywhere`, and the events of the passkey, API key, password and identifier change services alike. No flow
   takes the dispatcher when it schedules an event. `Passkeys\PasskeySignIn`, a sign-in method the container builds
   rather than a flow of the guard, reads the container's dispatcher the same way, when the commit runs its
@@ -81,7 +81,7 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   `setRequest()`, which resets the guard and rebinds the context, and every flow of the guard then reads the new
   request.
 - `Event::fake()` after a guard resolved rebinds `events`: the guard's own events, the session service's, the refresh
-  exchange's `DeviceRevoked`, and the events of the code, passkey, API key, client credentials, password and identifier
+  exchange's `SessionRevoked`, and the events of the code, passkey, API key, client credentials, password and identifier
   change services all go to the fake, those a write deferred before the fake to a commit after it included.
 - A guard type an application writes reads its collaborators through `$this->context` (`name()`, `provider()`,
   `resolver()`, `events()`, `request()`, `client()`), dispatches through `$this->context->dispatch()`, and checks a

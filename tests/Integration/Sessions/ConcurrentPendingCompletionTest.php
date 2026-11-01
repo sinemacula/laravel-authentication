@@ -14,12 +14,12 @@ use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
-use SineMacula\Laravel\Authentication\Events\DeviceCreated;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
-use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
@@ -36,7 +36,7 @@ use Tests\TestCase;
  * transaction it holds open, and the other, started meanwhile, waits on the
  * pending sign-in's row. Whichever transaction commits the delete wins; the
  * other completion fails as `pending_invalid` and starts nothing, so exactly
- * one device is created, one set of slots given back, and one set of events
+ * one session is created, one set of slots given back, and one set of events
  * dispatched.
  *
  * Skipped on SQLite, whose in-memory database each process would have to
@@ -141,8 +141,8 @@ final class ConcurrentPendingCompletionTest extends TestCase
     /**
      * The completion that commits first starts the session; the one that waited
      * on its delete then finds the pending sign-in gone and fails as
-     * `pending_invalid` for its method, without a device, a slot given back, or
-     * a sign-in event.
+     * `pending_invalid` for its method, without a session, a slot given back,
+     * or a sign-in event.
      *
      * @return void
      *
@@ -155,7 +155,7 @@ final class ConcurrentPendingCompletionTest extends TestCase
         [$first, $second] = $this->raceCompletions($this->pendingToken(), commitFirst: true);
 
         self::assertTrue($first->isSignedIn());
-        self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
 
         self::assertSame(['status' => 'failed', 'reason' => FailureReason::PENDING_INVALID->value], $second['result']);
         self::assertSame([Failed::class, AuthenticationFailed::class], $second['events']);
@@ -185,7 +185,7 @@ final class ConcurrentPendingCompletionTest extends TestCase
         self::assertSame([], $this->recordedClasses());
 
         self::assertSame(['status' => 'signed_in', 'reason' => null], $second['result']);
-        self::assertSame([DeviceCreated::class, SignedIn::class], $second['events']);
+        self::assertSame([SessionCreated::class, SignedIn::class], $second['events']);
         self::assertNull($second['failedMethod']);
         self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
 
@@ -261,7 +261,7 @@ final class ConcurrentPendingCompletionTest extends TestCase
      */
     private function raceCompletions(#[\SensitiveParameter] string $token, bool $commitFirst): array
     {
-        $this->recordEvents([Failed::class, AuthenticationFailed::class, DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([Failed::class, AuthenticationFailed::class, SessionCreated::class, SignedIn::class]);
 
         DB::disconnect();
 
@@ -329,16 +329,16 @@ final class ConcurrentPendingCompletionTest extends TestCase
     }
 
     /**
-     * Assert the race left one device, no pending sign-in, and the identifier's
-     * and the account's held slots given back once each.
+     * Assert the race left one session, no pending sign-in, and the
+     * identifier's and the account's held slots given back once each.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @return void
      */
     private function assertOneSessionAndOneRelease(IntegrationIdentity $identity): void
     {
-        self::assertSame(1, Device::query()->where('authenticatable_type', $identity->getMorphClass())->count());
-        self::assertSame(1, Device::query()->count());
+        self::assertSame(1, Session::query()->where('authenticatable_type', $identity->getMorphClass())->count());
+        self::assertSame(1, Session::query()->count());
         self::assertSame(0, PendingSignIn::query()->count());
         self::assertSame([1, 1], [$this->identifierHits(), $this->accountHits()]);
     }

@@ -5,12 +5,12 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Illuminate\Database\Eloquent\Model;
-use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 
 /**
  * A live pending sign-in a token named, as found: the row, the secret that
- * proved the token, what it is for, and its proven device when that still
+ * proved the token, what it is for, and its proven session when that still
  * holds.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -26,7 +26,7 @@ final readonly class FoundPendingSignIn
      * @param  \SineMacula\Laravel\Authentication\Models\PendingSignIn  $pending
      * @param  string  $secret
      * @param  \SineMacula\Laravel\Authentication\Sessions\PendingFactor  $factor
-     * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null  $device
+     * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $provenSession
      */
     public function __construct(
 
@@ -39,7 +39,7 @@ final readonly class FoundPendingSignIn
         /** What the pending sign-in is for. */
         public PendingFactor $factor,
 
-        /** The proven device, when it still holds. */
-        public (EloquentDevice&Model)|null $device,
+        /** The proven session, when it still holds. */
+        public (EloquentSession&Model)|null $provenSession,
     ) {}
 }

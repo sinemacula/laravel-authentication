@@ -11,9 +11,9 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use Tests\Unit\Stubs\PlainDeviceFixture;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
+use Tests\Unit\Stubs\PlainSessionFixture;
 use Tests\Unit\Stubs\PlainTenantFixture;
 use Tests\Unit\Stubs\Stub3dPrincipal;
 use Tests\Unit\Stubs\StubIdentity;
@@ -58,16 +58,16 @@ final class EventContextTest extends TestCase
         $identity  = new PlainIdentityFixture(7);
         $principal = new PlainPrincipalFixture('p-1');
         $tenant    = self::tenant(3);
-        $device    = new PlainDeviceFixture('device-1');
+        $session   = new PlainSessionFixture('session-1');
 
-        $context = new EventContext('api', $client, $identity, $principal, $tenant, $device, 'password');
+        $context = new EventContext('api', $client, $identity, $principal, $tenant, $session, 'password');
 
         self::assertSame('api', $context->guard);
         self::assertSame($client, $context->client);
         self::assertSame($identity, $context->identity);
         self::assertSame($principal, $context->principal);
         self::assertSame($tenant, $context->tenant);
-        self::assertSame($device, $context->device);
+        self::assertSame($session, $context->session);
         self::assertSame('password', $context->method);
         self::assertNull($context->credentialId);
         self::assertNull($context->scopes);
@@ -117,14 +117,14 @@ final class EventContextTest extends TestCase
     /**
      * The identifiers are snapshotted as strings, and the identity, principal
      * and tenant by their class as well: the identity's auth identifier, the
-     * principal's and the tenant's identifiers, and the device's.
+     * principal's and the tenant's identifiers, and the session's.
      *
      * @return void
      */
     public function testSnapshotsEveryReferenceAsAString(): void
     {
         $client  = new ClientContext(null, null);
-        $context = new EventContext('api', $client, new PlainIdentityFixture(7), new PlainPrincipalFixture(42), new PlainTenantFixture(3), new PlainDeviceFixture('device-1'));
+        $context = new EventContext('api', $client, new PlainIdentityFixture(7), new PlainPrincipalFixture(42), new PlainTenantFixture(3), new PlainSessionFixture('session-1'));
 
         self::assertSame(PlainIdentityFixture::class, $context->identityMorphClass);
         self::assertSame('7', $context->identityId);
@@ -132,12 +132,12 @@ final class EventContextTest extends TestCase
         self::assertSame('42', $context->principalId);
         self::assertSame(PlainTenantFixture::class, $context->tenantMorphClass);
         self::assertSame('3', $context->tenantId);
-        self::assertSame('device-1', $context->deviceId);
+        self::assertSame('session-1', $context->sessionId);
     }
 
     /**
      * An Eloquent identity, principal or tenant is recorded by its morph class,
-     * as a device row records a principal, not by its class name.
+     * as a session row records a principal, not by its class name.
      *
      * @return void
      */
@@ -222,7 +222,7 @@ final class EventContextTest extends TestCase
         self::assertNull($context->identity);
         self::assertNull($context->principal);
         self::assertNull($context->tenant);
-        self::assertNull($context->device);
+        self::assertNull($context->session);
         self::assertNull($context->method);
         self::assertNull($context->identityMorphClass);
         self::assertNull($context->identityId);
@@ -230,32 +230,32 @@ final class EventContextTest extends TestCase
         self::assertNull($context->principalId);
         self::assertNull($context->tenantMorphClass);
         self::assertNull($context->tenantId);
-        self::assertNull($context->deviceId);
+        self::assertNull($context->sessionId);
     }
 
     /**
-     * A device id a token named is kept when no device row was loaded.
+     * A session id a token named is kept when no session row was loaded.
      *
      * @return void
      */
-    public function testKeepsANamedDeviceIdWithoutADevice(): void
+    public function testKeepsANamedSessionIdWithoutASession(): void
     {
-        $context = new EventContext('api', new ClientContext(null, null), deviceId: 'named-device');
+        $context = new EventContext('api', new ClientContext(null, null), sessionId: 'named-session');
 
-        self::assertNull($context->device);
-        self::assertSame('named-device', $context->deviceId);
+        self::assertNull($context->session);
+        self::assertSame('named-session', $context->sessionId);
     }
 
     /**
-     * A loaded device's own identifier wins over a named one.
+     * A loaded session's own identifier wins over a named one.
      *
      * @return void
      */
-    public function testALoadedDeviceWinsOverANamedDeviceId(): void
+    public function testALoadedSessionWinsOverANamedSessionId(): void
     {
-        $context = new EventContext('api', new ClientContext(null, null), device: new PlainDeviceFixture('loaded'), deviceId: 'named');
+        $context = new EventContext('api', new ClientContext(null, null), session: new PlainSessionFixture('loaded'), sessionId: 'named');
 
-        self::assertSame('loaded', $context->deviceId);
+        self::assertSame('loaded', $context->sessionId);
     }
 
     /**
@@ -317,7 +317,7 @@ final class EventContextTest extends TestCase
             'principal_id'          => '5',
             'tenant_morph_class'    => PlainTenantFixture::class,
             'tenant_id'             => '3',
-            'device_id'             => 'device-1',
+            'session_id'            => 'session-1',
             'credential_id'         => 'key-1',
             'scopes'                => ['read'],
         ], $context->toArray());
@@ -343,7 +343,7 @@ final class EventContextTest extends TestCase
             new PlainIdentityFixture(7),
             new PlainPrincipalFixture('p-1'),
             new PlainTenantFixture(3),
-            new PlainDeviceFixture('loaded'),
+            new PlainSessionFixture('loaded'),
             'password',
             credentialId: 'key-1',
             scopes: ['a', 'b'],
@@ -358,7 +358,7 @@ final class EventContextTest extends TestCase
         self::assertNull($copy->identity);
         self::assertNull($copy->principal);
         self::assertNull($copy->tenant);
-        self::assertNull($copy->device);
+        self::assertNull($copy->session);
     }
 
     /**
@@ -374,7 +374,7 @@ final class EventContextTest extends TestCase
             new PlainIdentityFixture(7),
             self::principal(),
             new PlainTenantFixture(3),
-            new PlainDeviceFixture('device-1'),
+            new PlainSessionFixture('session-1'),
             'password',
             credentialId: 'key-1',
             scopes: ['read'],

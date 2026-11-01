@@ -30,8 +30,8 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
-use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
@@ -196,7 +196,7 @@ final class SignInPolicyEndToEndTest extends TestCase
             self::assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $row->key);
         }
 
-        self::assertSame(1, Device::query()->count());
+        self::assertSame(1, Session::query()->count());
     }
 
     /**
@@ -306,7 +306,7 @@ final class SignInPolicyEndToEndTest extends TestCase
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', self::credentials())->reason);
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions('by_number')->signIn('password', ['password' => self::PASSWORD] + $byNumber)->reason);
         self::assertFalse($this->freshGuard('by_number')->attempt(['password' => self::PASSWORD] + $byNumber));
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
 
         Carbon::setTestNow(Carbon::now()->addSeconds(280));
         CarbonImmutable::setTestNow(CarbonImmutable::now()->addSeconds(280));
@@ -370,7 +370,7 @@ final class SignInPolicyEndToEndTest extends TestCase
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions('staff')->signIn('password', self::credentials())->reason);
         self::assertSame(FailureReason::ACCOUNT_RATE_LIMITED, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertFalse($this->freshGuard('staff')->attempt(self::credentials()));
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
     }
 
     /**
@@ -402,7 +402,7 @@ final class SignInPolicyEndToEndTest extends TestCase
         $refused = $this->sessions()->signIn('password', ['email' => "victi\u{200B}m@example.test", 'password' => self::PASSWORD]);
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $refused->reason);
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
     }
 
     /**
@@ -537,13 +537,13 @@ final class SignInPolicyEndToEndTest extends TestCase
         self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions('sso_only')->signIn('password', self::credentials())->reason);
         self::assertFalse($this->freshGuard('sso_only')->attempt(self::credentials()));
         self::assertSame(0, DB::table('rate_limits')->count());
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
     }
 
     /**
      * A sign-in waiting for a further factor when the application stops listing
      * its method is spent and then refused: completing it is
-     * `method_not_allowed` and writes no device, and the token cannot be
+     * `method_not_allowed` and writes no session, and the token cannot be
      * completed again (`pending_invalid`).
      *
      * @return void
@@ -565,11 +565,11 @@ final class SignInPolicyEndToEndTest extends TestCase
         self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->complete($pending->token)->reason);
         self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->complete($pending->token)->reason);
         self::assertSame(0, PendingSignIn::query()->count());
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
     }
 
     /**
-     * A session lasts as the guard sets, whatever its principal: the device's
+     * A session lasts as the guard sets, whatever its principal: the session's
      * deadlines, the access token's expiry, and the refresh token's, which is
      * the idle deadline, are the guard's for two memberships whose own `type`
      * columns differ, and neither token carries anything of that type. The
@@ -595,8 +595,8 @@ final class SignInPolicyEndToEndTest extends TestCase
             self::assertNotContains($type, $access);
             self::assertArrayNotHasKey('pty', $access);
             self::assertSame($now->addMinutes(self::MEMBERS_ACCESS_MINUTES)->getTimestamp(), $access[Claims::EXPIRES_AT->value]);
-            self::assertSame($now->addMinutes(self::MEMBERS_IDLE_MINUTES)->getTimestamp(), $session->device->getIdleExpiresAt()?->getTimestamp());
-            self::assertSame($now->addMinutes(self::MEMBERS_ABSOLUTE_MINUTES)->getTimestamp(), $session->device->getAbsoluteExpiresAt()?->getTimestamp());
+            self::assertSame($now->addMinutes(self::MEMBERS_IDLE_MINUTES)->getTimestamp(), $session->record->getIdleExpiresAt()?->getTimestamp());
+            self::assertSame($now->addMinutes(self::MEMBERS_ABSOLUTE_MINUTES)->getTimestamp(), $session->record->getAbsoluteExpiresAt()?->getTimestamp());
             self::assertSame($now->addMinutes(self::MEMBERS_IDLE_MINUTES)->getTimestamp(), $refresh[Claims::EXPIRES_AT->value]);
 
             $this->bearer($session->tokens->accessToken)->assertOk()->assertExactJson(['principal' => $session->principal->getPrincipalIdentifier()]);
@@ -608,7 +608,7 @@ final class SignInPolicyEndToEndTest extends TestCase
      * application policy: a principal it refuses is refused as
      * `principal_ineligible` before anything is written, and once it refuses a
      * principal whose session already exists, that session no longer refreshes,
-     * and the device is kept.
+     * and the session is kept.
      *
      * @return void
      *
@@ -621,7 +621,7 @@ final class SignInPolicyEndToEndTest extends TestCase
         self::refuseMembersOfType($package, 'contractor');
 
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions('members')->signIn('password', $this->seedMember('contractor@example.test', 'contractor'))->reason);
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
 
         $session = $this->signedIn($this->sessions('members')->signIn('password', $this->seedMember('client@example.test', 'client_staff')));
 
@@ -661,7 +661,7 @@ final class SignInPolicyEndToEndTest extends TestCase
         $reasons = array_map(static fn (object $event): mixed => $event instanceof AuthenticationFailed ? $event->reason : null, $this->recorded);
 
         self::assertSame(array_fill(0, 3, FailureReason::IDENTIFIER_UNVERIFIED), $reasons);
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
 
         $this->signedIn($this->sessions('verified')->start($identity, null, 'sso'));
 
@@ -669,7 +669,7 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         $this->getJson($link)->assertOk()->assertExactJson(['outcome' => 'verified']);
 
-        self::assertSame(1, Device::query()->count());
+        self::assertSame(1, Session::query()->count());
         self::assertTrue($identity->refresh()->hasVerifiedIdentifier('email'));
 
         $this->signedIn($this->sessions('verified')->signIn('password', self::credentials()));
@@ -678,7 +678,7 @@ final class SignInPolicyEndToEndTest extends TestCase
     /**
      * Failed refreshes from one IP address are counted in the database; once
      * the address has used up its limit, even a valid refresh token is answered
-     * `429` with the wait to the end of the minute, and its device is left as
+     * `429` with the wait to the end of the minute, and its session is left as
      * it was. When the window ends, the token refreshes.
      *
      * @return void
@@ -858,14 +858,14 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * The session's device as stored.
+     * The session as stored.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private static function stored(SignedInSession $session): Device
+    private static function stored(SignedInSession $session): Session
     {
-        return Device::query()->whereKey($session->device->getDeviceIdentifier())->firstOrFail();
+        return Session::query()->whereKey($session->record->getSessionIdentifier())->firstOrFail();
     }
 
     /**

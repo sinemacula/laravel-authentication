@@ -8,7 +8,7 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -34,17 +34,17 @@ final class SessionPreconditionsTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /**
-     * An identity that owns devices may be signed in; one that does not is
+     * An identity that owns sessions may be signed in; one that does not is
      * refused as a misconfiguration naming its class. A non-human identity,
      * which owns none, is let through, for the admission to refuse as the
      * result it is.
      *
      * @return void
      */
-    public function testOnlyAnIdentityThatOwnsDevicesMayStartASession(): void
+    public function testOnlyAnIdentityThatOwnsSessionsMayStartASession(): void
     {
-        SessionPreconditions::assertHoldsDevices(\Mockery::mock(Identity::class, HasDevices::class));
-        SessionPreconditions::assertHoldsDevices(\Mockery::mock(MachineIdentity::class));
+        SessionPreconditions::assertHoldsSessions(\Mockery::mock(Identity::class, HasSessions::class));
+        SessionPreconditions::assertHoldsSessions(\Mockery::mock(MachineIdentity::class));
 
         $identity = \Mockery::mock(Identity::class);
 
@@ -52,11 +52,11 @@ final class SessionPreconditionsTest extends TestCase
         $this->expectExceptionMessage(sprintf(
             'The session service can only start sessions for identities that implement %s; %s does not. '
             . 'Sign this guard\'s identities in with attempt() and issue access tokens instead.',
-            HasDevices::class,
+            HasSessions::class,
             $identity::class,
         ));
 
-        SessionPreconditions::assertHoldsDevices($identity);
+        SessionPreconditions::assertHoldsSessions($identity);
     }
 
     /**

@@ -6,14 +6,14 @@ namespace SineMacula\Laravel\Authentication\Guards\Concerns;
 
 use Illuminate\Support\Carbon;
 use SineMacula\Laravel\Authentication\Admission\PinnedPrincipal;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Devices\IdentityDevices;
-use SineMacula\Laravel\Authentication\Devices\OwnedDevice;
+use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\SessionRecords\IdentitySessions;
+use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
 
 /**
- * Proves that a principal or device pinned on `attempt()` belongs to the
+ * Proves that a principal or session pinned on `attempt()` belongs to the
  * identity signing in.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -42,49 +42,49 @@ trait VerifiesPinnedContext
     }
 
     /**
-     * Look a caller-supplied device up among the identity's own devices and
+     * Look a caller-supplied session up among the identity's own sessions and
      * return the live row, when its session acts as the principal being bound.
-     * Returns `null` when the identity owns no live device of the same class
-     * with that identifier (see `resolveDeviceFromHint()`), or the device
+     * Returns `null` when the identity owns no live session of the same class
+     * with that identifier (see `resolveSessionFromHint()`), or the session
      * records another principal, or none.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $pinned
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $pinned
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Session
      *
      * @throws \LogicException
      */
-    protected function resolvePinnedDevice(Identity $identity, Principal $principal, Device $pinned): ?Device
+    protected function resolvePinnedSession(Identity $identity, Principal $principal, Session $pinned): ?Session
     {
-        $owned = $this->resolveDeviceFromHint($identity, $pinned->getDeviceIdentifier());
+        $owned = $this->resolveSessionFromHint($identity, $pinned->getSessionIdentifier());
 
-        return $owned !== null && $owned::class === $pinned::class && OwnedDevice::actsAs($owned, $principal) ? $owned : null;
+        return $owned !== null && $owned::class === $pinned::class && OwnedSession::actsAs($owned, $principal) ? $owned : null;
     }
 
     /**
-     * Resolve a device for the identity from a pinned device's identifier.
-     * Returns null when the identity does not implement `HasDevices`, the hint
-     * cannot be a key of the device model (no query is made), or the device is
-     * not found (`IdentityDevices::find()`), belongs to another guard's
+     * Resolve a session for the identity from a pinned session's identifier.
+     * Returns null when the identity does not implement `HasSessions`, the hint
+     * cannot be a key of the session model (no query is made), or the session
+     * is not found (`IdentitySessions::find()`), belongs to another guard's
      * sessions (or to none), has been revoked, or its session has ended (past
-     * its idle or absolute deadline, or without deadlines): such a device is
+     * its idle or absolute deadline, or without deadlines): such a session is
      * treated exactly like a missing one, from the row already loaded, on the
-     * write connection (see `OwnedDevice`). The deadlines are checked against
+     * write connection (see `OwnedSession`). The deadlines are checked against
      * the current time with no leeway, so a pin cannot outlive its session. A
-     * `devices()` relation over a model that is not an `EloquentDevice` is a
+     * `sessions()` relation over a model that is not an `EloquentSession` is a
      * misconfiguration, and throws.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Session
      *
      * @throws \LogicException
      */
-    protected function resolveDeviceFromHint(Identity $identity, mixed $hint): ?Device
+    protected function resolveSessionFromHint(Identity $identity, mixed $hint): ?Session
     {
-        $device = IdentityDevices::find($identity, $hint);
+        $session = IdentitySessions::find($identity, $hint);
 
-        return $device !== null && OwnedDevice::refusal($device, $this->context->name(), Carbon::now()) === null ? $device : null;
+        return $session !== null && OwnedSession::refusal($session, $this->context->name(), Carbon::now()) === null ? $session : null;
     }
 }

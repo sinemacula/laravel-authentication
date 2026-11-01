@@ -47,8 +47,8 @@ return new class extends Migration {
             $blueprint->string('guard');
             $blueprint->string('name')->nullable();
 
-            // Plain string polymorphic columns, as on the devices table, so any
-            // key type fits.
+            // Plain string polymorphic columns, as on the sessions table, so
+            // any key type fits.
             $blueprint->string('authenticatable_type');
             $blueprint->string('authenticatable_id');
             $blueprint->string('principal_type');

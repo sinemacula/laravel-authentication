@@ -16,10 +16,10 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\IdentifierVerified;
 use SineMacula\Laravel\Authentication\Events\PrincipalChoiceRequired;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -46,7 +46,7 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(AdditionalFactorRequired::class)]
-#[CoversClass(DeviceRevoked::class)]
+#[CoversClass(SessionRevoked::class)]
 #[CoversClass(IdentifierVerified::class)]
 #[CoversClass(PrincipalChoiceRequired::class)]
 #[CoversClass(PrincipalSwitched::class)]
@@ -58,7 +58,7 @@ final class LifecycleEventsContractTest extends TestCase
     /** @var list<class-string> The lifecycle events the listener's record is checked for. */
     private const array LIFECYCLE = [
         AdditionalFactorRequired::class,
-        DeviceRevoked::class,
+        SessionRevoked::class,
         IdentifierVerified::class,
         PrincipalChoiceRequired::class,
         PrincipalSwitched::class,
@@ -140,7 +140,7 @@ final class LifecycleEventsContractTest extends TestCase
 
         $guard = $this->freshGuard('members');
 
-        $guard->login($member, $second, $session->device);
+        $guard->login($member, $second, $session->record);
 
         self::assertSame(0, self::sessionsOf($guard)->signOutEverywhere(true));
         self::assertTrue(self::sessionsOf($guard)->signOut());
@@ -184,7 +184,7 @@ final class LifecycleEventsContractTest extends TestCase
         self::assertSame([
             ['PrincipalSwitched', 'members', $memberId, $secondId],
             ['SignedOutEverywhere', 'members', $memberId, null],
-            ['DeviceRevoked', 'members', $memberId, $secondId],
+            ['SessionRevoked', 'members', $memberId, $secondId],
             ['PrincipalChoiceRequired', 'choosers', IdentifierCoercion::stringify($chooser->getKey()), null],
             ['AdditionalFactorRequired', 'api', $identityId, $identityId],
             ['IdentifierVerified', 'api', IdentifierCoercion::stringify($verifiable->getKey()), null],

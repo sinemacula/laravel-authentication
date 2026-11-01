@@ -12,21 +12,21 @@ use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\PinnedPrincipal;
 use SineMacula\Laravel\Authentication\Config\IntegerSetting;
-use SineMacula\Laravel\Authentication\Contracts\Device;
-use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
-use SineMacula\Laravel\Authentication\Devices\DeviceLookup;
-use SineMacula\Laravel\Authentication\Devices\DeviceOwnership;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
+use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
@@ -84,7 +84,7 @@ final readonly class PendingSignIns
     ) {}
 
     /**
-     * Store a pending sign-in for the admitted sign-in, recording the device
+     * Store a pending sign-in for the admitted sign-in, recording the session
      * the client proved it holds and the digest it was proven against, and the
      * windows of each attempt-limit reservation the sign-in holds (`null` for
      * one that reserved none; a reservation whose limiter recorded no windows
@@ -102,7 +102,7 @@ final readonly class PendingSignIns
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     public function issue(
         string $guard,
@@ -120,7 +120,7 @@ final readonly class PendingSignIns
             $guard,
             $identity,
             $admitted->principal,
-            $admitted->device,
+            $admitted->session,
             $method,
             $identifierType,
             $context,
@@ -128,18 +128,18 @@ final readonly class PendingSignIns
             $attemptWindows,
         );
 
-        return new PendingFactor($token, $guard, $identity, $admitted->principal, $admitted->tenant, $method, $expiresAt, $admitted->device);
+        return new PendingFactor($token, $guard, $identity, $admitted->principal, $admitted->tenant, $method, $expiresAt, $admitted->session);
     }
 
     /**
      * Store a pending sign-in waiting for the identity to choose a principal,
-     * recording no principal yet, the device the client proved it holds for the
-     * identity, and the windows of the attempt-limit reservations the sign-in
-     * holds, and return its token and expiry.
+     * recording no principal yet, the session the client proved it holds for
+     * the identity, and the windows of the attempt-limit reservations the
+     * sign-in holds, and return its token and expiry.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $method
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
@@ -150,12 +150,12 @@ final readonly class PendingSignIns
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     public function issueChoice(
         string $guard,
         Identity $identity,
-        ?Device $device,
+        ?Session $session,
         string $method,
         ?string $identifierType,
         SignInContext $context,
@@ -164,14 +164,14 @@ final readonly class PendingSignIns
     ): array {
         $identity = self::eloquentIdentity($identity, 'wait for a choice of principal');
 
-        return $this->store(PendingSignIn::PRINCIPAL_CHOICE, $guard, $identity, null, $device, $method, $identifierType, $context, $now, $attemptWindows);
+        return $this->store(PendingSignIn::PRINCIPAL_CHOICE, $guard, $identity, null, $session, $method, $identifierType, $context, $now, $attemptWindows);
     }
 
     /**
      * Find the live pending sign-in of the guard the token completes, with its
      * identity reloaded through the guard's provider (the very owner it
      * recorded), its principal resolved again through the hinted path (the one
-     * it recorded, still the identity's), and its proven device when that is
+     * it recorded, still the identity's), and its proven session when that is
      * still the identity's live session of the guard for the principal, at the
      * digest it was proven against. Returns `null` for any token that does not
      * name such a sign-in, without saying why; a token that cannot be one (no
@@ -185,7 +185,7 @@ final readonly class PendingSignIns
      * @return ?\SineMacula\Laravel\Authentication\Sessions\FoundPendingSignIn
      *
      * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function find(string $guard, #[\SensitiveParameter] string $token, IdentityProvider $provider, PrincipalResolver $resolver, CarbonImmutable $now): ?FoundPendingSignIn
@@ -274,7 +274,7 @@ final readonly class PendingSignIns
     }
 
     /**
-     * The client the pending sign-in's sign-in came from, which a device it
+     * The client the pending sign-in's sign-in came from, which a session it
      * creates records as the client it was created from.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\PendingSignIn  $pending
@@ -353,32 +353,32 @@ final readonly class PendingSignIns
     }
 
     /**
-     * The device the client proved it holds, when it is still the identity's
+     * The session the client proved it holds, when it is still the identity's
      * live session of the pending sign-in's guard for the principal, at the
      * digest it was proven against.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\PendingSignIn  $pending
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null
+     * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null
      *
      * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    public static function provenDevice(PendingSignIn $pending, Identity $identity, Principal $principal): (EloquentDevice&Model)|null
+    public static function provenSession(PendingSignIn $pending, Identity $identity, Principal $principal): (EloquentSession&Model)|null
     {
-        $device = $pending->device_id === null ? null : DeviceLookup::find($pending->device_id);
+        $session = $pending->proven_session_id === null ? null : SessionLookup::find($pending->proven_session_id);
 
-        if ($device === null || !DeviceOwnership::isOwner($device, $identity) || !PrincipalReference::isRecordedOn($device, $principal)) {
+        if ($session === null || !SessionOwnership::isOwner($session, $identity) || !PrincipalReference::isRecordedOn($session, $principal)) {
             return null;
         }
 
-        $proven = WriteConnection::during($device, static fn (): bool => $device->getGuard() === $pending->guard
-            && $device->getRevokedAt()                                                       === null
-            && $device->getRefreshKey() !== null
-            && $device->getRefreshKey() === $pending->device_refresh_key);
+        $proven = WriteConnection::during($session, static fn (): bool => $session->getGuard() === $pending->guard
+            && $session->getRevokedAt()                                                        === null
+            && $session->getRefreshKey() !== null
+            && $session->getRefreshKey() === $pending->proven_session_refresh_key);
 
-        return $proven ? $device : null;
+        return $proven ? $session : null;
     }
 
     /**
@@ -424,7 +424,7 @@ final readonly class PendingSignIns
      * @param  string  $guard
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $method
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
@@ -439,14 +439,14 @@ final readonly class PendingSignIns
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     private function store(
         string $purpose,
         string $guard,
         Identity&Model $identity,
         ?Principal $principal,
-        ?Device $device,
+        ?Session $session,
         string $method,
         ?string $identifierType,
         SignInContext $context,
@@ -458,24 +458,24 @@ final readonly class PendingSignIns
         $pending   = new PendingSignIn;
 
         $pending->forceFill([
-            'id'                   => Str::uuid7()->toString(),
-            'token_digest'         => RefreshTokenHasher::hash($secret),
-            'purpose'              => $purpose,
-            'guard'                => $guard,
-            'sign_in_method'       => $method,
-            'identifier_type'      => $identifierType,
-            'authenticatable_type' => $identity->getMorphClass(),
-            'authenticatable_id'   => IdentifierCoercion::stringify($identity->getKey()),
-            'principal_type'       => $principal === null ? null : PrincipalReference::type($principal),
-            'principal_id'         => $principal === null ? null : PrincipalReference::id($principal),
-            'client_name'          => $context->clientName,
-            'platform'             => $context->platform,
-            'created_ip'           => $context->client->ip,
-            'created_user_agent'   => $context->client->userAgent,
-            'device_id'            => $device === null ? null : IdentifierCoercion::stringify($device->getDeviceIdentifier()),
-            'device_refresh_key'   => $device?->getRefreshKey(),
-            'attempt_windows'      => $attemptWindows,
-            'expires_at'           => $expiresAt,
+            'id'                         => Str::uuid7()->toString(),
+            'token_digest'               => RefreshTokenHasher::hash($secret),
+            'purpose'                    => $purpose,
+            'guard'                      => $guard,
+            'sign_in_method'             => $method,
+            'identifier_type'            => $identifierType,
+            'authenticatable_type'       => $identity->getMorphClass(),
+            'authenticatable_id'         => IdentifierCoercion::stringify($identity->getKey()),
+            'principal_type'             => $principal === null ? null : PrincipalReference::type($principal),
+            'principal_id'               => $principal === null ? null : PrincipalReference::id($principal),
+            'client_name'                => $context->clientName,
+            'platform'                   => $context->platform,
+            'created_ip'                 => $context->client->ip,
+            'created_user_agent'         => $context->client->userAgent,
+            'proven_session_id'          => $session === null ? null : IdentifierCoercion::stringify($session->getSessionIdentifier()),
+            'proven_session_refresh_key' => $session?->getRefreshKey(),
+            'attempt_windows'            => $attemptWindows,
+            'expires_at'                 => $expiresAt,
         ])->save();
 
         return [$pending->id . '.' . $secret, $expiresAt];
@@ -552,7 +552,7 @@ final readonly class PendingSignIns
      * @return \SineMacula\Laravel\Authentication\Sessions\FoundPendingSignIn
      *
      * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     private static function found(
         PendingSignIn $pending,
@@ -561,8 +561,8 @@ final readonly class PendingSignIns
         Identity $identity,
         Principal $principal,
     ): FoundPendingSignIn {
-        $tenant = ActivationPolicy::activeTenant($principal);
-        $device = self::provenDevice($pending, $identity, $principal);
+        $tenant  = ActivationPolicy::activeTenant($principal);
+        $session = self::provenSession($pending, $identity, $principal);
 
         $factor = new PendingFactor(
             $token,
@@ -572,9 +572,9 @@ final readonly class PendingSignIns
             $tenant === false ? null : $tenant,
             $pending->sign_in_method,
             CarbonImmutable::instance($pending->expires_at),
-            $device,
+            $session,
         );
 
-        return new FoundPendingSignIn($pending, $secret, $factor, $device);
+        return new FoundPendingSignIn($pending, $secret, $factor, $session);
     }
 }

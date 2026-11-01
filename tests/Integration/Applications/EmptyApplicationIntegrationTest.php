@@ -18,7 +18,7 @@ use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
@@ -120,12 +120,12 @@ final class EmptyApplicationIntegrationTest extends TestCase
         self::assertSame(0, $queries);
         self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->start($identity, null, 'password')->reason);
         self::assertSame(0, DB::table('rate_limits')->count());
-        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, Session::query()->count());
     }
 
     /**
      * A session started while the method was listed no longer refreshes once
-     * the application lists nothing, through the route, and its device is kept;
+     * the application lists nothing, through the route, and its session is kept;
      * its access token still authenticates until it expires; once the method is
      * listed again the same refresh token refreshes.
      *
@@ -194,14 +194,14 @@ final class EmptyApplicationIntegrationTest extends TestCase
     }
 
     /**
-     * The session's device as stored.
+     * The session as stored.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
-     * @return \SineMacula\Laravel\Authentication\Models\Device
+     * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private function stored(SignedInSession $session): Device
+    private function stored(SignedInSession $session): Session
     {
-        return Device::query()->whereKey($session->device->getDeviceIdentifier())->firstOrFail();
+        return Session::query()->whereKey($session->record->getSessionIdentifier())->firstOrFail();
     }
 
     /**

@@ -8,13 +8,14 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * 2D identity over the `stub_principals` table whose devices are
- * `RevocationLogDevice` rows, which derive their revocation from another table.
+ * 2D identity over the `stub_principals` table whose sessions are
+ * `RevocationLogSession` rows, which derive their revocation from another
+ * table.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -25,7 +26,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  *
  * @internal
  */
-final class RevocationLogIdentity extends Model implements HasDevices, Identity, Principal
+final class RevocationLogIdentity extends Model implements HasSessions, Identity, Principal
 {
     use ActsAsPrincipal, Authenticatable;
 
@@ -36,14 +37,14 @@ final class RevocationLogIdentity extends Model implements HasDevices, Identity,
     protected $guarded = [];
 
     /**
-     * The identity's devices through the polymorphic `authenticatable`
+     * The identity's sessions through the polymorphic `authenticatable`
      * relation.
      *
-     * @return \Illuminate\Database\Eloquent\Relations\MorphMany<\Tests\Integration\Fixtures\RevocationLogDevice, $this>
+     * @return \Illuminate\Database\Eloquent\Relations\MorphMany<\Tests\Integration\Fixtures\RevocationLogSession, $this>
      */
     #[\Override]
-    public function devices(): MorphMany
+    public function sessions(): MorphMany
     {
-        return $this->morphMany(RevocationLogDevice::class, 'authenticatable');
+        return $this->morphMany(RevocationLogSession::class, 'authenticatable');
     }
 }

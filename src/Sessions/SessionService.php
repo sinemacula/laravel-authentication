@@ -19,19 +19,19 @@ use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Admission\SignInAdmission;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
@@ -49,7 +49,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * The session service of a JWT guard: signs in, creates the device, issues the
+ * The session service of a JWT guard: signs in, creates the session, issues the
  * first token pair, and binds the guard, in one call.
  *
  * `signIn()` verifies the input with a sign-in method; `start()` begins a
@@ -57,9 +57,9 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * provider, say). Either way the application policy must allow the method and
  * admit the identity as its principal, the identity, principal and tenant must
  * be active, and the additional-factor policy must not ask for a further
- * factor. Every sign-in creates a new device. A client that proves, with its
+ * factor. Every sign-in creates a new session. A client that proves, with its
  * refresh token, that it holds a session of this guard for the same identity
- * and principal has that device revoked (`superseded`) in the same transaction;
+ * and principal has that session revoked (`superseded`) in the same transaction;
  * nothing else is revoked, however alike the IP address or user agent are.
  *
  * The session is established by `SessionEstablishment`, which writes it and
@@ -68,9 +68,9 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * choice a sign-in without a default waits on, are `PrincipalChoices`'. The
  * service also refreshes a session through `SessionRefresh`
  * (`RefreshesSessions`), lets a session switch the principal it acts as, lists
- * devices, and signs out, revokes devices and ends sessions on security changes
- * through `SessionRevocations` (`EndsSessions`), which the guard's `logout()`
- * and password changes use too.
+ * sessions, and signs out, revokes sessions and ends sessions on security
+ * changes through `SessionRevocations` (`EndsSessions`), which the guard's
+ * `logout()` and password changes use too.
  *
  * Failures are results, not exceptions: Laravel's `Failed` and the package's
  * `AuthenticationFailed` report them. Exceptions are kept for misconfiguration
@@ -104,8 +104,8 @@ final readonly class SessionService
     /** @var \SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore The guarded switch write and its locking re-read. */
     private RefreshRotationStore $rotations;
 
-    /** @var \SineMacula\Laravel\Authentication\Sessions\DeviceRevocations Revokes the device a switch finds its refresh token replayed on. */
-    private DeviceRevocations $switchRevocations;
+    /** @var \SineMacula\Laravel\Authentication\Sessions\RevocationWriter Revokes the session a switch finds its refresh token replayed on. */
+    private RevocationWriter $switchRevocations;
 
     /**
      * Constructor.
@@ -133,23 +133,23 @@ final readonly class SessionService
         /** Container the sign-in methods and policies are resolved from. */
         private Container $container,
 
-        // Resolver for the device's own connection.
+        // Resolver for the session's own connection.
         ConnectionResolverInterface $connections,
 
         // Returns the current transactions manager, if any, when called.
         \Closure $transactions,
     ) {
-        $devices = new DeviceRevocations($connections, $transactions);
-        $proof   = new DeviceProof($tokens);
-        $writer  = new SessionWriter($context->name(), $tokens, $connections);
+        $sessions = new RevocationWriter($connections, $transactions);
+        $proof    = new ProvenSessions($tokens);
+        $writer   = new SessionWriter($context->name(), $tokens, $connections);
 
         $this->afterCommit       = new AfterCommit($transactions);
         $this->pendings          = new PendingSignIns($container->make(Repository::class));
         $this->establishment     = new SessionEstablishment($context, $writer, $proof, $this->pendings, $this->afterCommit, $container);
         $this->choices           = new PrincipalChoices($context, $proof, $this->pendings, $this->afterCommit, $container);
-        $this->revocations       = new SessionRevocations($context, $devices, $container);
+        $this->revocations       = new SessionRevocations($context, $sessions, $container);
         $this->refreshes         = new SessionRefresh($context, $binding, new RefreshTokenExchange($tokens, $context, $connections, $transactions), $this->afterCommit, $container);
-        $this->switchRevocations = $devices;
+        $this->switchRevocations = $sessions;
         $this->rotations         = new RefreshRotationStore($connections);
     }
 
@@ -164,7 +164,7 @@ final readonly class SessionService
      * identity, principal (the context's, verified, or the resolver's default),
      * tenant and application policy must admit it; a password is rehashed when
      * its hash is outdated; the client's refresh token, if any, is checked as
-     * proof of an existing device; the additional-factor policy is asked, and
+     * proof of an existing session; the additional-factor policy is asked, and
      * when it requires a further factor the result is a pending sign-in instead
      * of a session; otherwise the session starts. A success gives back the
      * attempt's slots and those the method took on the accounts it checked; a
@@ -275,7 +275,7 @@ final readonly class SessionService
      * checked again (the method still allowed, the identity, principal and
      * tenant active, and the application policy admitting them with the
      * identifier type the sign-in used) and the session is written on a new
-     * device, replacing the proven device when it is unchanged. The factor
+     * session, replacing the proven session when it is unchanged. The factor
      * policy is not asked again. Every token that does not complete a live
      * pending sign-in of this guard fails as `pending_invalid`.
      *
@@ -345,8 +345,8 @@ final readonly class SessionService
      *
      * With an identifier type, the policy must also admit the identity and each
      * principal with it, as it admits a sign-in that used one: a switch screen
-     * passes the type the session's device records
-     * (`Auth::device()?->getSignInIdentifierType()`), so it lists only the
+     * passes the type the session records
+     * (`Auth::session()?->getSignInIdentifierType()`), so it lists only the
      * targets the application policy lets that session switch to.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -400,10 +400,10 @@ final readonly class SessionService
      * admitted by the application policy with the identifier type the sign-in
      * used; the additional-factor policy is asked, and a required factor turns
      * the choice into a pending factor carrying its attempt-limit slots;
-     * otherwise the session starts on a new device, replacing the device the
-     * client proved it holds when that device records the chosen principal, and
-     * the slots are given back once committed. Every token that continues no
-     * live choice of this guard fails as `pending_invalid`.
+     * otherwise the session starts on a new session, replacing the session the
+     * client proved it holds when that session records the chosen principal,
+     * and the slots are given back once committed. Every token that continues
+     * no live choice of this guard fails as `pending_invalid`.
      *
      * @param  string  $token
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -440,25 +440,25 @@ final readonly class SessionService
             return $this->fail($admitted, $method, $context, null, []);
         }
 
-        $proven = PendingSignIns::provenDevice($pending, $identity, $admitted->principal);
+        $proven = PendingSignIns::provenSession($pending, $identity, $admitted->principal);
 
         return $this->bound($this->establishment->establish($admitted, $proven, $method, $pending->identifier_type, $context, $now, $pending->attempt_windows, $pending));
     }
 
     /**
      * Switch the session the refresh token proves to another principal of its
-     * identity, on the same device.
+     * identity, in the same session.
      *
      * On success `PrincipalSwitched` is scheduled for once the switch is
-     * committed on the device's connection (at once when no transaction is open
-     * there, so before the bind), and then the guard is bound to the session as
-     * the new principal (`Authenticated`, `PrincipalAssigned`,
-     * `DeviceAuthenticated`, no `Login`); a bind listener that throws cannot
-     * withhold the switch's report. A switch to the principal the device
+     * committed on the session's connection (at once when no transaction is
+     * open there, so before the bind), and then the guard is bound to the
+     * session as the new principal (`Authenticated`, `PrincipalAssigned`,
+     * `SessionAuthenticated`, no `Login`); a bind listener that throws cannot
+     * withhold the switch's report. A switch to the principal the session
      * already records rotates the credential like a refresh and reports no
      * switch. A refused switch reports `AuthenticationFailed` (flow
      * `principal_switch`) and leaves the session as it was, unless the token
-     * proved a replay, which revokes the device.
+     * proved a replay, which revokes the session.
      *
      * @param  string  $refreshToken
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -469,14 +469,14 @@ final readonly class SessionService
     public function switchPrincipal(#[\SensitiveParameter] string $refreshToken, Principal $principal): SwitchResult
     {
         $client = $this->context->client();
-        $revoke = function (EloquentDevice&Model $device, CarbonImmutable $now) use ($client): bool {
+        $revoke = function (EloquentSession&Model $record, CarbonImmutable $now) use ($client): bool {
 
-            $event = new DeviceRevoked(
-                new EventContext($device->getGuard(), $client, device: $device, method: $device->getSignInMethod(), fromDevice: true),
+            $event = new SessionRevoked(
+                new EventContext($record->getGuard(), $client, session: $record, method: $record->getSignInMethod(), fromSession: true),
                 RevocationReason::ROTATION_REUSE,
             );
 
-            return $this->switchRevocations->revoke($device, RevocationReason::ROTATION_REUSE, $now, fn () => $this->context->dispatch($event));
+            return $this->switchRevocations->revoke($record, RevocationReason::ROTATION_REUSE, $now, fn () => $this->context->dispatch($event));
         };
 
         $outcome = (new PrincipalSwitch($this->tokens, $this->rotations, $this->context, $client, $principal, $revoke))
@@ -501,7 +501,7 @@ final readonly class SessionService
      * Returns `null`, dispatching nothing, when the request carries no token. A
      * token the transport refuses fails with its reason
      * (`refresh_token_conflict`, `cross_site_request`, `token_invalid`) after
-     * `AuthenticationFailed` (flow `principal_switch`), touching no device;
+     * `AuthenticationFailed` (flow `principal_switch`), touching no session;
      * otherwise it is `switchPrincipal()`. The result says where the token was
      * read from, so a switch read from the cookie can be answered with one.
      *
@@ -668,7 +668,7 @@ final readonly class SessionService
     /**
      * Admit the identity as the pinned principal, verified like a principal
      * pinned on `attempt()`, or as the resolver's default, once it is known to
-     * own devices.
+     * own sessions.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $pinned
@@ -682,7 +682,7 @@ final readonly class SessionService
      */
     private function admit(Identity $identity, ?Principal $pinned, ?string $identifierType): Admitted|Refused
     {
-        SessionPreconditions::assertHoldsDevices($identity);
+        SessionPreconditions::assertHoldsSessions($identity);
 
         $resolver = $this->context->resolver();
 
@@ -698,7 +698,7 @@ final readonly class SessionService
     /**
      * Bind the guard to the session a sign-in started, once establishment has
      * scheduled what reports it (`Validated`, `Login`, `Authenticated`,
-     * `PrincipalAssigned` and `DeviceAuthenticated`), and answer the result; a
+     * `PrincipalAssigned` and `SessionAuthenticated`), and answer the result; a
      * result without a session binds nothing.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInResult  $result
@@ -709,7 +709,7 @@ final readonly class SessionService
         $session = $result->session;
 
         if ($session !== null) {
-            $this->binding->login($session->identity, $session->principal, $session->device);
+            $this->binding->login($session->identity, $session->principal, $session->record);
         }
 
         return $result;
@@ -733,7 +733,7 @@ final readonly class SessionService
         $this->context->dispatch(new Failed($name, $refused->identity, $credentials));
 
         $this->context->dispatch(new AuthenticationFailed(
-            new EventContext($name, $context->client, $refused->identity, $refused->principal, $refused->tenant, $refused->device, $method),
+            new EventContext($name, $context->client, $refused->identity, $refused->principal, $refused->tenant, $refused->session, $method),
             AuthenticationFlow::SIGN_IN,
             $refused->reason,
             $identifier,
@@ -762,22 +762,22 @@ final readonly class SessionService
         if ($switched->switched) {
 
             $event = new PrincipalSwitched(
-                new EventContext($this->context->name(), $client, $session->identity, $session->principal, $session->tenant, $session->device, $session->method),
+                new EventContext($this->context->name(), $client, $session->identity, $session->principal, $session->tenant, $session->record, $session->method),
                 $this->previousPrincipal($session->identity, $switched->previousType, $switched->previousId),
                 $switched->previousType,
                 $switched->previousId,
             );
 
-            $this->afterCommit->run($session->device, fn () => $this->context->dispatch($event));
+            $this->afterCommit->run($session->record, fn () => $this->context->dispatch($event));
         }
 
-        $this->binding->authenticateAs($session->identity, $session->principal, $session->device);
+        $this->binding->authenticateAs($session->identity, $session->principal, $session->record);
 
-        return SwitchResult::switched(new SignedInSession($session->identity, $session->principal, $session->device, $session->tokens, (string) $session->method));
+        return SwitchResult::switched(new SignedInSession($session->identity, $session->principal, $session->record, $session->tokens, (string) $session->method));
     }
 
     /**
-     * The principal the device recorded before a switch, resolved through the
+     * The principal the session recorded before a switch, resolved through the
      * hinted path when it still comes back as that very principal, else `null`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity

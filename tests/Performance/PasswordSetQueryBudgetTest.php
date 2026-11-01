@@ -21,7 +21,7 @@ use Tests\Concerns\InteractsWithPasswords;
  * Query-budget contracts for setting a password: checking one touches no
  * database; a registration of a stored identity is the one `UPDATE` of its
  * password; a change or a reset adds the bulk revocation (the cutoff's
- * `UPDATE`, one read of the devices, one `UPDATE` per device revoked and the
+ * `UPDATE`, one read of the sessions, one `UPDATE` per session revoked and the
  * `DELETE` of the pending sign-ins); and a rejected password writes nothing.
  * The hasher runs once per password set, never for one rejected.
  *
@@ -127,10 +127,11 @@ final class PasswordSetQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A change that keeps one of three devices is the password's `UPDATE`, one
+     * A change that keeps one of three sessions is the password's `UPDATE`, one
      * read of the row it updated and one `DELETE` of the reset links and codes
-     * it outdates, the cutoff's `UPDATE`, one read of the devices, one `UPDATE`
-     * for each of the two it revokes and the `DELETE` of the pending sign-ins.
+     * it outdates, the cutoff's `UPDATE`, one read of the sessions, one
+     * `UPDATE` for each of the two it revokes and the `DELETE` of the pending
+     * sign-ins.
      *
      * @return void
      *
@@ -139,7 +140,7 @@ final class PasswordSetQueryBudgetTest extends PerformanceContractTestCase
     public function testAChangeIsTheUpdateAndTheBulkRevocation(): void
     {
         $identity = self::seedPasswordIdentity();
-        $kept     = $this->signInWithPassword('web')->device;
+        $kept     = $this->signInWithPassword('web')->record;
 
         $this->signInWithPassword('web');
         $this->signInWithPassword('admin');

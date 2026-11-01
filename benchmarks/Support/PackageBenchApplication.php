@@ -10,7 +10,7 @@ use Illuminate\Events\Dispatcher;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Facade;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
  * An application with the package's own bindings, for the benchmarks of paths
@@ -65,8 +65,8 @@ final class PackageBenchApplication
         $app->register(AuthenticationServiceProvider::class);
 
         $config->set([
-            'authentication.device.model'                     => Device::class,
-            'authentication.device.table'                     => 'devices',
+            'authentication.session.model'                    => Session::class,
+            'authentication.session.table'                    => 'authentication_sessions',
             'authentication.jwt.keys'                         => ['bench' => self::SECRET],
             'authentication.jwt.active_kid'                   => 'bench',
             'authentication.jwt.algorithm'                    => 'HS256',

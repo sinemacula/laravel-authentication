@@ -14,7 +14,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Facades\Auth as Authentication;
 use SineMacula\Laravel\Authentication\Listeners\Concerns\RevokesOnceCommitted;
-use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordChange;
+use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasswordChange;
 use SineMacula\Laravel\Authentication\Listeners\TrackCredentialAttempts;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use Tests\Concerns\InteractsWithSessions;
@@ -38,7 +38,7 @@ use Tests\TestCase;
  */
 #[CoversClass(Rehashing::class)]
 #[CoversClass(TrackCredentialAttempts::class)]
-#[CoversClass(RevokeDevicesOnPasswordChange::class)]
+#[CoversClass(RevokeSessionsOnPasswordChange::class)]
 #[CoversTrait(RevokesOnceCommitted::class)]
 final class ScopedStateRequestsTest extends TestCase
 {
@@ -142,7 +142,7 @@ final class ScopedStateRequestsTest extends TestCase
         $this->serve(self::octaneRequest('POST', '/password'))->assertExactJson(['saved' => true]);
 
         self::assertNotSame($this->marks[0], $this->marks[1]);
-        self::assertSame('password_changed', DB::table('devices')->value('revoked_reason'));
+        self::assertSame('password_changed', DB::table('authentication_sessions')->value('revoked_reason'));
     }
 
     /**
@@ -165,11 +165,11 @@ final class ScopedStateRequestsTest extends TestCase
         $this->serve(self::octaneRequest('POST', '/web/attempt'))->assertExactJson(['attempted' => true]);
 
         self::assertNotSame($outdated, DB::table('integration_identities')->value('password'));
-        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
 
         $this->serve(self::octaneRequest('POST', '/password'))->assertExactJson(['saved' => true]);
 
-        self::assertSame('password_changed', DB::table('devices')->value('revoked_reason'));
+        self::assertSame('password_changed', DB::table('authentication_sessions')->value('revoked_reason'));
     }
 
     /**
@@ -211,6 +211,6 @@ final class ScopedStateRequestsTest extends TestCase
 
         $this->serve(self::octaneRequest('POST', '/sign-in'))->assertExactJson(['signed_in' => true]);
 
-        IntegrationIdentity::observe(RevokeDevicesOnPasswordChange::class);
+        IntegrationIdentity::observe(RevokeSessionsOnPasswordChange::class);
     }
 }

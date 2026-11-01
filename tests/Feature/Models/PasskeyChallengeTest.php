@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Config;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
-use Tests\Integration\Fixtures\SeparateConnectionDevice;
+use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\TestCase;
 
 /**
@@ -58,13 +58,13 @@ final class PasskeyChallengeTest extends TestCase
 
     /**
      * The model lives on the storage connection, read each time it is built,
-     * whatever connection the device model names.
+     * whatever connection the session model names.
      *
      * @return void
      */
     public function testTheConnectionIsTheStorageConnection(): void
     {
-        Config::set('authentication.device.model', SeparateConnectionDevice::class);
+        Config::set('authentication.session.model', SeparateConnectionSession::class);
 
         self::assertNull((new PasskeyChallenge)->getConnectionName());
 

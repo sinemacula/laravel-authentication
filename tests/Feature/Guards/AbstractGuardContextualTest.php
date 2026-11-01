@@ -6,13 +6,13 @@ namespace Tests\Feature\Guards;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
-use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 
 /**
  * Feature tests for the contextual state surface on `AbstractGuard`
- * (`setPrincipal`, `setDevice`, `tenant`).
+ * (`setPrincipal`, `setSession`, `tenant`).
  *
  * Split out of the original AbstractGuardTest so each class stays focused on a
  * single behavioural slice.
@@ -50,27 +50,27 @@ final class AbstractGuardContextualTest extends AbstractGuardTestCase
     }
 
     /**
-     * setDevice() fires the DeviceAuthenticated custom event.
+     * setSession() fires the SessionAuthenticated custom event.
      *
      * @return void
      */
-    public function testSetDeviceFiresDeviceAuthenticatedEvent(): void
+    public function testSetSessionFiresSessionAuthenticatedEvent(): void
     {
         $guard = $this->makeGuard();
 
-        $device = $this->mockDevice();
+        $session = $this->mockSession();
 
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof DeviceAuthenticated
-                    && $event->context->guard  === self::GUARD_NAME
-                    && $event->context->device === $device),
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof SessionAuthenticated
+                    && $event->context->guard   === self::GUARD_NAME
+                    && $event->context->session === $session),
             );
 
-        $guard->setDevice($device);
+        $guard->setSession($session);
 
-        self::assertSame($device, $guard->device());
+        self::assertSame($session, $guard->session());
     }
 
     /**

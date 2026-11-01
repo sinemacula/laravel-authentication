@@ -6,15 +6,16 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
-use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 
 /**
  * What proves the caller authenticated recently enough for a sensitive change
  * of an identity (changing its email address or phone number): one of.
  *
- * - `device($device)`: the session it is making the change from, which must be
- *   one of the identity's own live devices of the guard, signed in within the
- *   window (a refresh or a principal switch does not renew it; a fresh sign-in
+ * - `session($session)`: the session it is making the change from, which must
+ *   be one of the identity's own live sessions of the guard, signed in within
+ *   the window (a refresh or a principal switch does not renew it; a fresh
+ *   sign-in
  *   does, so an identity with no password reauthenticates that way);
  * - `password($password)`: the identity's current password, checked when the
  *   change is requested and counted against its sign-in limits;
@@ -38,24 +39,24 @@ final readonly class Reauthentication
     /**
      * Constructor.
      *
-     * @param  \Carbon\CarbonImmutable|\SensitiveParameterValue|\SineMacula\Laravel\Authentication\Contracts\Device  $proof
+     * @param  \Carbon\CarbonImmutable|\SensitiveParameterValue|\SineMacula\Laravel\Authentication\Contracts\Session  $proof
      */
     private function __construct(
 
         /** The session the change is made from, the password given, or when the application confirmed a proof of its own. */
-        private CarbonImmutable|Device|\SensitiveParameterValue $proof,
+        private CarbonImmutable|\SensitiveParameterValue|Session $proof,
     ) {}
 
     /**
-     * Proof by the session the change is made from: the device must have signed
-     * in within the window.
+     * Proof by the session the change is made from: the session must have
+     * signed in within the window.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return self
      */
-    public static function device(Device $device): self
+    public static function session(Session $session): self
     {
-        return new self($device);
+        return new self($session);
     }
 
     /**
@@ -87,21 +88,21 @@ final readonly class Reauthentication
      *
      * @template TResult
      *
-     * @param  \Closure(\SineMacula\Laravel\Authentication\Contracts\Device): TResult  $device
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Contracts\Session): TResult  $session
      * @param  \Closure(string): TResult  $password
      * @param  \Closure(\Carbon\CarbonImmutable): TResult  $confirmedAt
      * @return TResult
      *
-     * @param-immediately-invoked-callable  $device
+     * @param-immediately-invoked-callable  $session
      * @param-immediately-invoked-callable  $password
      * @param-immediately-invoked-callable  $confirmedAt
      *
      * @internal
      */
-    public function apply(\Closure $device, \Closure $password, \Closure $confirmedAt): mixed
+    public function apply(\Closure $session, \Closure $password, \Closure $confirmedAt): mixed
     {
         return match (true) {
-            $this->proof instanceof Device                   => $device($this->proof),
+            $this->proof instanceof Session                  => $session($this->proof),
             $this->proof instanceof \SensitiveParameterValue => $password($this->proof->getValue()),
             default                                          => $confirmedAt($this->proof),
         };

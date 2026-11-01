@@ -17,10 +17,10 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
 use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PasswordSet;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -74,7 +74,7 @@ final class ResetSubmissionsTest extends TestCase
 
         $this->signInWithPassword('web', self::EMAIL);
         $this->signInWithPassword('admin', self::EMAIL);
-        $this->recordEvents([DeviceRevoked::class, SignedOutEverywhere::class, PasswordSet::class, AuthenticationFailed::class]);
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class, AuthenticationFailed::class]);
 
         $this->postJson('/password/forgot', ['email' => ' ADA@example.test '])->assertExactJson(['status' => 'sent']);
 
@@ -90,8 +90,8 @@ final class ResetSubmissionsTest extends TestCase
         $this->postJson('/password/reset', ['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])
             ->assertExactJson(['status' => 'reset', 'revoked' => 2, 'violations' => []]);
 
-        self::assertSame(['password_reset', 'password_reset'], DB::table('devices')->pluck('revoked_reason')->all());
-        self::assertSame([DeviceRevoked::class, DeviceRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $this->recordedClasses());
+        self::assertSame(['password_reset', 'password_reset'], DB::table('authentication_sessions')->pluck('revoked_reason')->all());
+        self::assertSame([SessionRevoked::class, SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $this->recordedClasses());
         self::assertSame(PasswordFlow::RESET, $this->recordedEvent(PasswordSet::class)->flow);
         self::assertSame(self::NOW, PasswordIdentity::query()->sole()->tokens_valid_after?->format('Y-m-d H:i:s'));
         self::assertNull($this->sessions('web')->signIn('password', self::credentials(self::EMAIL))->session);
@@ -126,7 +126,7 @@ final class ResetSubmissionsTest extends TestCase
             ->assertExactJson(['status' => 'reset', 'revoked' => 1, 'violations' => []]);
 
         self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, (string) PasswordIdentity::query()->sole()->password));
-        self::assertSame('password_reset', DB::table('devices')->value('revoked_reason'));
+        self::assertSame('password_reset', DB::table('authentication_sessions')->value('revoked_reason'));
     }
 
     /**
@@ -150,11 +150,11 @@ final class ResetSubmissionsTest extends TestCase
         $swapped   = new Dispatcher(app());
         $received  = [];
 
-        $swapped->listen([PasswordSet::class, DeviceRevoked::class, SignedOutEverywhere::class], static function (object $event) use (&$received): void {
+        $swapped->listen([PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class], static function (object $event) use (&$received): void {
             $received[] = $event::class;
         });
 
-        $this->recordEvents([PasswordSet::class, DeviceRevoked::class, SignedOutEverywhere::class]);
+        $this->recordEvents([PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class]);
 
         DB::transaction(static function () use ($passwords, $guard, $swapped, $token): void {
             self::assertTrue($passwords->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->isReset());
@@ -163,7 +163,7 @@ final class ResetSubmissionsTest extends TestCase
         });
 
         self::assertSame([], $this->recordedClasses());
-        self::assertSame([DeviceRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $received);
+        self::assertSame([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $received);
     }
 
     /**

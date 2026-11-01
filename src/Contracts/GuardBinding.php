@@ -43,13 +43,13 @@ interface GuardBinding
     public function principal(): ?Principal;
 
     /**
-     * Return the bound device, if any, resolving the request on first access.
+     * Return the bound session, if any, resolving the request on first access.
      *
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Session
      *
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function device(): ?Device;
+    public function session(): ?Session;
 
     /**
      * Return the tenant the active principal acts within, if any, resolving the
@@ -69,12 +69,12 @@ interface GuardBinding
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return void
      *
      * @throws \LogicException
      */
-    public function login(Identity $identity, Principal $principal, ?Device $device = null): void;
+    public function login(Identity $identity, Principal $principal, ?Session $session = null): void;
 
     /**
      * Bind a session the flow verified itself as a sign-in (`Validated`,
@@ -84,12 +84,12 @@ interface GuardBinding
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?string  $method
      * @return void
      */
-    public function loginVerified(Identity $identity, Principal $principal, ?Device $device, ?Tenant $tenant, ?string $method): void;
+    public function loginVerified(Identity $identity, Principal $principal, ?Session $session, ?Tenant $tenant, ?string $method): void;
 
     /**
      * Bind a session the flow moved as the request's authentication, not as a
@@ -97,17 +97,17 @@ interface GuardBinding
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?list<string>  $scopes
      * @return void
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public function authenticateAs(Identity $identity, Principal $principal, ?Device $device = null, ?array $scopes = null): void;
+    public function authenticateAs(Identity $identity, Principal $principal, ?Session $session = null, ?array $scopes = null): void;
 
     /**
-     * Forget the bound identity, principal and device, with no event, and keep
+     * Forget the bound identity, principal and session, with no event, and keep
      * the guard signed out for the rest of the request.
      *
      * @return static

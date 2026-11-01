@@ -13,7 +13,7 @@ use PhpBench\Attributes\Warmup;
  * PHPBench suite for JwtGuard bearer-auth paths.
  *
  * Exercises the full bearer-token resolution pipeline across 2D access-only,
- * device-bearing, 3D principal, tenant-aware, and multi-guard coexistence
+ * session-bearing, 3D principal, tenant-aware, and multi-guard coexistence
  * scenarios.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -26,7 +26,7 @@ final class JwtGuardBench
     private static ?JwtGuardBenchHarness $harness = null;
 
     /**
-     * Benchmark 2D bearer path with no device hint.
+     * Benchmark 2D bearer path with no session hint.
      *
      * @return void
      *
@@ -40,7 +40,7 @@ final class JwtGuardBench
     }
 
     /**
-     * Benchmark device-bearing bearer path when the timestamp listener skips
+     * Benchmark session-bearing bearer path when the timestamp listener skips
      * the write.
      *
      * @return void
@@ -49,13 +49,13 @@ final class JwtGuardBench
      */
     #[Iterations(5)]
     #[Revs(25)]
-    public function benchDeviceHintNoWrite(): void
+    public function benchSessionHintNoWrite(): void
     {
-        $this->harness()->runDeviceBearerNoWrite();
+        $this->harness()->runSessionBearerNoWrite();
     }
 
     /**
-     * Benchmark device-bearing bearer path when the listener persists
+     * Benchmark session-bearing bearer path when the listener persists
      * `last_used_at`.
      *
      * @return void
@@ -64,9 +64,9 @@ final class JwtGuardBench
      */
     #[Iterations(5)]
     #[Revs(10)]
-    public function benchDeviceHintWrite(): void
+    public function benchSessionHintWrite(): void
     {
-        $this->harness()->runDeviceBearerWithWrite();
+        $this->harness()->runSessionBearerWithWrite();
     }
 
     /**

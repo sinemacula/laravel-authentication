@@ -55,7 +55,7 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * identity's row (see `IdentityLock`), the proof must still stand and the new
  * identifier still differ from the current one, both as the locked row reads: a
  * password write, which cancels the pending changes, and a bulk revocation,
- * which waits on the lock of the device that proves the request, fall before
+ * which waits on the lock of the session that proves the request, fall before
  * that check or after the change is written, never in between. A refusal there
  * gives the `identifier_change` slots back. The current identifier, and whether
  * it is verified, are read from the row as locked (the instance given, once it
@@ -110,7 +110,7 @@ final readonly class ChangeRequests
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
@@ -189,7 +189,7 @@ final readonly class ChangeRequests
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
@@ -245,7 +245,7 @@ final readonly class ChangeRequests
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */
     private function unauthenticated(
@@ -346,7 +346,7 @@ final readonly class ChangeRequests
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     private function write(Identity&Model $identity, RequestedChange $change, ?array $link, EventContext $context): IdentifierChangeRequest|int
     {

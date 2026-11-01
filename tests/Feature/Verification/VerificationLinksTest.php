@@ -151,7 +151,7 @@ final class VerificationLinksTest extends TestCase
         $this->getJson($link)->assertOk()->assertExactJson(['outcome' => 'already_verified', 'user' => false]);
 
         self::assertNotNull(DB::table('verifiable_identities')->value('email_verified_at'));
-        self::assertSame(0, DB::table('devices')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->count());
         self::assertCount(1, $this->events);
         self::assertInstanceOf(IdentifierVerified::class, $this->events[0]);
         self::assertSame(['Mail/1.0', self::GUARD, 'email'], [$this->events[0]->context->client->userAgent, $this->events[0]->context->guard, $this->events[0]->type]);

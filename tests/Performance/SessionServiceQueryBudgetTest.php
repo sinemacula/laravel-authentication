@@ -21,8 +21,9 @@ use Tests\Concerns\InteractsWithSessions;
 
 /**
  * Query-budget and timing contracts for the session service: what a sign-in
- * costs on a new device, on a proven device, and when it fails, and the timebox
- * that keeps a failed sign-in as slow whether or not its identifier exists.
+ * costs on a new session, on a proven session, and when it fails, and the
+ * timebox that keeps a failed sign-in as slow whether or not its identifier
+ * exists.
  *
  * A sign-in through a method also writes its attempt limits: it reserves a slot
  * on the identifier's and the IP address's counters (on a fresh window, for
@@ -78,16 +79,16 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A sign-in on a new device reads the identity once and writes the device
+     * A sign-in on a new session reads the identity once and writes the session
      * once, besides the six reservation writes and three releases of its
-     * limits: binding it records no further use, since the device already
+     * limits: binding it records no further use, since the session already
      * records the sign-in as its last.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testASignInOnANewDeviceReadsOnceAndWritesTheDeviceOnce(): void
+    public function testASignInOnANewSessionReadsOnceAndWritesTheSessionOnce(): void
     {
         $this->seedIdentity();
 
@@ -97,8 +98,8 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Replacing a proven device reads the identity and the device and writes
-     * one compare-and-swap that revokes it and one insert of the new device,
+     * Replacing a proven session reads the identity and the session and writes
+     * one compare-and-swap that revokes it and one insert of the new session,
      * besides reserving and releasing a slot on each of the three counters the
      * first sign-in created.
      *
@@ -106,7 +107,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
      *
      * @throws \Throwable
      */
-    public function testASignInOnAProvenDeviceReadsTwiceAndWritesTwice(): void
+    public function testASignInOnAProvenSessionReadsTwiceAndWritesTwice(): void
     {
         $this->seedIdentity();
 
@@ -118,12 +119,12 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $context  = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken);
         $again    = $this->assertQueryBudget(2, 8, static fn (): SignInResult => $sessions->signIn('password', self::credentials(), $context));
 
-        self::assertNotSame($first->device->getKey(), $again->session?->device->getKey());
+        self::assertNotSame($first->record->getKey(), $again->session?->record->getKey());
     }
 
     /**
      * A session started for an externally verified identity reloads it once and
-     * writes the device once.
+     * writes the session once.
      *
      * @return void
      *
@@ -142,7 +143,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
      * the pending sign-in once, besides its limits, whose slots it keeps (the
      * account's as well as the identifier's and the IP address's); looking that
      * up reads it and the identity; and completing it reads them, deletes it,
-     * writes the device and gives the three slots back.
+     * writes the session and gives the three slots back.
      *
      * @return void
      *

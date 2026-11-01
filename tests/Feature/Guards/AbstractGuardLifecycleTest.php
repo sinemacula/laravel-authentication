@@ -216,7 +216,7 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
     }
 
     /**
-     * logout() dispatches Logout and clears identity/principal/device state.
+     * logout() dispatches Logout and clears identity/principal/session state.
      *
      * @return void
      */
@@ -226,7 +226,7 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
 
         $identity  = $this->mockIdentity();
         $principal = $this->mockPrincipal();
-        $device    = $this->mockDevice();
+        $session   = $this->mockSession();
 
         $dispatched = [];
 
@@ -235,12 +235,12 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
                 $dispatched[] = $event;
             });
 
-        $guard->login($identity, $principal, $device);
+        $guard->login($identity, $principal, $session);
         $guard->logout();
 
         self::assertNull($guard->user());
         self::assertNull($guard->principal());
-        self::assertNull($guard->device());
+        self::assertNull($guard->session());
 
         $logoutEvents = array_values(
             array_filter(
@@ -346,13 +346,13 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
         $guard->login(
             $this->mockIdentity(),
             $this->mockPrincipal(),
-            $this->mockDevice(),
+            $this->mockSession(),
         );
 
         $guard->setRequest(Request::create('/swap', 'GET'));
 
         self::assertNull($guard->user());
         self::assertNull($guard->principal());
-        self::assertNull($guard->device());
+        self::assertNull($guard->session());
     }
 }

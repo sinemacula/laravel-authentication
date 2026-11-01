@@ -23,23 +23,23 @@ The current note set is:
   is dispatched, and the one failure event.
 - `outcomes.md`: how the package's services answer: refusals as values, what `null` and `bool` may mean, the shape of a
   result, throttling as an outcome, and the named exceptions.
-- `refresh-rotation-and-replay.md`: why refresh is stateful, how per-device rotation works, the grace window for the
-  previous rotation id, and when a replayed refresh token revokes the device (`rotation_reuse`).
+- `refresh-rotation-and-replay.md`: why refresh is stateful, how per-session rotation works, the grace window for the
+  previous rotation id, and when a replayed refresh token revokes the session (`rotation_reuse`).
 - `refresh-token-transport.md`: where a guard reads the refresh token from, why a request may carry it in only one
   place, the cookie's cross-site checks, and the cookie that carries a browser's refresh token.
 - `fail-closed-pid-did.md`: why `pid` and `did` are treated as commitments rather than advisory hints.
-- `storage.md`: where the package's tables live, why the device-backed ones share one connection, and how the models
+- `storage.md`: where the package's tables live, why the session-backed ones share one connection, and how the models
   and the published migrations choose the same one.
-- `access-only-mode.md`: the supported bearer-only, no-devices migration path.
+- `access-only-mode.md`: the supported bearer-only, no-sessions migration path.
 - `guard-bound-tokens.md`: the `grd` claim that ties every token to its issuing guard, and the provider-scoped owner
   reload on refresh.
-- `session-service.md`: how a guard's session service signs in, creates a device and revokes the one a client proved,
+- `session-service.md`: how a guard's session service signs in, creates a session and revokes the one a client proved,
   issues the first pair, and reports it.
-- `device-lifecycle.md`: which devices are active, how an identity's devices are listed, how a session signs out and
-  devices are revoked (one, every device of an identity or a principal, and on security changes, by method or optional
-  listener), and when ended devices are pruned.
+- `session-lifecycle.md`: which sessions are active, how an identity's sessions are listed, how a session signs out and
+  sessions are revoked (one, every session of an identity or a principal, and on security changes, by method or optional
+  listener), and when ended sessions are pruned.
 - `principal-choice-and-switch.md`: how a sign-in that names no principal waits for the identity to choose one, and how
-  a session switches to another principal on its device, proven by its refresh token.
+  a session switches to another principal in place, proven by its refresh token.
 - `application-policy.md`: what each application (a guard) decides about its sessions (methods and machine credentials,
   none until it lists them; verified identifiers; the principals it admits; lifetimes), where every path enforces it,
   and how the attempt limits and identifier normalisers meet it.
@@ -57,7 +57,7 @@ The current note set is:
 - `provider-composition.md`: why every binding the provider makes is a default another provider's binding is never
   replaced by, in either order, and why the package owns the `auth` binding and what it takes over from the manager it
   replaces.
-- `testing-helpers.md`: how a test acts as an identity, principal or device's session on a package guard, how that
+- `testing-helpers.md`: how a test acts as an identity, principal or session on a package guard, how that
   survives the requests it sends and ends on a sign-out, what the bound-context assertions compare, and the fakes.
 
 These documents are secondary to the code and tests, not a replacement for them. If a note and a cited test disagree,

@@ -26,11 +26,11 @@ use Tests\Integration\Fixtures\ChoosingMembership;
  * Query-budget and timing contracts for choosing and switching principal: a
  * sign-in held for a choice reads the identity and its principals (and each
  * one's tenant) and writes the attempt counters and the pending choice; making
- * the choice uses it up, writes the device and gives the slots back; a switch
- * reads the refresh counters, the device, its owner, the target, its tenant and
- * its owner, writes the one compare-and-swap, and then reads the principal it
- * switched from for the event, while a grace retry writes nothing and a refusal
- * writes only the counters.
+ * the choice uses it up, writes the session and gives the slots back; a switch
+ * reads the refresh counters, the session, its owner, the target, its tenant
+ * and its owner, writes the one compare-and-swap, and then reads the principal
+ * it switched from for the event, while a grace retry writes nothing and a
+ * refusal writes only the counters.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -76,7 +76,7 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A switch to another membership reads the refresh counters, the device,
+     * A switch to another membership reads the refresh counters, the session,
      * its owner, the target, its tenant and its owner, writes the switch, and
      * reads the membership it switched from.
      *
@@ -144,14 +144,14 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * Choosing reads the pending choice, its identity, the chosen membership,
-     * its owner and its tenant, uses the choice up, writes the device, and
+     * its owner and its tenant, uses the choice up, writes the session, and
      * gives each of the choice's three attempt slots back.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testChoosingIsItsReadsTheDeviceAndTheSlotsGivenBack(): void
+    public function testChoosingIsItsReadsTheSessionAndTheSlotsGivenBack(): void
     {
         $token  = $this->offerChoice();
         $chosen = ChoosingMembership::query()->firstOrFail();
@@ -182,7 +182,7 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A lost switch response retried inside the grace window reads the refresh
-     * counters, the device, its owner, the target, its tenant and its owner,
+     * counters, the session, its owner, the target, its tenant and its owner,
      * and writes nothing: the current credential is handed back.
      *
      * @return void
@@ -203,7 +203,7 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A switch to a principal of another identity reads the refresh counters,
-     * the device, its owner and the identity's principals, is refused, and
+     * the session, its owner and the identity's principals, is refused, and
      * writes nothing but the failure on the two refresh counters.
      *
      * @return void
@@ -223,7 +223,7 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A switch the refresh limits already refuse reads the counters and nothing
-     * else: neither the device nor the target is read.
+     * else: neither the session nor the target is read.
      *
      * @return void
      *

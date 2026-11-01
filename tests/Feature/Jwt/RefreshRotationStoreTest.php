@@ -15,16 +15,16 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use Tests\Concerns\InteractsWithDevices;
-use Tests\Integration\Fixtures\SeparateConnectionDevice;
+use Tests\Concerns\InteractsWithSessionRecords;
+use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
-use Tests\Unit\Stubs\StubDevice;
+use Tests\Unit\Stubs\StubSession;
 
 /**
  * Feature tests for the guarded refresh-state writes and the locking re-read,
- * against a real device table on whichever engine the suite runs on, and a
- * device kept on a second connection.
+ * against a real session table on whichever engine the suite runs on, and a
+ * session kept on a second connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -34,19 +34,19 @@ use Tests\Unit\Stubs\StubDevice;
 #[CoversClass(RefreshRotationStore::class)]
 final class RefreshRotationStoreTest extends TestCase
 {
-    use InteractsWithDevices;
+    use InteractsWithSessionRecords;
 
-    /** @var string Rotation id the device currently holds. */
+    /** @var string Rotation id the session currently holds. */
     private const string CURRENT = 'current-rotation-id';
 
-    /** @var string Rotation id the device rotates to. */
+    /** @var string Rotation id the session rotates to. */
     private const string NEXT = 'next-rotation-id';
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
 
     /**
-     * Freeze the clock and create the device table.
+     * Freeze the clock and create the session table.
      *
      * @return void
      */
@@ -59,18 +59,18 @@ final class RefreshRotationStoreTest extends TestCase
 
         Carbon::setTestNow($this->now);
 
-        self::createDeviceTable('stub_devices');
+        self::createSessionRecordTable('stub_sessions');
     }
 
     /**
-     * Release the clock and drop the device table.
+     * Release the clock and drop the session table.
      *
      * @return void
      */
     #[\Override]
     protected function tearDown(): void
     {
-        DB::statement('drop table if exists stub_devices');
+        DB::statement('drop table if exists stub_sessions');
 
         Carbon::setTestNow();
 
@@ -80,38 +80,38 @@ final class RefreshRotationStoreTest extends TestCase
     /**
      * A rotation records the next digest as current, the presented one as
      * previous, the rotation time, and the new idle deadline, then mirrors them
-     * on the in-memory device as persisted state.
+     * on the in-memory session as persisted state.
      *
      * @return void
      */
     public function testRotateRecordsTheRotationAndMirrorsIt(): void
     {
-        $device = $this->device();
-        $idle   = $this->now->addDays(90);
+        $session = $this->record();
+        $idle    = $this->now->addDays(90);
 
-        self::assertTrue($this->store()->rotate($device, self::CURRENT, self::NEXT, $idle, $this->now));
+        self::assertTrue($this->store()->rotate($session, self::CURRENT, self::NEXT, $idle, $this->now));
 
-        $row = $this->row($device);
+        $row = $this->row($session);
 
         self::assertSame(RefreshTokenHasher::hash(self::NEXT), $row['refresh_key']);
         self::assertSame(RefreshTokenHasher::hash(self::CURRENT), $row['previous_refresh_key']);
         self::assertSame($this->now->getTimestamp(), Carbon::parse($row['refresh_rotated_at'])->getTimestamp()); // @phpstan-ignore argument.type
         self::assertSame($idle->getTimestamp(), Carbon::parse($row['idle_expires_at'])->getTimestamp()); // @phpstan-ignore argument.type
 
-        self::assertSame(RefreshTokenHasher::hash(self::NEXT), $device->getRefreshKey());
-        self::assertSame(RefreshTokenHasher::hash(self::CURRENT), $device->getPreviousRefreshKey());
-        self::assertSame($this->now->getTimestamp(), $device->getRefreshRotatedAt()?->getTimestamp());
-        self::assertSame($idle->getTimestamp(), $device->getIdleExpiresAt()?->getTimestamp());
-        self::assertFalse($device->isDirty());
+        self::assertSame(RefreshTokenHasher::hash(self::NEXT), $session->getRefreshKey());
+        self::assertSame(RefreshTokenHasher::hash(self::CURRENT), $session->getPreviousRefreshKey());
+        self::assertSame($this->now->getTimestamp(), $session->getRefreshRotatedAt()?->getTimestamp());
+        self::assertSame($idle->getTimestamp(), $session->getIdleExpiresAt()?->getTimestamp());
+        self::assertFalse($session->isDirty());
     }
 
     /**
-     * Rows of `[change committed after the device was loaded]` that the swap
+     * Rows of `[change committed after the session was loaded]` that the swap
      * must not overwrite.
      *
      * @return iterable<string, array{0: array<string, mixed>}>
      */
-    public static function provideChangesSinceTheDeviceWasLoaded(): iterable
+    public static function provideChangesSinceTheSessionWasLoaded(): iterable
     {
         yield from [
             'rotated elsewhere'       => [['refresh_key' => RefreshTokenHasher::hash('elsewhere')]],
@@ -122,43 +122,43 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * The swap applies only to the state the device was loaded with: after a
+     * The swap applies only to the state the session was loaded with: after a
      * concurrent rotation, revocation, or deadline change it affects no row,
-     * reports so, and leaves the in-memory device as it was.
+     * reports so, and leaves the in-memory session as it was.
      *
      * @param  array<string, mixed>  $change
      * @return void
      */
-    #[DataProvider('provideChangesSinceTheDeviceWasLoaded')]
-    public function testRotateMissesAfterAChangeSinceTheDeviceWasLoaded(array $change): void
+    #[DataProvider('provideChangesSinceTheSessionWasLoaded')]
+    public function testRotateMissesAfterAChangeSinceTheSessionWasLoaded(array $change): void
     {
-        $device = $this->device();
+        $session = $this->record();
 
-        DB::table('stub_devices')->where('id', $device->id)->update($change);
+        DB::table('stub_sessions')->where('id', $session->id)->update($change);
 
-        $before = $this->row($device);
+        $before = $this->row($session);
 
-        self::assertFalse($this->store()->rotate($device, self::CURRENT, self::NEXT, $this->now->addDays(90), $this->now));
-        self::assertSame($before, $this->row($device));
-        self::assertSame(RefreshTokenHasher::hash(self::CURRENT), $device->getRefreshKey());
-        self::assertNull($device->getPreviousRefreshKey());
+        self::assertFalse($this->store()->rotate($session, self::CURRENT, self::NEXT, $this->now->addDays(90), $this->now));
+        self::assertSame($before, $this->row($session));
+        self::assertSame(RefreshTokenHasher::hash(self::CURRENT), $session->getRefreshKey());
+        self::assertNull($session->getPreviousRefreshKey());
     }
 
     /**
      * A switch records the target, the switch time, the rotation and both
-     * deadlines, on the row and on the in-memory device.
+     * deadlines, on the row and on the in-memory session.
      *
      * @return void
      */
     public function testSwitchPrincipalRecordsTheTargetAndMirrorsIt(): void
     {
-        $device   = $this->device([...self::recordedPrincipal(new PlainPrincipalFixture('p-1')), 'principal_type' => 'previous-type']);
+        $session  = $this->record([...self::recordedPrincipal(new PlainPrincipalFixture('p-1')), 'principal_type' => 'previous-type']);
         $idle     = $this->now->addDays(30);
         $absolute = $this->now->addDays(60);
 
-        self::assertTrue($this->store()->switchPrincipal($device, self::CURRENT, self::NEXT, new PlainPrincipalFixture('p-2'), true, [$idle, $absolute], $this->now));
+        self::assertTrue($this->store()->switchPrincipal($session, self::CURRENT, self::NEXT, new PlainPrincipalFixture('p-2'), true, [$idle, $absolute], $this->now));
 
-        $row = $this->row($device);
+        $row = $this->row($session);
 
         self::assertSame(PlainPrincipalFixture::class, $row['principal_type']);
         self::assertSame('p-2', $row['principal_id']);
@@ -169,28 +169,28 @@ final class RefreshRotationStoreTest extends TestCase
         self::assertSame($idle->getTimestamp(), Carbon::parse($row['idle_expires_at'])->getTimestamp()); // @phpstan-ignore argument.type
         self::assertSame($absolute->getTimestamp(), Carbon::parse($row['absolute_expires_at'])->getTimestamp()); // @phpstan-ignore argument.type
 
-        self::assertSame('p-2', $device->getAttribute('principal_id'));
-        self::assertSame($this->now->getTimestamp(), $device->getPrincipalSwitchedAt()?->getTimestamp());
-        self::assertSame(RefreshTokenHasher::hash(self::NEXT), $device->getRefreshKey());
-        self::assertSame($absolute->getTimestamp(), $device->getAbsoluteExpiresAt()?->getTimestamp());
-        self::assertFalse($device->isDirty());
+        self::assertSame('p-2', $session->getAttribute('principal_id'));
+        self::assertSame($this->now->getTimestamp(), $session->getPrincipalSwitchedAt()?->getTimestamp());
+        self::assertSame(RefreshTokenHasher::hash(self::NEXT), $session->getRefreshKey());
+        self::assertSame($absolute->getTimestamp(), $session->getAbsoluteExpiresAt()?->getTimestamp());
+        self::assertFalse($session->isDirty());
     }
 
     /**
-     * A rotation for the principal the device already records moves the
+     * A rotation for the principal the session already records moves the
      * rotation and the deadlines but records no switch.
      *
      * @return void
      */
     public function testSwitchPrincipalWithoutSwitchingOnlyRotates(): void
     {
-        $device = $this->device(self::recordedPrincipal(new PlainPrincipalFixture('p-1')));
+        $session = $this->record(self::recordedPrincipal(new PlainPrincipalFixture('p-1')));
 
         $deadlines = [$this->now->addDays(30), $this->now->addDays(60)];
 
-        self::assertTrue($this->store()->switchPrincipal($device, self::CURRENT, self::NEXT, new PlainPrincipalFixture('p-2'), false, $deadlines, $this->now));
+        self::assertTrue($this->store()->switchPrincipal($session, self::CURRENT, self::NEXT, new PlainPrincipalFixture('p-2'), false, $deadlines, $this->now));
 
-        $row = $this->row($device);
+        $row = $this->row($session);
 
         self::assertSame('p-1', $row['principal_id']);
         self::assertNull($row['principal_switched_at']);
@@ -198,7 +198,7 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * Rows of `[change committed since the device was loaded]` for a switch.
+     * Rows of `[change committed since the session was loaded]` for a switch.
      *
      * @return iterable<string, array{0: array<string, mixed>}>
      */
@@ -215,70 +215,70 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * The switch applies only to the state the device was loaded with: after a
+     * The switch applies only to the state the session was loaded with: after a
      * concurrent rotation, revocation, deadline change or switch it affects no
-     * row, reports so, and leaves the in-memory device as it was.
+     * row, reports so, and leaves the in-memory session as it was.
      *
      * @param  array<string, mixed>  $change
      * @return void
      */
     #[DataProvider('provideChangesBeforeASwitch')]
-    public function testSwitchPrincipalMissesAfterAChangeSinceTheDeviceWasLoaded(array $change): void
+    public function testSwitchPrincipalMissesAfterAChangeSinceTheSessionWasLoaded(array $change): void
     {
-        $device = $this->device(self::recordedPrincipal(new PlainPrincipalFixture('p-1')));
+        $session = $this->record(self::recordedPrincipal(new PlainPrincipalFixture('p-1')));
 
-        DB::table('stub_devices')->where('id', $device->id)->update($change);
+        DB::table('stub_sessions')->where('id', $session->id)->update($change);
 
-        $before = $this->row($device);
+        $before = $this->row($session);
 
         $deadlines = [$this->now->addDays(30), $this->now->addDays(60)];
 
-        self::assertFalse($this->store()->switchPrincipal($device, self::CURRENT, self::NEXT, new PlainPrincipalFixture('p-2'), true, $deadlines, $this->now));
-        self::assertSame($before, $this->row($device));
-        self::assertSame('p-1', $device->getAttribute('principal_id'));
-        self::assertSame(RefreshTokenHasher::hash(self::CURRENT), $device->getRefreshKey());
+        self::assertFalse($this->store()->switchPrincipal($session, self::CURRENT, self::NEXT, new PlainPrincipalFixture('p-2'), true, $deadlines, $this->now));
+        self::assertSame($before, $this->row($session));
+        self::assertSame('p-1', $session->getAttribute('principal_id'));
+        self::assertSame(RefreshTokenHasher::hash(self::CURRENT), $session->getRefreshKey());
     }
 
     /**
      * A revocation records the time and reason, clears both digests, and
-     * mirrors them on the in-memory device.
+     * mirrors them on the in-memory session.
      *
      * @return void
      */
     public function testRevokeMarksTheRowAndMirrorsIt(): void
     {
-        $device = $this->device(['previous_refresh_key' => RefreshTokenHasher::hash('previous')]);
+        $session = $this->record(['previous_refresh_key' => RefreshTokenHasher::hash('previous')]);
 
-        self::assertTrue($this->store()->revoke($device, RevocationReason::ROTATION_REUSE, $this->now));
+        self::assertTrue($this->store()->revoke($session, RevocationReason::ROTATION_REUSE, $this->now));
 
-        $row = $this->row($device);
+        $row = $this->row($session);
 
         self::assertSame($this->now->getTimestamp(), Carbon::parse($row['revoked_at'])->getTimestamp()); // @phpstan-ignore argument.type
         self::assertSame('rotation_reuse', $row['revoked_reason']);
         self::assertNull($row['refresh_key']);
         self::assertNull($row['previous_refresh_key']);
 
-        self::assertSame($this->now->getTimestamp(), $device->getRevokedAt()?->getTimestamp());
-        self::assertSame('rotation_reuse', $device->getRevokedReason());
-        self::assertNull($device->getRefreshKey());
-        self::assertNull($device->getPreviousRefreshKey());
-        self::assertFalse($device->isDirty());
+        self::assertSame($this->now->getTimestamp(), $session->getRevokedAt()?->getTimestamp());
+        self::assertSame('rotation_reuse', $session->getRevokedReason());
+        self::assertNull($session->getRefreshKey());
+        self::assertNull($session->getPreviousRefreshKey());
+        self::assertFalse($session->isDirty());
     }
 
     /**
-     * Revoking a device that is already revoked changes nothing and reports so:
-     * the first revocation's time and reason are kept.
+     * Revoking a session that is already revoked changes nothing and reports
+     * so: the first revocation's time and reason are kept.
      *
      * @return void
      */
     public function testRevokeKeepsAnEarlierRevocation(): void
     {
-        $device = $this->device(['revoked_at' => '2026-04-01 09:00:00', 'revoked_reason' => 'earlier']);
-        $before = $this->row($device);
+        $session = $this->record(['revoked_at' => '2026-04-01 09:00:00', 'revoked_reason' => 'earlier']);
+        $before  = $this->row($session);
 
-        self::assertFalse($this->store()->revoke($device, RevocationReason::ROTATION_REUSE, $this->now));
-        self::assertSame($before, $this->row($device));
-        self::assertSame('earlier', $device->getRevokedReason());
+        self::assertFalse($this->store()->revoke($session, RevocationReason::ROTATION_REUSE, $this->now));
+        self::assertSame($before, $this->row($session));
+        self::assertSame('earlier', $session->getRevokedReason());
     }
 
     /**
@@ -289,9 +289,9 @@ final class RefreshRotationStoreTest extends TestCase
      */
     public function testReloadReadsTheRowAsItNowIs(): void
     {
-        $device = $this->device();
+        $session = $this->record();
 
-        DB::table('stub_devices')->where('id', $device->id)->update(['refresh_key' => RefreshTokenHasher::hash(self::NEXT)]);
+        DB::table('stub_sessions')->where('id', $session->id)->update(['refresh_key' => RefreshTokenHasher::hash(self::NEXT)]);
 
         $queries = [];
 
@@ -299,12 +299,12 @@ final class RefreshRotationStoreTest extends TestCase
             $queries[] = $query->sql;
         });
 
-        $fresh = $this->store()->reload($device);
+        $fresh = $this->store()->reload($session);
 
-        self::assertInstanceOf(StubDevice::class, $fresh);
-        self::assertNotSame($device, $fresh);
+        self::assertInstanceOf(StubSession::class, $fresh);
+        self::assertNotSame($session, $fresh);
         self::assertSame(RefreshTokenHasher::hash(self::NEXT), $fresh->getRefreshKey());
-        self::assertSame(RefreshTokenHasher::hash(self::CURRENT), $device->getRefreshKey());
+        self::assertSame(RefreshTokenHasher::hash(self::CURRENT), $session->getRefreshKey());
         self::assertCount(1, $queries);
 
         if (DB::connection()->getDriverName() === 'sqlite') {
@@ -315,85 +315,85 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * The re-read of a device deleted since it was loaded returns `null`.
+     * The re-read of a session deleted since it was loaded returns `null`.
      *
      * @return void
      */
-    public function testReloadReturnsNullForADeletedDevice(): void
+    public function testReloadReturnsNullForADeletedSession(): void
     {
-        $device = $this->device();
+        $session = $this->record();
 
-        DB::table('stub_devices')->where('id', $device->id)->delete();
+        DB::table('stub_sessions')->where('id', $session->id)->delete();
 
-        self::assertNull($this->store()->reload($device));
+        self::assertNull($this->store()->reload($session));
     }
 
     /**
-     * A rotation and a revocation change the device's own row and no other:
-     * neither another device of the same owner nor one of another owner.
+     * A rotation and a revocation change the session's own row and no other:
+     * neither another session of the same owner nor one of another owner.
      *
      * @return void
      */
-    public function testWritesTouchOnlyTheDevicesOwnRow(): void
+    public function testWritesTouchOnlyTheSessionsOwnRow(): void
     {
-        $device = $this->device(['authenticatable_type' => 'owner', 'authenticatable_id' => '1']);
+        $session = $this->record(['authenticatable_type' => 'owner', 'authenticatable_id' => '1']);
 
         $others = [
-            $this->device([
+            $this->record([
                 'authenticatable_type' => 'owner',
                 'authenticatable_id'   => '1',
                 'previous_refresh_key' => RefreshTokenHasher::hash('older'),
                 'refresh_rotated_at'   => '2026-04-06 11:00:00',
             ]),
-            $this->device(['authenticatable_type' => 'owner', 'authenticatable_id' => '2']),
+            $this->record(['authenticatable_type' => 'owner', 'authenticatable_id' => '2']),
         ];
 
         $before = array_map($this->row(...), $others);
 
-        self::assertTrue($this->store()->rotate($device, self::CURRENT, self::NEXT, $this->now->addDays(90), $this->now));
+        self::assertTrue($this->store()->rotate($session, self::CURRENT, self::NEXT, $this->now->addDays(90), $this->now));
         self::assertSame($before, array_map($this->row(...), $others));
 
-        self::assertTrue($this->store()->revoke($device, RevocationReason::ROTATION_REUSE, $this->now));
+        self::assertTrue($this->store()->revoke($session, RevocationReason::ROTATION_REUSE, $this->now));
         self::assertSame($before, array_map($this->row(...), $others));
-        self::assertNotNull($this->row($device)['revoked_at']);
+        self::assertNotNull($this->row($session)['revoked_at']);
     }
 
     /**
-     * A device kept on its own connection is rotated, revoked, and read again
+     * A session kept on its own connection is rotated, revoked, and read again
      * on that connection, never on the default one, even when the default
      * connection holds a table of the same name with the same row.
      *
      * @return void
      */
-    public function testWritesAndReadsUseTheDevicesOwnConnection(): void
+    public function testWritesAndReadsUseTheSessionsOwnConnection(): void
     {
-        self::createDeviceTable('devices', 'id', SeparateConnectionDevice::CONNECTION);
+        self::createSessionRecordTable('authentication_sessions', 'id', SeparateConnectionSession::CONNECTION);
 
-        $device = new SeparateConnectionDevice;
-        $device->forceFill([
+        $session = new SeparateConnectionSession;
+        $session->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => 'owner',
             'authenticatable_id'   => '1',
             'refresh_key'          => RefreshTokenHasher::hash(self::CURRENT),
         ])->save();
 
-        $device = SeparateConnectionDevice::query()->findOrFail($device->id);
-        $twin   = (array) DB::connection(SeparateConnectionDevice::CONNECTION)->table('devices')->where('id', $device->id)->first();
+        $session = SeparateConnectionSession::query()->findOrFail($session->id);
+        $twin    = (array) DB::connection(SeparateConnectionSession::CONNECTION)->table('authentication_sessions')->where('id', $session->id)->first();
 
-        DB::table('devices')->insert($twin);
+        DB::table('authentication_sessions')->insert($twin);
 
-        self::assertTrue($this->store()->rotate($device, self::CURRENT, self::NEXT, $this->now->addDays(90), $this->now));
-        self::assertSame(RefreshTokenHasher::hash(self::NEXT), $this->separateRow($device)['refresh_key']);
+        self::assertTrue($this->store()->rotate($session, self::CURRENT, self::NEXT, $this->now->addDays(90), $this->now));
+        self::assertSame(RefreshTokenHasher::hash(self::NEXT), $this->separateRow($session)['refresh_key']);
 
-        self::assertTrue($this->store()->revoke($device, RevocationReason::ROTATION_REUSE, $this->now));
-        self::assertSame('rotation_reuse', $this->separateRow($device)['revoked_reason']);
+        self::assertTrue($this->store()->revoke($session, RevocationReason::ROTATION_REUSE, $this->now));
+        self::assertSame('rotation_reuse', $this->separateRow($session)['revoked_reason']);
 
-        self::assertSame('rotation_reuse', $this->store()->reload($device)?->getRevokedReason());
-        self::assertSame($twin, (array) DB::table('devices')->where('id', $device->id)->first());
+        self::assertSame('rotation_reuse', $this->store()->reload($session)?->getRevokedReason());
+        self::assertSame($twin, (array) DB::table('authentication_sessions')->where('id', $session->id)->first());
     }
 
     /**
-     * Add the second connection a device can be kept on.
+     * Add the second connection a session can be kept on.
      *
      * @param  mixed  $app
      * @return void
@@ -406,7 +406,7 @@ final class RefreshRotationStoreTest extends TestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = app(ConfigRepository::class);
 
-        $config->set('database.connections.' . SeparateConnectionDevice::CONNECTION, ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
+        $config->set('database.connections.' . SeparateConnectionSession::CONNECTION, ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
     }
 
     /**
@@ -420,43 +420,43 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * Read the raw row of a device kept on its own connection.
+     * Read the raw row of a session kept on its own connection.
      *
-     * @param  \Tests\Integration\Fixtures\SeparateConnectionDevice  $device
+     * @param  \Tests\Integration\Fixtures\SeparateConnectionSession  $session
      * @return array<string, mixed>
      */
-    private function separateRow(SeparateConnectionDevice $device): array
+    private function separateRow(SeparateConnectionSession $session): array
     {
-        return (array) DB::connection(SeparateConnectionDevice::CONNECTION)->table('devices')->where('id', $device->id)->first();
+        return (array) DB::connection(SeparateConnectionSession::CONNECTION)->table('authentication_sessions')->where('id', $session->id)->first();
     }
 
     /**
-     * Persist a live device holding `CURRENT`, with any further state, and load
-     * it back as the exchange would.
+     * Persist a live session holding `CURRENT`, with any further state, and
+     * load it back as the exchange would.
      *
      * @param  array<string, mixed>  $state
-     * @return \Tests\Unit\Stubs\StubDevice
+     * @return \Tests\Unit\Stubs\StubSession
      */
-    private function device(array $state = []): StubDevice
+    private function record(array $state = []): StubSession
     {
-        $device = new StubDevice;
-        $device->forceFill([
+        $session = new StubSession;
+        $session->forceFill([
             ...self::liveSession(),
             'refresh_key' => RefreshTokenHasher::hash(self::CURRENT),
             ...$state,
         ])->save();
 
-        return StubDevice::query()->findOrFail($device->id);
+        return StubSession::query()->findOrFail($session->id);
     }
 
     /**
-     * Read a device's raw row.
+     * Read a session's raw row.
      *
-     * @param  \Tests\Unit\Stubs\StubDevice  $device
+     * @param  \Tests\Unit\Stubs\StubSession  $session
      * @return array<string, mixed>
      */
-    private function row(StubDevice $device): array
+    private function row(StubSession $session): array
     {
-        return (array) DB::table('stub_devices')->where('id', $device->id)->first();
+        return (array) DB::table('stub_sessions')->where('id', $session->id)->first();
     }
 }

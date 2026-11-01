@@ -12,9 +12,9 @@ use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyLookup;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyOutcome;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyToken;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -34,7 +34,7 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * or `Login`), and records the key's last use, at most once per
  * `last_used_throttle_seconds`. A rejected key dispatches one
  * `AuthenticationFailed` (flow `api_key`) and nothing else. Keys carry no
- * device and no refresh.
+ * session and no refresh.
  *
  * Nothing is counted against a limit: a key's secret cannot be guessed, and a
  * write per rejected request, or a read per request, would cost the hot path
@@ -59,13 +59,13 @@ final class ApiKeyGuard extends AbstractGuard
      *
      * @param  array<string, mixed>  $credentials
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return bool
      *
      * @imperative
      */
     #[\Override]
-    public function attempt(#[\SensitiveParameter] array $credentials, ?Principal $principal = null, ?Device $device = null): bool
+    public function attempt(#[\SensitiveParameter] array $credentials, ?Principal $principal = null, ?Session $session = null): bool
     {
         $context = new EventContext($this->context->name(), $this->context->client(), method: PasswordSignIn::NAME);
 

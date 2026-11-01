@@ -30,7 +30,7 @@ final class AttemptLimitsTest extends TestCase
 
     /**
      * The shipped defaults: sign-in 5 per identifier and 50 per IP address in
-     * five minutes; refresh failures 10 per device and 100 per IP address in a
+     * five minutes; refresh failures 10 per session and 100 per IP address in a
      * minute; code requests 5 per identifier and 50 per IP address in an hour;
      * passkey sign-in options 100 per IP address in five minutes, with no
      * identifier to count; client credentials failures 100 per IP address in a
@@ -212,8 +212,8 @@ final class AttemptLimitsTest extends TestCase
         $this->setGuardLimits(['sign_in' => 'off']);
         $this->assertFailsClosed('Rate limits for guard [api]: the guard\'s `rate_limits` `sign_in` must be an array or null.', AttemptFlow::SIGN_IN);
 
-        $this->setGuardLimits(['sign_in' => ['per_device' => null]]);
-        $this->assertFailsClosed('Rate limits for guard [api]: the guard\'s `rate_limits` `sign_in` has an unknown key `per_device`.', AttemptFlow::SIGN_IN);
+        $this->setGuardLimits(['sign_in' => ['per_session' => null]]);
+        $this->assertFailsClosed('Rate limits for guard [api]: the guard\'s `rate_limits` `sign_in` has an unknown key `per_session`.', AttemptFlow::SIGN_IN);
 
         $this->setGuardLimits(null);
 

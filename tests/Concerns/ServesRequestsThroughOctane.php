@@ -121,11 +121,11 @@ trait ServesRequestsThroughOctane
 
     /**
      * What the named guard has bound for the request being served: the
-     * identity, principal, device and tenant identifiers, and the granted
+     * identity, principal, session and tenant identifiers, and the granted
      * scopes.
      *
      * @param  string  $guard
-     * @return array{identity: mixed, principal: mixed, device: mixed, tenant: mixed, scopes: ?list<string>}
+     * @return array{identity: mixed, principal: mixed, session: mixed, tenant: mixed, scopes: ?list<string>}
      */
     protected static function contextOf(string $guard): array
     {
@@ -136,7 +136,7 @@ trait ServesRequestsThroughOctane
         return [
             'identity'  => $resolved->identity()?->getAuthIdentifier(),
             'principal' => $resolved->principal()?->getPrincipalIdentifier(),
-            'device'    => $resolved->device()?->getDeviceIdentifier(),
+            'session'   => $resolved->session()?->getSessionIdentifier(),
             'tenant'    => $resolved->tenant()?->getTenantIdentifier(),
             'scopes'    => $resolved->scopes(),
         ];

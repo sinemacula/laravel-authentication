@@ -11,9 +11,9 @@ use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Admission\SignInAdmission;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -53,7 +53,7 @@ trait SignsInWithCredentials
      * @param  \SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn  $password
      * @param  array<string, mixed>  $credentials
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
      *
@@ -63,7 +63,7 @@ trait SignsInWithCredentials
         PasswordSignIn $password,
         #[\SensitiveParameter] array $credentials,
         ?Principal $principal,
-        ?Device $device,
+        ?Session $session,
         ClientContext $client,
     ): Admitted|Refused {
         $guard  = $this->context->name();
@@ -83,7 +83,7 @@ trait SignsInWithCredentials
         }
 
         $outcome = $this->context->timebox()->run(
-            function (Timebox $timebox) use ($password, $credentials, $principal, $device, $client, $type, $attempt): Admitted|Refused {
+            function (Timebox $timebox) use ($password, $credentials, $principal, $session, $client, $type, $attempt): Admitted|Refused {
 
                 $user = $this->verifyAttemptedCredentials($password, $credentials, $attempt->accounts);
 
@@ -93,7 +93,7 @@ trait SignsInWithCredentials
 
                 $this->fireValidatedEvent($user);
 
-                $outcome = $this->admitVerifiedIdentity(new SignInAdmission($attempt->policy), $user, $principal, $device, $type);
+                $outcome = $this->admitVerifiedIdentity(new SignInAdmission($attempt->policy), $user, $principal, $session, $type);
 
                 if ($outcome instanceof Admitted) {
 
@@ -150,12 +150,12 @@ trait SignsInWithCredentials
     /**
      * Admit an identity whose password was accepted: activity, the principal
      * (the pinned one, or the resolver's default), the application policy, and
-     * the pinned device.
+     * the pinned session.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\SignInAdmission  $admission
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $identifierType
      * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
      *
@@ -163,7 +163,7 @@ trait SignsInWithCredentials
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    private function admitVerifiedIdentity(SignInAdmission $admission, Identity $identity, ?Principal $principal, ?Device $device, string $identifierType): Admitted|Refused
+    private function admitVerifiedIdentity(SignInAdmission $admission, Identity $identity, ?Principal $principal, ?Session $session, string $identifierType): Admitted|Refused
     {
         $admitted = $admission->admit(
             $this->context->name(),
@@ -177,20 +177,20 @@ trait SignsInWithCredentials
             return $admitted;
         }
 
-        if ($device === null) {
+        if ($session === null) {
             return $admitted;
         }
 
-        $resolvedDevice = $this->resolvePinnedDevice($identity, $admitted->principal, $device);
+        $resolvedSession = $this->resolvePinnedSession($identity, $admitted->principal, $session);
 
-        return $resolvedDevice === null
-            ? Refused::after(FailureReason::DEVICE_MISMATCH, $admitted)
-            : $admitted->on($resolvedDevice);
+        return $resolvedSession === null
+            ? Refused::after(FailureReason::SESSION_MISMATCH, $admitted)
+            : $admitted->on($resolvedSession);
     }
 
     /**
      * Refuse the admitted sign-in when the additional-factor policy asks it for
-     * a further factor, which `attempt()` cannot hand out. A pinned device
+     * a further factor, which `attempt()` cannot hand out. A pinned session
      * proves nothing about who holds the client, so the policy is never told of
      * one.
      *

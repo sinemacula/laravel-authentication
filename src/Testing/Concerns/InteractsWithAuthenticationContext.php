@@ -7,18 +7,18 @@ namespace SineMacula\Laravel\Authentication\Testing\Concerns;
 use Illuminate\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\Assert;
-use SineMacula\Laravel\Authentication\Contracts\Device;
-use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Testing\ActingContext;
 
 /**
- * Act as an identity, a principal or a device's session on a package guard in a
- * Laravel test, and assert what a guard has bound.
+ * Act as an identity, a principal or a session on a package guard in a Laravel
+ * test, and assert what a guard has bound.
  *
  * Acting binds the context through the guard's trusted `authenticateAs()` and
  * makes the guard the default, as Laravel's `actingAs()` does, but the context
@@ -28,8 +28,8 @@ use SineMacula\Laravel\Authentication\Testing\ActingContext;
  * guard (Laravel's `Logout`, as `Auth::logout()` and a sign-out endpoint
  * dispatch), or when the test acts again on the same guard; each guard keeps
  * its own. A queued job a worker runs still starts signed out, as in
- * production. Nothing is checked: the identity, principal and device are bound
- * as given, so a test can act as a revoked device or an inactive principal.
+ * production. Nothing is checked: the identity, principal and session are bound
+ * as given, so a test can act as a revoked session or an inactive principal.
  *
  * The assertions read the guard as application code does, so the first one on a
  * request authenticates it. No method shares a name with Laravel's
@@ -44,10 +44,10 @@ trait InteractsWithAuthenticationContext
 {
     /**
      * Act as the identity on the guard (the default guard when none is named),
-     * as the principal given or the resolver's default one, on the device given
-     * or none. A machine identity is limited to the scopes given, as if its
-     * credential granted them (none, `[]`, when no list is given), so a test of
-     * a scope-gated route needs no real API key.
+     * as the principal given or the resolver's default one, on the session
+     * given or none. A machine identity is limited to the scopes given, as if
+     * its credential granted them (none, `[]`, when no list is given), so a
+     * test of a scope-gated route needs no real API key.
      *
      * Throws an `InvalidArgumentException` when no principal is given and the
      * identity has no default one, when scopes are given for an identity that
@@ -55,7 +55,7 @@ trait InteractsWithAuthenticationContext
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?list<string>  $scopes
      * @param  ?string  $guard
      * @return static
@@ -65,20 +65,20 @@ trait InteractsWithAuthenticationContext
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function actingAsIdentity(Identity $identity, ?Principal $principal = null, ?Device $device = null, ?array $scopes = null, ?string $guard = null): static
+    public function actingAsIdentity(Identity $identity, ?Principal $principal = null, ?Session $session = null, ?array $scopes = null, ?string $guard = null): static
     {
         $resolved = ActingContext::guard($guard);
 
-        return $this->actOnGuard($resolved, $identity, $principal ?? ActingContext::defaultPrincipal($resolved, $identity), $device, $scopes);
+        return $this->actOnGuard($resolved, $identity, $principal ?? ActingContext::defaultPrincipal($resolved, $identity), $session, $scopes);
     }
 
     /**
      * Act as the principal, for the identity that owns it, on the guard (the
-     * default guard when none is named), on the device given or none, limited,
+     * default guard when none is named), on the session given or none, limited,
      * for a machine identity, to the scopes given (see `actingAsIdentity()`).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?list<string>  $scopes
      * @param  ?string  $guard
      * @return static
@@ -87,40 +87,40 @@ trait InteractsWithAuthenticationContext
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public function actingAsPrincipal(Principal $principal, ?Device $device = null, ?array $scopes = null, ?string $guard = null): static
+    public function actingAsPrincipal(Principal $principal, ?Session $session = null, ?array $scopes = null, ?string $guard = null): static
     {
-        return $this->actOnGuard(ActingContext::guard($guard), $principal->getIdentity(), $principal, $device, $scopes);
+        return $this->actOnGuard(ActingContext::guard($guard), $principal->getIdentity(), $principal, $session, $scopes);
     }
 
     /**
-     * Act on the device's session: as the identity that owns it and the
-     * principal it records, on the guard it records (or the default guard when
-     * it records none).
+     * Act on the session: as the identity that owns it and the principal it
+     * records, on the guard it records (or the default guard when it records
+     * none).
      *
      * Throws an `InvalidArgumentException` when a guard is named that the
-     * device does not record, when the guard's provider does not find the
-     * device's owner, or when its resolver does not resolve the principal the
-     * device records.
+     * session does not record, when the guard's provider does not find the
+     * session's owner, or when its resolver does not resolve the principal the
+     * session records.
      *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  ?string  $guard
      * @return static
      *
      * @throws \InvalidArgumentException
      */
-    public function actingOnDevice(EloquentDevice&Model $device, ?string $guard = null): static
+    public function actingOnSession(EloquentSession&Model $session, ?string $guard = null): static
     {
-        $name = $device->getGuard() ?? $guard;
+        $name = $session->getGuard() ?? $guard;
 
         if ($guard !== null && $name !== $guard) {
-            throw new \InvalidArgumentException(sprintf('Device [%s] belongs to guard [%s], not [%s].', IdentifierCoercion::stringify($device->getKey()), $name, $guard));
+            throw new \InvalidArgumentException(sprintf('Session [%s] belongs to guard [%s], not [%s].', IdentifierCoercion::stringify($session->getKey()), $name, $guard));
         }
 
         $resolved = ActingContext::guard($name);
 
-        [$identity, $principal] = ActingContext::recordedOn($resolved, $device);
+        [$identity, $principal] = ActingContext::recordedOn($resolved, $session);
 
-        return $this->actOnGuard($resolved, $identity, $principal, $device);
+        return $this->actOnGuard($resolved, $identity, $principal, $session);
     }
 
     /**
@@ -217,11 +217,11 @@ trait InteractsWithAuthenticationContext
     }
 
     /**
-     * Assert the device the guard (the default guard when none is named) has
+     * Assert the session the guard (the default guard when none is named) has
      * bound: none when `null` is expected, otherwise one of the same class with
-     * the same device identifier.
+     * the same session identifier.
      *
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $expected
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $expected
      * @param  ?string  $guard
      * @return static
      *
@@ -229,12 +229,12 @@ trait InteractsWithAuthenticationContext
      * @throws \PHPUnit\Framework\ExpectationFailedException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function assertBoundDevice(?Device $expected, ?string $guard = null): static
+    public function assertBoundSession(?Session $expected, ?string $guard = null): static
     {
         $resolved = ActingContext::guard($guard);
-        $actual   = $resolved->device();
+        $actual   = $resolved->session();
 
-        ActingContext::assertBound('device', $resolved, $expected, $expected?->getDeviceIdentifier(), $actual, $actual?->getDeviceIdentifier());
+        ActingContext::assertBound('session', $resolved, $expected, $expected?->getSessionIdentifier(), $actual, $actual?->getSessionIdentifier());
 
         return $this;
     }
@@ -267,7 +267,7 @@ trait InteractsWithAuthenticationContext
      * @param  \SineMacula\Laravel\Authentication\Guards\AbstractGuard  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?list<string>  $scopes
      * @return static
      *
@@ -275,13 +275,13 @@ trait InteractsWithAuthenticationContext
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    private function actOnGuard(AbstractGuard $guard, Identity $identity, Principal $principal, ?Device $device, ?array $scopes = null): static
+    private function actOnGuard(AbstractGuard $guard, Identity $identity, Principal $principal, ?Session $session, ?array $scopes = null): static
     {
         if ($identity instanceof Model) {
             $identity->wasRecentlyCreated = false;
         }
 
-        ActingContext::current()->act($guard, $identity, $principal, $device, $scopes);
+        ActingContext::current()->act($guard, $identity, $principal, $session, $scopes);
 
         /** @var \Illuminate\Auth\AuthManager $auth */
         $auth = Container::getInstance()->make('auth');

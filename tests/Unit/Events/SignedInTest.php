@@ -12,9 +12,9 @@ use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use Tests\Unit\Stubs\PlainDeviceFixture;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
+use Tests\Unit\Stubs\PlainSessionFixture;
 
 /**
  * SignedIn event unit tests.
@@ -29,7 +29,7 @@ final class SignedInTest extends TestCase
 {
     /**
      * The event keeps its context and whether a refresh renewed the session,
-     * and nothing else: every sign-in creates its device, so there is no flag
+     * and nothing else: every sign-in creates its session, so there is no flag
      * saying so.
      *
      * @return void
@@ -72,12 +72,12 @@ final class SignedInTest extends TestCase
         self::assertInstanceOf(SignedIn::class, $copy);
         self::assertSame('api', $copy->context->guard);
         self::assertSame('7', $copy->context->identityId);
-        self::assertSame('device-1', $copy->context->deviceId);
+        self::assertSame('session-1', $copy->context->sessionId);
         self::assertTrue($copy->refresh);
     }
 
     /**
-     * A context with an identity, principal and device, signed in with a
+     * A context with an identity, principal and session, signed in with a
      * password from a known client.
      *
      * @return \SineMacula\Laravel\Authentication\Events\EventContext
@@ -86,6 +86,6 @@ final class SignedInTest extends TestCase
     {
         $client = new ClientContext('203.0.113.7', 'agent');
 
-        return new EventContext('api', $client, new PlainIdentityFixture(7), new PlainPrincipalFixture('p-1'), null, new PlainDeviceFixture('device-1'), 'password');
+        return new EventContext('api', $client, new PlainIdentityFixture(7), new PlainPrincipalFixture('p-1'), null, new PlainSessionFixture('session-1'), 'password');
     }
 }

@@ -15,13 +15,13 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
-use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
+use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -37,7 +37,7 @@ use Tests\Unit\Stubs\StubTenant;
 /**
  * Feature tests of the session service's answers to security changes: each ends
  * the affected sessions with its own reason and moves the scope's cutoff,
- * keeping a device only where the method lets the caller name one; a tenant's
+ * keeping a session only where the method lets the caller name one; a tenant's
  * deactivation ends its principals' sessions only once every principal is
  * proven to act within it.
  *
@@ -47,7 +47,7 @@ use Tests\Unit\Stubs\StubTenant;
  * @internal
  */
 #[CoversClass(SessionService::class)]
-#[CoversClass(DeviceRevocations::class)]
+#[CoversClass(RevocationWriter::class)]
 #[CoversClass(SessionRevocations::class)]
 #[CoversTrait(EndsSessions::class)]
 final class RevokesOnSecurityChangesTest extends TestCase
@@ -100,14 +100,14 @@ final class RevokesOnSecurityChangesTest extends TestCase
     }
 
     /**
-     * Rows of `[the change, its reason, whether it keeps a device it is
+     * Rows of `[the change, its reason, whether it keeps a session it is
      * given]`.
      *
      * @formatter:off
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
-     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Identity, \SineMacula\Laravel\Authentication\Contracts\Device): int, 1: \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason, 2: bool}>
+     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Identity, \SineMacula\Laravel\Authentication\Contracts\Session): int, 1: \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason, 2: bool}>
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -116,7 +116,7 @@ final class RevokesOnSecurityChangesTest extends TestCase
     public static function provideIdentityChanges(): iterable
     {
         yield 'password changed' => [
-            static fn (SessionService $sessions, Identity $identity, Device $device): int => $sessions->passwordChanged($identity, $device),
+            static fn (SessionService $sessions, Identity $identity, Session $record): int => $sessions->passwordChanged($identity, $record),
             RevocationReason::PASSWORD_CHANGED,
             true,
         ];
@@ -128,7 +128,7 @@ final class RevokesOnSecurityChangesTest extends TestCase
         ];
 
         yield 'factor removed' => [
-            static fn (SessionService $sessions, Identity $identity, Device $device): int => $sessions->factorRemoved($identity, $device),
+            static fn (SessionService $sessions, Identity $identity, Session $record): int => $sessions->factorRemoved($identity, $record),
             RevocationReason::FACTOR_REMOVED,
             true,
         ];
@@ -142,14 +142,14 @@ final class RevokesOnSecurityChangesTest extends TestCase
 
     /**
      * Each change of an identity ends its sessions with the change's reason and
-     * moves its cutoff; a change that may keep the device it was made from
+     * moves its cutoff; a change that may keep the session it was made from
      * keeps it when given one.
      *
      * @formatter:off
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
-     * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Identity, \SineMacula\Laravel\Authentication\Contracts\Device): int  $change
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Identity, \SineMacula\Laravel\Authentication\Contracts\Session): int  $change
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
      * @param  bool  $keeps
      * @return void
@@ -167,13 +167,13 @@ final class RevokesOnSecurityChangesTest extends TestCase
         $kept     = $this->signIn($identity);
         $other    = $this->signIn($identity);
 
-        $this->recordEvents([DeviceRevoked::class, SignedOutEverywhere::class]);
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class]);
 
-        $revoked = $change($this->sessions(), $identity, $kept->device);
+        $revoked = $change($this->sessions(), $identity, $kept->record);
 
         self::assertSame($keeps ? 1 : 2, $revoked);
-        self::assertSame($reason->value, DB::table('devices')->where('id', $other->device->getKey())->value('revoked_reason'));
-        self::assertSame($keeps ? null : $reason->value, DB::table('devices')->where('id', $kept->device->getKey())->value('revoked_reason'));
+        self::assertSame($reason->value, DB::table('authentication_sessions')->where('id', $other->record->getKey())->value('revoked_reason'));
+        self::assertSame($keeps ? null : $reason->value, DB::table('authentication_sessions')->where('id', $kept->record->getKey())->value('revoked_reason'));
         self::assertSame(self::NOW, DB::table('cutoff_identities')->value('tokens_valid_after'));
 
         $scope = $this->recordedEvent(SignedOutEverywhere::class);
@@ -199,7 +199,7 @@ final class RevokesOnSecurityChangesTest extends TestCase
         $this->memberSignIn('other@example.test');
 
         self::assertSame(1, $this->sessions('members')->principalDeactivated($membership));
-        self::assertSame(['principal_deactivated'], DB::table('devices')->whereNotNull('revoked_at')->pluck('revoked_reason')->all());
+        self::assertSame(['principal_deactivated'], DB::table('authentication_sessions')->whereNotNull('revoked_at')->pluck('revoked_reason')->all());
     }
 
     /**
@@ -221,22 +221,22 @@ final class RevokesOnSecurityChangesTest extends TestCase
         $this->memberSignIn('other@example.test');
         $this->memberSignIn('outsider@example.test');
 
-        $this->recordEvents([DeviceRevoked::class, SignedOutEverywhere::class]);
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class]);
 
         self::assertSame(2, $this->sessions('members')->tenantDeactivated($tenant, [$first, $first, $second]));
 
         self::assertSame(
-            [DeviceRevoked::class, SignedOutEverywhere::class, DeviceRevoked::class, SignedOutEverywhere::class],
+            [SessionRevoked::class, SignedOutEverywhere::class, SessionRevoked::class, SignedOutEverywhere::class],
             $this->recordedClasses(),
         );
 
         foreach ($this->recorded as $event) {
-            self::assertTrue($event instanceof DeviceRevoked || $event instanceof SignedOutEverywhere);
+            self::assertTrue($event instanceof SessionRevoked || $event instanceof SignedOutEverywhere);
             self::assertSame($tenant, $event->context->tenant);
             self::assertSame(RevocationReason::TENANT_DEACTIVATED, $event->reason);
         }
 
-        self::assertSame(IdentifierCoercion::stringify($outsider->getKey()), DB::table('devices')->whereNull('revoked_at')->value('principal_id'));
+        self::assertSame(IdentifierCoercion::stringify($outsider->getKey()), DB::table('authentication_sessions')->whereNull('revoked_at')->value('principal_id'));
     }
 
     /**
@@ -288,7 +288,7 @@ final class RevokesOnSecurityChangesTest extends TestCase
             self::assertStringContainsString($expected, $exception->getMessage());
         }
 
-        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
     }
 
     /**
@@ -317,7 +317,7 @@ final class RevokesOnSecurityChangesTest extends TestCase
             self::assertStringContainsString($expected, $exception->getMessage());
         }
 
-        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
     }
 
     /**
@@ -348,12 +348,12 @@ final class RevokesOnSecurityChangesTest extends TestCase
             self::assertStringContainsString('does not act within tenant', $exception->getMessage());
         }
 
-        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
 
         $member->setRelation('tenant', $other);
 
         self::assertSame(1, $this->sessions('members')->tenantDeactivated($tenant, [$member]));
-        self::assertSame(1, DB::table('devices')->whereNotNull('revoked_at')->count());
+        self::assertSame(1, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
     }
 
     /**
@@ -429,7 +429,7 @@ final class RevokesOnSecurityChangesTest extends TestCase
         }
 
         self::assertSame(1, $this->sessions('members')->tenantDeactivated($tenant, [$member->fresh()]));
-        self::assertSame('tenant_deactivated', DB::table('devices')->value('revoked_reason'));
+        self::assertSame('tenant_deactivated', DB::table('authentication_sessions')->value('revoked_reason'));
 
         [, $last, $gone] = $this->seedMember('last@example.test');
 

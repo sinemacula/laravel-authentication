@@ -23,18 +23,18 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
-use SineMacula\Laravel\Authentication\Events\DeviceCreated;
-use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
+use SineMacula\Laravel\Authentication\Events\SessionCreated;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
-use SineMacula\Laravel\Authentication\Sessions\DeviceProof;
 use SineMacula\Laravel\Authentication\Sessions\FoundPendingSignIn;
 use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
+use SineMacula\Laravel\Authentication\Sessions\ProvenSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
@@ -103,8 +103,8 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
-     * An admitted sign-in is written on a new device and reported, with
-     * `DeviceCreated` and then `SignedIn`, while the guard stays a guest: no
+     * An admitted sign-in is written on a new session and reported, with
+     * `SessionCreated` and then `SignedIn`, while the guard stays a guest: no
      * bind event fires and nothing is bound.
      *
      * @return void
@@ -116,15 +116,15 @@ final class SessionEstablishmentTest extends TestCase
         $identity = $this->seedIdentity();
         $guard    = $this->freshGuard();
 
-        $this->recordEvents([DeviceCreated::class, SignedIn::class, Login::class, Authenticated::class]);
+        $this->recordEvents([SessionCreated::class, SignedIn::class, Login::class, Authenticated::class]);
 
         $result = $this->establishment($guard)->proceed(self::admitted($identity), 'password', 'email', $this->context());
 
         self::assertTrue($result->isSignedIn());
-        self::assertSame(1, DB::table('devices')->count());
-        self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
-        self::assertSame($result->session?->device, $this->recordedEvent(SignedIn::class)->context->device);
-        self::assertSame($result->session?->device, $this->recordedEvent(DeviceCreated::class)->context->device);
+        self::assertSame(1, DB::table('authentication_sessions')->count());
+        self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame($result->session?->record, $this->recordedEvent(SignedIn::class)->context->session);
+        self::assertSame($result->session?->record, $this->recordedEvent(SessionCreated::class)->context->session);
         self::assertFalse($this->recordedEvent(SignedIn::class)->refresh);
         self::assertTrue($guard->guest());
     }
@@ -142,7 +142,7 @@ final class SessionEstablishmentTest extends TestCase
         $identity = $this->seedIdentity();
         $guard    = $this->freshGuard();
 
-        $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionCreated::class, SignedIn::class]);
 
         DB::beginTransaction();
 
@@ -151,22 +151,23 @@ final class SessionEstablishmentTest extends TestCase
 
         DB::commit();
 
-        self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertTrue($guard->guest());
     }
 
     /**
-     * A client that proves it holds a device of the same identity and principal
-     * gets a new device, and the proven one is revoked as `superseded`. Once
-     * the caller's transaction commits, the revocation is reported first, for
-     * the proven device with the method it records and the sign-in's client,
-     * then `DeviceCreated` and `SignedIn` for the new device.
+     * A client that proves it holds a session of the same identity and
+     * principal gets a new session, and the proven one is revoked as
+     * `superseded`. Once the caller's transaction commits, the revocation is
+     * reported first, for the proven session with the method it records and the
+     * sign-in's client, then `SessionCreated` and `SignedIn` for the new
+     * session.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAProvenDeviceIsReplacedAndReportedInOrder(): void
+    public function testAProvenSessionIsReplacedAndReportedInOrder(): void
     {
         $identity     = $this->seedIdentity();
         $guard        = $this->freshGuard();
@@ -175,7 +176,7 @@ final class SessionEstablishmentTest extends TestCase
 
         self::assertNotNull($first);
 
-        $this->recordEvents([DeviceRevoked::class, DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionRevoked::class, SessionCreated::class, SignedIn::class]);
 
         DB::beginTransaction();
 
@@ -186,30 +187,30 @@ final class SessionEstablishmentTest extends TestCase
         DB::commit();
 
         self::assertNotNull($replaced);
-        self::assertNotSame($first->device->getKey(), $replaced->device->getKey());
-        self::assertSame(2, DB::table('devices')->count());
-        self::assertSame('superseded', DB::table('devices')->where('id', $first->device->getKey())->value('revoked_reason'));
-        self::assertNull(DB::table('devices')->where('id', $replaced->device->getKey())->value('revoked_at'));
-        self::assertSame([DeviceRevoked::class, DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertNotSame($first->record->getKey(), $replaced->record->getKey());
+        self::assertSame(2, DB::table('authentication_sessions')->count());
+        self::assertSame('superseded', DB::table('authentication_sessions')->where('id', $first->record->getKey())->value('revoked_reason'));
+        self::assertNull(DB::table('authentication_sessions')->where('id', $replaced->record->getKey())->value('revoked_at'));
+        self::assertSame([SessionRevoked::class, SessionCreated::class, SignedIn::class], $this->recordedClasses());
 
-        $revoked = $this->recordedEvent(DeviceRevoked::class);
+        $revoked = $this->recordedEvent(SessionRevoked::class);
 
         self::assertSame(RevocationReason::SUPERSEDED, $revoked->reason);
-        self::assertSame(IdentifierCoercion::stringify($first->device->getKey()), $revoked->context->deviceId);
+        self::assertSame(IdentifierCoercion::stringify($first->record->getKey()), $revoked->context->sessionId);
         self::assertSame('api', $revoked->context->guard);
         self::assertSame('sso', $revoked->context->method);
         self::assertSame($identity, $revoked->context->identity);
         self::assertSame($identity, $revoked->context->principal);
         self::assertSame(self::CLIENT_IP, $revoked->context->client->ip);
-        self::assertSame(IdentifierCoercion::stringify($replaced->device->getKey()), $this->recordedEvent(DeviceCreated::class)->context->deviceId);
-        self::assertSame(IdentifierCoercion::stringify($replaced->device->getKey()), $this->recordedEvent(SignedIn::class)->context->deviceId);
+        self::assertSame(IdentifierCoercion::stringify($replaced->record->getKey()), $this->recordedEvent(SessionCreated::class)->context->sessionId);
+        self::assertSame(IdentifierCoercion::stringify($replaced->record->getKey()), $this->recordedEvent(SignedIn::class)->context->sessionId);
         self::assertSame('password', $this->recordedEvent(SignedIn::class)->context->method);
         self::assertTrue($guard->guest());
     }
 
     /**
      * A replacement rolled back by its caller reports nothing and leaves the
-     * proven device live, with no new device.
+     * proven session live, with no new session.
      *
      * @return void
      *
@@ -223,7 +224,7 @@ final class SessionEstablishmentTest extends TestCase
 
         self::assertNotNull($first);
 
-        $this->recordEvents([DeviceRevoked::class, DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionRevoked::class, SessionCreated::class, SignedIn::class]);
 
         DB::beginTransaction();
 
@@ -232,16 +233,16 @@ final class SessionEstablishmentTest extends TestCase
         DB::rollBack();
 
         self::assertSame([], $this->recordedClasses());
-        self::assertSame(1, DB::table('devices')->count());
-        self::assertNull(DB::table('devices')->where('id', $first->device->getKey())->value('revoked_at'));
+        self::assertSame(1, DB::table('authentication_sessions')->count());
+        self::assertNull(DB::table('authentication_sessions')->where('id', $first->record->getKey())->value('revoked_at'));
     }
 
     /**
-     * A proof whose device changes before it can be replaced (here a refresh
+     * A proof whose session changes before it can be replaced (here a refresh
      * rotates it while the factor policy is asked) is dropped: the sign-in is
-     * reconsidered without it, the policy asked again with no proven device,
-     * and the session starts on a new device while the refreshed one stays live
-     * and unreported.
+     * reconsidered without it, the policy asked again with no proven session,
+     * and a new session starts while the refreshed one stays live and
+     * unreported.
      *
      * @return void
      *
@@ -258,24 +259,24 @@ final class SessionEstablishmentTest extends TestCase
         /** @var \ArrayObject<int, mixed> $asked */
         $asked = new \ArrayObject;
 
-        app()->instance(AdditionalFactorPolicy::class, new readonly class ($asked, IdentifierCoercion::stringify($first->device->getKey())) implements AdditionalFactorPolicy {
+        app()->instance(AdditionalFactorPolicy::class, new readonly class ($asked, IdentifierCoercion::stringify($first->record->getKey())) implements AdditionalFactorPolicy {
             /**
              * Constructor.
              *
              * @param  \ArrayObject<int, mixed>  $asked
-             * @param  ?string  $device
+             * @param  ?string  $record
              */
             public function __construct(
 
-                /** The proven device of every context asked about, in order. */
+                /** The proven session of every context asked about, in order. */
                 private \ArrayObject $asked,
 
-                /** The device a refresh rotates the first time the policy is asked. */
-                private ?string $device,
+                /** The session a refresh rotates the first time the policy is asked. */
+                private ?string $record,
             ) {}
 
             /**
-             * Record the proven device, rotating the device the first time.
+             * Record the proven session, rotating the session the first time.
              *
              * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
              * @return bool
@@ -284,30 +285,30 @@ final class SessionEstablishmentTest extends TestCase
             public function requiresAdditionalFactor(AdditionalFactorContext $context): bool
             {
                 if ($this->asked->count() === 0) {
-                    DB::table('devices')->where('id', $this->device)->update(['refresh_key' => str_repeat('a', 64)]);
+                    DB::table('authentication_sessions')->where('id', $this->record)->update(['refresh_key' => str_repeat('a', 64)]);
                 }
 
-                $this->asked->append($context->provenDevice?->getDeviceIdentifier());
+                $this->asked->append($context->provenSession?->getSessionIdentifier());
 
                 return false;
             }
         });
 
-        $this->recordEvents([DeviceRevoked::class, DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionRevoked::class, SessionCreated::class, SignedIn::class]);
 
         $session = $establishing->proceed(self::admitted($identity), 'password', 'email', $this->context($first->tokens->refreshToken))->session;
 
         self::assertNotNull($session);
-        self::assertSame([$first->device->getKey(), null], $asked->getArrayCopy());
-        self::assertSame(2, DB::table('devices')->whereNull('revoked_at')->count());
-        self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
-        self::assertSame(IdentifierCoercion::stringify($session->device->getKey()), $this->recordedEvent(SignedIn::class)->context->deviceId);
+        self::assertSame([$first->record->getKey(), null], $asked->getArrayCopy());
+        self::assertSame(2, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
+        self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame(IdentifierCoercion::stringify($session->record->getKey()), $this->recordedEvent(SignedIn::class)->context->sessionId);
     }
 
     /**
-     * A listener on the replaced device's revocation that throws stops the
+     * A listener on the replaced session's revocation that throws stops the
      * reports after it, and its exception reaches the caller, while the
-     * committed writes stand: the proven device revoked, the new one live.
+     * committed writes stand: the proven session revoked, the new one live.
      *
      * @return void
      *
@@ -321,9 +322,9 @@ final class SessionEstablishmentTest extends TestCase
 
         self::assertNotNull($first);
 
-        $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionCreated::class, SignedIn::class]);
 
-        Event::listen(DeviceRevoked::class, static function (): void {
+        Event::listen(SessionRevoked::class, static function (): void {
             throw new \RuntimeException('revocation listener failed');
         });
 
@@ -335,15 +336,15 @@ final class SessionEstablishmentTest extends TestCase
         }
 
         self::assertSame([], $this->recordedClasses());
-        self::assertSame('superseded', DB::table('devices')->where('id', $first->device->getKey())->value('revoked_reason'));
-        self::assertSame(1, DB::table('devices')->whereNull('revoked_at')->count());
-        self::assertSame(2, DB::table('devices')->count());
+        self::assertSame('superseded', DB::table('authentication_sessions')->where('id', $first->record->getKey())->value('revoked_reason'));
+        self::assertSame(1, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
+        self::assertSame(2, DB::table('authentication_sessions')->count());
     }
 
     /**
      * When the additional-factor policy asks for a further factor, the sign-in
      * is held as a pending sign-in carrying the slots it took, reported by
-     * `AdditionalFactorRequired` once committed; no device is written and the
+     * `AdditionalFactorRequired` once committed; no session is written and the
      * guard is not bound.
      *
      * @return void
@@ -357,12 +358,12 @@ final class SessionEstablishmentTest extends TestCase
 
         self::requireAFurtherFactor(true);
 
-        $this->recordEvents([AdditionalFactorRequired::class, DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([AdditionalFactorRequired::class, SessionCreated::class, SignedIn::class]);
 
         $result = $this->establishment($guard)->proceed(self::admitted($identity), 'password', 'email', $this->context(), self::WINDOWS);
 
         self::assertTrue($result->requiresFactor());
-        self::assertSame(0, DB::table('devices')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->count());
         self::assertSame(self::WINDOWS, PendingSignIn::query()->sole()->attempt_windows);
         self::assertSame([AdditionalFactorRequired::class], $this->recordedClasses());
         self::assertTrue($guard->guest());
@@ -397,7 +398,7 @@ final class SessionEstablishmentTest extends TestCase
 
         $found = $this->found($guard, $pending->token);
 
-        $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionCreated::class, SignedIn::class]);
 
         DB::beginTransaction();
 
@@ -410,7 +411,7 @@ final class SessionEstablishmentTest extends TestCase
 
         DB::commit();
 
-        self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertSame(self::WINDOWS, self::released($limiter));
         self::assertSame(0, PendingSignIn::query()->count());
         self::assertTrue($guard->guest());
@@ -423,16 +424,16 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
-     * A completion of a pending sign-in that proved a device replaces that
-     * device once, in the completion's transaction: one new device, the proven
-     * one revoked as `superseded`, and the revocation reported before the new
-     * device and the sign-in.
+     * A completion of a pending sign-in that proved a session replaces that
+     * session once, in the completion's transaction: one new session, the
+     * proven one revoked as `superseded`, and the revocation reported before
+     * the new session and the sign-in.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testACompletionReplacesTheProvenDevice(): void
+    public function testACompletionReplacesTheProvenSession(): void
     {
         $identity     = $this->seedIdentity();
         $guard        = $this->freshGuard();
@@ -446,26 +447,26 @@ final class SessionEstablishmentTest extends TestCase
         $pending = $establishing->proceed(self::admitted($identity), 'password', 'email', $this->context($first->tokens->refreshToken))->pending;
 
         self::assertNotNull($pending);
-        self::assertNull(DB::table('devices')->where('id', $first->device->getKey())->value('revoked_at'));
+        self::assertNull(DB::table('authentication_sessions')->where('id', $first->record->getKey())->value('revoked_at'));
 
         self::requireAFurtherFactor(false);
 
-        $this->recordEvents([DeviceRevoked::class, DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([SessionRevoked::class, SessionCreated::class, SignedIn::class]);
 
         $result = $establishing->complete($this->found($guard, $pending->token), $this->context(), CarbonImmutable::now());
 
         self::assertInstanceOf(SignInResult::class, $result);
         self::assertNotNull($result->session);
-        self::assertSame(2, DB::table('devices')->count());
-        self::assertSame('superseded', DB::table('devices')->where('id', $first->device->getKey())->value('revoked_reason'));
-        self::assertSame([DeviceRevoked::class, DeviceCreated::class, SignedIn::class], $this->recordedClasses());
-        self::assertSame(IdentifierCoercion::stringify($first->device->getKey()), $this->recordedEvent(DeviceRevoked::class)->context->deviceId);
-        self::assertSame(IdentifierCoercion::stringify($result->session->device->getKey()), $this->recordedEvent(SignedIn::class)->context->deviceId);
+        self::assertSame(2, DB::table('authentication_sessions')->count());
+        self::assertSame('superseded', DB::table('authentication_sessions')->where('id', $first->record->getKey())->value('revoked_reason'));
+        self::assertSame([SessionRevoked::class, SessionCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame(IdentifierCoercion::stringify($first->record->getKey()), $this->recordedEvent(SessionRevoked::class)->context->sessionId);
+        self::assertSame(IdentifierCoercion::stringify($result->session->record->getKey()), $this->recordedEvent(SignedIn::class)->context->sessionId);
     }
 
     /**
      * A session that continues a spent pending sign-in (a choice already used
-     * up) records the client that sign-in began from as its device's creation,
+     * up) records the client that sign-in began from as its session's creation,
      * runs in the client continuing it, and gives back the slots the sign-in
      * took once the caller's transaction commits.
      *
@@ -495,10 +496,10 @@ final class SessionEstablishmentTest extends TestCase
 
         DB::commit();
 
-        $device = DB::table('devices')->sole();
+        $record = DB::table('authentication_sessions')->sole();
 
-        self::assertSame('198.51.100.7', $device->created_ip);
-        self::assertSame(self::CLIENT_IP, $device->last_used_ip);
+        self::assertSame('198.51.100.7', $record->created_ip);
+        self::assertSame(self::CLIENT_IP, $record->last_used_ip);
         self::assertSame(self::WINDOWS, self::released($limiter));
         self::assertTrue($guard->guest());
     }
@@ -571,7 +572,7 @@ final class SessionEstablishmentTest extends TestCase
         return new SessionEstablishment(
             $guard->context(),
             new SessionWriter($guard->getName(), $guard->tokens(), $connections),
-            new DeviceProof($guard->tokens()),
+            new ProvenSessions($guard->tokens()),
             new PendingSignIns(app(ConfigRepository::class)),
             new AfterCommit(static fn (): mixed => app('db.transactions')),
             app(),

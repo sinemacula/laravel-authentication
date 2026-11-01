@@ -63,8 +63,8 @@ final class NamespaceDependenciesTest extends TestCase
             'forbids' => ['Jwt', 'Sessions', 'Guards'],
             'allows'  => [],
         ],
-        'admission, devices and the support helpers name nothing of tokens, sessions or guards' => [
-            'from'    => ['Admission', 'Devices', 'Support'],
+        'admission, sessions and the support helpers name nothing of tokens, sessions or guards' => [
+            'from'    => ['Admission', 'SessionRecords', 'Support'],
             'except'  => [],
             'forbids' => ['Jwt', 'Sessions', 'Guards'],
             'allows'  => [],
@@ -268,10 +268,10 @@ final class NamespaceDependenciesTest extends TestCase
              */
             final class Example
             {
-                use Concerns\ManagesDevices;
+                use Concerns\ManagesSessions;
 
-                /** @var \SineMacula\Laravel\Authentication\Models\Device */
-                private $device;
+                /** @var \SineMacula\Laravel\Authentication\Models\Session */
+                private $session;
 
                 public function run(): void
                 {
@@ -304,8 +304,8 @@ final class NamespaceDependenciesTest extends TestCase
             'Http\ClientContext',
             'Jwt\TokenLifetimes',
             'Jwt\issue',
-            'Models\Device',
-            'Sessions\Concerns\ManagesDevices',
+            'Models\Session',
+            'Sessions\Concerns\ManagesSessions',
             'Sessions\SessionWriter',
             'Support\helper',
         ], $names);
@@ -335,7 +335,7 @@ final class NamespaceDependenciesTest extends TestCase
 
                 final class Example
                 {
-                    use Concerns\HasDevices;
+                    use Concerns\HasSessions;
                 }
             }
 
@@ -356,7 +356,7 @@ final class NamespaceDependenciesTest extends TestCase
             'Database\AfterCommit',
             'Guards',
             'Jwt\TokenLifetimes',
-            'Models\Concerns\HasDevices',
+            'Models\Concerns\HasSessions',
             'Sessions\SessionService',
         ], $names);
     }
@@ -392,7 +392,7 @@ final class NamespaceDependenciesTest extends TestCase
                 public function run(): void
                 {
                     new Auth\Jwt\TokenLifetimes;
-                    new auth\Sessions\DeviceProof;
+                    new auth\Sessions\ProvenSessions;
                     new GUARDING\JwtGuard;
                     new tokens\JwtKeyring;
                     new \sinemacula\laravel\authentication\jwt\MachineTokens;
@@ -410,7 +410,7 @@ final class NamespaceDependenciesTest extends TestCase
             'Jwt',
             'Jwt\JwtKeyring',
             'Jwt\TokenLifetimes',
-            'Sessions\DeviceProof',
+            'Sessions\ProvenSessions',
             'jwt\MachineTokens',
             'sessions\SessionService',
         ], $names);
@@ -421,7 +421,7 @@ final class NamespaceDependenciesTest extends TestCase
             'Models\Example names Jwt',
             'Models\Example names Jwt\JwtKeyring',
             'Models\Example names Jwt\TokenLifetimes',
-            'Models\Example names Sessions\DeviceProof',
+            'Models\Example names Sessions\ProvenSessions',
             'Models\Example names jwt\MachineTokens',
             'Models\Example names sessions\SessionService',
         ], self::violations(['Models\Example' => $names], ['models'], [], ['JWT', 'Sessions', 'Guards'], []));

@@ -15,12 +15,13 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * A sign-in waiting for a further factor, or for its identity to choose the
  * principal it acts as: who signed in, as which principal (none yet for a
  * choice), through which guard and method, from which client, on which proven
- * device, and until when the pending credential that continues it is valid.
+ * session, and until when the pending credential that continues it is valid.
  *
  * Kept on the storage connection (see `Database\StorageConnection`) with the
- * devices, so completing it and writing the session are one transaction, in the
- * table named by `authentication.sign_in.pending_table`. Rows whose credential
- * has expired are pruned by Laravel's `model:prune --model` with this class.
+ * sessions, so completing it and writing the session are one transaction, in
+ * the table named by `authentication.sign_in.pending_table`. Rows whose
+ * credential has expired are pruned by Laravel's `model:prune --model` with
+ * this class.
  *
  * Only the class name is public, for applications to schedule that pruning
  * with; its columns and behaviour belong to the session service.
@@ -44,8 +45,8 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * @property ?string $platform
  * @property ?string $created_ip
  * @property ?string $created_user_agent
- * @property ?string $device_id
- * @property ?string $device_refresh_key
+ * @property ?string $proven_session_id
+ * @property ?string $proven_session_refresh_key
  * @property ?list<array<string, string>> $attempt_windows
  * @property \Carbon\CarbonInterface $expires_at
  */
@@ -69,7 +70,7 @@ final class PendingSignIn extends Model
     protected $fillable = [];
 
     /** @var list<string> The attributes hidden from serialisation. */
-    protected $hidden = ['token_digest', 'device_refresh_key', 'attempt_windows'];
+    protected $hidden = ['token_digest', 'proven_session_refresh_key', 'attempt_windows'];
 
     /**
      * Create a pending sign-in on the storage connection, in the configured

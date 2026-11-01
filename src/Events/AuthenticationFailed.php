@@ -17,8 +17,8 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
  * Carries as much context as the flow established before it failed: the
  * identity only once a sign-in method verified it or a token's subject loaded
  * (a wrong password or an unknown identifier carries none), the principal and
- * tenant only once resolved, and the device, or the id a token named when no
- * device row was found. The identifier is the one a sign-in's input named, as
+ * tenant only once resolved, and the session, or the id a token named when no
+ * session row was found. The identifier is the one a sign-in's input named, as
  * given. Never a password, a code, a token or any other secret.
  *
  * It says why a sign-in failed even where the client is not told: a refusal by

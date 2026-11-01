@@ -10,15 +10,15 @@ use SineMacula\Laravel\Authentication\Casts\NormalizedIdentifier;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesIdentifierVerification;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
  * 2D identity fixture with a designated email address and a phone number, each
- * with a verification time beside it, that owns devices so the session service
+ * with a verification time beside it, that owns sessions so the session service
  * can sign it in.
  *
  * @property int $id
@@ -33,7 +33,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
  *
  * @internal
  */
-final class VerifiableIdentity extends Model implements HasDevices, HasVerifiableIdentifiers, Identity, Principal
+final class VerifiableIdentity extends Model implements HasSessions, HasVerifiableIdentifiers, Identity, Principal
 {
     use ActsAsPrincipal, Authenticatable, ProvidesIdentifierVerification;
 
@@ -44,14 +44,14 @@ final class VerifiableIdentity extends Model implements HasDevices, HasVerifiabl
     protected $guarded = [];
 
     /**
-     * Eloquent relation builder for the identity's devices.
+     * Eloquent relation builder for the identity's sessions.
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
     #[\Override]
-    public function devices(): Builder
+    public function sessions(): Builder
     {
-        return Device::query()
+        return Session::query()
             ->where('authenticatable_type', self::class)
             ->where('authenticatable_id', (string) $this->getKey()); // @phpstan-ignore cast.string
     }
