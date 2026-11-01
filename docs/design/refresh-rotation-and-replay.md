@@ -143,17 +143,18 @@ other rotated token as a replay that revokes the device.
   and `DeviceRevoked` follows the commit (the transaction Laravel's testing traits wrap around each test is not counted,
   as it never commits). Nothing is hydrated. Every token of the device then fails: access tokens on the bearer path,
   refresh tokens with `device_revoked`.
-- "Any id the device never held" includes a validly signed token from an earlier credential of the same row. A device
-  is given a refresh credential outside a rotation only by the session service: when it creates the device, and when a
-  client that proved it holds the device with its current refresh token signs in again on it. Continuing a device sets
-  a new current id and clears `previous_refresh_key` and `refresh_rotated_at` in one compare-and-swap that applies only
-  while the row still holds the proven digest, is not revoked, and records the same owner and principal, so every
-  earlier token of the device becomes a replay: presenting one while the new session is live revokes the device (RFC
-  9700). That is deliberate. The client that proved the device has just received the new pair, and one that lost the
-  sign-in response and retries with the old token proves nothing (the old id is no longer current) and gets a new
-  device. A swap that misses (a parallel refresh rotated the device first) never retries: the sign-in is reconsidered
-  without the device, so it starts on a new device, or becomes a pending sign-in when the additional-factor policy now
-  asks for a factor.
+- "Any id the device never held" covers every validly signed token for the row with an id it never held. A device is
+  given a refresh credential outside a rotation only by the session service, when it creates the device: every sign-in
+  creates one (D15), and a device is never given a second credential. A client that proved it holds its previous device
+  with that device's current refresh token has it revoked (`superseded`) in the same transaction as the new device, by
+  one compare-and-swap that applies only while the row still holds the proven digest, owner, principal and guard and is
+  not revoked. The previous device's tokens then fail as `device_revoked`, never as replays, so they cannot revoke the
+  new device; before D15 a re-sign-in continued the same row, and its old tokens were replays that revoked the
+  continued session. A client that lost the sign-in response and retries with the old token proves nothing (its device
+  is already revoked) and gets another device. A swap that misses (a parallel refresh rotated the device first) never
+  retries: the sign-in is reconsidered without the device, so it starts on a new device revoking nothing, or becomes a
+  pending sign-in when the additional-factor policy now asks for a factor. A refresh that loses to a committed
+  replacement finds the device revoked.
 - Only the immediately previous id is honoured: after `R0 -> R1 -> R2`, a delayed retry of `R0` is a replay even within
   the grace window of the first rotation, and revokes the device.
 - When the swap affects no row, the row changed between the read and the write. The exchange re-reads it once from the
@@ -427,8 +428,8 @@ Update this note when any of the following change:
 - the meanings of `rotation_reuse`, `rotation_conflict`, `refresh_key_missing`, `session_expired`, `device_revoked`, or
   `device_unknown`, or which of them revokes the device
 - whether replay revokes one device row or a broader credential family, or whether revocation marks or deletes the row
-- whether code other than the session service (device creation and continuing a proven device) can give a device a new
-  refresh credential, or what proves a device
+- whether code other than the session service's device creation can give a device a refresh credential, or what
+  proves a device
 - when `DeviceRevoked` is dispatched
 - whether a rotation can move the absolute deadline, or how the idle deadline and token expiries are derived
 - whether database errors still propagate instead of mapping to a failure reason

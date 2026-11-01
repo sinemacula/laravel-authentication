@@ -11,9 +11,11 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 
 /**
- * A session the session service started: who signed in, as which principal, on
- * which device, how, and the first token pair, whose refresh token the client
- * must keep to refresh the session or sign in again on the same device.
+ * A session the session service started, refreshed or switched: who signed in,
+ * as which principal, on which device, how, and the session's token pair, whose
+ * refresh token the client must keep to refresh the session, or to prove it
+ * holds the session when it signs in again on the same device, which then
+ * replaces it.
  *
  * @api
  *
@@ -30,7 +32,6 @@ final readonly class SignedInSession
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  \SineMacula\Laravel\Authentication\Jwt\TokenPair  $tokens
      * @param  string  $method
-     * @param  bool  $deviceCreated
      */
     public function __construct(
 
@@ -48,8 +49,5 @@ final readonly class SignedInSession
 
         /** Name of the sign-in method that started the session. */
         public string $method,
-
-        /** Whether the device was created, rather than an existing one of the client continued. */
-        public bool $deviceCreated,
     ) {}
 }

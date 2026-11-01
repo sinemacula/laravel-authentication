@@ -25,8 +25,8 @@ use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
  *
  * The context carries the guard, the client, the identity, principal and
  * tenant, the method, and the device the client proved it holds, which the
- * session would continue on, if any. Never carries the pending token, a
- * credential or any other secret.
+ * session would replace, if any. Never carries the pending token, a credential
+ * or any other secret.
  *
  * @api
  *

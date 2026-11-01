@@ -203,7 +203,7 @@ trait RecordsEventSequences
             $event instanceof AuthenticationFailed => $event->flow->value . ':' . $event->reason->value,
             $event instanceof DeviceRevoked        => $event->reason->value,
             $event instanceof SignedOutEverywhere  => $event->reason->value . ':' . $event->revoked,
-            $event instanceof SignedIn             => $event->refresh ? 'refresh' : ($event->deviceCreated ? 'new' : 'continued'),
+            $event instanceof SignedIn             => $event->refresh ? 'refresh' : 'new',
             $event instanceof PasswordSet          => $event->flow->value,
             default                                => null,
         };

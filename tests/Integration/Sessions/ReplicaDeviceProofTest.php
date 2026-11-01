@@ -31,7 +31,7 @@ use Tests\TestCase;
  * Proves the device a client proves it holds is judged from the write
  * connection, for a device model that derives its revocation from another
  * table: a revocation only the primary has recorded yet keeps a sign-in, and
- * the completion of a sign-in held for a further factor, from continuing that
+ * the completion of a sign-in held for a further factor, from replacing that
  * device while the replica lags behind.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -120,7 +120,7 @@ final class ReplicaDeviceProofTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testASignInDoesNotContinueADeviceRevokedOnThePrimary(): void
+    public function testASignInDoesNotReplaceADeviceRevokedOnThePrimary(): void
     {
         $first = $this->signedIn($this->signIn());
 
@@ -128,23 +128,25 @@ final class ReplicaDeviceProofTest extends TestCase
 
         $again = $this->signedIn($this->signIn($first->tokens->refreshToken));
 
-        self::assertTrue($again->deviceCreated);
         self::assertNotSame($first->device->getDeviceIdentifier(), $again->device->getDeviceIdentifier());
-        $stored = DB::connection(self::PRIMARY_CONNECTION)->table('devices')->where('id', $first->device->getDeviceIdentifier())->value('refresh_key');
 
-        self::assertSame($first->device->getRefreshKey(), $stored);
+        $stored = DB::connection(self::PRIMARY_CONNECTION)->table('devices')->where('id', $first->device->getDeviceIdentifier())->first();
+
+        self::assertNotNull($stored);
+        self::assertSame($first->device->getRefreshKey(), $stored->refresh_key);
+        self::assertNull($stored->revoked_reason);
     }
 
     /**
      * A sign-in held for a further factor while its proven device was live does
-     * not continue that device once the primary has recorded it as revoked:
+     * not replace that device once the primary has recorded it as revoked:
      * completing it starts the session on a new device.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testACompletionDoesNotContinueADeviceRevokedOnThePrimary(): void
+    public function testACompletionDoesNotReplaceADeviceRevokedOnThePrimary(): void
     {
         $first = $this->signedIn($this->signIn());
 
@@ -171,8 +173,8 @@ final class ReplicaDeviceProofTest extends TestCase
 
         $completed = $this->signedIn(Auth::sessions($this->guard()->getName())->complete($pending->token));
 
-        self::assertTrue($completed->deviceCreated);
         self::assertNotSame($first->device->getDeviceIdentifier(), $completed->device->getDeviceIdentifier());
+        self::assertNull(DB::connection(self::PRIMARY_CONNECTION)->table('devices')->where('id', $first->device->getDeviceIdentifier())->value('revoked_reason'));
     }
 
     /**

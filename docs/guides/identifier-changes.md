@@ -58,7 +58,8 @@ never from the future.
 
 - `Reauthentication::device($device)`: the session the change is made from. Read again on the write connection, it
   must be one of the identity's own live sessions of the guard (not revoked, deadlines not passed), signed in within
-  the window. A refresh or a principal switch does not renew it; a fresh sign-in does.
+  the window. A refresh or a principal switch does not renew it. A fresh sign-in starts a new session on a new device,
+  signed in now, and a device it replaced is revoked, so it no longer proves anything.
 - `Reauthentication::password($password)`: the identity's current password, checked in the guard's credential timebox
   against the identity read again through the guard's provider. It counts against the identity's account and the IP
   address under the `sign_in` limits, and a correct one is given back. A guard whose application does not allow the
@@ -66,7 +67,8 @@ never from the future.
 - `Reauthentication::confirmedAt($at)`: a further factor, or another proof your code verified, at `$at`. It is trusted,
   as `start()` is: never build it from a time the client sent.
 
-An identity that signs in only with codes or passkeys reauthenticates by signing in again on the device it changes from.
+An identity that signs in only with codes or passkeys reauthenticates by signing in again and making the change from the
+new session.
 A token with no device (in [access-only mode](installation.md#access-only-mode-no-devices-no-refresh), or any access
 token without a `did`) has no session to offer, so `Auth::device()` is `null` there and the request must ask for another
 proof. The first route below takes the password whenever one is sent, so a session signed in longer ago than the window

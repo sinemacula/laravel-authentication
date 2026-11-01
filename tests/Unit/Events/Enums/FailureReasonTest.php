@@ -152,6 +152,7 @@ final class FailureReasonTest extends TestCase
             'signed_out',
             'signed_out_everywhere',
             'revoked',
+            'superseded',
             'password_changed',
             'password_reset',
             'factor_removed',

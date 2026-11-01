@@ -8,11 +8,14 @@ use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\ConnectionResolverInterface;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
+use SineMacula\Laravel\Authentication\Contracts\Device as DeviceContract;
+use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Facades\Auth;
@@ -23,14 +26,15 @@ use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests for writing a session: creating a device, and continuing a
- * proven one with a compare-and-swap that applies only to the row as it was
- * proven.
+ * Feature tests for writing a session: creating a device, and replacing a
+ * proven one, revoked by a compare-and-swap that applies only to the row as it
+ * was proven, in the same transaction as the new device.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -101,7 +105,6 @@ final class SessionWriterTest extends TestCase
         $device   = Device::query()->whereKey($session->device->getKey())->firstOrFail();
         $claims   = Auth::manager()->jwt('api')->parse($session->tokens->refreshToken, TokenType::REFRESH);
 
-        self::assertTrue($session->deviceCreated);
         self::assertSame('password', $session->method);
         self::assertSame('password', $device->getSignInMethod());
         self::assertSame('email', $device->getSignInIdentifierType());
@@ -142,42 +145,157 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * Continuing a proven device swaps in a new session and mirrors it on the
-     * in-memory device as persisted; a client description the context does not
-     * give is kept, while the method and the type of identifier are the new
-     * sign-in's, none included.
+     * Replacing a proven device revokes it as `superseded`, forgetting both of
+     * its digests, mirrors that on the in-memory device as persisted, and
+     * writes a new device for the sign-in: a new key and rotation id, the new
+     * sign-in's method and type of identifier (none included), created from the
+     * origin's client, and a session that starts at `$now`. The proven device
+     * keeps everything else it recorded.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testContinueOnSwapsInANewSessionAndMirrorsIt(): void
+    public function testReplaceRevokesTheProvenDeviceAndWritesANewOne(): void
     {
         $identity = $this->seedIdentity();
         $context  = $this->context('Laptop', 'macOS');
         $first    = $this->writer()->create($this->admitted($identity), 'password', 'email', $context, $this->lifetimes(), $this->now, $context->client);
         $proven   = Device::query()->whereKey($first->device->getKey())->firstOrFail();
+        $later    = $this->now->addHour();
+        $origin   = new ClientContext('198.51.100.9', 'Origin/3.0');
 
-        $later = $this->now->addHour();
+        $session = $this->writer()->replace($this->admitted($identity)->on($proven), 'sso', null, $this->context(), $this->lifetimes(), $later, $origin);
 
-        $again = $this->writer()->continueOn($proven, $this->admitted($identity)->on($proven), 'sso', null, $this->context(null, 'Linux'), $this->lifetimes(), $later);
-
-        self::assertNotNull($again);
-        self::assertSame($proven, $again->device);
-        self::assertFalse($again->deviceCreated);
+        self::assertNotNull($session);
+        self::assertNotSame($proven->getKey(), $session->device->getKey());
+        self::assertSame('sso', $session->method);
         self::assertFalse($proven->isDirty());
+        self::assertSame(2, Device::query()->count());
 
-        $row = Device::query()->whereKey($proven->getKey())->firstOrFail();
+        $previous = Device::query()->whereKey($proven->getKey())->firstOrFail();
 
-        foreach ([$proven, $row] as $device) {
-            self::assertSame('sso', $device->getSignInMethod());
-            self::assertNull($device->getSignInIdentifierType());
-            self::assertSame('Laptop', $device->client_name);
-            self::assertSame('Linux', $device->platform);
-            self::assertSame($later->getTimestamp(), $device->getLastUsedAt()?->getTimestamp());
-            self::assertSame($later->addMinutes(120)->getTimestamp(), $device->getAbsoluteExpiresAt()?->getTimestamp());
-            self::assertNotSame($first->device->getRefreshKey(), $device->getRefreshKey());
+        foreach ([$proven, $previous] as $device) {
+            self::assertSame($later->getTimestamp(), $device->getRevokedAt()?->getTimestamp());
+            self::assertSame('superseded', $device->getRevokedReason());
+            self::assertNull($device->getRefreshKey());
+            self::assertNull($device->getPreviousRefreshKey());
         }
+
+        self::assertSame('password', $previous->getSignInMethod());
+        self::assertSame('email', $previous->getSignInIdentifierType());
+        self::assertSame($this->now->getTimestamp(), $previous->getSignedInAt()?->getTimestamp());
+
+        JWT::$timestamp = $later->getTimestamp();
+
+        $device = Device::query()->whereKey($session->device->getKey())->firstOrFail();
+        $claims = Auth::manager()->jwt('api')->parse($session->tokens->refreshToken, TokenType::REFRESH);
+
+        self::assertNotNull($claims);
+        self::assertSame($device->getKey(), $claims['did']);
+        self::assertSame($later->getTimestamp(), $claims['iat']);
+        self::assertTrue(RefreshTokenHasher::verify((string) $claims['jti'], (string) $device->getRefreshKey())); // @phpstan-ignore cast.string
+        self::assertFalse(RefreshTokenHasher::verify((string) $claims['jti'], (string) $first->device->getRefreshKey())); // @phpstan-ignore cast.string
+        self::assertNull($device->getRevokedAt());
+        self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $device->authenticatable_id);
+        self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $device->principal_id);
+        self::assertSame('api', $device->getGuard());
+        self::assertSame('sso', $device->getSignInMethod());
+        self::assertNull($device->getSignInIdentifierType());
+        self::assertSame('198.51.100.9', $device->created_ip);
+        self::assertSame('Origin/3.0', $device->created_user_agent);
+        self::assertSame('192.0.2.1', $device->last_used_ip);
+        self::assertSame('Writer/1.0', $device->last_used_user_agent);
+        self::assertSame($later->getTimestamp(), $device->getSignedInAt()?->getTimestamp());
+        self::assertSame($later->getTimestamp(), $device->getLastUsedAt()?->getTimestamp());
+        self::assertNull($device->getPrincipalSwitchedAt());
+        self::assertNull($device->getPreviousRefreshKey());
+        self::assertSame($later->addMinutes(60)->getTimestamp(), $device->getIdleExpiresAt()?->getTimestamp());
+        self::assertSame($later->addMinutes(120)->getTimestamp(), $device->getAbsoluteExpiresAt()?->getTimestamp());
+    }
+
+    /**
+     * Rows of `[recorded name, recorded platform, given name, given platform,
+     * expected name, expected platform]`.
+     *
+     * @return iterable<string, array{0: ?string, 1: ?string, 2: ?string, 3: ?string, 4: ?string, 5: ?string}>
+     */
+    public static function provideClientDescriptions(): iterable
+    {
+        yield from [
+            'both given'              => ['Laptop', 'macOS', 'Phone', 'iOS', 'Phone', 'iOS'],
+            'neither given'           => ['Laptop', 'macOS', null, null, 'Laptop', 'macOS'],
+            'only the name given'     => ['Laptop', 'macOS', 'Phone', null, 'Phone', 'macOS'],
+            'only the platform given' => ['Laptop', 'macOS', null, 'iOS', 'Laptop', 'iOS'],
+            'nothing recorded'        => [null, null, null, null, null, null],
+        ];
+    }
+
+    /**
+     * The new device records the client name and platform the sign-in gives,
+     * and, for each it does not give, what the proven device recorded: the
+     * client proved it is the same one.
+     *
+     * @param  ?string  $recordedName
+     * @param  ?string  $recordedPlatform
+     * @param  ?string  $givenName
+     * @param  ?string  $givenPlatform
+     * @param  ?string  $expectedName
+     * @param  ?string  $expectedPlatform
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideClientDescriptions')]
+    public function testReplaceInheritsTheDescriptionsTheSignInDoesNotGive(
+        ?string $recordedName,
+        ?string $recordedPlatform,
+        ?string $givenName,
+        ?string $givenPlatform,
+        ?string $expectedName,
+        ?string $expectedPlatform,
+    ): void {
+        $identity = $this->seedIdentity();
+        $context  = $this->context($recordedName, $recordedPlatform);
+        $first    = $this->writer()->create($this->admitted($identity), 'password', 'email', $context, $this->lifetimes(), $this->now, $context->client);
+        $proven   = Device::query()->whereKey($first->device->getKey())->firstOrFail();
+
+        $given   = $this->context($givenName, $givenPlatform);
+        $session = $this->writer()->replace($this->admitted($identity)->on($proven), 'password', 'email', $given, $this->lifetimes(), $this->now, $context->client);
+
+        self::assertNotNull($session);
+
+        $device = Device::query()->whereKey($session->device->getKey())->firstOrFail();
+
+        self::assertSame($expectedName, $device->client_name);
+        self::assertSame($expectedPlatform, $device->platform);
+    }
+
+    /**
+     * A description the proven device recorded as a number, as a custom model
+     * might load it, is inherited as its text.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testReplaceInheritsANumericDescriptionAsText(): void
+    {
+        $identity = $this->seedIdentity();
+        $first    = $this->writer()->create($this->admitted($identity), 'password', 'email', $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
+        $proven   = Device::query()->whereKey($first->device->getKey())->firstOrFail();
+
+        $proven->forceFill(['client_name' => 42, 'platform' => 7])->syncOriginal();
+
+        $context = $this->context();
+        $session = $this->writer()->replace($this->admitted($identity)->on($proven), 'password', 'email', $context, $this->lifetimes(), $this->now, $context->client);
+
+        self::assertNotNull($session);
+
+        $device = Device::query()->whereKey($session->device->getKey())->firstOrFail();
+
+        self::assertSame('42', $device->client_name);
+        self::assertSame('7', $device->platform);
     }
 
     /**
@@ -192,11 +310,12 @@ final class SessionWriterTest extends TestCase
             'revoked'           => [['revoked_at' => '2026-04-06 12:30:00']],
             'another owner'     => [['authenticatable_id' => '999']],
             'another principal' => [['principal_id' => '999']],
+            'another guard'     => [['guard' => 'admin']],
         ];
     }
 
     /**
-     * A row that changed after it was proven is not continued: the swap misses,
+     * A row that changed after it was proven is not replaced: the swap misses,
      * nothing is written or issued, and the in-memory device keeps its state.
      *
      * @param  array<string, mixed>  $change
@@ -205,7 +324,7 @@ final class SessionWriterTest extends TestCase
      * @throws \Throwable
      */
     #[DataProvider('provideChangesSinceTheProof')]
-    public function testContinueOnMissesARowThatChangedSinceItWasProven(array $change): void
+    public function testReplaceMissesARowThatChangedSinceItWasProven(array $change): void
     {
         $identity = $this->seedIdentity();
         $first    = $this->writer()->create($this->admitted($identity), 'password', 'email', $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
@@ -217,11 +336,67 @@ final class SessionWriterTest extends TestCase
         $digest   = $proven->getRefreshKey();
         $admitted = $this->admitted($identity)->on($proven);
 
-        self::assertNull($this->writer()->continueOn($proven, $admitted, 'sso', null, $this->context('New'), $this->lifetimes(), $this->now->addHour()));
+        self::assertNull($this->writer()->replace($admitted, 'sso', null, $this->context('New'), $this->lifetimes(), $this->now->addHour(), $this->context()->client));
         self::assertSame($before, (array) Device::query()->whereKey($proven->getKey())->toBase()->first());
+        self::assertSame(1, Device::query()->count());
         self::assertSame($digest, $proven->getRefreshKey());
+        self::assertNull($proven->getRevokedReason());
         self::assertSame('password', $proven->getSignInMethod());
-        self::assertSame('email', $proven->getSignInIdentifierType());
+    }
+
+    /**
+     * A failure while issuing the new device's pair (here a principal whose
+     * identifier cannot be written into its claim) rolls the replacement back
+     * whole: the proven device stays live at the digest it was proven at, and
+     * no new device is left.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailureWhileIssuingLeavesTheProvenDeviceLive(): void
+    {
+        $identity = $this->seedIdentity();
+        $first    = $this->writer()->create($this->admitted($identity), 'password', 'email', $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
+        $proven   = Device::query()->whereKey($first->device->getKey())->firstOrFail();
+        $before   = (array) Device::query()->whereKey($proven->getKey())->toBase()->first();
+
+        try {
+            $unwritable = (new Admitted($identity, new IntegrationIdentity, null))->on($proven);
+
+            $this->writer()->replace($unwritable, 'sso', null, $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
+            self::fail('Expected issuing the pair to fail.');
+        } catch (\InvalidArgumentException) {
+            self::assertSame($before, (array) Device::query()->whereKey($proven->getKey())->toBase()->first());
+            self::assertSame(1, Device::query()->count());
+        }
+    }
+
+    /**
+     * Only an admitted sign-in on an Eloquent device the client proved can
+     * replace one: without a device, or on one that is not an Eloquent device,
+     * it is a misconfiguration and writes nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testReplaceRefusesASignInOnNoEloquentDevice(): void
+    {
+        $identity = $this->seedIdentity();
+
+        foreach ([null, \Mockery::mock(EloquentDevice::class), \Mockery::mock(Model::class, DeviceContract::class)] as $device) {
+            try {
+                $admitted = new Admitted($identity, $identity, null, $device);
+
+                $this->writer()->replace($admitted, 'sso', null, $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
+                self::fail('Expected a sign-in on no Eloquent device to be refused.');
+            } catch (\LogicException $exception) {
+                self::assertSame('The session service can only replace an Eloquent device the client proved it holds.', $exception->getMessage());
+            }
+        }
+
+        self::assertSame(0, Device::query()->count());
     }
 
     /**

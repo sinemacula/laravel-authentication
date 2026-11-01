@@ -3,7 +3,7 @@
 ## Purpose
 
 This note records how a JWT guard's session service (`Auth::sessions($guard)`) turns a sign-in into a session: the
-checks it runs and their order, how it creates a device or continues one a client proves it holds, and what it
+checks it runs and their order, how it creates a device and revokes the one a client proves it holds, and what it
 dispatches when. It is the one place a session starts, so every sign-in method, and every external verifier that calls
 `start()`, ends in the same checks.
 
@@ -63,21 +63,28 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - One `$now` per call, cut to the second, is used for the deadlines, the last use and every token's `iat`. The deadlines
   come from the application policy's lifetimes for the guard (`ApplicationPolicy::lifetimes($guard)`), which with the
   shipped policy are the guard's token service's (see `application-policy.md`).
-- A session is written in one transaction on the device's connection: the device first, then both tokens, so any
-  failure while issuing rolls the device back. Only the digest of the rotation id is stored.
+- Every sign-in creates a new device (D15): a new key, a new rotation id, both deadlines from `$now`. A session is
+  written in one transaction on the device's connection: the revocation of a proven device first, then the new device,
+  then both tokens, so any failure while issuing rolls the new device and the revocation back. Only the digest of the
+  rotation id is stored.
 - A refresh token proves a device only when it is the device's current rotation id, validly signed for the guard
   (`parseRefreshProof()`: every `parse()` check except expiry), and the device, read from the writer, is owned by the
   identity, records this guard and the same principal, and is not revoked. Anything else is no proof: a new device,
-  nothing failed, revoked or reported.
-- Continuing a proven device is one compare-and-swap on the row exactly as it was proven (digest, owner, principal, not
-  revoked). It restarts both deadlines, sets a new rotation id with no previous one, and records the method, the last
-  use and the client's description when given; it keeps the guard, owner, principal and creation details. A swap that
-  misses reconsiders the sign-in without the device, factor policy included: it creates a device, or issues a pending
-  sign-in when the factor policy now asks for one; it never retries.
-- After the session's transaction, `DeviceCreated` (new devices only) and `SignedIn` are scheduled on the commit of the
-  device's connection, and a completion's or a choice's slot give-back on the pending row's, and only then is the guard
-  bound, with the usual immediate bind events: a bind listener that throws cannot withhold them, and they never fire for
-  a rolled-back session. The order holds by construction: `SessionEstablishment` writes the session (or issues the
+  nothing failed, revoked or reported. The IP address, user agent, client name and platform never count. The proof is
+  the client's device key in this package's reading of D15: possession of the previous session's credential, the only
+  one a client holds; no other key material exists. Passing it in `SignInContext::$refreshToken` is the application's
+  opt-in (D21).
+- Replacing a proven device (`SessionWriter::replace()`) revokes it with one compare-and-swap on the row exactly as it
+  was proven (digest, owner, principal, guard, not revoked), writing `revoked_at`, the reason `superseded` and null
+  digests as any revocation does, then inserts the new device as `create()` does, except that a client name or platform
+  the sign-in does not give is the proven device's. The proven row keeps everything else. A swap that misses
+  reconsiders the sign-in without the device, factor policy included: it creates a device and revokes nothing, or
+  issues a pending sign-in when the factor policy now asks for one; it never retries.
+- After the session's transaction, `DeviceRevoked` (`superseded`, for a replaced device), `DeviceCreated` and
+  `SignedIn` are scheduled, in that order and in one callback, on the commit of the device's connection, and a
+  completion's or a choice's slot give-back on the pending row's, and only then is the guard bound, with the usual
+  immediate bind events: a bind listener that throws cannot withhold them, and they never fire for a rolled-back
+  session. The order holds by construction: `SessionEstablishment` writes the session (or issues the
   pending sign-in), asks the factor policy and schedules those reports, and never binds; the service binds the guard,
   through `login()` on the `Contracts\GuardBinding` it was given, only once establishment has returned a signed-in
   result, and `signIn()` gives its slots back after that bind.
@@ -104,18 +111,20 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 
 ## Success Path
 
-- A new device: `Attempting`, then, once committed (at once with no transaction open on the device's connection),
-  `DeviceCreated` and `SignedIn` (`deviceCreated: true`), then `Validated`, `Login`, `Authenticated`,
-  `PrincipalAssigned`, `DeviceAuthenticated`. Inside a caller's transaction the bind events come first and the pair
-  follows its commit. The device's last use is the sign-in, so the shipped last-use listener writes nothing more.
-- A continued device: the same, without `DeviceCreated`, and `SignedIn` with `deviceCreated: false`.
+- A sign-in: `Attempting`, then, once committed (at once with no transaction open on the device's connection),
+  `DeviceCreated` and `SignedIn`, then `Validated`, `Login`, `Authenticated`, `PrincipalAssigned`,
+  `DeviceAuthenticated`. Inside a caller's transaction the bind events come first and the pair follows its commit. The
+  device's last use is the sign-in, so the shipped last-use listener writes nothing more.
+- A sign-in that replaces a proven device: the same, with `DeviceRevoked` (`superseded`) for the proven device just
+  before `DeviceCreated`. Its context has the guard, the sign-in's client, the identity, principal and tenant the
+  sign-in admitted, the proven device and the method it records.
 - `start()`: the same without `Attempting`.
-- A sign-in held for a further factor: `Attempting` (not from `start()`), then, once the pending sign-in is committed
-  on its connection, `AdditionalFactorRequired` (a context of guard, identity, principal, tenant, proven device, method
-  and client, and the expiry; never the token), and nothing bound. Its completion follows the new or continued device
-  path without `Attempting`; its discard emits `Failed` and `AuthenticationFailed` (`additional_factor_failed`, the
-  method, the discarding client, the identity when the provider still returns it), and a token that discards nothing
-  emits nothing.
+- A sign-in held for a further factor: `Attempting` (not from `start()`), then, once the pending sign-in is committed on
+  its connection, `AdditionalFactorRequired` (a context of guard, identity, principal, tenant, proven device, method and
+  client, and the expiry; never the token), nothing bound and nothing revoked. Its completion follows the sign-in path
+  without `Attempting`, replacing the proven device only if it is still unchanged then; its discard emits `Failed` and
+  `AuthenticationFailed` (`additional_factor_failed`, the method, the discarding client, the identity when the provider
+  still returns it), and a token that discards nothing emits nothing.
 
 ## Failure / Edge Cases
 
@@ -149,8 +158,13 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   and a completion's slots are given back. A listener that throws on `DeviceCreated` or `SignedIn` with no transaction
   open propagates before the bind: the session stands, the guard is not bound, and `SignedIn` is not dispatched after a
   throwing `DeviceCreated`.
-- A device continued by a sign-in makes the earlier refresh tokens of the device replays (see
-  `refresh-rotation-and-replay.md`).
+- A device replaced by a sign-in is revoked: its access tokens stop at once and its refresh tokens are refused as
+  `device_revoked`, so they cannot touch the new device (see `refresh-rotation-and-replay.md`). A listener on its
+  `DeviceRevoked` that throws stops `DeviceCreated` and `SignedIn` and reaches the caller, while both rows stand.
+- Two sign-ins presenting the same proof: the compare-and-swap lets one revoke the device; the other is reconsidered
+  without the proof and creates a device revoking nothing. A refresh that rotates the device first makes the sign-in's
+  swap miss; a sign-in that commits first makes the refresh fail as `device_revoked`. A bulk revocation racing a sign-in
+  is not synchronized (see `device-lifecycle.md`).
 - A crafted client name or platform is stored cleaned (`SignInContext`), so it cannot fail the insert.
 
 ## Implementation Anchors
@@ -167,7 +181,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   (`src/Guards/Concerns/SignsInWithCredentials.php`).
 - `src/Sessions/SignInRequest.php` (`reserveAccountAttempt()`) and `src/RateLimiting/AccountAttempts.php`: the slots a
   sign-in's method takes on the accounts it checks, held with the sign-in's own.
-- `src/Sessions/SessionWriter.php`: `create()`, `continueOn()` and the compare-and-swap.
+- `src/Sessions/SessionWriter.php`: `create()`, `replace()` and the compare-and-swap.
 - `src/Sessions/DeviceProof.php`, `src/Jwt/JwtTokenService.php` (`parseRefreshProof()`), `src/Devices/DeviceLookup.php`.
 - `src/Sessions/PendingSignIns.php` and `src/Models/PendingSignIn.php`: issuing, finding and consuming pending sign-ins.
 - `src/Sessions/SessionPreconditions.php`: the `HasDevices` refusal, and `start()`'s one-principal rule and
@@ -208,9 +222,10 @@ Update this note when any of the following change:
 
 - the order of the checks, or which of them count an attempt or run in the timebox
 - which steps `Sessions\CredentialAttempt` shares between `signIn()` and `attempt()`
-- what proves a device, or what continuing one writes or keeps
+- what proves a device, or what replacing one writes, keeps or revokes
 - what the session's transaction contains, or when the guard is bound, or what builds the service
-- when `DeviceCreated`, `SignedIn` and `AdditionalFactorRequired` are dispatched, or what they carry
+- when `DeviceRevoked` (`superseded`), `DeviceCreated`, `SignedIn` and `AdditionalFactorRequired` are dispatched, or
+  what they carry
 - what reaches the events from the sign-in input
 - what a pending sign-in stores, how long it lives, what finds it, or what completing it checks
 - which of its methods it delegates to `SessionRevocations`, or what of the guard those need

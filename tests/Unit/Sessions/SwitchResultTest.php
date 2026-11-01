@@ -44,7 +44,7 @@ final class SwitchResultTest extends TestCase
     public function testASwitchedResultCarriesTheSession(): void
     {
         $device  = \Mockery::mock(Model::class, EloquentDevice::class);
-        $session = new SignedInSession(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), $device, new TokenPair('access', 'refresh'), 'password', false);
+        $session = new SignedInSession(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), $device, new TokenPair('access', 'refresh'), 'password');
         $result  = SwitchResult::switched($session);
 
         self::assertTrue($result->isSwitched());
@@ -73,7 +73,7 @@ final class SwitchResultTest extends TestCase
         self::assertSame(30, $read->retryAfter);
 
         $device  = \Mockery::mock(Model::class, EloquentDevice::class);
-        $session = new SignedInSession(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), $device, new TokenPair('access', 'refresh'), 'password', false);
+        $session = new SignedInSession(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), $device, new TokenPair('access', 'refresh'), 'password');
 
         self::assertSame($session, SwitchResult::switched($session)->withSource(RefreshTokenSource::BODY)->session);
     }

@@ -62,7 +62,7 @@ final readonly class PendingFactor
         /** When the pending credential stops working. */
         public CarbonImmutable $expiresAt,
 
-        /** Existing device the client proved it holds, which the session will continue on, if any. */
+        /** Existing device the client proved it holds, which the session will replace, if any. */
         public ?Device $provenDevice,
     ) {}
 }

@@ -39,7 +39,9 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
 - `choose()` deletes the choice first, with a delete only one call can make, so a choice is single use whatever the
   outcome. It then runs the sign-in admission with `PinnedPrincipal::resolve()` (`principal_mismatch`), the identifier
   type the sign-in used, and the factor policy; a required factor becomes an `additional_factor` pending sign-in with
-  the same windows. The proven device is continued only when it records the chosen principal and is unchanged.
+  the same windows. The proven device is replaced (revoked as `superseded`, with a new device for the session) only
+  when it records the chosen principal and is unchanged; otherwise it is left as it is. Offering or discarding the
+  choice revokes nothing.
 - The attempt slots a sign-in took stay counted while it waits for a choice and are given back only once a session
   started from it commits.
 - A switch is proven by the session's refresh token, never an access token, and judged by `RefreshJudgment::classify()`

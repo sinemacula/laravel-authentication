@@ -49,17 +49,18 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * The session service of a JWT guard: signs in, creates or continues the
- * device, issues the first token pair, and binds the guard, in one call.
+ * The session service of a JWT guard: signs in, creates the device, issues the
+ * first token pair, and binds the guard, in one call.
  *
  * `signIn()` verifies the input with a sign-in method; `start()` begins a
  * session for an identity something else verified (an external identity
- * provider, say). Either way the application policy must allow the method
- * and admit the identity as its principal, the identity, principal and tenant
- * must be active, and the additional-factor policy must not ask for a further
- * factor. A client that proves, with its refresh token, that it holds a
- * session of this guard for the same identity and principal continues on that
- * device; otherwise a device is created.
+ * provider, say). Either way the application policy must allow the method and
+ * admit the identity as its principal, the identity, principal and tenant must
+ * be active, and the additional-factor policy must not ask for a further
+ * factor. Every sign-in creates a new device. A client that proves, with its
+ * refresh token, that it holds a session of this guard for the same identity
+ * and principal has that device revoked (`superseded`) in the same transaction;
+ * nothing else is revoked, however alike the IP address or user agent are.
  *
  * The session is established by `SessionEstablishment`, which writes it and
  * schedules what reports it but never binds; the service binds the guard only
@@ -273,10 +274,10 @@ final readonly class SessionService
      * give them back to the exception handler. In the same transaction it is
      * checked again (the method still allowed, the identity, principal and
      * tenant active, and the application policy admitting them with the
-     * identifier type the sign-in used) and the session is written, continuing
-     * the proven device when it is unchanged and otherwise creating one. The
-     * factor policy is not asked again. Every token that does not complete a
-     * live pending sign-in of this guard fails as `pending_invalid`.
+     * identifier type the sign-in used) and the session is written on a new
+     * device, replacing the proven device when it is unchanged. The factor
+     * policy is not asked again. Every token that does not complete a live
+     * pending sign-in of this guard fails as `pending_invalid`.
      *
      * @param  string  $token
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
@@ -399,10 +400,10 @@ final readonly class SessionService
      * admitted by the application policy with the identifier type the sign-in
      * used; the additional-factor policy is asked, and a required factor turns
      * the choice into a pending factor carrying its attempt-limit slots;
-     * otherwise the session starts, continuing the device the client proved it
-     * holds when the device records the chosen principal, and the slots are
-     * given back once committed. Every token that continues no live choice of
-     * this guard fails as `pending_invalid`.
+     * otherwise the session starts on a new device, replacing the device the
+     * client proved it holds when that device records the chosen principal, and
+     * the slots are given back once committed. Every token that continues no
+     * live choice of this guard fails as `pending_invalid`.
      *
      * @param  string  $token
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -772,7 +773,7 @@ final readonly class SessionService
 
         $this->binding->authenticateAs($session->identity, $session->principal, $session->device);
 
-        return SwitchResult::switched(new SignedInSession($session->identity, $session->principal, $session->device, $session->tokens, (string) $session->method, false));
+        return SwitchResult::switched(new SignedInSession($session->identity, $session->principal, $session->device, $session->tokens, (string) $session->method));
     }
 
     /**

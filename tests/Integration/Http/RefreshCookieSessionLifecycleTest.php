@@ -227,24 +227,35 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
 
     /**
      * A browser that signs in again while it holds the refresh cookie proves
-     * its device through it, so the sign-in continues that device rather than
-     * starting another, and the new cookie refreshes it.
+     * its device through it, so the sign-in replaces that device with a new
+     * one: the old device is revoked as `superseded`, its access token stops
+     * authenticating at once and its cookie is refused as revoked, while the
+     * new cookie refreshes the new device.
      *
      * @return void
      */
-    public function testASignInFromABrowserHoldingTheCookieContinuesItsDevice(): void
+    public function testASignInFromABrowserHoldingTheCookieReplacesItsDevice(): void
     {
         $this->seedMemberships();
 
-        $first  = self::refreshCookie($this->browser('POST', '/auth/sign-in')->assertOk());
+        $signIn = $this->browser('POST', '/auth/sign-in')->assertOk();
+        $first  = self::refreshCookie($signIn);
+        $access = $signIn->json('access_token');
         $device = DB::table('devices')->value('id');
+
+        self::assertIsString($access);
+
+        $this->browser('GET', '/me', bearer: $access)->assertOk();
+
         $second = self::refreshCookie($this->browser('POST', '/auth/sign-in', $first)->assertOk());
 
-        self::assertSame(1, DB::table('devices')->count());
-        self::assertSame($device, DB::table('devices')->value('id'));
-
+        self::assertSame(2, DB::table('devices')->count());
+        self::assertSame('superseded', DB::table('devices')->where('id', $device)->value('revoked_reason'));
+        self::assertSame(1, DB::table('devices')->whereNull('revoked_at')->count());
         self::assertNotSame($first->getValue(), $second->getValue());
 
+        $this->browser('GET', '/me', bearer: $access)->assertUnauthorized();
+        $this->browser('POST', '/auth/refresh', $first)->assertUnauthorized()->assertJson(['reason' => 'device_revoked']);
         $this->browser('POST', '/auth/refresh', $second)->assertOk();
     }
 

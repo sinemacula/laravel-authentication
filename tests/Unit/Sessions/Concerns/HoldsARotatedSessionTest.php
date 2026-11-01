@@ -159,6 +159,6 @@ final class HoldsARotatedSessionTest extends TestCase
     {
         $device = \Mockery::mock(Model::class, EloquentDevice::class);
 
-        return new SignedInSession(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), $device, new TokenPair('access', 'refresh'), 'password', false);
+        return new SignedInSession(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), $device, new TokenPair('access', 'refresh'), 'password');
     }
 }

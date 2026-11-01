@@ -175,16 +175,20 @@ call, so the pair is lost, but cannot keep the session from being reported: outs
 been dispatched, and inside one it follows your commit (a rollback discards the device with it). Keep those listeners
 from throwing or queue them.
 
-A client that signs in again with its current refresh token in the context continues on the same device instead of
-creating another: the token proves the client holds that session, even when it has expired. It counts only when it is
-the device's current refresh token, validly signed for this guard, for a device the identity owns, of this guard, for
-the same principal, and not revoked; anything else simply creates a new device. Continuing a device starts a new session
-on it: a new rotation id (the earlier refresh tokens of the device become replays, see
-[Refresh token replay](refreshing.md#refresh-token-replay)), both deadlines from now, the method and the client's
-description recorded, and `DeviceCreated` not dispatched. If the device changes before it can be continued (a parallel
-refresh, say), the sign-in is reconsidered without it: it starts on a new device, or hands out a pending sign-in when
-the additional-factor policy now asks for a further factor without the device's trust. The additional-factor policy is
-told of the device the client proved, so a factor policy can trust a device it has seen a factor on.
+Every sign-in starts a new session on a new device, with a new id and a new rotation id. A client that signs in again
+with its current refresh token in the context proves it holds its previous session, even when that has expired, and the
+sign-in then revokes the previous device as `superseded` in the same transaction that creates the new one. Passing the
+refresh token is how an application opts in: without it nothing is revoked, however alike the IP address, user agent,
+client name or platform are, and the previous session lives on until it expires or is revoked. The token counts only
+when it is the device's current refresh token, validly signed for this guard, for a device the identity owns, of this
+guard, for the same principal, and not revoked; anything else proves nothing and revokes nothing. The previous device's
+access tokens stop working at once and its refresh token is refused as `device_revoked`; the new device keeps the
+client name and platform the previous one recorded when the sign-in gives none. Once committed, `DeviceRevoked`
+(`superseded`) is dispatched for the previous device before the new device's `DeviceCreated` and `SignedIn`. If the
+device changes before it can be revoked (a parallel refresh, say), the sign-in is reconsidered without it and revokes
+nothing: it starts on a new device, or hands out a pending sign-in when the additional-factor policy now asks for a
+further factor without the device's trust. The additional-factor policy is told of the device the client proved; the
+new session has a new id, so nothing a factor package kept about the previous session carries over to it.
 
 `attempt()` and `login()` remain for code that binds the guard itself; neither creates a device. A session lives on a
 device, so the session service signs in only identities that implement `HasDevices`: for any other identity `signIn()`,

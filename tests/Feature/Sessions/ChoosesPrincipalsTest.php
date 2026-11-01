@@ -28,6 +28,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
@@ -277,7 +278,6 @@ final class ChoosesPrincipalsTest extends TestCase
         self::assertNotNull($result->session);
         self::assertTrue($result->session->principal->is($first)); // @phpstan-ignore method.notFound
         self::assertSame('password', $result->session->method);
-        self::assertTrue($result->session->deviceCreated);
         self::assertSame([SignedIn::class, Login::class], $this->recordedClasses());
 
         $device = DB::table('devices')->sole();
@@ -709,14 +709,16 @@ final class ChoosesPrincipalsTest extends TestCase
     /**
      * A sign-in that proves the client holds a device for the identity offers
      * the choice with that device, reported with no principal although the
-     * device records one; choosing the principal the device records continues
-     * it, while choosing another starts a new one.
+     * device records one, and revokes nothing. Choosing the principal the
+     * device records replaces it, revoking it as `superseded` only then, while
+     * choosing another starts a new device and leaves the proven one live, as
+     * does discarding the choice.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAProvenDeviceIsContinuedOnlyForThePrincipalItRecords(): void
+    public function testAProvenDeviceIsReplacedOnlyForThePrincipalItRecords(): void
     {
         [$identity, $first, $second] = $this->seedChooser();
 
@@ -735,17 +737,28 @@ final class ChoosesPrincipalsTest extends TestCase
         self::assertNull($pending->principalMorphClass);
         self::assertNull($pending->principalId);
 
-        $continued = $this->sessions(self::GUARD)->choose($again, $first)->session;
+        self::assertNull(DB::table('devices')->where('id', $session->device->getKey())->value('revoked_at'));
 
-        self::assertNotNull($continued);
-        self::assertFalse($continued->deviceCreated);
-        self::assertTrue($continued->device->is($session->device)); // @phpstan-ignore method.notFound
+        $this->recordEvents([DeviceRevoked::class]);
 
-        $other = $this->sessions(self::GUARD)->choose($this->offer($continued->tokens->refreshToken), $second)->session;
+        $replaced = $this->sessions(self::GUARD)->choose($again, $first)->session;
+
+        self::assertNotNull($replaced);
+        self::assertFalse($replaced->device->is($session->device)); // @phpstan-ignore method.notFound
+        self::assertSame('superseded', DB::table('devices')->where('id', $session->device->getKey())->value('revoked_reason'));
+        self::assertSame(IdentifierCoercion::stringify($session->device->getDeviceIdentifier()), $this->recordedEvent(DeviceRevoked::class)->context->deviceId);
+
+        $this->recordEvents([DeviceRevoked::class]);
+
+        $other = $this->sessions(self::GUARD)->choose($this->offer($replaced->tokens->refreshToken), $second)->session;
 
         self::assertNotNull($other);
-        self::assertTrue($other->deviceCreated);
-        self::assertSame(2, DB::table('devices')->count());
+        self::assertFalse($other->device->is($replaced->device)); // @phpstan-ignore method.notFound
+        self::assertNull(DB::table('devices')->where('id', $replaced->device->getKey())->value('revoked_at'));
+        self::assertTrue($this->sessions(self::GUARD)->discard($this->offer($replaced->tokens->refreshToken)));
+        self::assertNull(DB::table('devices')->where('id', $replaced->device->getKey())->value('revoked_at'));
+        self::assertNotContains(DeviceRevoked::class, $this->recordedClasses());
+        self::assertSame(3, DB::table('devices')->count());
     }
 
     /**

@@ -311,7 +311,6 @@ final class JwtGuardTest extends JwtGuardTestCase
         self::assertFalse($dispatched[2]->remember);
         self::assertInstanceOf(SignedIn::class, $dispatched[7]);
         self::assertTrue($dispatched[7]->refresh);
-        self::assertFalse($dispatched[7]->deviceCreated);
         self::assertSame($guard->device(), $dispatched[7]->context->device);
         self::assertTrue($guard->hasUser());
     }

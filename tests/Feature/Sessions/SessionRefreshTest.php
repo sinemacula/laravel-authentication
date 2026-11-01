@@ -160,7 +160,6 @@ final class SessionRefreshTest extends TestCase
         self::assertTrue($identity->is($refreshed->identity));
         self::assertSame($session->device->getKey(), $refreshed->device->getKey());
         self::assertSame('password', $refreshed->method);
-        self::assertFalse($refreshed->deviceCreated);
         self::assertNotSame($before, $this->refreshKeyOf($session));
 
         $rotation = $this->claimsOf($refreshed->tokens->refreshToken)[Claims::JWT_ID->value] ?? null;
@@ -177,7 +176,7 @@ final class SessionRefreshTest extends TestCase
         self::assertSame(['api', [], false], [$attempting->guard, $attempting->credentials, $attempting->remember]);
         self::assertSame($refreshed->device, $this->recordedEvent(Refreshed::class)->context->device);
         self::assertSame(self::CLIENT_IP, $this->recordedEvent(Refreshed::class)->context->client->ip);
-        self::assertSame([true, false], [$signedIn->refresh, $signedIn->deviceCreated]);
+        self::assertTrue($signedIn->refresh);
         self::assertSame('password', $signedIn->context->method);
         self::assertSame($refreshed->identity, $this->recordedEvent(Validated::class)->user);
         self::assertSame($refreshed->identity, $this->recordedEvent(Login::class)->user);

@@ -99,8 +99,9 @@ request without a token dispatches nothing.
 `complete()`), with the method that proved who signed in, and a refresh, which renews the session on its device and
 dispatches `Refreshed` and then `SignedIn` with `$refresh` set and the method the device's session records. `attempt()`
 starts no session and never dispatches `SignedIn`: Laravel's `Login` reports its sign-ins, and code that calls `start()`
-after `attempt()` reports the sign-in once. `DeviceCreated` precedes `SignedIn` for a new device
-(`SignedIn::$deviceCreated`). A sign-in the additional-factor policy holds for a further factor dispatches
+after `attempt()` reports the sign-in once. Every sign-in creates a device, so `DeviceCreated` precedes every
+sign-in's `SignedIn`; a sign-in that proved the client's previous device dispatches that device's `DeviceRevoked`
+(`superseded`) before both. A sign-in the additional-factor policy holds for a further factor dispatches
 `AdditionalFactorRequired` instead, once committed: from `signIn()` it answers the sign-in's `Attempting`, and from
 `start()`, which dispatches no `Attempting`, it is the only event. Completing it dispatches `SignedIn`, and discarding
 it `AuthenticationFailed` with `additional_factor_failed`. A sign-in that waits for a choice of principal dispatches

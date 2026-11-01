@@ -261,7 +261,6 @@ final class PrincipalSwitchTest extends TestCase
         self::assertNotNull($result->session);
         self::assertTrue($result->session->principal->is($second)); // @phpstan-ignore method.notFound
         self::assertTrue($result->session->identity->is($member)); // @phpstan-ignore method.notFound
-        self::assertFalse($result->session->deviceCreated);
         self::assertSame('password', $result->session->method);
 
         self::assertSame([PrincipalSwitched::class, Authenticated::class, PrincipalAssigned::class, DeviceAuthenticated::class], $this->recordedClasses());

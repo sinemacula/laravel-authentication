@@ -28,21 +28,27 @@ use Tests\Unit\Stubs\PlainPrincipalFixture;
 final class SignedInTest extends TestCase
 {
     /**
-     * The event keeps its context, whether the device was created, and whether
-     * a refresh renewed the session.
+     * The event keeps its context and whether a refresh renewed the session,
+     * and nothing else: every sign-in creates its device, so there is no flag
+     * saying so.
      *
      * @return void
      */
-    public function testKeepsItsContextAndWhetherItCreatedTheDeviceOrRefreshed(): void
+    public function testKeepsItsContextAndWhetherARefreshRenewedTheSession(): void
     {
         $context = self::context();
-        $event   = new SignedIn($context, true, false);
+        $event   = new SignedIn($context, false);
+        $renewed = new SignedIn($context, true);
 
         self::assertInstanceOf(AuthenticationEvent::class, $event);
         self::assertSame($context, $event->context);
         self::assertSame($context, $event->context());
-        self::assertTrue($event->deviceCreated);
         self::assertFalse($event->refresh);
+        self::assertTrue($renewed->refresh);
+        self::assertSame(
+            ['context', 'refresh'],
+            array_map(static fn (\ReflectionParameter $parameter): string => $parameter->getName(), (new \ReflectionMethod(SignedIn::class, '__construct'))->getParameters()),
+        );
     }
 
     /**
@@ -56,7 +62,7 @@ final class SignedInTest extends TestCase
     public function testSerializesItsModelsAndDispatchesWhenTheSenderSays(): void
     {
         $context = self::context();
-        $event   = new SignedIn($context, true, false);
+        $event   = new SignedIn($context, true);
 
         self::assertNotInstanceOf(ShouldDispatchAfterCommit::class, $event);
         self::assertContains(SerializesModels::class, class_uses_recursive($event));
@@ -67,8 +73,7 @@ final class SignedInTest extends TestCase
         self::assertSame('api', $copy->context->guard);
         self::assertSame('7', $copy->context->identityId);
         self::assertSame('device-1', $copy->context->deviceId);
-        self::assertTrue($copy->deviceCreated);
-        self::assertFalse($copy->refresh);
+        self::assertTrue($copy->refresh);
     }
 
     /**

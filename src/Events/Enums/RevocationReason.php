@@ -27,6 +27,10 @@ enum RevocationReason: string
     // administrator)
     case REVOKED = 'revoked';
 
+    // A sign-in that proved it holds the device, with the refresh token of its
+    // session, replaced it with a new device
+    case SUPERSEDED = 'superseded';
+
     // The identity's password was changed: `passwordChanged()`
     case PASSWORD_CHANGED = 'password_changed';
 

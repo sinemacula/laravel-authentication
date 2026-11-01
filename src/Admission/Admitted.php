@@ -13,7 +13,8 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
  * What the guard admitted, whichever flow asked (a sign-in, a refresh, a bearer
  * token, an API key, a client credentials exchange): the active identity, the
  * active principal it acts as, the active tenant that principal acts within, if
- * any, and the device the flow continues on, once one is known.
+ * any, and the device the flow is on, once one is known: a sign-in's is the
+ * device the client proved it holds, which its session replaces.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -41,12 +42,12 @@ final readonly class Admitted
         /** The tenant the principal acts within, if any. */
         public ?Tenant $tenant,
 
-        /** The device the flow continues on, if any. */
+        /** The device the flow is on, if any. */
         public ?Device $device = null,
     ) {}
 
     /**
-     * The same admission, continuing on the given device.
+     * The same admission, on the given device.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return self

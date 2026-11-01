@@ -127,8 +127,14 @@ deleted. Starting a session is in
 
 - A sign-in already past its credential check when a bulk revocation reads the devices can still create its device
   afterwards: closing that window would need a lock every sign-in and revocation take on the identity row, which is not
-  added. Revocation races with refresh, switch and re-sign-in are safe: each of their compare-and-swaps requires
-  `revoked_at IS NULL`.
+  added. A sign-in that replaces a proven device races a bulk revocation the same way, with no synchronization added:
+  when the revocation reads the proven device first, it is revoked with the bulk reason, the replacement's swap misses
+  and the sign-in still creates its device; when the sign-in commits first, the proven device is already `superseded`
+  (skipped as revoked) and the new device is revoked if the bulk read finds it. A pending sign-in the bulk call deleted
+  cannot complete (`pending_invalid`). Holding sign-ins back during a security change belongs to mandatory, synchronous
+  revocation on security changes, which the package does not do yet. Revocation races with refresh, switch and
+  re-sign-in are safe: each of their compare-and-swaps requires `revoked_at IS NULL`, so one revocation of a row,
+  sign-out or `superseded`, wins and the other changes nothing.
 - An exception between `logoutOtherDevices()`'s forced save and its `OtherDeviceLogout` (Laravel saves, queues the
   remember cookie, then dispatches), or an earlier listener of that event stopping it, leaves a save held for a rehash
   unrun, so that forced rehash revokes nothing; the observer relies on Laravel's event to tell it apart.
@@ -139,16 +145,16 @@ deleted. Starting a session is in
 - `PrunesDevices` composes `MassPrunable` and replaces its `prunable()`; using `MassPrunable` beside it is a PHP trait
   collision, so a custom model uses `PrunesDevices` alone. A global scope on the model still narrows pruning: the three
   conditions are grouped.
-- A pending sign-in can remember a device that is pruned before it completes; its completion then misses the
-  continuation and creates a device.
+- A pending sign-in can remember a device that is pruned before it completes; its completion then replaces nothing
+  and creates a device.
 - Queued listeners of an event about a pruned device cannot re-fetch it.
 
 ## Implementation Anchors
 
 - `src/Sessions/ActiveDevices.php`, `src/Sessions/DeviceSummary.php`, `src/Sessions/Concerns/EndsSessions.php`
   (`devices()`)
-- `src/Concerns/ScopesActiveDevices.php` (`scopeActive()`, composed by `ActsAsDevice`), `src/Concerns/PrunesDevices.php`,
-  `src/Database/DeviceRetention.php`, `src/Models/Device.php`
+- `src/Concerns/ScopesActiveDevices.php` (`scopeActive()`, composed by `ActsAsDevice`),
+  `src/Concerns/PrunesDevices.php`, `src/Database/DeviceRetention.php`, `src/Models/Device.php`
 - `src/Sessions/SessionRevocations.php` (the security changes), `src/Listeners/RevokeDevicesOn*.php`,
   `src/Listeners/Concerns/RevokesOnceCommitted.php`, `src/Sessions/Methods/Rehashing.php`,
   `src/Listeners/TrackCredentialAttempts.php`
@@ -160,7 +166,8 @@ deleted. Starting a session is in
 
 - `tests/Feature/Sessions/ActiveDevicesTest.php`: the device list over HTTP behind `auth:api`;
   `tests/Feature/Sessions/ScopesActiveDevicesTest.php`: the `active()` scope
-- `tests/Integration/Sessions/DeviceListingIntegrationTest.php`, `tests/Integration/Sessions/ReplicaDeviceListingTest.php`
+- `tests/Integration/Sessions/DeviceListingIntegrationTest.php`,
+  `tests/Integration/Sessions/ReplicaDeviceListingTest.php`
 - `tests/Unit/Sessions/DeviceSummaryTest.php`
 - `tests/Feature/Sessions/ManagesDevicesTest.php`: logout, sign out everywhere and a device list's revoke over HTTP
 - `tests/Feature/Sessions/SessionRevocationsTest.php`: the revocations without a session service, the binding they are

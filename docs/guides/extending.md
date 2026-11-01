@@ -295,8 +295,11 @@ seam has a default that works alone.
 - Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity)` and `verifyFactor()`, which count and
   report nothing: the factor's outcome is the factor package's to limit and report. `verifyFactor()` answers a
   `PasskeyFactorResult` (see [Using passkeys](signing-in.md#using-passkeys)), never `null`.
-- Factor state is the factor package's, keyed by the device id (`Auth::device()?->getDeviceIdentifier()`, the `did`
-  every session token carries); the device records none.
+- A factor package's credentials and enrolments are its own. Authentication proofs belong on the session in this
+  package, which does not record them yet, so for now anything a factor package keeps about a session is its own,
+  keyed by the device id (`Auth::device()?->getDeviceIdentifier()`, the `did` every session token carries),
+  and does not survive a sign-in: every sign-in starts a new device with a new id, and the device the client proved
+  (`AdditionalFactorContext::$provenDevice`) is revoked, so nothing kept about it transfers to the new one.
 - A factor the factor package has just verified proves a recent authentication before an identifier change:
   `Reauthentication::confirmedAt($verifiedAt)` (see [Changing identifiers](identifier-changes.md)).
 - When every sign-in requires a further factor, a password is no longer the only factor, and `passwords.min_length`

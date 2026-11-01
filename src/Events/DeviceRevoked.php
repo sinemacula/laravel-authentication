@@ -13,8 +13,10 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
  * at once: a sign-out (`signOut()`, `logout()`), a revocation the application
  * asks the session service for (`revokeDevice()`, `revokeDevices()`,
  * `revokePrincipalDevices()`, `signOutEverywhere()` and the security-change
- * methods), and a refresh or switch that caught a replayed refresh token. A
- * device an application revokes by writing `revoked_at` itself is not reported.
+ * methods), a refresh or switch that caught a replayed refresh token, and a
+ * sign-in that replaced the device the client proved it holds (`superseded`,
+ * just before that sign-in's `DeviceCreated`). A device an application revokes
+ * by writing `revoked_at` itself is not reported.
  *
  * Fired only by the call that revoked the device, not for one that was already
  * revoked, and only once the revocation is committed on the device's own
@@ -27,8 +29,9 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
  * snapshot of an identity or principal it does not hold is the owner or
  * principal the device row records (a replay is caught before the owner is
  * loaded, so its models are `null` and its snapshots name what the row
- * records). The tenant is carried only by `signOut()` and
- * `tenantDeactivated()`, since devices record none.
+ * records). The tenant is carried only by `signOut()`, `tenantDeactivated()`
+ * and a sign-in's replacement (the tenant it admitted), since devices record
+ * none.
  *
  * @api
  *

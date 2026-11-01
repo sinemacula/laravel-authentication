@@ -12,7 +12,7 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  * name and platform the client gave, and the IP address and user agent it came
  * from. Part of `EloquentDevice`, so a custom device model implements it by
  * implementing that contract; the session service writes these columns when it
- * creates or continues a device.
+ * creates a device.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

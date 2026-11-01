@@ -81,9 +81,8 @@ interface Device
 
     /**
      * Return when the device's session started: the sign-in that created the
-     * device, or the last one that continued it on the same client. The
-     * absolute deadline is counted from it. `null` only for a device with no
-     * session.
+     * device. The absolute deadline is counted from it. `null` only for a
+     * device with no session.
      *
      * @return ?\Carbon\CarbonInterface
      *

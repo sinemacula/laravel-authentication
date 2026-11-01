@@ -48,7 +48,7 @@ final class SignInResultTest extends TestCase
         $principal = \Mockery::mock(Principal::class);
         $device    = \Mockery::mock(Model::class, EloquentDevice::class);
         $tokens    = new TokenPair('access', 'refresh');
-        $session   = new SignedInSession($identity, $principal, $device, $tokens, 'password', true);
+        $session   = new SignedInSession($identity, $principal, $device, $tokens, 'password');
         $result    = SignInResult::signedIn($session);
 
         self::assertSame(SignInStatus::SIGNED_IN, $result->status);
@@ -65,7 +65,23 @@ final class SignInResultTest extends TestCase
         self::assertSame($device, $session->device);
         self::assertSame($tokens, $session->tokens);
         self::assertSame('password', $session->method);
-        self::assertTrue($session->deviceCreated);
+    }
+
+    /**
+     * A started session says nothing about whether its device is new: every
+     * sign-in creates one, so the session carries exactly who, as whom, on
+     * which device, with which tokens and how.
+     *
+     * @return void
+     */
+    public function testASignedInSessionCarriesNoCreationFlag(): void
+    {
+        $parameters = (new \ReflectionMethod(SignedInSession::class, '__construct'))->getParameters();
+
+        self::assertSame(
+            ['identity', 'principal', 'device', 'tokens', 'method'],
+            array_map(static fn (\ReflectionParameter $parameter): string => $parameter->getName(), $parameters),
+        );
     }
 
     /**

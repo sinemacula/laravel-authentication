@@ -19,8 +19,8 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * Decides whether a client signing in proved, with its refresh token, that it
- * holds an existing session, so the sign-in continues on that device instead of
- * creating another.
+ * holds an existing session, so the new device the sign-in creates replaces
+ * that device, which is revoked (`superseded`).
  *
  * The proof is the refresh token carrying the device's current rotation id,
  * validly signed for the guard; it may have expired, since the usual case is a
@@ -29,7 +29,8 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * in, holds a session of this guard for the same principal, and is not revoked:
  * revocation is final, whatever the reason. A previous or older rotation id
  * proves nothing. Anything short of that is simply no proof: the sign-in
- * creates a device, and nothing fails, is revoked, or is reported.
+ * creates a device, and nothing fails, is revoked, or is reported. The IP
+ * address, user agent, client name and platform never count.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

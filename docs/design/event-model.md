@@ -76,10 +76,13 @@ to these events, so the shape and the timing are a contract.
 ## Success Path
 
 - Sign-in: the session service builds one context for a written session (guard, client, identity, principal, the tenant
-  admission loaded, device, method) and dispatches `DeviceCreated` (new devices) and `SignedIn` with it after the
-  device's connection commits, scheduling them before it binds the guard. A sign-in held for a factor dispatches
-  `AdditionalFactorRequired` with the proven device, after the pending sign-in commits, and one held for a choice of
-  principal `PrincipalChoiceRequired`, with the identity, the method and the proven device but no principal or tenant.
+  admission loaded, device, method) and dispatches `DeviceCreated` and `SignedIn` with it after the device's connection
+  commits, scheduling them before it binds the guard; every sign-in creates its device. A sign-in that replaces the
+  device the client proved first dispatches that device's `DeviceRevoked` (`superseded`), with the sign-in's guard,
+  client, identity, principal and tenant and the method the device records, in the same callback. A sign-in held for a
+  factor dispatches `AdditionalFactorRequired` with the proven device, after the pending sign-in commits, and one held
+  for a choice of principal `PrincipalChoiceRequired`, with the identity, the method and the proven device but no
+  principal or tenant.
 - Switch of principal: `PrincipalSwitched` carries the new principal and tenant in its context and the previous
   principal's recorded morph class and identifier as snapshots of its own, after the switch commits on the device's
   connection; it is scheduled before the guard binds the switched session.

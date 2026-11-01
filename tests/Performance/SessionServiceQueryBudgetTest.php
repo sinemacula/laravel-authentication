@@ -97,15 +97,16 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Continuing a proven device reads the identity and the device and writes
-     * one compare-and-swap, besides reserving and releasing a slot on each of
-     * the three counters the first sign-in created.
+     * Replacing a proven device reads the identity and the device and writes
+     * one compare-and-swap that revokes it and one insert of the new device,
+     * besides reserving and releasing a slot on each of the three counters the
+     * first sign-in created.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testASignInOnAProvenDeviceReadsTwiceAndWritesTheDeviceOnce(): void
+    public function testASignInOnAProvenDeviceReadsTwiceAndWritesTwice(): void
     {
         $this->seedIdentity();
 
@@ -115,9 +116,9 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions();
         $context  = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken);
-        $again    = $this->assertQueryBudget(2, 7, static fn (): SignInResult => $sessions->signIn('password', self::credentials(), $context));
+        $again    = $this->assertQueryBudget(2, 8, static fn (): SignInResult => $sessions->signIn('password', self::credentials(), $context));
 
-        self::assertFalse($again->session?->deviceCreated);
+        self::assertNotSame($first->device->getKey(), $again->session?->device->getKey());
     }
 
     /**

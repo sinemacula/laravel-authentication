@@ -148,7 +148,7 @@ Route::post('/auth/sign-in', function (Request $request) {
 
     abort_unless($transport->isSameSiteRequest($request), 403);
 
-    // A browser that still holds a refresh cookie proves its device, which the sign-in then continues.
+    // A browser that still holds a refresh cookie proves its device, which the sign-in then replaces.
     $presented = $transport->read($request);
     $context   = SignInContext::fromRequest($request, refreshToken: $presented instanceof PresentedRefreshToken ? $presented->token : null);
     $session   = Auth::sessions('browser')->signIn('password', $request->only('email', 'password'), $context)->session;
@@ -261,14 +261,12 @@ left alone. When a parallel refresh changes the device between this refresh's re
 again as it now is: usually that makes this refresh a grace retry; a deadline that moved in between fails it with
 `rotation_conflict`, without revoking anything, and the client can simply retry.
 
-A refresh token for a rotation id the device never held is a replay too, and that includes a token from an earlier
-session of the same device. A client that signs in again on its device (see
-[Signing in](signing-in.md#signing-in-the-session-service)) starts a new session with a new rotation id, so the refresh
-tokens of its earlier session become replays: presenting one while the new session is live revokes the device. The
-client that proved the device with its current refresh token has just received the replacement; a client that loses the
-sign-in response and retries with the old token proves nothing, gets a new device, and leaves the old one to be revoked
-if that token is ever presented again. Restarting the deadlines cannot revive an access token: its `exp` was capped at
-the end of the session it was issued for. Do not give an existing device a new `refresh_key` yourself; let the session
+A refresh token for a rotation id the device never held is a replay too. A client that signs in again with its current
+refresh token (see [Signing in](signing-in.md#signing-in-the-session-service)) gets a new device, and its previous
+device is revoked as `superseded`: that device's refresh tokens are then refused as `device_revoked`, not judged as
+replays, so they cannot touch the new device. A client that loses the sign-in response and retries with the old token
+proves nothing (its device is already revoked) and gets another new device; the one whose response was lost lingers
+unused until it expires or is pruned. Do not give an existing device a new `refresh_key` yourself; let the session
 service do it.
 
 Every refresh judges the device at one moment, taken when it starts, so application servers should keep synchronised

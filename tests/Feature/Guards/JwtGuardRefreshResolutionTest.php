@@ -671,7 +671,6 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         self::assertInstanceOf(Refreshed::class, $refreshed);
         self::assertInstanceOf(SignedIn::class, $signedIn);
         self::assertSame($refreshed->context, $signedIn->context);
-        self::assertFalse($signedIn->deviceCreated);
         self::assertTrue($signedIn->refresh);
         self::assertSame('password', $signedIn->context->method);
         self::assertSame($device, $signedIn->context->device);

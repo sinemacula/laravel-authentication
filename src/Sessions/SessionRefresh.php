@@ -100,7 +100,7 @@ final readonly class SessionRefresh
 
         $this->binding->loginVerified($outcome->identity, $outcome->principal, $outcome->device, $outcome->tenant, $outcome->method);
 
-        return RefreshResult::refreshed(new SignedInSession($outcome->identity, $outcome->principal, $outcome->device, $outcome->tokens, (string) $outcome->method, false));
+        return RefreshResult::refreshed(new SignedInSession($outcome->identity, $outcome->principal, $outcome->device, $outcome->tokens, (string) $outcome->method));
     }
 
     /**
@@ -168,7 +168,7 @@ final readonly class SessionRefresh
 
         $this->afterCommit->run($refreshed->device, function () use ($context): void {
             $this->context->dispatch(new Refreshed($context));
-            $this->context->dispatch(new SignedIn($context, false, true));
+            $this->context->dispatch(new SignedIn($context, true));
         });
     }
 }

@@ -426,13 +426,15 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * A sign-in whose client proves the device it holds continues it.
+     * A sign-in whose client proves the device it holds replaces it: the proven
+     * device's revocation (`superseded`) is reported first, then the new device
+     * and the sign-in, before the bind to the new device.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testASignInThatProvesItsDeviceContinuesIt(): void
+    public function testASignInThatProvesItsDeviceReplacesIt(): void
     {
         $identity = $this->seedIdentity();
 
@@ -445,15 +447,17 @@ final class EventSequenceTest extends TestCase
 
         $result = $sessions->signIn('password', self::credentials(), $context);
 
-        self::assertTrue($first->device->is($result->session?->device));
+        self::assertFalse($first->device->is($result->session?->device));
         self::assertSame([
             'Attempting api',
-            'SignedIn api continued i1/p1/d1',
+            'DeviceRevoked api superseded i1/p1/d1',
+            'DeviceCreated api i1/p1/d2',
+            'SignedIn api new i1/p1/d2',
             'Validated api i1',
             'Login api i1',
             'Authenticated api i1',
-            'PrincipalAssigned api i1/p1/d1',
-            'DeviceAuthenticated api i1/p1/d1',
+            'PrincipalAssigned api i1/p1/d2',
+            'DeviceAuthenticated api i1/p1/d2',
         ], $this->recordedSequence());
     }
 

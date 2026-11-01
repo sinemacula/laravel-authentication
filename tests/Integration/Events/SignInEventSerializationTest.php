@@ -20,7 +20,9 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceCreated;
+use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
@@ -135,7 +137,42 @@ final class SignInEventSerializationTest extends TestCase
             self::assertEquals(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), $event->context->client);
         }
 
-        self::assertTrue($signedIn->deviceCreated);
+        self::assertFalse($signedIn->refresh);
+    }
+
+    /**
+     * The `DeviceRevoked` (`superseded`) of a device a sign-in replaced comes
+     * back with the member, membership and tenant the sign-in admitted, the
+     * replaced device reloaded as revoked, the method that device records, and
+     * the reason unchanged.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASupersededRevocationRestoresItsModelsAndReason(): void
+    {
+        $first = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+
+        self::assertNotNull($first);
+
+        $this->recordEvents([DeviceRevoked::class]);
+
+        $context = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken);
+
+        self::assertTrue($this->sessions('members')->start($this->member, $this->membership, 'sso', $context)->isSignedIn());
+
+        $event = self::roundTrip($this->recordedEvent(DeviceRevoked::class));
+
+        $this->assertRestoredModels($event->context->identity, $event->context->principal, $event->context->tenant);
+        self::assertSame(RevocationReason::SUPERSEDED, $event->reason);
+        self::assertSameModel($first->device, $event->context->device);
+        self::assertInstanceOf(Device::class, $event->context->device);
+        self::assertSame('superseded', $event->context->device->getRevokedReason());
+        self::assertSame('Renamed', self::clientNameOf($event->context->device));
+        self::assertSame('members', $event->context->guard);
+        self::assertSame('password', $event->context->method);
+        self::assertEquals(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), $event->context->client);
     }
 
     /**
@@ -291,7 +328,7 @@ final class SignInEventSerializationTest extends TestCase
         self::assertNull($copy->context->tenant);
         self::assertNull($copy->context->device);
         self::assertSame($event->context->toArray(), $copy->context->toArray());
-        self::assertTrue($copy->deviceCreated);
+        self::assertFalse($copy->refresh);
     }
 
     /**

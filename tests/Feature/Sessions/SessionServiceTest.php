@@ -162,7 +162,6 @@ final class SessionServiceTest extends TestCase
         self::assertSameModel($identity, $session->identity);
         self::assertSame($session->identity, $session->principal);
         self::assertSame('password', $session->method);
-        self::assertTrue($session->deviceCreated);
 
         $device = Device::query()->whereKey($session->device->getKey())->firstOrFail();
         $claims = Auth::manager()->jwt('api')->parse($session->tokens->refreshToken);
@@ -245,7 +244,6 @@ final class SessionServiceTest extends TestCase
             self::assertSame(self::CLIENT_AGENT, $event->context->client->userAgent);
         }
 
-        self::assertTrue($signedIn->deviceCreated);
         self::assertFalse($signedIn->refresh);
     }
 

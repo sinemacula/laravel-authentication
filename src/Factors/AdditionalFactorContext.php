@@ -16,9 +16,9 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
  *
  * `$provenDevice` is set only when the client proved, with its current refresh
  * token, that it holds an existing session of this guard on the same identity
- * and principal, which the sign-in will then continue on. A policy that trusts
- * a device it has seen a factor on (keyed by the device identifier) can rely on
- * it. A device merely named by the caller never appears here.
+ * and principal, which the sign-in will then replace with a new device: the new
+ * session has a new identifier, and nothing a policy kept about the proven one
+ * transfers to it. A device merely named by the caller never appears here.
  *
  * @api
  *

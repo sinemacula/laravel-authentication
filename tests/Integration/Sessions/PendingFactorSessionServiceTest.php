@@ -26,7 +26,9 @@ use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceCreated;
+use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
@@ -46,6 +48,7 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
@@ -400,46 +403,101 @@ final class PendingFactorSessionServiceTest extends TestCase
     }
 
     /**
-     * A client that proved it holds a device, and was asked for a factor,
-     * continues on that device once it completes, and the factor policy was
-     * told of the device.
+     * A client that proved it holds a device, and was asked for a factor, has
+     * that device replaced only once it completes: issuing the pending sign-in
+     * revokes nothing, and the completion revokes the proven device as
+     * `superseded` and starts a new one, reporting the revocation, then the new
+     * device and the sign-in. The factor policy was told of the device.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAProvenDeviceIsContinuedOnCompletion(): void
+    public function testAProvenDeviceIsReplacedOnCompletion(): void
     {
         $this->seedIdentity();
 
         $first = $this->signedInWithoutAFactor();
 
+        $this->recordEvents([DeviceRevoked::class, DeviceCreated::class, SignedIn::class]);
+
         $pending = $this->pendingFor(refreshToken: $first->tokens->refreshToken);
 
         self::assertSame([$first->device->getKey()], $this->proven);
         self::assertSame($first->device->getKey(), $pending->provenDevice?->getDeviceIdentifier());
+        self::assertNull(Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRevokedAt());
+        self::assertSame([], $this->recordedClasses());
 
         $session = $this->sessions()->complete($pending->token)->session;
 
         self::assertNotNull($session);
-        self::assertFalse($session->deviceCreated);
-        self::assertSame($first->device->getKey(), $session->device->getKey());
-        self::assertSame(1, Device::query()->count());
-        self::assertSame('email', Device::query()->sole()->getSignInIdentifierType());
+        self::assertNotSame($first->device->getKey(), $session->device->getKey());
+        self::assertSame('superseded', Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRevokedReason());
+        self::assertNull(Device::query()->whereKey($session->device->getKey())->firstOrFail()->getRevokedAt());
+        self::assertSame('email', Device::query()->whereKey($session->device->getKey())->firstOrFail()->getSignInIdentifierType());
+        self::assertSame([DeviceRevoked::class, DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame(IdentifierCoercion::stringify($first->device->getKey()), $this->recordedEvent(DeviceRevoked::class)->context->deviceId);
+        self::assertSame(RevocationReason::SUPERSEDED, $this->recordedEvent(DeviceRevoked::class)->reason);
+        self::assertSame(IdentifierCoercion::stringify($session->device->getKey()), $this->recordedEvent(DeviceCreated::class)->context->deviceId);
+        self::assertSame(IdentifierCoercion::stringify($session->device->getKey()), $this->recordedEvent(SignedIn::class)->context->deviceId);
     }
 
     /**
-     * A proven device that changes after the factor was asked for is not
-     * continued: a refresh before the completion makes it unknown to the
-     * pending sign-in, and one in the middle of the completion makes the swap
-     * miss; either way the completion starts on a new device, which records the
-     * sign-in's identifier type.
+     * A pending sign-in that proved a device and is discarded (its factor
+     * failed) revokes nothing: the proven device stays live.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAProvenDeviceThatChangedIsNotContinued(): void
+    public function testADiscardedPendingSignInLeavesTheProvenDeviceLive(): void
+    {
+        $this->seedIdentity();
+
+        $first   = $this->signedInWithoutAFactor();
+        $pending = $this->pendingFor(refreshToken: $first->tokens->refreshToken);
+
+        self::assertTrue($this->sessions()->discard($pending->token));
+        self::assertNull(Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRevokedAt());
+        self::assertSame(1, Device::query()->count());
+    }
+
+    /**
+     * A revocation of every device of the identity between the issue of a
+     * pending sign-in that proved a device and its completion deletes the
+     * pending sign-in: the completion fails as `pending_invalid` and starts
+     * nothing, and the proven device keeps the bulk revocation's reason.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingSignInEndedByASignOutEverywhereCannotReplaceItsDevice(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $first   = $this->signedInWithoutAFactor();
+        $pending = $this->pendingFor(refreshToken: $first->tokens->refreshToken);
+
+        self::assertSame(1, $this->sessions()->revokeDevices($identity, RevocationReason::SIGNED_OUT_EVERYWHERE));
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->complete($pending->token)->reason);
+        self::assertSame('signed_out_everywhere', Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRevokedReason());
+        self::assertSame(1, Device::query()->count());
+    }
+
+    /**
+     * A proven device that changes after the factor was asked for is not
+     * replaced: a refresh before the completion makes it unknown to the
+     * pending sign-in, and one in the middle of the completion makes the swap
+     * miss; either way the completion starts on a new device, which records the
+     * sign-in's identifier type, reports no revocation, and leaves the changed
+     * device live.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAProvenDeviceThatChangedIsNotReplaced(): void
     {
         $this->seedIdentity();
 
@@ -449,7 +507,15 @@ final class PendingFactorSessionServiceTest extends TestCase
 
         self::assertNotNull($rotated);
         self::assertNull($this->sessions()->pending($before->token)?->provenDevice);
-        self::assertTrue($this->sessions()->complete($before->token)->session?->deviceCreated);
+
+        $this->recordEvents([DeviceRevoked::class, DeviceCreated::class, SignedIn::class]);
+
+        $fallback = $this->sessions()->complete($before->token)->session;
+
+        self::assertNotNull($fallback);
+        self::assertNotSame($first->device->getKey(), $fallback->device->getKey());
+        self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame(IdentifierCoercion::stringify($fallback->device->getKey()), $this->recordedEvent(SignedIn::class)->context->deviceId);
 
         $during = $this->pendingFor(refreshToken: $rotated->refreshToken);
 
@@ -457,11 +523,17 @@ final class PendingFactorSessionServiceTest extends TestCase
             Device::query()->whereKey($first->device->getKey())->update(['refresh_key' => RefreshTokenHasher::hash('rotated-in-parallel')]);
         });
 
+        $this->recordEvents([DeviceRevoked::class, DeviceCreated::class, SignedIn::class]);
+
         $result = $this->sessions()->complete($during->token);
 
-        self::assertTrue($result->session?->deviceCreated);
+        self::assertNotNull($result->session);
+        self::assertNotSame($first->device->getKey(), $result->session->device->getKey());
+        self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame(IdentifierCoercion::stringify($result->session->device->getKey()), $this->recordedEvent(DeviceCreated::class)->context->deviceId);
         self::assertSame('email', Device::query()->whereKey($result->session->device->getKey())->value('sign_in_identifier_type'));
         self::assertSame(RefreshTokenHasher::hash('rotated-in-parallel'), Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRefreshKey());
+        self::assertNull(Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRevokedAt());
     }
 
     /**

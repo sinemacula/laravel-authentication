@@ -5,10 +5,10 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Events;
 
 /**
- * Dispatched when the session service creates a device for a sign-in, once the
- * new row is committed on the device's own connection (never for one that is
- * rolled back), just before `SignedIn`. A sign-in that continues an existing
- * device of the same client does not dispatch it.
+ * Dispatched when the session service creates a device for a sign-in, which
+ * every sign-in does, once the new row is committed on the device's own
+ * connection (never for one that is rolled back), just before `SignedIn`, and
+ * after the `DeviceRevoked` (`superseded`) of the device it replaced, if any.
  *
  * The context carries the guard, the client the device was created for, the
  * identity, principal, tenant and device, and the method that created it. Never

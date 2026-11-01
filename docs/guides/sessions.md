@@ -135,7 +135,20 @@ action itself is recorded), the cutoff it set (or `null`), and the device it kep
 cutoff it already moved stands: more is cut off, never less, and calling again finishes the job. One window stays open:
 a sign-in that has already passed its credential check when a bulk revocation reads the devices can still create its
 device afterwards. Closing it would take a lock that every sign-in and every revocation take on the identity, which the
-package does not add.
+package does not add. A sign-in that proves the client's previous device races a bulk revocation the same way: when the
+revocation reads that device first, it is revoked with the bulk reason and the sign-in revokes nothing and still
+creates its device; when the sign-in commits first, the previous device is already `superseded` (the bulk call skips
+it) and the new device is revoked by the bulk call if its read finds it.
+
+### Signing in again
+
+Every sign-in starts a new session on a new device; the previous session of the same client is not reused. A sign-in
+revokes the client's previous device only when the client proves it holds it, with that session's current refresh token
+in the `SignInContext` (see [Signing in](signing-in.md#signing-in-the-session-service)); the device is then revoked
+with the reason `superseded` in the same transaction, and `DeviceRevoked` reports it before the new device's
+`DeviceCreated`. The IP address and user agent never count, so an application that does not pass the refresh token
+keeps every earlier session of the client until it expires, is signed out or is revoked. A refresh and a switch of
+principal keep their device.
 
 ### Listing devices
 
@@ -151,7 +164,7 @@ Route::middleware('auth:api')->get('/devices', fn () => Auth::sessions('api')->d
 
 Each item is a `DeviceSummary`, safe to return as it is: the device id (its `did`), guard, sign-in method, client name
 and platform, the creation time (for a model with Eloquent timestamps), IP address and user agent, when the session
-started (its latest sign-in on that device), the last use and its IP address and user agent, both deadlines, and
+started (the sign-in that created the device), the last use and its IP address and user agent, both deadlines, and
 `current`, which marks the device the request is authenticated with on that guard. It never holds a refresh digest, the
 rotation time, the revocation columns, the owner or the principal, and `toArray()` and JSON use snake_case keys and
 ISO-8601 times. A page holds 1 to 100 devices (15 by default; anything else is an `InvalidArgumentException`), and the
@@ -306,6 +319,7 @@ Every revocation records one of these reasons in the device's `revoked_reason` a
 | `signed_out_everywhere` | `signOutEverywhere()` ended the identity's sessions                                                                         |
 | `revoked`               | The application revoked it: `revokeDevice()`, `revokeDevices()`, `revokePrincipalDevices()`                                 |
 | `rotation_reuse`        | A rotated refresh token was replayed, by a refresh or a switch of principal                                                 |
+| `superseded`            | A sign-in that proved the client holds the device, with its current refresh token, replaced it with a new device            |
 | `password_changed`      | `passwordChanged()`: directly, through `Auth::passwords()->set()` with `CHANGE`, or through `RevokeDevicesOnPasswordChange` |
 | `password_reset`        | `passwordReset()`: directly, through a reset or `set()` with `RESET`, or through `RevokeDevicesOnPasswordReset`             |
 | `factor_removed`        | `factorRemoved()`, directly or through `RevokeDevicesOnPasskeyRemoval`                                                      |

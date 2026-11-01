@@ -22,9 +22,11 @@ use SineMacula\Laravel\Authentication\Http\ClientText;
  *
  * The principal is verified, not trusted: it must resolve through the
  * resolver's hinted path to the same principal of the same class, owned by the
- * identity signing in. The refresh token proves the client holds that device: a
- * sign-in from the same client then continues on the same device instead of
- * creating another (see the session service).
+ * identity signing in. The refresh token, which an application passes only when
+ * it wants a re-sign-in to replace the client's previous session, proves the
+ * client holds that device: the sign-in then revokes it (`superseded`) as it
+ * creates the new one (see the session service). Without it nothing else is
+ * revoked.
  *
  * @api
  *
@@ -65,7 +67,7 @@ final readonly class SignInContext
         /** Principal the sign-in asks to act as, verified before it is used. */
         public ?Principal $principal = null,
 
-        /** Refresh token the client holds for the device it signed in on before. */
+        /** Refresh token of the client's previous device, which the sign-in replaces when it proves it. */
         #[\SensitiveParameter] public ?string $refreshToken = null,
     ) {
         $this->clientName = ClientText::clean($clientName, self::DESCRIPTION_MAX_LENGTH);
