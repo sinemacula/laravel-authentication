@@ -236,10 +236,12 @@ final readonly class SessionService
      * session's first proof is the provider's: the connection as its channel,
      * the private `urn:sinemacula:amr:external_provider` `amr` value, and the
      * provider's authentication time (now, when it gave none or one after now),
-     * and the provenance is recorded with the session, which the provider's
-     * deadline for its session caps. Without one, the first proof names no
-     * channel and no `amr` value, timed now. The provenance is the trusted
-     * caller's to give, never built from what a client sent.
+     * and the provenance is recorded with the session. The provider's deadline
+     * for its session joins the context's through `withNotAfter()`, so the
+     * earlier of the two caps the session, and one already passed fails as
+     * `session_expired`. Without a provenance, the first proof names no channel
+     * and no `amr` value, timed now. The provenance is the trusted caller's to
+     * give, never built from what a client sent.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -256,9 +258,10 @@ final readonly class SessionService
         SessionPreconditions::assertSessionMethod($method);
 
         $context ??= SignInContext::fromRequest($this->context->request());
-        $pinned = SessionPreconditions::pinnedPrincipal($principal, $context);
-        $now    = CarbonImmutable::now()->startOfSecond();
-        $proof  = $provenance === null ? SignInProof::unattested($method, $now) : SignInProof::external($method, $provenance, $now);
+        $context = $context->withNotAfter($provenance?->sessionNotAfter);
+        $pinned  = SessionPreconditions::pinnedPrincipal($principal, $context);
+        $now     = CarbonImmutable::now()->startOfSecond();
+        $proof   = $provenance === null ? SignInProof::unattested($method, $now) : SignInProof::external($method, $provenance, $now);
 
         $outcome = $this->startFor($identity, $pinned, $method, $context, $proof);
 
@@ -485,9 +488,10 @@ final readonly class SessionService
             return $this->fail($admitted, $method, $context, null, []);
         }
 
-        $proven  = PendingSignIns::provenSession($pending, $identity, $admitted->principal);
-        $proof   = SignInProof::kept($pending);
-        $outcome = $this->bound($this->establishment->establish($admitted, $proven, $method, $pending->identifier_type, $context, $proof, $now, $pending->attempt_windows, $pending));
+        $proven      = PendingSignIns::provenSession($pending, $identity, $admitted->principal);
+        $proof       = SignInProof::kept($pending);
+        $established = $this->establishment->establish($admitted, $proven, $method, $pending->identifier_type, $context, $proof, $now, $pending->attempt_windows, $pending);
+        $outcome     = $this->bound($established);
 
         return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, null, []) : $outcome;
     }

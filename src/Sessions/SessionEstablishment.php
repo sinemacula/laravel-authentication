@@ -109,8 +109,14 @@ final readonly class SessionEstablishment
      *
      * @throws \Throwable
      */
-    public function proceed(Admitted $admitted, string $method, ?string $identifierType, SignInContext $context, SignInProof $proof, ?array $attemptWindows = null): Refused|SignInResult
-    {
+    public function proceed(
+        Admitted $admitted,
+        string $method,
+        ?string $identifierType,
+        SignInContext $context,
+        SignInProof $proof,
+        ?array $attemptWindows = null,
+    ): Refused|SignInResult {
         $proven = $context->refreshToken === null
             ? null
             : $this->proof->provenSession($this->context->name(), $admitted, $context->refreshToken);

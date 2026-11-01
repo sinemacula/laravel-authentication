@@ -130,7 +130,7 @@ final readonly class ProofIssuance
 
         ProofWriter::record($session, $this->context->name(), $proof);
 
-        return [$admitted, $session, $this->tokens->issueAccessToken($admitted->identity, $admitted->principal, $session, $now)];
+        return [$admitted, $session, $this->tokens->issueAccessToken($admitted->identity, $admitted->principal, $admitted->tenant, $session, $now)];
     }
 
     /**

@@ -187,7 +187,13 @@ final class SessionEstablishmentTest extends TestCase
         $identity     = $this->seedIdentity();
         $guard        = $this->freshGuard();
         $establishing = $this->establishment($guard);
-        $first        = self::outcome($establishing->proceed(self::admitted($identity), 'sso', null, $this->context(), SignInProof::unattested('sso', CarbonImmutable::now())))->session;
+        $first        = self::outcome($establishing->proceed(
+            self::admitted($identity),
+            'sso',
+            null,
+            $this->context(),
+            SignInProof::unattested('sso', CarbonImmutable::now()),
+        ))->session;
 
         self::assertNotNull($first);
 
@@ -719,7 +725,13 @@ final class SessionEstablishmentTest extends TestCase
 
         foreach ([CarbonImmutable::now(), CarbonImmutable::now()->subMinute()] as $deadline) {
 
-            $refused = $this->establishment($guard)->proceed(self::admitted($identity), 'password', 'email', $this->context(notAfter: $deadline), SignInProof::unattested('password', CarbonImmutable::now()));
+            $refused = $this->establishment($guard)->proceed(
+                self::admitted($identity),
+                'password',
+                'email',
+                $this->context(notAfter: $deadline),
+                SignInProof::unattested('password', CarbonImmutable::now()),
+            );
 
             self::assertInstanceOf(Refused::class, $refused);
             self::assertSame(FailureReason::SESSION_EXPIRED, $refused->reason);
@@ -745,7 +757,13 @@ final class SessionEstablishmentTest extends TestCase
         $deadline = CarbonImmutable::now()->addSecond();
 
         $establishing = $this->establishment($this->freshGuard());
-        $record       = self::outcome($establishing->proceed(self::admitted($identity), 'password', 'email', $this->context(notAfter: $deadline), SignInProof::unattested('password', CarbonImmutable::now())))->session?->record;
+        $record       = self::outcome($establishing->proceed(
+            self::admitted($identity),
+            'password',
+            'email',
+            $this->context(notAfter: $deadline),
+            SignInProof::unattested('password', CarbonImmutable::now()),
+        ))->session?->record;
 
         self::assertNotNull($record);
         self::assertSame($deadline->getTimestamp(), $record->getAbsoluteExpiresAt()?->getTimestamp());
@@ -771,7 +789,14 @@ final class SessionEstablishmentTest extends TestCase
         self::requireAFurtherFactor(true);
 
         $establishing = $this->establishment($guard);
-        $pending      = self::outcome($establishing->proceed(self::admitted($identity), 'password', 'email', $this->context(notAfter: $deadline), SignInProof::unattested('password', CarbonImmutable::now()), self::WINDOWS))->pending;
+        $pending      = self::outcome($establishing->proceed(
+            self::admitted($identity),
+            'password',
+            'email',
+            $this->context(notAfter: $deadline),
+            SignInProof::unattested('password', CarbonImmutable::now()),
+            self::WINDOWS,
+        ))->pending;
 
         self::assertNotNull($pending);
         self::assertSame($deadline->getTimestamp(), PendingSignIn::query()->sole()->not_after?->getTimestamp());
