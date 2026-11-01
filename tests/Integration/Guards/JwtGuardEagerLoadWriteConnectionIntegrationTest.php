@@ -200,8 +200,9 @@ final class JwtGuardEagerLoadWriteConnectionIntegrationTest extends TestCase
         $this->configureLaggingReplica($config);
 
         $config->set('auth.guards.members', [
-            'driver'   => 'jwt',
-            'provider' => 'members',
+            'driver'      => 'jwt',
+            'provider'    => 'members',
+            'application' => ['methods' => ['password']],
         ]);
 
         $config->set('auth.providers.members', [
@@ -210,8 +211,9 @@ final class JwtGuardEagerLoadWriteConnectionIntegrationTest extends TestCase
         ]);
 
         $config->set('auth.guards.users', [
-            'driver'   => 'jwt',
-            'provider' => 'users',
+            'driver'      => 'jwt',
+            'provider'    => 'users',
+            'application' => ['methods' => ['password']],
         ]);
 
         $config->set('auth.providers.users', [

@@ -13,7 +13,7 @@ use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\Refused;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
@@ -30,8 +30,8 @@ use Tests\Unit\Stubs\StubIdentity;
 /**
  * Feature tests for whom a device's refresh token signs in again: the device's
  * owner, as the principal the token names, active, in an active tenant, and
- * still allowed by the guard's audience policy. Each refusal carries as much of
- * the session as was resolved before it.
+ * still allowed by the application policy. Each refusal carries as much of the
+ * session as was resolved before it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -52,8 +52,8 @@ final class RefreshAdmissionTest extends TestCase
     /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\PrincipalResolver The guard's resolver. */
     private MockInterface $resolver;
 
-    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\AudiencePolicy The audience policy. */
-    private MockInterface $audience;
+    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy The application policy. */
+    private MockInterface $policy;
 
     /**
      * Build the collaborators and the device table.
@@ -67,12 +67,12 @@ final class RefreshAdmissionTest extends TestCase
 
         $this->provider = \Mockery::mock(IdentityProvider::class);
         $this->resolver = \Mockery::mock(PrincipalResolver::class);
-        $this->audience = \Mockery::mock(AudiencePolicy::class);
+        $this->policy   = \Mockery::mock(ApplicationPolicy::class);
 
-        $this->audience->shouldReceive('allowsMethod')->with(self::GUARD, 'password')->andReturnTrue()->byDefault();
-        $this->audience->shouldReceive('admit')->andReturnNull()->byDefault();
+        $this->policy->shouldReceive('allowsMethod')->with(self::GUARD, 'password')->andReturnTrue()->byDefault();
+        $this->policy->shouldReceive('admit')->andReturnNull()->byDefault();
 
-        $this->app?->instance(AudiencePolicy::class, $this->audience);
+        $this->app?->instance(ApplicationPolicy::class, $this->policy);
 
         self::createDeviceTable('stub_devices');
     }
@@ -309,13 +309,13 @@ final class RefreshAdmissionTest extends TestCase
 
         $this->expectPrincipal($identity, 'p-1', 'p-1', $tenant, 3);
 
-        $this->audience->shouldReceive('allowsMethod')->once()->with(self::GUARD, 'password')->andReturnFalse();
+        $this->policy->shouldReceive('allowsMethod')->once()->with(self::GUARD, 'password')->andReturnFalse();
 
         $notAllowed = $this->admission()->admit($removed, 'p-1');
         $noMethod   = $this->admission()->admit($unstated, 'p-1');
 
-        $this->audience->shouldReceive('allowsMethod')->with(self::GUARD, 'password')->andReturnTrue();
-        $this->audience->shouldReceive('admit')
+        $this->policy->shouldReceive('allowsMethod')->with(self::GUARD, 'password')->andReturnTrue();
+        $this->policy->shouldReceive('admit')
             ->once()
             ->withArgs(static fn (string $guard, Identity $admitted, Principal $acting, ?string $type): bool => $guard === self::GUARD && $admitted === $identity && $type === null)
             ->andReturn(FailureReason::PRINCIPAL_INELIGIBLE);

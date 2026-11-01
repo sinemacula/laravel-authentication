@@ -8,20 +8,18 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Console\Command;
 use Illuminate\Foundation\Application;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeySettings;
-use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Codes\CodeKeys;
 use SineMacula\Laravel\Authentication\Codes\CodeSettings;
 use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
 use SineMacula\Laravel\Authentication\Config\JwtGuards;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Database\DeviceRetention;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Delivery\DeliverySettings;
 use SineMacula\Laravel\Authentication\Devices\DeviceLookup;
-use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenSettings;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeSettings;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
@@ -43,29 +41,36 @@ use Symfony\Component\Console\Attribute\AsCommand;
  * Every check runs, so one run lists every problem, each as
  * `[<guard>] <message>`. For a `jwt` guard: the token service (keys, active
  * kid, algorithm, key lengths, lifetimes, leeway, issuer and audience), the
- * identity provider, a principal resolver override, the package audience
- * policy's settings, every flow's rate limits, the password identifier, the
- * refresh token transport, and the passkey relying party when the guard allows
- * passkeys or configures one. For an `api_key` guard: the identity provider, a
- * principal resolver override, the package audience policy's settings and that
- * they allow `api_key`, and every flow's rate limits. The package-wide settings
- * are reported as `[storage]` (the storage connection and the rate limits
- * connection, each a connection name configured in `database.connections`, or
- * none), `[device]` (while a `jwt` guard is configured: the device model, which
- * must live on the storage connection, and the pruning retention), `[sign_in]`
- * (the pending sign-in lifetime), `[passwords]` (the password policy settings),
- * `[codes]` (the one-time code settings and key, and a sender bound when a
- * guard allows a code sign-in method, the package's or an application's own
- * `CodeSignIn`), `[delivery]` (the delivery queue, with a warning, not a
- * problem, when a `jwt` guard is configured and deliveries run on a `sync`
- * queue connection, or a `failover` one that can fall back to `sync`),
- * `[passkeys]` (the passkey challenge lifetime), `[api_keys]` (the key prefix,
- * the rotation overlaps, the last-use throttle and the pruning retention) and
+ * identity provider, a principal resolver override, its application (the
+ * package application policy's settings, or that a policy of the application's
+ * own answers), every flow's rate limits, the password identifier, the refresh
+ * token transport, and the passkey relying party when the guard's application
+ * allows passkeys or the guard configures one. For an `api_key` guard: the
+ * identity provider, a principal resolver override, its application (that it
+ * allows `api_key`, and with the package's policy that its settings are valid),
+ * and every flow's rate limits. The package-wide settings are reported as
+ * `[storage]` (the storage connection and the rate limits connection, each a
+ * connection name configured in `database.connections`, or none), `[device]`
+ * (while a `jwt` guard is configured: the device model, which must live on the
+ * storage connection, and the pruning retention), `[sign_in]` (the pending
+ * sign-in lifetime), `[passwords]` (the password policy settings), `[codes]`
+ * (the one-time code settings and key, a sender bound when a guard allows a
+ * code sign-in method, the package's or an application's own `CodeSignIn`, and
+ * an exception a guard's application policy throws when asked whether it allows
+ * one, for a guard `--guard` leaves out; a checked guard reports it as its own
+ * problem), `[delivery]` (the delivery queue, with a warning, not a problem,
+ * when a `jwt` guard is configured and deliveries run on a `sync` queue
+ * connection, or a `failover` one that can fall back to `sync`), `[passkeys]`
+ * (the passkey challenge lifetime), `[api_keys]` (the key prefix, the rotation
+ * overlaps, the last-use throttle and the pruning retention) and
  * `[identifier_changes]` (the pending change lifetime and the
  * recent-authentication window). It also warns about a `jwt` guard whose
- * password resets and identifier changes would refuse to run (see
- * `PasswordChecks::warnings()`). The command reads configuration only: it opens
- * no database connection and prints no secret.
+ * package application settings allow no sign-in method or machine credential
+ * (see `ApplicationChecks::warnings()`), and one whose password resets and
+ * identifier changes would refuse to run (see `PasswordChecks::warnings()`).
+ * The command reads configuration only: its own checks open no database
+ * connection, though a policy of the application's own may open one when asked,
+ * and it prints no secret.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -98,7 +103,7 @@ final class CheckConfigurationCommand extends Command
 
         $problems = [];
 
-        foreach ($this->packageChecks($config) as $subject => $checks) {
+        foreach ($this->packageChecks($config, $guards) as $subject => $checks) {
 
             $found = self::prefixed($subject, array_map(static fn (\Closure $check): ?string => self::problem($check), $checks));
 
@@ -111,7 +116,12 @@ final class CheckConfigurationCommand extends Command
 
         $this->warnAboutSynchronousDelivery($config);
 
-        foreach ((new PasswordChecks($this->laravel, $config))->warnings($guards) as $warning) {
+        $warnings = [
+            ...(new ApplicationChecks($this->laravel, $config))->warnings($guards),
+            ...(new PasswordChecks($this->laravel, $config))->warnings($guards),
+        ];
+
+        foreach ($warnings as $warning) {
             $this->warn($warning);
         }
 
@@ -135,9 +145,10 @@ final class CheckConfigurationCommand extends Command
      * settings, each of which otherwise fails only when it is first used.
      *
      * @param  \Illuminate\Config\Repository  $config
+     * @param  list<string>  $checked
      * @return array<string, list<\Closure(): mixed>>
      */
-    private function packageChecks(ConfigRepository $config): array
+    private function packageChecks(ConfigRepository $config, array $checked): array
     {
         $device = JwtGuards::names($config) === [] ? [] : [
             'device' => [
@@ -158,7 +169,7 @@ final class CheckConfigurationCommand extends Command
                 static fn (): int => (new PendingSignIns($config))->ttlSeconds(),
             ],
             'passwords' => (new PasswordChecks($this->laravel, $config))->settings(),
-            'codes'     => $this->codeChecks($config),
+            'codes'     => $this->codeChecks($config, $checked),
             'delivery'  => [
                 static function () use ($config): void {
                     (new DeliverySettings($config))->validate();
@@ -215,16 +226,19 @@ final class CheckConfigurationCommand extends Command
 
     /**
      * The checks of the one-time code settings, each of which otherwise fails
-     * only when a code is first issued: the numbers, the key, and a sender
-     * bound when a guard allows a code sign-in method.
+     * only when a code is first issued: the numbers, the key, a sender bound
+     * when a guard allows a code sign-in method, and the exception a policy
+     * throws when asked whether a guard `--guard` leaves out does.
      *
      * @param  \Illuminate\Config\Repository  $config
+     * @param  list<string>  $checked
      * @return list<\Closure(): mixed>
      */
-    private function codeChecks(ConfigRepository $config): array
+    private function codeChecks(ConfigRepository $config, array $checked): array
     {
-        $guards = $this->codeGuards($config);
-        $bound  = $this->laravel->bound(OneTimeCodeSender::class);
+        [$guards, $unanswered] = $this->codeGuards($config, $checked);
+
+        $bound = $this->laravel->bound(OneTimeCodeSender::class);
 
         return [
             static function () use ($config): void {
@@ -240,6 +254,9 @@ final class CheckConfigurationCommand extends Command
                     throw new \LogicException($message);
                 }
             },
+            ...array_map(static fn (string $message): \Closure => static function () use ($message): never {
+                throw new \LogicException($message);
+            }, $unanswered),
         ];
     }
 
@@ -280,30 +297,55 @@ final class CheckConfigurationCommand extends Command
     }
 
     /**
-     * The `jwt` guards whose audience allows a code sign-in method.
+     * The `jwt` guards whose application allows a code sign-in method, and a
+     * problem for each guard outside the checked ones whose application policy
+     * throws when asked. A guard that is checked has its policy asked again by
+     * its own application check, which reports what it throws, so it is left
+     * out of both here.
      *
      * @param  \Illuminate\Config\Repository  $config
-     * @return list<string>
+     * @param  list<string>  $checked
+     * @return array{0: list<string>, 1: list<string>}
      */
-    private function codeGuards(ConfigRepository $config): array
+    private function codeGuards(ConfigRepository $config, array $checked): array
     {
-        $policy  = $this->laravel->make(AudiencePolicy::class);
-        $methods = $this->codeMethods();
-        $guards  = $config->get('auth.guards');
-        $found   = [];
+        $policy     = $this->laravel->make(ApplicationPolicy::class);
+        $methods    = $this->codeMethods();
+        $guards     = $config->get('auth.guards');
+        $found      = [];
+        $unanswered = [];
 
         foreach (is_array($guards) ? $guards : [] as $name => $guard) {
 
             $name = (string) $name;
 
-            if (!is_array($guard) || ($guard['driver'] ?? null) !== 'jwt' || !self::allowsAnyOf($policy, $name, $methods)) {
+            $answer = is_array($guard) && ($guard['driver'] ?? null) === 'jwt' ? self::allowsAnyOf($policy, $name, $methods) : false;
+
+            if ($answer instanceof \Exception && !in_array($name, $checked, true)) {
+                $unanswered[] = self::unanswered($name, $answer);
+            }
+
+            if ($answer !== true) {
                 continue;
             }
 
             $found[] = $name;
         }
 
-        return $found;
+        return [$found, $unanswered];
+    }
+
+    /**
+     * The problem of a guard whose application policy throws when asked whether
+     * it allows a code sign-in method.
+     *
+     * @param  string  $guard
+     * @param  \Exception  $exception
+     * @return string
+     */
+    private static function unanswered(string $guard, \Exception $exception): string
+    {
+        return "Guard [{$guard}]'s application policy could not say whether it allows a code sign-in method: {$exception->getMessage()}";
     }
 
     /**
@@ -329,15 +371,15 @@ final class CheckConfigurationCommand extends Command
     }
 
     /**
-     * Whether the guard's audience allows any of the methods; a malformed
-     * audience allows none here, since the guard's own checks report it.
+     * Whether the guard's application allows any of the methods, or the
+     * exception its policy throws when asked, as over settings it cannot read.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy  $policy
+     * @param  \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy  $policy
      * @param  string  $guard
      * @param  array<int, string>  $methods
-     * @return bool
+     * @return bool|\Exception
      */
-    private static function allowsAnyOf(AudiencePolicy $policy, string $guard, array $methods): bool
+    private static function allowsAnyOf(ApplicationPolicy $policy, string $guard, array $methods): bool|\Exception
     {
         try {
             foreach ($methods as $method) {
@@ -347,8 +389,8 @@ final class CheckConfigurationCommand extends Command
             }
 
             return false;
-        } catch (\InvalidArgumentException) {
-            return false;
+        } catch (\Exception $exception) {
+            return $exception;
         }
     }
 
@@ -436,8 +478,8 @@ final class CheckConfigurationCommand extends Command
             static fn (): mixed => (new JwtTokenServiceFactory($app, $config))->forGuard($guard),
             static fn (): mixed => self::identityProvider($guard, $auth->createUserProvider(is_string($provider) ? $provider : '')),
             static fn (): mixed => AuthenticationServiceProvider::resolveGuardPrincipalResolver($app, $guard, $guardConfig),
-            static function () use ($app, $guard): void {
-                self::validateAudience($app->make(AudiencePolicy::class), $guard);
+            static function () use ($app, $config, $guard): void {
+                (new ApplicationChecks($app, $config))->validate($guard);
             },
             static fn (): mixed => array_map(static fn (AttemptFlow $flow): array => (new AttemptLimits($config))->for($guard, $flow), AttemptFlow::cases()),
             static fn (): mixed => (new PasswordSignIn($config))->identifierType($guard),
@@ -448,11 +490,9 @@ final class CheckConfigurationCommand extends Command
 
     /**
      * The passkey check of a `jwt` guard: its relying party, resolved as its
-     * passkeys would resolve it, when it sets a `passkeys` block or the package
-     * audience policy allows it the `passkey` method. A policy of the
-     * application's own is not asked, as its settings are not checked either,
-     * and audience settings the package policy cannot read are reported by the
-     * audience check alone.
+     * passkeys would resolve it, when it sets a `passkeys` block or the bound
+     * application policy allows it the `passkey` method. An exception the
+     * policy throws when asked is reported by the application check alone.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  string  $guard
@@ -463,7 +503,7 @@ final class CheckConfigurationCommand extends Command
     private static function passkeyCheck(Application $app, string $guard, array $guardConfig, ConfigRepository $config): \Closure
     {
         return static function () use ($app, $guard, $guardConfig, $config): void {
-            if (!array_key_exists('passkeys', $guardConfig) && !self::allowsPasskeys($app->make(AudiencePolicy::class), $guard)) {
+            if (!array_key_exists('passkeys', $guardConfig) && !self::allowsPasskeys($app->make(ApplicationPolicy::class), $guard)) {
                 return;
             }
 
@@ -472,19 +512,18 @@ final class CheckConfigurationCommand extends Command
     }
 
     /**
-     * Whether the package audience policy allows the guard the `passkey`
-     * method; `false` for a policy of the application's own, and for settings
-     * it cannot read.
+     * Whether the application policy allows the guard the `passkey` method;
+     * `false` when it throws instead of answering.
      *
-     * @param  mixed  $policy
+     * @param  \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy  $policy
      * @param  string  $guard
      * @return bool
      */
-    private static function allowsPasskeys(mixed $policy, string $guard): bool
+    private static function allowsPasskeys(ApplicationPolicy $policy, string $guard): bool
     {
         try {
-            return $policy instanceof GuardAudiencePolicy && $policy->allowsMethod($guard, PasskeySignIn::NAME);
-        } catch (\InvalidArgumentException) {
+            return $policy->allowsMethod($guard, PasskeySignIn::NAME);
+        } catch (\Exception) {
             return false;
         }
     }
@@ -512,33 +551,11 @@ final class CheckConfigurationCommand extends Command
         return [
             static fn (): mixed => self::identityProvider($guard, $auth->createUserProvider(is_string($provider) ? $provider : '')),
             static fn (): mixed => AuthenticationServiceProvider::resolveGuardPrincipalResolver($app, $guard, $guardConfig),
-            static function () use ($app, $guard): void {
-                self::validateApiKeyAudience($app->make(AudiencePolicy::class), $guard);
+            static function () use ($app, $config, $guard): void {
+                (new ApplicationChecks($app, $config))->validateApiKey($guard);
             },
             static fn (): mixed => array_map(static fn (AttemptFlow $flow): array => (new AttemptLimits($config))->for($guard, $flow), AttemptFlow::cases()),
         ];
-    }
-
-    /**
-     * Validate an `api_key` guard's audience settings when the bound policy is
-     * the package's, and that they allow `api_key`: without it every key the
-     * guard is presented is refused.
-     *
-     * @param  mixed  $policy
-     * @param  string  $guard
-     * @return void
-     *
-     * @throws \InvalidArgumentException
-     */
-    private static function validateApiKeyAudience(mixed $policy, string $guard): void
-    {
-        if (!$policy instanceof GuardAudiencePolicy) {
-            return;
-        }
-
-        if (!$policy->allowsMethod($guard, ApiKeyGuard::METHOD)) {
-            throw new \InvalidArgumentException(sprintf('Audience `methods` of an api_key guard must list `%s`, or every key it is presented is refused.', ApiKeyGuard::METHOD));
-        }
     }
 
     /**
@@ -558,25 +575,6 @@ final class CheckConfigurationCommand extends Command
         }
 
         return $provider;
-    }
-
-    /**
-     * Validate the guard's audience settings when the bound policy is the
-     * package's; a policy of the application's own reads its own settings.
-     *
-     * @param  mixed  $policy
-     * @param  string  $guard
-     * @return void
-     *
-     * @throws \InvalidArgumentException
-     */
-    private static function validateAudience(mixed $policy, string $guard): void
-    {
-        if (!$policy instanceof GuardAudiencePolicy) {
-            return;
-        }
-
-        $policy->validate($guard);
     }
 
     /**

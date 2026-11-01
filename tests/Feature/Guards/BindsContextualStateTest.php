@@ -10,7 +10,6 @@ use Illuminate\Auth\Events\Validated;
 use Illuminate\Contracts\Events\Dispatcher;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversTrait;
-use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
@@ -43,7 +42,7 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Device Device the guard resolves. */
     private MockInterface $device;
 
-    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\HasType&\SineMacula\Laravel\Authentication\Contracts\Tenant Tenant the principal acts within. */
+    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Tenant Tenant the principal acts within. */
     private MockInterface $tenant;
 
     /**
@@ -59,10 +58,9 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
         $this->identity  = $this->mockIdentity();
         $this->principal = $this->mockPrincipal();
         $this->device    = $this->mockDevice();
-        $this->tenant    = \Mockery::mock(HasType::class, Tenant::class);
+        $this->tenant    = \Mockery::mock(Tenant::class);
 
         $this->principal->shouldReceive('getTenant')->andReturn($this->tenant);
-        $this->tenant->shouldReceive('getType')->andReturn('staff');
         $this->tenant->shouldReceive('getTenantIdentifier')->andReturn('tenant-1');
 
         $this->events->shouldReceive('dispatch');
@@ -111,17 +109,13 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     }
 
     /**
-     * `tenant()` and `type()` return `null` when the request resolves no
-     * principal.
+     * `tenant()` returns `null` when the request resolves no principal.
      *
      * @return void
      */
-    public function testTenantAndTypeReturnNullWhenNoPrincipalResolves(): void
+    public function testTenantReturnsNullWhenNoPrincipalResolves(): void
     {
-        $guard = $this->makeGuard();
-
-        self::assertNull($guard->tenant());
-        self::assertNull($guard->type());
+        self::assertNull($this->makeGuard()->tenant());
     }
 
     /**
@@ -134,17 +128,6 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
         $this->identity->shouldReceive('getAuthIdentifier')->andReturn(42);
 
         self::assertSame(42, $this->makeResolvingGuard()->id());
-    }
-
-    /**
-     * The first call to `type()` resolves the request through `principal()`
-     * and, the principal declaring no type, reads its tenant's.
-     *
-     * @return void
-     */
-    public function testTypeResolvesTheRequestOnFirstCall(): void
-    {
-        self::assertSame('staff', $this->makeResolvingGuard()->type());
     }
 
     /**

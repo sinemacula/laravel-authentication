@@ -17,8 +17,8 @@ use Tests\Unit\Stubs\StubPrincipal;
 
 /**
  * Unit tests for what issuing or rotating an API key accepts: the principal the
- * resolver returned and the audience admitted, a name of 1 to 255 characters of
- * valid UTF-8 without a NUL byte, an expiry after the current second, and an
+ * resolver returned and the application admitted, a name of 1 to 255 characters
+ * of valid UTF-8 without a NUL byte, an expiry after the current second, and an
  * overlap from 0 to the configured maximum.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -44,8 +44,8 @@ final class ApiKeyRulesTest extends TestCase
     }
 
     /**
-     * The principal the resolver returned is accepted when the audience admits
-     * it.
+     * The principal the resolver returned is accepted when the application
+     * admits it.
      *
      * @return void
      */
@@ -71,15 +71,15 @@ final class ApiKeyRulesTest extends TestCase
     }
 
     /**
-     * A principal the audience refused is refused naming the guard and the
-     * audience's reason.
+     * A principal the application refused is refused naming the guard and the
+     * application's reason.
      *
      * @return void
      */
-    public function testRefusesAPrincipalTheAudienceRefused(): void
+    public function testRefusesAPrincipalTheApplicationRefused(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('The audience of guard [machine] does not admit the principal an API key was to be issued for (principal_inactive).');
+        $this->expectExceptionMessage('The application [machine] does not admit the principal an API key was to be issued for (principal_inactive).');
 
         ApiKeyRules::principal('machine', new StubPrincipal, FailureReason::PRINCIPAL_INACTIVE);
     }

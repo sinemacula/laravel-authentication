@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
@@ -29,6 +30,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\RefreshResult;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Fixtures\Sessions\GuardSessions;
+use Tests\Fixtures\Sessions\RefusingApplicationPolicy;
 use Tests\Integration\Fixtures\TenantAware3dIdentity;
 use Tests\Integration\Fixtures\TenantAware3dPrincipal;
 use Tests\Integration\Fixtures\TenantAware3dTenant;
@@ -565,8 +567,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * A refresh for a principal the guard's audience no longer admits is
-     * refused once the owner is loaded, before any rotation write.
+     * A refresh for a principal the application no longer admits is refused
+     * once the owner is loaded, before any rotation write.
      *
      * @return void
      *
@@ -578,7 +580,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $device   = $this->seedDevice($identity, ['refresh_key' => RefreshTokenHasher::hash('ineligible-rotation-id')]);
         $token    = $this->tokens()->issueRefreshToken($device, 'ineligible-rotation-id', $identity);
 
-        app(ConfigRepository::class)->set('auth.guards.' . self::GUARD . '.audience', ['principal_types' => ['staff']]);
+        app()->instance(ApplicationPolicy::class, new RefusingApplicationPolicy(app(ApplicationPolicy::class), static fn (): bool => true));
 
         $guard  = $this->freshJwtGuard(self::GUARD);
         $events = $this->recordRefreshEvents();
@@ -651,7 +653,6 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
             $tokens = GuardSessions::of($guard)->refresh($token)->session?->tokens;
             $guard->principal()?->getIdentity();
             $guard->tenant();
-            $guard->type();
 
             return $tokens;
         });
@@ -692,14 +693,13 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
             $tokens = GuardSessions::of($guard)->refresh($token)->session?->tokens;
             $guard->principal()?->getIdentity();
             $guard->tenant();
-            $guard->type();
 
             return $tokens;
         });
 
         self::assertNotNull($result);
         self::assertSame($secondaryPrincipal->getPrincipalIdentifier(), $guard->principal()?->getPrincipalIdentifier());
-        self::assertSame('customer', $guard->type());
+        self::assertSame($secondaryPrincipal->getTenant()?->getTenantIdentifier(), $guard->tenant()?->getTenantIdentifier());
     }
 
     /**
@@ -764,19 +764,22 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $config->set('auth.defaults.guard', self::GUARD);
 
         $config->set('auth.guards.' . self::GUARD, [
-            'driver'   => 'jwt',
-            'provider' => 'identities',
+            'driver'      => 'jwt',
+            'provider'    => 'identities',
+            'application' => ['methods' => ['password']],
         ]);
 
         $config->set('auth.guards.' . self::COOKIE_GUARD, [
             'driver'        => 'jwt',
             'provider'      => 'identities',
+            'application'   => ['methods' => ['password']],
             'refresh_token' => ['sources' => ['cookie'], 'cookie' => ['path' => '/auth']],
         ]);
 
         $config->set('auth.guards.' . self::TENANT_AWARE_GUARD, [
-            'driver'   => 'jwt',
-            'provider' => 'tenant_aware_identities',
+            'driver'      => 'jwt',
+            'provider'    => 'tenant_aware_identities',
+            'application' => ['methods' => ['password']],
         ]);
 
         $config->set('auth.providers.identities', [

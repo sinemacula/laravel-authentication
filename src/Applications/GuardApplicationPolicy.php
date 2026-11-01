@@ -2,10 +2,10 @@
 
 declare(strict_types = 1);
 
-namespace SineMacula\Laravel\Authentication\Audience;
+namespace SineMacula\Laravel\Authentication\Applications;
 
 use Illuminate\Config\Repository as ConfigRepository;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
@@ -16,25 +16,29 @@ use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 
 /**
- * The package's audience policy: each guard's `audience` configuration over the
- * package defaults in `authentication.audience`, and its lifetimes per
- * principal type.
+ * The package's application policy: each application is a guard, and its
+ * `application` configuration applies over the package defaults in
+ * `authentication.application`, with the guard's lifetimes.
  *
- * A key present in the guard's `audience` block wins, `null` included;
+ * A key present in the guard's `application` block wins, `null` included;
  * otherwise the package value applies. Nothing falls back to a literal: a key
  * missing at both levels, a malformed value, or a key the policy does not know
  * fails closed with an `InvalidArgumentException` naming the guard and the key.
- * The audience settings are read on every call, so a change to them applies at
- * once; the lifetimes per principal type come from the guard's token service,
- * which the token service factory builds once and keeps.
+ * An empty `methods` list is valid and allows nothing, so every sign-in,
+ * refresh and machine credential of the application is refused as
+ * `method_not_allowed`; it is the package default, so each application lists
+ * what it allows. The application settings are read on every call, so a change
+ * to them applies at once; the lifetimes come from the guard's token service,
+ * which the token service factory builds once and keeps. Every principal is
+ * admitted: an application that keeps some out rebinds the policy.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final readonly class GuardAudiencePolicy implements AudiencePolicy
+final readonly class GuardApplicationPolicy implements ApplicationPolicy
 {
-    /** @var list<string> Keys an `audience` block may hold. */
-    private const array KEYS = ['methods', 'principal_types', 'require_verified_identifier'];
+    /** @var list<string> Keys an `application` block may hold. */
+    private const array KEYS = ['methods', 'require_verified_identifier'];
 
     /**
      * Constructor.
@@ -52,7 +56,8 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
     ) {}
 
     /**
-     * Whether the sign-in method is one the guard's `methods` lists.
+     * Whether the sign-in method or machine credential is one the guard's
+     * `methods` lists; an empty list allows none.
      *
      * @param  string  $guard
      * @param  string  $method
@@ -67,13 +72,8 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
     }
 
     /**
-     * Admit the principal when the guard admits any principal type, or lists
-     * the principal's type (see `PrincipalType`); otherwise refuse it as
-     * `principal_ineligible`. A principal without a type is refused by a guard
-     * that lists types.
-     *
-     * Then hold the identity to the verified-identifier requirement
-     * (`admitIdentifier()`).
+     * Admit every principal, holding the identity only to the
+     * verified-identifier requirement (`admitIdentifier()`).
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -83,18 +83,10 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      */
     #[\Override]
     public function admit(string $guard, Identity $identity, Principal $principal, ?string $identifierType): ?FailureReason
     {
-        $settings = $this->settings($guard);
-        $types    = $settings['principal_types'];
-
-        if ($types !== null && !in_array(PrincipalType::of($principal), $types, true)) {
-            return FailureReason::PRINCIPAL_INELIGIBLE;
-        }
-
         return $this->admitIdentifier($guard, $identity, $identifierType);
     }
 
@@ -117,7 +109,7 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
     #[\Override]
     public function admitIdentifier(string $guard, Identity $identity, ?string $identifierType): ?FailureReason
     {
-        if ($identifierType === null || !$this->settings($guard)['require_verified_identifier']) {
+        if (!$this->settings($guard)['require_verified_identifier'] || $identifierType === null) {
             return null;
         }
 
@@ -127,27 +119,22 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
     }
 
     /**
-     * The guard's lifetimes for the principal's type: its
-     * `jwt.by_principal_type` entry for that type when it has one, otherwise
-     * the guard's own.
+     * The lifetimes of the guard's token service.
      *
      * @param  string  $guard
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes
      *
      * @throws \InvalidArgumentException
-     * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      */
     #[\Override]
-    public function lifetimes(string $guard, Principal $principal): TokenLifetimes
+    public function lifetimes(string $guard): TokenLifetimes
     {
-        return $this->tokens->forGuard($guard)->lifetimesFor($principal);
+        return $this->tokens->forGuard($guard)->lifetimes();
     }
 
     /**
-     * Validate every audience setting of the guard, failing closed as any check
-     * would, without deciding anything; `authentication:check` runs it.
+     * Validate every application setting of the guard, failing closed as any
+     * check would, without deciding anything; `authentication:check` runs it.
      *
      * @param  string  $guard
      * @return void
@@ -160,18 +147,32 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
     }
 
     /**
-     * Resolve and validate every audience setting of the guard, so a malformed
-     * one fails closed whichever check runs first.
+     * The names the guard's `methods` lists, validated as every check validates
+     * them; `authentication:check` reads them.
      *
      * @param  string  $guard
-     * @return array{methods: non-empty-list<non-empty-string>, principal_types: ?non-empty-list<non-empty-string>, require_verified_identifier: bool}
+     * @return list<non-empty-string>
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function methods(string $guard): array
+    {
+        return $this->settings($guard)['methods'];
+    }
+
+    /**
+     * Resolve and validate every application setting of the guard, so a
+     * malformed one fails closed whichever check runs first.
+     *
+     * @param  string  $guard
+     * @return array{methods: list<non-empty-string>, require_verified_identifier: bool}
      *
      * @throws \InvalidArgumentException
      */
     private function settings(string $guard): array
     {
-        $overrides = $this->block($guard, $this->guardConfig($guard)['audience'] ?? [], 'the guard\'s `audience` overrides');
-        $defaults  = $this->block($guard, $this->config->get('authentication.audience'), '`authentication.audience`');
+        $overrides = $this->block($guard, $this->guardConfig($guard)['application'] ?? [], 'the guard\'s `application` overrides');
+        $defaults  = $this->block($guard, $this->config->get('authentication.application'), '`authentication.application`');
         $settings  = $overrides + $defaults;
 
         foreach (self::KEYS as $key) {
@@ -180,12 +181,8 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
             }
         }
 
-        if (!self::isNameList($settings['methods']) || !self::areMethodNames($settings['methods'])) {
-            throw new \InvalidArgumentException(self::message($guard, 'methods', 'a non-empty list of lower-case sign-in method names'));
-        }
-
-        if ($settings['principal_types'] !== null && !self::isNameList($settings['principal_types'])) {
-            throw new \InvalidArgumentException(self::message($guard, 'principal_types', 'null or a non-empty list of principal types'));
+        if (!self::isMethodList($settings['methods'])) {
+            throw new \InvalidArgumentException(self::message($guard, 'methods', 'a list of lower-case sign-in method names'));
         }
 
         if (!is_bool($settings['require_verified_identifier'])) {
@@ -194,13 +191,12 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
 
         return [
             'methods'                     => $settings['methods'],
-            'principal_types'             => $settings['principal_types'],
             'require_verified_identifier' => $settings['require_verified_identifier'],
         ];
     }
 
     /**
-     * Validate an audience block: an array whose keys the policy knows.
+     * Validate an application block: an array whose keys the policy knows.
      *
      * @param  string  $guard
      * @param  mixed  $block
@@ -212,12 +208,12 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
     private function block(string $guard, mixed $block, string $name): array
     {
         if (!is_array($block)) {
-            throw new \InvalidArgumentException("Audience configuration for guard [{$guard}]: {$name} must be an array.");
+            throw new \InvalidArgumentException("Application configuration for guard [{$guard}]: {$name} must be an array.");
         }
 
         foreach (array_keys($block) as $key) {
             if (!in_array($key, self::KEYS, true)) {
-                throw new \InvalidArgumentException("Audience configuration for guard [{$guard}]: {$name} has an unknown key `{$key}`.");
+                throw new \InvalidArgumentException("Application configuration for guard [{$guard}]: {$name} has an unknown key `{$key}`.");
             }
         }
 
@@ -244,21 +240,24 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
     }
 
     /**
-     * Whether the value is a non-empty list of non-empty strings.
+     * Whether the value is a list, possibly empty, of names a sign-in method
+     * can be registered under, so a name no method can have (a casing slip such
+     * as `Password`) fails closed as misconfiguration rather than refusing
+     * every sign-in as `method_not_allowed`.
      *
      * @param  mixed  $value
      * @return bool
      *
-     * @phpstan-assert-if-true non-empty-list<non-empty-string> $value
+     * @phpstan-assert-if-true list<non-empty-string> $value
      */
-    private static function isNameList(mixed $value): bool
+    private static function isMethodList(mixed $value): bool
     {
-        if (!is_array($value) || $value === [] || !array_is_list($value)) {
+        if (!is_array($value) || !array_is_list($value)) {
             return false;
         }
 
         foreach ($value as $name) {
-            if (!is_string($name) || $name === '') {
+            if (!is_string($name) || !SignInMethodManager::isValidName($name)) {
                 return false;
             }
         }
@@ -267,27 +266,7 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
     }
 
     /**
-     * Whether every name is one a sign-in method can be registered under, so a
-     * name no method can have (a casing slip such as `Password`) fails closed
-     * as misconfiguration rather than refusing every sign-in as
-     * `method_not_allowed`.
-     *
-     * @param  non-empty-list<non-empty-string>  $names
-     * @return bool
-     */
-    private static function areMethodNames(array $names): bool
-    {
-        foreach ($names as $name) {
-            if (!SignInMethodManager::isValidName($name)) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * Build the message for an audience key that is missing or malformed.
+     * Build the message for an application key that is missing or malformed.
      *
      * @param  string  $guard
      * @param  string  $key
@@ -296,7 +275,7 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
      */
     private static function message(string $guard, string $key, string $expected): string
     {
-        return "Audience `{$key}` for guard [{$guard}] must be {$expected}:"
-            . " set `authentication.audience.{$key}` or the guard's `audience.{$key}` override.";
+        return "Application `{$key}` for guard [{$guard}] must be {$expected}:"
+            . " set `authentication.application.{$key}` or the guard's `application.{$key}` override.";
     }
 }

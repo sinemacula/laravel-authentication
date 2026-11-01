@@ -31,8 +31,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
  * Runtime benchmark fixtures for signing in through the session service: a
  * password sign-in, a sign-in by a one-time code sent to a phone number, and
  * the check of a one-time code on its own. Every package collaborator a sign-in
- * resolves (the sign-in method, the audience policy, the attempt limiter, which
- * writes its counters, the factor policy) is the package's own, from the
+ * resolves (the sign-in method, the application policy, the attempt limiter,
+ * which writes its counters, the factor policy) is the package's own, from the
  * container. Passwords are checked with `PlainBenchHasher`, so the timings are
  * the package's work, not bcrypt's or Argon2's.
  *
@@ -102,8 +102,8 @@ final class SignInBenchHarness
         JWT::$timestamp = $now->getTimestamp();
 
         $this->app = PackageBenchApplication::create([
-            self::PASSWORD_GUARD => ['driver' => 'jwt', 'provider' => 'identities', 'audience' => ['methods' => ['password']]],
-            self::CODE_GUARD     => ['driver' => 'jwt', 'provider' => 'code_identities', 'audience' => ['methods' => ['phone_code']]],
+            self::PASSWORD_GUARD => ['driver' => 'jwt', 'provider' => 'identities', 'application' => ['methods' => ['password']]],
+            self::CODE_GUARD     => ['driver' => 'jwt', 'provider' => 'code_identities', 'application' => ['methods' => ['phone_code']]],
         ]);
 
         $this->codes = new OneTimeCodes($this->app->make(Repository::class), static fn (): string => self::CODE);

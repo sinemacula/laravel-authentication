@@ -131,7 +131,7 @@ final class ReplicaChoosesPrincipalsTest extends TestCase
         self::configureSessionGuards($config);
 
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
-        $config->set('auth.guards.' . self::GUARD, ['driver' => 'jwt', 'provider' => 'choosers', 'audience' => ['methods' => ['password']]]);
+        $config->set('auth.guards.' . self::GUARD, ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password']]]);
 
         $this->configureLaggingReplica($config);
     }

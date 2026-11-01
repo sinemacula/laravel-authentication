@@ -588,7 +588,7 @@ final class PasskeySignInTest extends TestCase
     }
 
     /**
-     * A guard whose audience does not allow `passkey` refuses the sign-in as
+     * A guard whose application does not allow `passkey` refuses the sign-in as
      * `method_not_allowed` before anything is counted or used up.
      *
      * @return void
@@ -601,7 +601,7 @@ final class PasskeySignInTest extends TestCase
 
         $options = $this->signInOptions();
 
-        config()->set('auth.guards.api.audience.methods', ['password']);
+        config()->set('auth.guards.api.application.methods', ['password']);
 
         $result = $this->sessions()->signIn('passkey', ['challenge' => $options->challengeId, 'credential' => $this->authenticator()->get($options->options)]);
 

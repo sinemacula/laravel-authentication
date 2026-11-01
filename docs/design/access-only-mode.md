@@ -12,9 +12,9 @@ principal auth without device tracking or refresh rotation.
   (`rate_limits.sign_in = null`): a deployment that signs in with `attempt()` keeps that table, and the `devices` and
   `pending_sign_ins` tables stay empty.
 - Access tokens for this mode must be issued with `device = null`, which means the JWT carries `did = null`. `did` is
-  the one access-token claim that may be absent or null, apart from the optional `pty` (the principal's type); `sub`,
-  `pid`, `exp`, `iat`, `jti`, `typ`, and `grd` are required as on every access token. With no session to bound it,
-  such a token lives exactly the guard's `access_ttl_minutes`.
+  the one access-token claim that may be absent or null; `sub`, `pid`, `exp`, `iat`, `jti`, `typ`, and `grd` are
+  required as on every access token. With no session to bound it, such a token lives exactly the guard's
+  `access_ttl_minutes`.
 - The identity model does not need to implement `HasDevices`.
 - Bearer auth still rehydrates the identity through the configured provider and resolves the principal through the
   configured resolver.

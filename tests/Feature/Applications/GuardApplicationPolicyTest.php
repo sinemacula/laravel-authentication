@@ -2,20 +2,20 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Feature\Audience;
+namespace Tests\Feature\Applications;
 
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
-use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
-use SineMacula\Laravel\Authentication\Contracts\HasType;
+use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
+use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
@@ -23,20 +23,20 @@ use Tests\Unit\Stubs\StubTenant;
 use Tests\Unit\Stubs\StubVerifiableIdentity;
 
 /**
- * Feature tests for the package audience policy resolved from the container
- * over each guard's `audience` configuration and the package defaults.
+ * Feature tests for the package application policy resolved from the container
+ * over each guard's `application` configuration and the package defaults.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversClass(GuardAudiencePolicy::class)]
-final class GuardAudiencePolicyTest extends TestCase
+#[CoversClass(GuardApplicationPolicy::class)]
+final class GuardApplicationPolicyTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
 
-    /** @var string Guard without an `audience` block. */
+    /** @var string Guard without an `application` block. */
     private const string GUARD = 'api';
 
     /**
@@ -46,24 +46,91 @@ final class GuardAudiencePolicyTest extends TestCase
      */
     public function testContainerBindsThePackagePolicyAsASingleton(): void
     {
-        self::assertInstanceOf(GuardAudiencePolicy::class, $this->policy());
+        self::assertInstanceOf(GuardApplicationPolicy::class, $this->policy());
         self::assertSame($this->policy(), $this->policy());
     }
 
     /**
-     * Out of the box a guard lets only the password method start sessions,
-     * compared exactly, and admits any principal, typed or not.
+     * The shipped defaults, read from the package's own configuration file,
+     * list no method and require no verified identifier, so out of the box an
+     * application allows nothing until it lists what it uses, and admits any
+     * principal, in a tenant or not.
      *
      * @return void
      */
-    public function testShippedDefaultsAllowOnlyPasswordAndAdmitAnyPrincipal(): void
+    public function testShippedDefaultsAllowNothingAndAdmitAnyPrincipal(): void
     {
+        /** @var array<string, mixed> $shipped */
+        $shipped = require dirname(__DIR__, 3) . '/config/authentication.php';
+
+        self::assertSame(['methods' => [], 'require_verified_identifier' => false], $shipped['application']);
+
+        config()->set('authentication.application', $shipped['application']);
+
+        foreach (self::everyName() as $name) {
+            self::assertFalse($this->policy()->allowsMethod(self::GUARD, $name), "The shipped defaults allow `{$name}`.");
+        }
+
+        self::assertNull($this->admit(new PlainPrincipalFixture(1)));
+        self::assertNull($this->admit(new PlainPrincipalFixture(2, tenant: new StubTenant)));
+    }
+
+    /**
+     * Only a name the methods list holds, compared exactly, is allowed.
+     *
+     * @return void
+     */
+    public function testOnlyAListedNameIsAllowed(): void
+    {
+        $this->setGuardApplication(['methods' => ['password']]);
+
         self::assertTrue($this->policy()->allowsMethod(self::GUARD, 'password'));
         self::assertFalse($this->policy()->allowsMethod(self::GUARD, 'sso'));
         self::assertFalse($this->policy()->allowsMethod(self::GUARD, 'Password'));
         self::assertFalse($this->policy()->allowsMethod(self::GUARD, ''));
-        self::assertNull($this->admit(new PlainPrincipalFixture(1)));
-        self::assertNull($this->admit($this->principalOfType('customer')));
+    }
+
+    /**
+     * An empty list at guard level is the guard's, over a package list that
+     * names methods: the application allows nothing, and validates.
+     *
+     * @return void
+     */
+    public function testAnEmptyGuardListAllowsNothingOverThePackageList(): void
+    {
+        config()->set('authentication.application.methods', self::everyName());
+
+        $this->setGuardApplication(['methods' => []]);
+
+        $this->packagePolicy()->validate(self::GUARD);
+
+        foreach (self::everyName() as $name) {
+            self::assertFalse($this->policy()->allowsMethod(self::GUARD, $name), "An empty list allows `{$name}`.");
+            self::assertTrue($this->policy()->allowsMethod('other', $name));
+        }
+    }
+
+    /**
+     * The package policy has no rule about principals: `admit()` answers
+     * exactly as `admitIdentifier()` does, without reading the principal.
+     *
+     * @return void
+     */
+    public function testAdmitIsTheVerifiedIdentifierGateAlone(): void
+    {
+        $this->setGuardApplication(['require_verified_identifier' => true]);
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldNotReceive('getTenant');
+
+        foreach ([[true, 'email'], [false, 'email'], [true, 'phone'], [false, null]] as [$verified, $type]) {
+            self::assertSame(
+                $this->policy()->admitIdentifier(self::GUARD, $this->verifiable($verified), $type),
+                $this->policy()->admit(self::GUARD, $this->verifiable($verified), $principal, $type),
+            );
+        }
+
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->policy()->admit(self::GUARD, $this->verifiable(false), $principal, 'email'));
     }
 
     /**
@@ -73,7 +140,9 @@ final class GuardAudiencePolicyTest extends TestCase
      */
     public function testGuardMethodsReplaceThePackageMethods(): void
     {
-        $this->setGuardAudience(['methods' => ['sso', 'phone_code']]);
+        config()->set('authentication.application.methods', ['password']);
+
+        $this->setGuardApplication(['methods' => ['sso', 'phone_code']]);
 
         self::assertTrue($this->policy()->allowsMethod(self::GUARD, 'sso'));
         self::assertTrue($this->policy()->allowsMethod(self::GUARD, 'phone_code'));
@@ -82,79 +151,76 @@ final class GuardAudiencePolicyTest extends TestCase
     }
 
     /**
-     * A guard that lists principal types admits a principal whose own type, or
-     * whose tenant's type, is listed, and refuses one of another type or of no
-     * type as `principal_ineligible`.
+     * `methods()` lists the names the guard's own list holds, in its order,
+     * whether or not anything is registered under them, else the package
+     * list's; an empty list lists nothing.
      *
      * @return void
      */
-    public function testListedPrincipalTypesAdmitOnlyThoseTypes(): void
+    public function testMethodsListsTheGuardsResolvedNames(): void
     {
-        $this->setGuardAudience(['principal_types' => ['staff', 'client_admin']]);
+        config()->set('authentication.application.methods', ['password']);
 
-        $tenant = new StubTenant;
-        $tenant->setRawAttributes(['type' => 'staff']);
+        $this->setGuardApplication(['methods' => ['sso', 'api_key', 'unregistered']]);
 
-        self::assertNull($this->admit($this->principalOfType('client_admin')));
-        self::assertNull($this->admit(new PlainPrincipalFixture(1, tenant: $tenant)));
-        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->admit($this->principalOfType('customer')));
-        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->admit($this->principalOfType('Staff')));
-        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->admit(new PlainPrincipalFixture(1)));
+        self::assertSame(['sso', 'api_key', 'unregistered'], $this->packagePolicy()->methods(self::GUARD));
+        self::assertSame(['password'], $this->packagePolicy()->methods('other'));
+
+        $this->setGuardApplication(['methods' => []]);
+
+        self::assertSame([], $this->packagePolicy()->methods(self::GUARD));
     }
 
     /**
-     * A guard's key wins even when it is `null`: a guard can admit any
-     * principal although the package default lists types.
+     * Neither a guard's `audience` block nor `authentication.audience` is an
+     * application setting: a guard that lists its methods only there has no
+     * `application` block, so it allows nothing, and validates.
      *
      * @return void
      */
-    public function testGuardNullPrincipalTypesOverridesThePackageList(): void
+    public function testAnAudienceBlockIsNotRead(): void
     {
-        config()->set('authentication.audience.principal_types', ['staff']);
+        config()->set('auth.guards.' . self::GUARD . '.audience', ['methods' => ['password']]);
+        config()->set('authentication.audience', ['methods' => ['password'], 'require_verified_identifier' => false]);
 
-        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->admit(new PlainPrincipalFixture(1), 'other'));
+        $this->packagePolicy()->validate(self::GUARD);
 
-        $this->setGuardAudience(['principal_types' => null]);
-
-        self::assertNull($this->admit(new PlainPrincipalFixture(1)));
+        self::assertSame([], $this->packagePolicy()->methods(self::GUARD));
+        self::assertFalse($this->policy()->allowsMethod(self::GUARD, 'password'));
     }
 
     /**
-     * A guard whose `audience` entry is `null` keeps the package defaults.
+     * A guard whose `application` entry is `null` keeps the package defaults.
      *
      * @return void
      */
-    public function testNullGuardAudienceBlockMeansNoOverrides(): void
+    public function testNullGuardApplicationBlockMeansNoOverrides(): void
     {
-        config()->set('authentication.audience.methods', ['sso']);
+        config()->set('authentication.application.methods', ['sso']);
 
-        $this->setGuardAudience(null);
+        $this->setGuardApplication(null);
 
         self::assertTrue($this->policy()->allowsMethod(self::GUARD, 'sso'));
         self::assertFalse($this->policy()->allowsMethod(self::GUARD, 'password'));
     }
 
     /**
-     * Without per-type lifetimes a principal gets the guard's lifetimes; with
-     * them, a principal of a listed type gets its type's, exactly as the
-     * guard's token service issues them.
+     * Each guard's lifetimes are exactly those its token service issues with,
+     * so a guard that overrides them gets its own.
      *
      * @return void
      */
-    public function testLifetimesAreTheGuardsForThePrincipalsType(): void
+    public function testLifetimesAreTheGuardsTokenServices(): void
     {
+        config()->set('auth.guards.other.jwt', ['access_ttl_minutes' => 3, 'refresh_absolute_ttl_minutes' => 4000]);
+
         $tokens = $this->app?->make(JwtTokenServiceFactory::class);
 
         self::assertInstanceOf(JwtTokenServiceFactory::class, $tokens);
-        self::assertSame($tokens->forGuard(self::GUARD)->lifetimes(), $this->policy()->lifetimes(self::GUARD, $this->principalOfType('staff')));
-
-        config()->set('auth.guards.other.jwt.by_principal_type', ['staff' => ['access_ttl_minutes' => 3, 'refresh_absolute_ttl_minutes' => 4000]]);
-
-        $staff = $this->policy()->lifetimes('other', $this->principalOfType('staff'));
-
-        self::assertSame(3, $staff->accessTtlMinutes);
-        self::assertSame(4000, $staff->refreshAbsoluteTtlMinutes);
-        self::assertSame($tokens->forGuard('other')->lifetimes(), $this->policy()->lifetimes('other', $this->principalOfType('customer')));
+        self::assertSame($tokens->forGuard(self::GUARD)->lifetimes(), $this->policy()->lifetimes(self::GUARD));
+        self::assertSame($tokens->forGuard('other')->lifetimes(), $this->policy()->lifetimes('other'));
+        self::assertSame(3, $this->policy()->lifetimes('other')->accessTtlMinutes);
+        self::assertSame(4000, $this->policy()->lifetimes('other')->refreshAbsoluteTtlMinutes);
     }
 
     /**
@@ -177,7 +243,7 @@ final class GuardAudiencePolicyTest extends TestCase
      */
     public function testGateRequiresTheSignInsIdentifierToBeVerified(): void
     {
-        $this->setGuardAudience(['require_verified_identifier' => true]);
+        $this->setGuardApplication(['require_verified_identifier' => true]);
 
         self::assertNull($this->policy()->admit(self::GUARD, $this->verifiable(true), new PlainPrincipalFixture(1), 'email'));
         self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->policy()->admit(self::GUARD, $this->verifiable(false), new PlainPrincipalFixture(1), 'email'));
@@ -196,7 +262,7 @@ final class GuardAudiencePolicyTest extends TestCase
      */
     public function testTheGateAloneDecidesForTheIdentity(): void
     {
-        $this->setGuardAudience(['require_verified_identifier' => true]);
+        $this->setGuardApplication(['require_verified_identifier' => true]);
 
         $policy = $this->packagePolicy();
 
@@ -208,19 +274,6 @@ final class GuardAudiencePolicyTest extends TestCase
     }
 
     /**
-     * An ineligible principal is refused as such before its identifier is
-     * looked at.
-     *
-     * @return void
-     */
-    public function testEligibilityIsDecidedBeforeTheGate(): void
-    {
-        $this->setGuardAudience(['require_verified_identifier' => true, 'principal_types' => ['staff']]);
-
-        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->policy()->admit(self::GUARD, $this->verifiable(false), $this->principalOfType('customer'), 'email'));
-    }
-
-    /**
      * With the gate on, an identity that cannot report its verified identifiers
      * is a misconfiguration, never admitted.
      *
@@ -228,7 +281,7 @@ final class GuardAudiencePolicyTest extends TestCase
      */
     public function testGateOnAnIdentityWithoutTheCapabilityIsReported(): void
     {
-        config()->set('authentication.audience.require_verified_identifier', true);
+        config()->set('authentication.application.require_verified_identifier', true);
 
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage(PlainIdentityFixture::class . ' cannot verify identifiers');
@@ -237,37 +290,29 @@ final class GuardAudiencePolicyTest extends TestCase
     }
 
     /**
-     * Malformed audience configuration: where it is set, the value, and the
+     * Malformed application configuration: where it is set, the value, and the
      * message naming the guard and the key.
      *
      * @return iterable<string, array{0: string, 1: mixed, 2: string}>
      */
     public static function provideMalformedSettings(): iterable
     {
-        $methods = 'Audience `methods` for guard [api] must be a non-empty list of lower-case sign-in method names:'
-            . ' set `authentication.audience.methods` or the guard\'s `audience.methods` override.';
-        $types = 'Audience `principal_types` for guard [api] must be null or a non-empty list of principal types:'
-            . ' set `authentication.audience.principal_types` or the guard\'s `audience.principal_types` override.';
-        $gate = 'Audience `require_verified_identifier` for guard [api] must be true or false:'
-            . ' set `authentication.audience.require_verified_identifier` or the guard\'s `audience.require_verified_identifier` override.';
+        $methods = 'Application `methods` for guard [api] must be a list of lower-case sign-in method names:'
+            . ' set `authentication.application.methods` or the guard\'s `application.methods` override.';
+        $gate = 'Application `require_verified_identifier` for guard [api] must be true or false:'
+            . ' set `authentication.application.require_verified_identifier` or the guard\'s `application.require_verified_identifier` override.';
 
         yield from [
-            'methods empty'              => ['methods', [], $methods],
             'methods a string'           => ['methods', 'password', $methods],
             'methods null'               => ['methods', null, $methods],
             'methods keyed'              => ['methods', ['main' => 'password'], $methods],
+            'methods out of order'       => ['methods', [1 => 'password'], $methods],
             'methods with an empty name' => ['methods', ['password', ''], $methods],
             'methods with a non-string'  => ['methods', ['password', 1], $methods],
             'methods with a capital'     => ['methods', ['Password'], $methods],
             'methods with a hyphen'      => ['methods', ['password', 'pass-word'], $methods],
             'methods with a space'       => ['methods', ['password '], $methods],
             'methods with a digit first' => ['methods', ['2fa'], $methods],
-            'types empty'                => ['principal_types', [], $types],
-            'types a string'             => ['principal_types', 'staff', $types],
-            'types keyed'                => ['principal_types', [1 => 'staff'], $types],
-            'types with an empty name'   => ['principal_types', [''], $types],
-            'types with a null'          => ['principal_types', ['staff', null], $types],
-            'types false'                => ['principal_types', false, $types],
             'gate a string'              => ['require_verified_identifier', 'yes', $gate],
             'gate an integer'            => ['require_verified_identifier', 1, $gate],
             'gate null'                  => ['require_verified_identifier', null, $gate],
@@ -286,7 +331,7 @@ final class GuardAudiencePolicyTest extends TestCase
     #[DataProvider('provideMalformedSettings')]
     public function testMalformedGuardSettingFailsClosedOnEveryCheck(string $key, mixed $value, string $message): void
     {
-        $this->setGuardAudience([$key => $value]);
+        $this->setGuardApplication([$key => $value]);
 
         $this->assertFailsClosed($message, fn (): bool => $this->policy()->allowsMethod(self::GUARD, 'password'));
         $this->assertFailsClosed($message, fn (): ?FailureReason => $this->admit(new PlainPrincipalFixture(1)));
@@ -295,6 +340,7 @@ final class GuardAudiencePolicyTest extends TestCase
 
             return true;
         });
+        $this->assertFailsClosed($message, fn (): array => $this->packagePolicy()->methods(self::GUARD));
     }
 
     /**
@@ -305,11 +351,14 @@ final class GuardAudiencePolicyTest extends TestCase
      */
     public function testValidatingWellFormedSettingsPasses(): void
     {
+        $this->setGuardApplication(['methods' => ['password', 'api_key']]);
+
         $policy = $this->packagePolicy();
 
         $policy->validate(self::GUARD);
 
         self::assertTrue($policy->allowsMethod(self::GUARD, 'password'));
+        self::assertTrue($policy->allowsMethod(self::GUARD, 'api_key'));
     }
 
     /**
@@ -324,7 +373,7 @@ final class GuardAudiencePolicyTest extends TestCase
     #[DataProvider('provideMalformedSettings')]
     public function testMalformedPackageSettingFailsClosed(string $key, mixed $value, string $message): void
     {
-        config()->set("authentication.audience.{$key}", $value);
+        config()->set("authentication.application.{$key}", $value);
 
         $this->assertFailsClosed($message, fn (): bool => $this->policy()->allowsMethod(self::GUARD, 'password'));
     }
@@ -337,17 +386,17 @@ final class GuardAudiencePolicyTest extends TestCase
      */
     public function testSettingMissingAtBothLevelsFailsClosed(): void
     {
-        config()->set('authentication.audience', ['methods' => ['password']]);
+        config()->set('authentication.application', ['methods' => ['password']]);
 
         $this->assertFailsClosed(
-            'Audience `principal_types` for guard [api] must be set:'
-            . ' set `authentication.audience.principal_types` or the guard\'s `audience.principal_types` override.',
+            'Application `require_verified_identifier` for guard [api] must be set:'
+            . ' set `authentication.application.require_verified_identifier` or the guard\'s `application.require_verified_identifier` override.',
             fn (): bool => $this->policy()->allowsMethod(self::GUARD, 'password'),
         );
     }
 
     /**
-     * Audience blocks that are not arrays, or hold a key the policy does not
+     * Application blocks that are not arrays, or hold a key the policy does not
      * know, fail closed rather than being ignored.
      *
      * @return void
@@ -356,22 +405,28 @@ final class GuardAudiencePolicyTest extends TestCase
     {
         $check = fn (): bool => $this->policy()->allowsMethod(self::GUARD, 'password');
 
-        $this->setGuardAudience('password');
-        $this->assertFailsClosed('Audience configuration for guard [api]: the guard\'s `audience` overrides must be an array.', $check);
+        $this->setGuardApplication('password');
+        $this->assertFailsClosed('Application configuration for guard [api]: the guard\'s `application` overrides must be an array.', $check);
 
-        $this->setGuardAudience(['method' => ['password']]);
-        $this->assertFailsClosed('Audience configuration for guard [api]: the guard\'s `audience` overrides has an unknown key `method`.', $check);
+        $this->setGuardApplication(['method' => ['password']]);
+        $this->assertFailsClosed('Application configuration for guard [api]: the guard\'s `application` overrides has an unknown key `method`.', $check);
 
-        $this->setGuardAudience(['password']);
-        $this->assertFailsClosed('Audience configuration for guard [api]: the guard\'s `audience` overrides has an unknown key `0`.', $check);
+        $this->setGuardApplication(['password']);
+        $this->assertFailsClosed('Application configuration for guard [api]: the guard\'s `application` overrides has an unknown key `0`.', $check);
 
-        $this->setGuardAudience(null);
+        $this->setGuardApplication(['principal_types' => null]);
+        $this->assertFailsClosed('Application configuration for guard [api]: the guard\'s `application` overrides has an unknown key `principal_types`.', $check);
 
-        config()->set('authentication.audience', null);
-        $this->assertFailsClosed('Audience configuration for guard [api]: `authentication.audience` must be an array.', $check);
+        $this->setGuardApplication(null);
 
-        config()->set('authentication.audience', ['methods' => ['password'], 'principal_types' => null, 'limits' => []]);
-        $this->assertFailsClosed('Audience configuration for guard [api]: `authentication.audience` has an unknown key `limits`.', $check);
+        config()->set('authentication.application', null);
+        $this->assertFailsClosed('Application configuration for guard [api]: `authentication.application` must be an array.', $check);
+
+        config()->set('authentication.application', ['methods' => ['password'], 'require_verified_identifier' => false, 'limits' => []]);
+        $this->assertFailsClosed('Application configuration for guard [api]: `authentication.application` has an unknown key `limits`.', $check);
+
+        config()->set('authentication.application', ['methods' => ['password'], 'require_verified_identifier' => false, 'principal_types' => ['staff']]);
+        $this->assertFailsClosed('Application configuration for guard [api]: `authentication.application` has an unknown key `principal_types`.', $check);
     }
 
     /**
@@ -386,7 +441,7 @@ final class GuardAudiencePolicyTest extends TestCase
     }
 
     /**
-     * Configure two guards without audience blocks.
+     * Configure two guards without application blocks.
      *
      * @param  mixed  $app
      * @return void
@@ -408,29 +463,40 @@ final class GuardAudiencePolicyTest extends TestCase
     }
 
     /**
+     * Every name an application can list: the package's sign-in methods and
+     * both machine credentials.
+     *
+     * @return list<string>
+     */
+    private static function everyName(): array
+    {
+        return ['password', 'phone_code', 'email_code', 'passkey', ...SignInMethodManager::CREDENTIAL_METHODS];
+    }
+
+    /**
      * Resolve the bound policy, which is the package's.
      *
-     * @return \SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy
+     * @return \SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy
      */
-    private function packagePolicy(): GuardAudiencePolicy
+    private function packagePolicy(): GuardApplicationPolicy
     {
         $policy = $this->policy();
 
-        self::assertInstanceOf(GuardAudiencePolicy::class, $policy);
+        self::assertInstanceOf(GuardApplicationPolicy::class, $policy);
 
         return $policy;
     }
 
     /**
-     * The audience policy the container binds.
+     * The application policy the container binds.
      *
-     * @return \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy
+     * @return \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy
      */
-    private function policy(): AudiencePolicy
+    private function policy(): ApplicationPolicy
     {
-        $policy = $this->app?->make(AudiencePolicy::class);
+        $policy = $this->app?->make(ApplicationPolicy::class);
 
-        self::assertInstanceOf(AudiencePolicy::class, $policy);
+        self::assertInstanceOf(ApplicationPolicy::class, $policy);
 
         return $policy;
     }
@@ -476,30 +542,14 @@ final class GuardAudiencePolicyTest extends TestCase
     }
 
     /**
-     * Build a principal reporting the given type, acting within no tenant.
+     * Set the guard's `application` block.
      *
-     * @param  string  $type
-     * @return \SineMacula\Laravel\Authentication\Contracts\Principal
-     */
-    private function principalOfType(string $type): Principal
-    {
-        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\HasType&\SineMacula\Laravel\Authentication\Contracts\Principal $principal */
-        $principal = \Mockery::mock(Principal::class, HasType::class);
-        $principal->shouldReceive('getType')->andReturn($type);
-        $principal->shouldReceive('getTenant')->andReturn(null);
-
-        return $principal;
-    }
-
-    /**
-     * Set the guard's `audience` block.
-     *
-     * @param  mixed  $audience
+     * @param  mixed  $application
      * @return void
      */
-    private function setGuardAudience(mixed $audience): void
+    private function setGuardApplication(mixed $application): void
     {
-        config()->set('auth.guards.' . self::GUARD . '.audience', $audience);
+        config()->set('auth.guards.' . self::GUARD . '.application', $application);
     }
 
     /**

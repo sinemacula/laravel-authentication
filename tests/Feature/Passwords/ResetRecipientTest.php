@@ -268,7 +268,7 @@ final class ResetRecipientTest extends TestCase
         Auth::provider('plain-fixture', static fn (): IdentityProvider => $provider);
 
         config()->set('auth.providers.plain_fixture', ['driver' => 'plain-fixture']);
-        config()->set('auth.guards.plain_fixture', ['driver' => 'jwt', 'provider' => 'plain_fixture', 'audience' => ['methods' => ['password']]]);
+        config()->set('auth.guards.plain_fixture', ['driver' => 'jwt', 'provider' => 'plain_fixture', 'application' => ['methods' => ['password']]]);
 
         $this->passwords('plain_fixture')->sendResetLink(['email' => self::EMAIL]);
         app()->terminate();

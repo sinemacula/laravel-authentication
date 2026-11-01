@@ -391,8 +391,9 @@ final class CustomEventsIntegrationTest extends TestCase
         ]);
 
         $config->set('auth.guards.' . self::JWT_GUARD, [
-            'driver'   => 'jwt',
-            'provider' => 'api_users',
+            'driver'      => 'jwt',
+            'provider'    => 'api_users',
+            'application' => ['methods' => ['password']],
         ]);
 
         $config->set('authentication.jwt.keys', [self::JWT_KID => self::JWT_SECRET]);

@@ -17,8 +17,8 @@ use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\PinnedPrincipal;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Admission\SignInAdmission;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -54,7 +54,7 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  *
  * `signIn()` verifies the input with a sign-in method; `start()` begins a
  * session for an identity something else verified (an external identity
- * provider, say). Either way the guard's audience policy must allow the method
+ * provider, say). Either way the application policy must allow the method
  * and admit the identity as its principal, the identity, principal and tenant
  * must be active, and the additional-factor policy must not ask for a further
  * factor. A client that proves, with its refresh token, that it holds a
@@ -156,18 +156,18 @@ final readonly class SessionService
      * Sign in with the named sign-in method and the input the client sent.
      *
      * In order: Laravel's `Attempting` (with only the identifier the input
-     * names, never the input itself); the audience policy must allow the method
-     * (`method_not_allowed`, nothing counted); the identifier and the client's
-     * IP address must have attempts left (`rate_limited`); then, inside the
-     * credential timebox, the method must verify the input and the identity,
-     * principal (the context's, verified, or the resolver's default), tenant
-     * and audience policy must admit it; a password is rehashed when its hash
-     * is outdated; the client's refresh token, if any, is checked as proof of
-     * an existing device; the additional-factor policy is asked, and when it
-     * requires a further factor the result is a pending sign-in instead of a
-     * session; otherwise the session starts. A success gives back the attempt's
-     * slots and those the method took on the accounts it checked; a pending
-     * sign-in keeps them all until it completes.
+     * names, never the input itself); the application policy must allow the
+     * method (`method_not_allowed`, nothing counted); the identifier and the
+     * client's IP address must have attempts left (`rate_limited`); then,
+     * inside the credential timebox, the method must verify the input and the
+     * identity, principal (the context's, verified, or the resolver's default),
+     * tenant and application policy must admit it; a password is rehashed when
+     * its hash is outdated; the client's refresh token, if any, is checked as
+     * proof of an existing device; the additional-factor policy is asked, and
+     * when it requires a further factor the result is a pending sign-in instead
+     * of a session; otherwise the session starts. A success gives back the
+     * attempt's slots and those the method took on the accounts it checked; a
+     * pending sign-in keeps them all until it completes.
      *
      * @param  string  $method
      * @param  array<array-key, mixed>  $input
@@ -198,12 +198,13 @@ final readonly class SessionService
      *
      * The identity is reloaded through the guard's identity provider from the
      * write connection and must come back as the same class and key
-     * (`identity_unknown`), so the provider's scopes apply. Then the audience
-     * policy must allow the method, the identity, principal and tenant must be
-     * active and admitted (with no identifier type, so the verified-identifier
-     * requirement does not apply), and the additional-factor policy is asked,
-     * so a sign-in from outside cannot skip a required factor. No attempt limit
-     * or timebox applies: nothing is guessed here.
+     * (`identity_unknown`), so the provider's scopes apply. Then the
+     * application policy must allow the method, the identity, principal and
+     * tenant must be active and admitted (with no identifier type, so the
+     * verified-identifier requirement does not apply), and the
+     * additional-factor policy is asked, so a sign-in from outside cannot skip
+     * a required factor. No attempt limit or timebox applies: nothing is
+     * guessed here.
      *
      * The principal to act as is given here or on the context, not both. The
      * method may not be a machine credential kind (`api_key`,
@@ -271,11 +272,11 @@ final readonly class SessionService
      * committed on the pending sign-in's connection, and reports a failure to
      * give them back to the exception handler. In the same transaction it is
      * checked again (the method still allowed, the identity, principal and
-     * tenant active, and the audience policy admitting them with the identifier
-     * type the sign-in used) and the session is written, continuing the proven
-     * device when it is unchanged and otherwise creating one. The factor policy
-     * is not asked again. Every token that does not complete a live pending
-     * sign-in of this guard fails as `pending_invalid`.
+     * tenant active, and the application policy admitting them with the
+     * identifier type the sign-in used) and the session is written, continuing
+     * the proven device when it is unchanged and otherwise creating one. The
+     * factor policy is not asked again. Every token that does not complete a
+     * live pending sign-in of this guard fails as `pending_invalid`.
      *
      * @param  string  $token
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
@@ -339,13 +340,13 @@ final readonly class SessionService
      * a switch screen: the identity's `principals()`, read on the write
      * connection (for an identity that is its own principal, or has no
      * `principals()`, the resolver's default), that are active, act within an
-     * active tenant (or none), and are admitted by the guard's audience policy.
+     * active tenant (or none), and are admitted by the application policy.
      *
      * With an identifier type, the policy must also admit the identity and each
      * principal with it, as it admits a sign-in that used one: a switch screen
      * passes the type the session's device records
      * (`Auth::device()?->getSignInIdentifierType()`), so it lists only the
-     * targets the audience policy lets that session switch to.
+     * targets the application policy lets that session switch to.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?string  $identifierType
@@ -395,7 +396,7 @@ final readonly class SessionService
      * make. Then, as for any sign-in: the method must still be allowed, the
      * principal must be the identity's, resolved through the hinted path as the
      * very one named (`principal_mismatch`), and with its tenant active and
-     * admitted by the audience policy with the identifier type the sign-in
+     * admitted by the application policy with the identifier type the sign-in
      * used; the additional-factor policy is asked, and a required factor turns
      * the choice into a pending factor carrying its attempt-limit slots;
      * otherwise the session starts, continuing the device the client proved it
@@ -422,10 +423,10 @@ final readonly class SessionService
 
         $context  = PendingSignIns::context($pending, $this->context->client());
         $method   = $pending->sign_in_method;
-        $audience = $this->container->make(AudiencePolicy::class);
+        $policy   = $this->container->make(ApplicationPolicy::class);
         $resolver = $this->context->resolver();
-        $admitted = $audience->allowsMethod($this->context->name(), $method)
-            ? (new SignInAdmission($audience))->admit(
+        $admitted = $policy->allowsMethod($this->context->name(), $method)
+            ? (new SignInAdmission($policy))->admit(
                 $this->context->name(),
                 $identity,
                 static fn (): ?Principal => PinnedPrincipal::resolve($resolver, $identity, $principal),
@@ -530,7 +531,7 @@ final readonly class SessionService
     }
 
     /**
-     * Run a sign-in from the audience policy's method check to the session.
+     * Run a sign-in from the application policy's method check to the session.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\SignInMethod  $driver
      * @param  string  $method
@@ -543,13 +544,13 @@ final readonly class SessionService
      */
     private function signInWith(SignInMethod $driver, string $method, #[\SensitiveParameter] array $input, SignInContext $context, AttemptSubject $subject): Refused|SignInResult
     {
-        $audience = CredentialAttempt::checkMethod($this->container, $subject->guard, $method);
+        $policy = CredentialAttempt::checkMethod($this->container, $subject->guard, $method);
 
-        if ($audience instanceof Refused) {
-            return $audience;
+        if ($policy instanceof Refused) {
+            return $policy;
         }
 
-        $attempt = CredentialAttempt::begin($this->container->make(AttemptLimiter::class), $audience, $subject);
+        $attempt = CredentialAttempt::begin($this->container->make(AttemptLimiter::class), $policy, $subject);
 
         if ($attempt instanceof Refused) {
             return $attempt;
@@ -650,7 +651,7 @@ final readonly class SessionService
             return new Refused(FailureReason::IDENTITY_UNKNOWN, $identity);
         }
 
-        if (!$this->container->make(AudiencePolicy::class)->allowsMethod($this->context->name(), $method)) {
+        if (!$this->container->make(ApplicationPolicy::class)->allowsMethod($this->context->name(), $method)) {
             return new Refused(FailureReason::METHOD_NOT_ALLOWED, $reloaded);
         }
 
@@ -684,7 +685,7 @@ final readonly class SessionService
 
         $resolver = $this->context->resolver();
 
-        return (new SignInAdmission($this->container->make(AudiencePolicy::class)))->admit(
+        return (new SignInAdmission($this->container->make(ApplicationPolicy::class)))->admit(
             $this->context->name(),
             $identity,
             static fn (): ?Principal => $pinned === null ? $resolver->resolve($identity) : PinnedPrincipal::resolve($resolver, $identity, $pinned),

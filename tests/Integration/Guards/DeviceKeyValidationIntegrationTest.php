@@ -176,8 +176,9 @@ final class DeviceKeyValidationIntegrationTest extends TestCase
         $config->set('authentication.device.model', PrefixedKeyDevice::class);
 
         $config->set('auth.guards.api', [
-            'driver'   => 'jwt',
-            'provider' => 'identities',
+            'driver'      => 'jwt',
+            'provider'    => 'identities',
+            'application' => ['methods' => ['password']],
         ]);
 
         $config->set('auth.providers.identities', [

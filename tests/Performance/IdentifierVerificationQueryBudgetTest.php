@@ -11,8 +11,8 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
@@ -31,7 +31,7 @@ use Tests\Unit\Stubs\PlainPrincipalFixture;
  */
 #[CoversClass(IdentifierVerifier::class)]
 #[CoversClass(VerificationLinks::class)]
-#[CoversClass(GuardAudiencePolicy::class)]
+#[CoversClass(GuardApplicationPolicy::class)]
 final class IdentifierVerificationQueryBudgetTest extends PerformanceContractTestCase
 {
     use InteractsWithVerifiableIdentities;
@@ -119,7 +119,9 @@ final class IdentifierVerificationQueryBudgetTest extends PerformanceContractTes
 
         $identity->markIdentifierAsVerified('email', 'ben@example.com');
 
-        self::assertNull($this->assertQueryBudget(0, 0, static fn (): mixed => app(AudiencePolicy::class)->admit(self::GUARD, $identity, new PlainPrincipalFixture(1), 'email')));
+        $policy = app(ApplicationPolicy::class);
+
+        self::assertNull($this->assertQueryBudget(0, 0, static fn (): mixed => $policy->admit(self::GUARD, $identity, new PlainPrincipalFixture(1), 'email')));
     }
 
     /**
@@ -140,7 +142,7 @@ final class IdentifierVerificationQueryBudgetTest extends PerformanceContractTes
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
 
-        $config->set('auth.guards.' . self::GUARD, ['driver' => 'jwt', 'provider' => 'verifiable', 'audience' => ['require_verified_identifier' => true]]);
+        $config->set('auth.guards.' . self::GUARD, ['driver' => 'jwt', 'provider' => 'verifiable', 'application' => ['require_verified_identifier' => true]]);
         $config->set('auth.providers.verifiable', ['driver' => 'model', 'model' => VerifiableIdentity::class]);
     }
 

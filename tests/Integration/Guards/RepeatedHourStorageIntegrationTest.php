@@ -345,9 +345,10 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
         $config->set('auth.defaults.guard', 'api');
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => StubPrincipal::class]);
         $config->set('auth.guards.api', [
-            'driver'   => 'jwt',
-            'provider' => 'identities',
-            'jwt'      => [
+            'driver'      => 'jwt',
+            'provider'    => 'identities',
+            'application' => ['methods' => ['password']],
+            'jwt'         => [
                 'refresh_idle_ttl_minutes'     => 60,
                 'refresh_absolute_ttl_minutes' => 600,
                 'refresh_grace_seconds'        => 30,

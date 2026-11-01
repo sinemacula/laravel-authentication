@@ -406,8 +406,9 @@ final class DeviceUsageIntegrationTest extends TestCase
         $config->set('auth.defaults.guard', 'api');
 
         $config->set('auth.guards.api', [
-            'driver'   => 'jwt',
-            'provider' => 'identities',
+            'driver'      => 'jwt',
+            'provider'    => 'identities',
+            'application' => ['methods' => ['password']],
         ]);
 
         $config->set('auth.providers.identities', [

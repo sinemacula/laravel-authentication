@@ -169,7 +169,7 @@ final class PasswordWriteConnectionIntegrationTest extends TestCase
 
         $this->configureLaggingReplica($config);
 
-        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities']);
+        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities', 'application' => ['methods' => ['password']]]);
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => SeparatePasswordIdentity::class]);
 
         // Failed attempts wait out the timebox; keep it short.

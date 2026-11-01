@@ -26,8 +26,8 @@ enum FailureReason: string
     // The sign-in method did not accept the input
     case INVALID_CREDENTIALS = 'invalid_credentials';
 
-    // The guard does not allow the sign-in method, or no longer allows the
-    // method that started the device's session (or the device records none)
+    // The application does not allow the sign-in method, or no longer allows
+    // the method that started the device's session (or the device records none)
     case METHOD_NOT_ALLOWED = 'method_not_allowed';
 
     // The identifier, the device or the IP address has used up its attempts for
@@ -59,7 +59,7 @@ enum FailureReason: string
     // activation and cannot be loaded
     case TENANT_INACTIVE = 'tenant_inactive';
 
-    // The guard's audience policy does not admit the identity as the principal
+    // The application policy does not admit the identity as the principal
     case PRINCIPAL_INELIGIBLE = 'principal_ineligible';
 
     // The guard requires the identifier the sign-in used to be verified, and it

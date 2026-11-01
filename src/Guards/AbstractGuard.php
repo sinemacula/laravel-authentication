@@ -193,7 +193,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * Runs the password sign-in method's credential check inside a single
      * `Timebox::call()`, so elapsed time is uniform whether or not the
      * identifier resolves. Only the credentials are checked: no attempt limit,
-     * audience policy or activity check applies, and the password is never
+     * application policy or activity check applies, and the password is never
      * rehashed, as with Laravel's own guards.
      *
      * @param  array<array-key, mixed>  $credentials
@@ -275,10 +275,10 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * Sign in with credentials through the password sign-in method, optionally
      * pinning a specific principal and device on success.
      *
-     * The guard's audience policy must allow the `password` method, and the
-     * attempt takes one slot from the identifier's and the IP address's sign-in
-     * limits before the credentials are checked; a successful sign-in gives its
-     * slots back. The credentials keep their full provider semantics, closures
+     * The application policy must allow the `password` method, and the attempt
+     * takes one slot from the identifier's and the IP address's sign-in limits
+     * before the credentials are checked; a successful sign-in gives its slots
+     * back. The credentials keep their full provider semantics, closures
      * included, but the identifier the limits count and the verified-identifier
      * requirement checks is always the guard's password identifier key (its own
      * `sign_in.password_identifier`, or the package's), however the lookup was
@@ -286,11 +286,11 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * integer or a query closure fails as invalid credentials before any
      * lookup, and the password check is counted against the account it is made
      * for. Once the password is accepted, the identity, the principal and its
-     * tenant must be active, the pins must hold, the audience policy must admit
-     * the identity as the principal, and the additional-factor policy must not
-     * ask for a further factor: `attempt()` cannot hand out a pending sign-in,
-     * so a required factor fails it (use the session service's `signIn()`). No
-     * device is created.
+     * tenant must be active, the pins must hold, the application policy must
+     * admit the identity as the principal, and the additional-factor policy
+     * must not ask for a further factor: `attempt()` cannot hand out a pending
+     * sign-in, so a required factor fails it (use the session service's
+     * `signIn()`). No device is created.
      *
      * Pins are verified, not trusted, because callers may take them from
      * request input: the principal must resolve through the resolver's hinted

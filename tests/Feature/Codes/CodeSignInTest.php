@@ -501,7 +501,7 @@ final class CodeSignInTest extends TestCase
     }
 
     /**
-     * A guard whose audience does not allow the method refuses it before
+     * A guard whose application does not allow the method refuses it before
      * anything is counted.
      *
      * @return void
@@ -565,7 +565,7 @@ final class CodeSignInTest extends TestCase
         });
 
         config()->set('authentication.identifiers.normalisers.whatsapp', config('authentication.identifiers.normalisers.phone'));
-        config()->set('auth.guards.mobile.audience.methods', ['whatsapp_code']);
+        config()->set('auth.guards.mobile.application.methods', ['whatsapp_code']);
 
         $manager->extend('whatsapp_code', fn (Application $app): CodeSignIn => $app->make(CodeSignIn::class, ['type' => 'whatsapp']));
 

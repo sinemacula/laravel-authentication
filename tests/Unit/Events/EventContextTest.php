@@ -9,8 +9,6 @@ use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Concerns\ProvidesType;
-use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use Tests\Unit\Stubs\PlainDeviceFixture;
@@ -211,41 +209,6 @@ final class EventContextTest extends TestCase
     }
 
     /**
-     * The principal's categorical type is what `Auth::type()` reports, read
-     * from what the context holds: the principal's own type, else its tenant's,
-     * else none; an empty type reads as none, and without a principal there is
-     * none to report, whatever the tenant's.
-     *
-     * @return void
-     */
-    public function testRecordsThePrincipalsCategoricalType(): void
-    {
-        $client = new ClientContext(null, null);
-
-        self::assertSame('staff', (new EventContext('api', $client, principal: self::typedPrincipal('staff'), tenant: self::tenant(3, 'workspace')))->principalCategory);
-        self::assertSame('workspace', (new EventContext('api', $client, principal: self::typedPrincipal(''), tenant: self::tenant(3, 'workspace')))->principalCategory);
-        self::assertSame('workspace', (new EventContext('api', $client, principal: new PlainPrincipalFixture(1), tenant: self::tenant(3, 'workspace')))->principalCategory);
-        self::assertNull((new EventContext('api', $client, principal: new PlainPrincipalFixture(1), tenant: self::tenant(3, '')))->principalCategory);
-        self::assertNull((new EventContext('api', $client, principal: new PlainPrincipalFixture(1)))->principalCategory);
-        self::assertNull((new EventContext('api', $client, tenant: self::tenant(3, 'workspace')))->principalCategory);
-    }
-
-    /**
-     * A principal or tenant loaded without its type column has a type the
-     * context cannot read without a query: it is recorded as unknown rather
-     * than failing the flow that reports the event.
-     *
-     * @return void
-     */
-    public function testATypeLoadedWithoutItsColumnIsRecordedAsUnknown(): void
-    {
-        $context = new EventContext('api', new ClientContext(null, null), principal: new PlainPrincipalFixture(1), tenant: self::tenant(3));
-
-        self::assertNull($context->principalCategory);
-        self::assertSame('3', $context->tenantId);
-    }
-
-    /**
      * A context with nothing established keeps only the guard, the client and
      * the time, and every other snapshot is null.
      *
@@ -265,7 +228,6 @@ final class EventContextTest extends TestCase
         self::assertNull($context->identityId);
         self::assertNull($context->principalMorphClass);
         self::assertNull($context->principalId);
-        self::assertNull($context->principalCategory);
         self::assertNull($context->tenantMorphClass);
         self::assertNull($context->tenantId);
         self::assertNull($context->deviceId);
@@ -304,19 +266,18 @@ final class EventContextTest extends TestCase
      */
     public function testSnapshotsDoNotFollowLaterChanges(): void
     {
-        $principal = self::typedPrincipal('staff');
-        $tenant    = self::tenant(3, 'workspace');
+        $principal = self::principal();
+        $tenant    = self::tenant(3);
 
         $principal->forceFill(['id' => 9]);
 
         $context = new EventContext('api', new ClientContext(null, null), $principal, $principal, $tenant);
 
-        $principal->forceFill(['id' => 10, 'type' => 'service']);
+        $principal->forceFill(['id' => 10]);
         $tenant->forceFill(['id' => 4]);
 
         self::assertSame('9', $context->identityId);
         self::assertSame('9', $context->principalId);
-        self::assertSame('staff', $context->principalCategory);
         self::assertSame('3', $context->tenantId);
         self::assertSame(10, $context->principal?->getPrincipalIdentifier());
         self::assertSame(4, $context->tenant?->getTenantIdentifier());
@@ -354,7 +315,6 @@ final class EventContextTest extends TestCase
             'identity_id'           => '7',
             'principal_morph_class' => $context->principal === null ? null : $context->principal::class,
             'principal_id'          => '5',
-            'principal_category'    => 'staff',
             'tenant_morph_class'    => PlainTenantFixture::class,
             'tenant_id'             => '3',
             'device_id'             => 'device-1',
@@ -412,7 +372,7 @@ final class EventContextTest extends TestCase
             'api',
             new ClientContext('203.0.113.7', 'agent'),
             new PlainIdentityFixture(7),
-            self::typedPrincipal('staff'),
+            self::principal(),
             new PlainTenantFixture(3),
             new PlainDeviceFixture('device-1'),
             'password',
@@ -422,34 +382,31 @@ final class EventContextTest extends TestCase
     }
 
     /**
-     * An unsaved tenant model with the given key and, when given, type.
+     * An unsaved tenant model with the given key.
      *
      * @param  int  $id
-     * @param  ?string  $type
      * @return \Tests\Unit\Stubs\StubTenant
      */
-    private static function tenant(int $id, ?string $type = null): StubTenant
+    private static function tenant(int $id): StubTenant
     {
         $tenant = new StubTenant;
 
-        $tenant->forceFill($type === null ? ['id' => $id] : ['id' => $id, 'type' => $type]);
+        $tenant->forceFill(['id' => $id]);
 
         return $tenant;
     }
 
     /**
-     * An unsaved principal model that reports the given type.
+     * An unsaved principal model with key 5 and a `type` attribute, which the
+     * context does not record.
      *
-     * @param  string  $type
-     * @return \SineMacula\Laravel\Authentication\Contracts\HasType&\Tests\Unit\Stubs\StubPrincipal
+     * @return \Tests\Unit\Stubs\StubPrincipal
      */
-    private static function typedPrincipal(string $type): HasType&StubPrincipal
+    private static function principal(): StubPrincipal
     {
-        $principal = new class extends StubPrincipal implements HasType {
-            use ProvidesType;
-        };
+        $principal = new StubPrincipal;
 
-        $principal->forceFill(['id' => 5, 'type' => $type]);
+        $principal->forceFill(['id' => 5, 'type' => 'staff']);
 
         return $principal;
     }

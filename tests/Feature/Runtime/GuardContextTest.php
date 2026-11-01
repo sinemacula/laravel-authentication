@@ -405,7 +405,7 @@ final class GuardContextTest extends TestCase
         $config->set('auth.guards.local', [
             'driver'             => 'jwt',
             'provider'           => 'identities',
-            'audience'           => ['methods' => ['password']],
+            'application'        => ['methods' => ['password']],
             'principal_resolver' => IdentityAsPrincipalResolver::class,
         ]);
     }

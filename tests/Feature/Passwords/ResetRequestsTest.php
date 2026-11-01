@@ -120,16 +120,30 @@ final class ResetRequestsTest extends TestCase
     }
 
     /**
+     * Rows of `[the guard's application block]`: an application that lists
+     * other methods, and one that takes the package default, which lists none.
+     *
+     * @return iterable<string, array{0: ?array<string, mixed>}>
+     */
+    public static function provideApplicationsWithoutPasswords(): iterable
+    {
+        yield 'one listing other methods' => [['methods' => ['sso']]];
+        yield 'none, so the shipped default that lists nothing' => [null];
+    }
+
+    /**
      * A guard that does not allow passwords sends no reset, whatever the
      * identifier, and counts nothing.
      *
+     * @param  ?array<string, mixed>  $application
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAGuardWithoutPasswordsSendsNoReset(): void
+    #[DataProvider('provideApplicationsWithoutPasswords')]
+    public function testAGuardWithoutPasswordsSendsNoReset(?array $application): void
     {
-        config()->set('auth.guards.web.audience', ['methods' => ['sso']]);
+        config()->set('auth.guards.web.application', $application);
 
         $this->recordEvents([AuthenticationFailed::class]);
 
@@ -241,7 +255,7 @@ final class ResetRequestsTest extends TestCase
      */
     public function testTheClientNamedIsReported(): void
     {
-        config()->set('auth.guards.web.audience', ['methods' => ['sso']]);
+        config()->set('auth.guards.web.application', ['methods' => ['sso']]);
 
         $client = new ClientContext('198.51.100.9', 'Kiosk/2.0');
 

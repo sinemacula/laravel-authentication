@@ -51,14 +51,14 @@ token parsed for this guard, the device found, of this guard, live, and the rota
 inside the grace window; any other id is a replay and revokes the device (`rotation_reuse`). On every path the device's
 owner must still be returned by the guard's provider and be active, the target must resolve through the resolver's
 hinted path as the very principal named, of its class, owned by that identity (read from the principal's own key, not
-trusted to the resolver), active, in an active tenant and admitted by the audience policy, also with the type of
+trusted to the resolver), active, in an active tenant and admitted by the application policy, also with the type of
 identifier the session's sign-in used (which the device records), so a principal your policy refuses to that identifier
 cannot be reached by switching to it, the session's sign-in method must still be allowed, and the additional-factor
 policy must not ask for a further factor (`additional_factor_required`: sign in again as the target).
 
 With the current rotation id, the token's principal must be the one the device records (`device_principal_mismatch`).
-The switch keeps the session's absolute deadline, held to the target type's absolute lifetime counted from the sign-in
-(`session_expired` when that has passed), restarts the idle one under the target's lifetimes, issues both tokens for the
+The switch keeps the session's absolute deadline, held to the guard's absolute lifetime counted from the sign-in
+(`session_expired` when that has passed), restarts the idle one under the guard's lifetimes, issues both tokens for the
 target, then records the target, the switch time (`principal_switched_at`), the rotation and both deadlines in one
 compare-and-swap. The access tokens of the principal switched from stop at once, and switching back does not revive them
 (see [Device](configuration.md#device)). A switch to the principal the device already records rotates the credential

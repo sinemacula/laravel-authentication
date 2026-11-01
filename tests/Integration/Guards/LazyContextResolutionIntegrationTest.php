@@ -272,8 +272,9 @@ final class LazyContextResolutionIntegrationTest extends TestCase
         $config->set('auth.defaults.guard', 'api');
 
         $config->set('auth.guards.api', [
-            'driver'   => 'jwt',
-            'provider' => 'members',
+            'driver'      => 'jwt',
+            'provider'    => 'members',
+            'application' => ['methods' => ['password']],
         ]);
 
         $config->set('auth.providers.members', [

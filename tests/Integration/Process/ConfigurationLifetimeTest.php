@@ -11,7 +11,7 @@ use Illuminate\Queue\Worker;
 use Illuminate\Queue\WorkerOptions;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
+use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ObserveConfigurationJob;
@@ -29,7 +29,7 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(JwtTokenServiceFactory::class)]
-#[CoversClass(GuardAudiencePolicy::class)]
+#[CoversClass(GuardApplicationPolicy::class)]
 final class ConfigurationLifetimeTest extends TestCase
 {
     use InteractsWithSessions;
@@ -73,10 +73,10 @@ final class ConfigurationLifetimeTest extends TestCase
     }
 
     /**
-     * A change between two jobs reaches the audience, which is read on every
-     * use, but not the token lifetimes, which the token service built for the
-     * first job keeps, nor the guard, which the worker resets rather than
-     * rebuilds.
+     * A change between two jobs reaches the application settings, which are
+     * read on every use, but not the token lifetimes, which the token service
+     * built for the first job keeps, nor the guard, which the worker resets
+     * rather than rebuilds.
      *
      * @return void
      */
@@ -84,7 +84,7 @@ final class ConfigurationLifetimeTest extends TestCase
     {
         $observed = $this->runTwoJobs(static function (): void {
             config()->set('authentication.jwt.access_ttl_minutes', 15);
-            config()->set('auth.guards.api.audience.methods', ['sso']);
+            config()->set('auth.guards.api.application.methods', ['sso']);
         });
 
         self::assertSame(5, $observed[0]['access_ttl_minutes']);

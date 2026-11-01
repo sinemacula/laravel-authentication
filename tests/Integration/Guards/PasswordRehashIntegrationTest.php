@@ -197,7 +197,7 @@ final class PasswordRehashIntegrationTest extends TestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
 
-        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities']);
+        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities', 'application' => ['methods' => ['password']]]);
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => IntegrationIdentity::class]);
         $config->set('hashing.driver', 'bcrypt');
         $config->set('hashing.bcrypt.rounds', self::CURRENT_ROUNDS);

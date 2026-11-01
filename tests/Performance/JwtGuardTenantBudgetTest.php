@@ -286,7 +286,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
         ];
 
         foreach ($providers as $name => $model) {
-            $config->set('auth.guards.' . $name, ['driver' => 'jwt', 'provider' => $name]);
+            $config->set('auth.guards.' . $name, ['driver' => 'jwt', 'provider' => $name, 'application' => ['methods' => ['password']]]);
             $config->set('auth.providers.' . $name, ['driver' => 'model', 'model' => $model]);
         }
     }

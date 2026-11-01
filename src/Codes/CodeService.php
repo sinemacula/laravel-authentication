@@ -8,8 +8,8 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Container\Container;
 use SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Delivery\QueuedDelivery;
@@ -100,7 +100,7 @@ final readonly class CodeService
         $context = new EventContext($guard, $client ?? $this->context->client(), method: $method);
         $given   = $driver->identifier($guard, $input);
 
-        if (!$this->collaborator(AudiencePolicy::class)->allowsMethod($guard, $method)) {
+        if (!$this->collaborator(ApplicationPolicy::class)->allowsMethod($guard, $method)) {
             return $this->refuse(CodeRequest::methodNotAllowed(), FailureReason::METHOD_NOT_ALLOWED, $context, $given);
         }
 

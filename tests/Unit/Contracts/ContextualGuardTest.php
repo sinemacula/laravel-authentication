@@ -53,7 +53,7 @@ final class ContextualGuardTest extends TestCase
 
     /**
      * The contract declares every contextual accessor with the documented
-     * nullable return type.
+     * nullable return type, and no principal type.
      *
      * @return void
      */
@@ -64,7 +64,6 @@ final class ContextualGuardTest extends TestCase
             'principal' => Principal::class,
             'device'    => Device::class,
             'tenant'    => Tenant::class,
-            'type'      => 'string',
             'scopes'    => 'array',
         ];
 
@@ -80,6 +79,8 @@ final class ContextualGuardTest extends TestCase
             self::assertTrue($type->allowsNull(), "{$method}() must return a nullable type.");
             self::assertSame($returnType, $type->getName(), "{$method}() must return ?{$returnType}.");
         }
+
+        self::assertFalse((new \ReflectionClass(ContextualGuard::class))->hasMethod('type'), 'ContextualGuard must not declare type().');
     }
 
     /**

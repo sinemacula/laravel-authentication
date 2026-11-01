@@ -9,7 +9,7 @@ binding and what it takes over from the manager it replaces.
 ## Invariants
 
 - Every binding `AuthenticationServiceProvider::register()` makes is conditional (`singletonIf()`, `scopedIf()`,
-  `bindIf()`): `PrincipalResolver`, `AudiencePolicy`, `AttemptLimiter`, `AdditionalFactorPolicy`, `ScopeRegistry`,
+  `bindIf()`): `PrincipalResolver`, `ApplicationPolicy`, `AttemptLimiter`, `AdditionalFactorPolicy`, `ScopeRegistry`,
   `BreachedPasswordChecker`, `PasswordResetLinkSender`, the `IdentifierNormalisers` and `SignInMethodManager`
   registries, the `auth` middleware, and the internal `WebAuthn`, `Rehashing` and `JwtTokenServiceFactory`. A binding
   made before the provider registers is kept, so a factor package's `AdditionalFactorPolicy` is never replaced by

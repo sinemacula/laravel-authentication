@@ -6,7 +6,6 @@ namespace SineMacula\Laravel\Authentication\Guards\Concerns;
 
 use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Validated;
-use SineMacula\Laravel\Authentication\Audience\PrincipalType;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
@@ -118,26 +117,6 @@ trait BindsContextualState
         $this->user();
 
         return $this->scopes;
-    }
-
-    /**
-     * Return the active principal's type, if any, resolving the request on
-     * first access: the principal's own type when it declares the `HasType`
-     * capability, otherwise its tenant's (see `Audience\PrincipalType`). Read
-     * from the principal live, not from the token's `pty` claim. Throws as
-     * `tenant()` does when the tenant has to be read.
-     *
-     * @return ?string
-     *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
-     * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
-     */
-    public function type(): ?string
-    {
-        $principal = $this->principal();
-
-        return $principal === null ? null : PrincipalType::of($principal);
     }
 
     /**

@@ -13,8 +13,8 @@ use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
@@ -24,7 +24,6 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDeviceOrigin;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
-use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierNormaliser;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -257,16 +256,21 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `AudiencePolicy` declares exactly the four questions the session layer
-     * asks a guard's audience: may this method start a session, may this
-     * identity sign in with this identifier, may this principal hold one, and
-     * for how long.
+     * `ApplicationPolicy` declares exactly the four questions the session layer
+     * asks an application: may this method start a session, may this identity
+     * sign in with this identifier, may this principal hold one, and for how
+     * long, which depends on the guard alone.
      *
      * @return void
      */
-    public function testAudiencePolicyDeclaresExactlyItsChecks(): void
+    public function testApplicationPolicyDeclaresExactlyItsChecks(): void
     {
-        self::assertSame(['admit', 'admitIdentifier', 'allowsMethod', 'lifetimes'], self::declaredMethods(AudiencePolicy::class));
+        $lifetimes = (new \ReflectionMethod(ApplicationPolicy::class, 'lifetimes'))->getParameters();
+
+        self::assertSame(['admit', 'admitIdentifier', 'allowsMethod', 'lifetimes'], self::declaredMethods(ApplicationPolicy::class));
+        self::assertCount(1, $lifetimes);
+        self::assertSame('guard', $lifetimes[0]->getName());
+        self::assertSame('string', (string) $lifetimes[0]->getType());
     }
 
     /**
@@ -309,20 +313,6 @@ final class ContractDeclarationTest extends TestCase
 
         self::assertSame(['normalise'], self::declaredMethods(IdentifierNormaliser::class));
         self::assertSame('?string', (string) $method->getReturnType());
-    }
-
-    /**
-     * A type is a capability a principal or a tenant opts into: `HasType`
-     * declares only `getType()`, and neither `Principal` nor `Tenant` declares
-     * it.
-     *
-     * @return void
-     */
-    public function testTypeIsDeclaredOnlyByTheHasTypeCapability(): void
-    {
-        self::assertSame(['getType'], self::declaredMethods(HasType::class));
-        self::assertFalse((new \ReflectionClass(Principal::class))->hasMethod('getType'));
-        self::assertFalse((new \ReflectionClass(Tenant::class))->hasMethod('getType'));
     }
 
     /**

@@ -9,15 +9,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
-use SineMacula\Laravel\Authentication\Concerns\ProvidesType;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
-use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
  * A service account's membership of a tenant, an activatable tenant unless its
- * `tenant_type` names another: the principal a machine credential acts as,
- * typed by its `type` column, stored in `machine_memberships`.
+ * `tenant_type` names another: the principal a machine credential acts as, with
+ * a `type` column of the application's own, stored in `machine_memberships`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -31,9 +29,9 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  *
  * @internal
  */
-final class MachineMembership extends Model implements CanBeActive, HasType, Principal
+final class MachineMembership extends Model implements CanBeActive, Principal
 {
-    use ActsAsPrincipal, ProvidesActiveState, ProvidesType;
+    use ActsAsPrincipal, ProvidesActiveState;
 
     /** @var string|null The table associated with the model. */
     protected $table = 'machine_memberships';

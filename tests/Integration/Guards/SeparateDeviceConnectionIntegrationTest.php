@@ -309,7 +309,7 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
         $config->set('authentication.device.model', SeparateConnectionDevice::class);
         $config->set('auth.defaults.guard', 'api');
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => SeparateConnectionDeviceIdentity::class]);
-        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities', 'jwt' => ['refresh_grace_seconds' => 30]]);
+        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities', 'application' => ['methods' => ['password']], 'jwt' => ['refresh_grace_seconds' => 30]]);
     }
 
     /**

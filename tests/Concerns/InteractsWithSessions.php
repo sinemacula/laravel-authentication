@@ -111,13 +111,13 @@ trait InteractsWithSessions
      */
     protected static function configureSessionGuards(ConfigRepository $config): void
     {
-        $audience = ['methods' => ['password', 'sso', 'trusted']];
+        $application = ['methods' => ['password', 'sso', 'trusted']];
 
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => IntegrationIdentity::class]);
         $config->set('auth.providers.members', ['driver' => 'model', 'model' => ActivatableTenantMember::class]);
-        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities', 'audience' => $audience]);
-        $config->set('auth.guards.admin', ['driver' => 'jwt', 'provider' => 'identities', 'audience' => $audience]);
-        $config->set('auth.guards.members', ['driver' => 'jwt', 'provider' => 'members', 'audience' => $audience]);
+        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities', 'application' => $application]);
+        $config->set('auth.guards.admin', ['driver' => 'jwt', 'provider' => 'identities', 'application' => $application]);
+        $config->set('auth.guards.members', ['driver' => 'jwt', 'provider' => 'members', 'application' => $application]);
         $config->set('hashing.bcrypt.rounds', 4);
         $config->set('authentication.timebox.credentials_microseconds', 1);
     }

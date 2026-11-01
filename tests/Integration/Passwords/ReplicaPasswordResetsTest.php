@@ -15,8 +15,10 @@ use SineMacula\Laravel\Authentication\Passwords\ResetRecipient;
 use SineMacula\Laravel\Authentication\Passwords\ResetSubmissions;
 use SineMacula\Laravel\Authentication\Passwords\SendPasswordReset;
 use SineMacula\Laravel\Authentication\Testing\FakePasswordResetLinkSender;
+use Tests\Concerns\InteractsWithApplicationGrants;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Concerns\InteractsWithPasswords;
+use Tests\Fixtures\Sessions\GrantedApplicationPolicy;
 use Tests\Integration\Fixtures\PasswordIdentity;
 use Tests\TestCase;
 
@@ -24,7 +26,8 @@ use Tests\TestCase;
  * Proves every read that decides a password reset is from the write connection:
  * an identity registered moments ago, and a link issued for it, which only the
  * primary holds yet, are found while the replica lags behind, by the queued job
- * that delivers the link and by the reset that spends it.
+ * that delivers the link and by the reset that spends it; and an application
+ * policy of the application's own decides from the rows the primary holds.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -36,7 +39,7 @@ use Tests\TestCase;
 #[CoversClass(ResetSubmissions::class)]
 final class ReplicaPasswordResetsTest extends TestCase
 {
-    use InteractsWithLaggingReplica, InteractsWithPasswords;
+    use InteractsWithApplicationGrants, InteractsWithLaggingReplica, InteractsWithPasswords;
 
     /** @var string The new password the reset sets. */
     private const string NEW_PASSWORD = 'a brand new passphrase';
@@ -103,6 +106,39 @@ final class ReplicaPasswordResetsTest extends TestCase
 
         self::assertIsString($stored);
         self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, $stored));
+    }
+
+    /**
+     * An application policy of the application's own is asked on the primary
+     * whether the identity may reset its password with the identifier: a link
+     * is delivered on a verification only the primary holds, and none once the
+     * primary withdraws it while the replica still holds it, past the resend
+     * cooldown.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheApplicationPolicyIsAskedOnThePrimary(): void
+    {
+        $this->bindGrantedApplicationPolicy();
+
+        $verification = $this->verify(self::seedPasswordIdentity());
+
+        self::assertTrue(Auth::passwords('web')->sendResetLink(['email' => 'ada@example.test'])->isSent());
+
+        app()->terminate();
+
+        self::assertSame(1, $this->links->count());
+
+        $this->withdrawOnThePrimary(GrantedApplicationPolicy::VERIFICATIONS, $verification);
+
+        self::freezeClock(CarbonImmutable::parse('2026-10-29 10:30:00'));
+        self::assertTrue(Auth::passwords('web')->sendResetLink(['email' => 'ada@example.test'])->isSent());
+
+        app()->terminate();
+
+        self::assertSame(1, $this->links->count());
     }
 
     /**

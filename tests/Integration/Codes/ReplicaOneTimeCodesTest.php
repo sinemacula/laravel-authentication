@@ -220,7 +220,7 @@ final class ReplicaOneTimeCodesTest extends TestCase
         self::configureCodeGuards($config);
 
         $config->set('auth.providers.querying', ['driver' => 'model', 'model' => QueryingCodeIdentity::class]);
-        $config->set('auth.guards.querying', ['driver' => 'jwt', 'provider' => 'querying', 'audience' => ['methods' => ['phone_code']]]);
+        $config->set('auth.guards.querying', ['driver' => 'jwt', 'provider' => 'querying', 'application' => ['methods' => ['phone_code']]]);
 
         $this->configureLaggingReplica($config);
     }

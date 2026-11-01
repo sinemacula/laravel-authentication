@@ -12,8 +12,8 @@ use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Admission\SignInAdmission;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
@@ -209,11 +209,11 @@ final readonly class SessionEstablishment
 
         SessionPreconditions::assertHoldsDevices($factor->identity);
 
-        $audience = $this->container->make(AudiencePolicy::class);
+        $policy   = $this->container->make(ApplicationPolicy::class);
         $admitted = match (true) {
-            !$this->pendings->consume($found, $now)                           => new Refused(FailureReason::PENDING_INVALID),
-            !$audience->allowsMethod($this->context->name(), $factor->method) => new Refused(FailureReason::METHOD_NOT_ALLOWED, $factor->identity, $factor->principal),
-            default                                                           => (new SignInAdmission($audience))->admit(
+            !$this->pendings->consume($found, $now)                         => new Refused(FailureReason::PENDING_INVALID),
+            !$policy->allowsMethod($this->context->name(), $factor->method) => new Refused(FailureReason::METHOD_NOT_ALLOWED, $factor->identity, $factor->principal),
+            default                                                         => (new SignInAdmission($policy))->admit(
                 $this->context->name(),
                 $factor->identity,
                 static fn (): Principal => $factor->principal,
@@ -235,13 +235,13 @@ final readonly class SessionEstablishment
     }
 
     /**
-     * Write the session of an admitted sign-in, with the guard's lifetimes for
-     * its principal: continue the proven device, or create one, recorded as
-     * created from the origin's client when that differs from the context's (a
-     * completion records where its sign-in began). The device records the
-     * method and the type of identifier the sign-in used, which a later switch
-     * of principal admits its target with. `null` when the proven device
-     * changed before it could be continued.
+     * Write the session of an admitted sign-in, with the guard's lifetimes:
+     * continue the proven device, or create one, recorded as created from the
+     * origin's client when that differs from the context's (a completion
+     * records where its sign-in began). The device records the method and the
+     * type of identifier the sign-in used, which a later switch of principal
+     * admits its target with. `null` when the proven device changed before it
+     * could be continued.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null  $proven
@@ -263,7 +263,7 @@ final readonly class SessionEstablishment
         CarbonImmutable $now,
         ?ClientContext $origin = null,
     ): ?SignedInSession {
-        $lifetimes = $this->container->make(AudiencePolicy::class)->lifetimes($this->context->name(), $admitted->principal);
+        $lifetimes = $this->container->make(ApplicationPolicy::class)->lifetimes($this->context->name());
 
         return $proven === null
             ? $this->writer->create($admitted, $method, $identifierType, $context, $lifetimes, $now, $origin ?? $context->client)

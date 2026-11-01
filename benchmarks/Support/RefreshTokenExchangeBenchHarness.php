@@ -16,8 +16,8 @@ use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Timebox;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
@@ -36,7 +36,7 @@ use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
-use Tests\Fixtures\Sessions\PermissiveAudiencePolicy;
+use Tests\Fixtures\Sessions\PermissiveApplicationPolicy;
 use Tests\Fixtures\Sessions\UnlimitedAttemptLimiter;
 use Tests\Integration\Fixtures\TenantAware3dIdentity;
 use Tests\Integration\Fixtures\TenantAware3dPrincipal;
@@ -170,7 +170,7 @@ final class RefreshTokenExchangeBenchHarness
             new TokenLifetimes(15, 60 * 24 * 30, 60 * 24 * 180, 30),
             30,
         );
-        $container->instance(AudiencePolicy::class, new PermissiveAudiencePolicy($this->tokens->lifetimes()));
+        $container->instance(ApplicationPolicy::class, new PermissiveApplicationPolicy($this->tokens->lifetimes()));
         $container->instance(AttemptLimiter::class, new UnlimitedAttemptLimiter);
 
         $this->provider            = new ModelProvider($hasher, StubPrincipal::class);
@@ -242,7 +242,6 @@ final class RefreshTokenExchangeBenchHarness
         $this->sessionsOf($guard)->refresh($token);
         $guard->principal()?->getIdentity();
         $guard->tenant();
-        $guard->type();
     }
 
     /**
@@ -262,7 +261,6 @@ final class RefreshTokenExchangeBenchHarness
         $this->sessionsOf($guard)->refresh($token);
         $guard->principal()?->getIdentity();
         $guard->tenant();
-        $guard->type();
     }
 
     /**

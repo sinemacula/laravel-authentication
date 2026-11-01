@@ -20,7 +20,7 @@ inheritance:
 | Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` under a name the package does not use |
 | Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy` in the container; call `factorRemoved()` when a factor is removed         |
 | Passkeys as a further factor      | Call `Auth::passkeys()->factorOptions()` and `verifyFactor()` from your further-factor package                   |
-| Audience decisions                | Implement `AudiencePolicy` and bind it in the container                                                          |
+| Application decisions             | Implement `ApplicationPolicy` and bind it in the container                                                       |
 | Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                                                          |
 | Identifier normal forms           | Implement `IdentifierNormaliser`, register it by type in the config                                              |
 | One-time code delivery            | Implement `OneTimeCodeSender` and bind it in the container                                                       |
@@ -32,9 +32,9 @@ inheritance:
 
 The `password` method is the package's own: `attempt()`, `validate()` and the password rehash use it directly, so
 `extend('password', ...)` throws an `InvalidArgumentException` rather than replace it for `signIn()` alone. Register a
-different password scheme under a name of its own and allow that name in the guard's audience. The package's other
+different password scheme under a name of its own and allow that name in the application. The package's other
 methods (`phone_code`, `email_code` and `passkey`) are reserved the same way, as are `api_key` and `client_credentials`,
-which an audience lists for machine credentials and which never resolve to a sign-in method. Names are lower case
+which an application lists for machine credentials and which never resolve to a sign-in method. Names are lower case
 (a letter, then letters, digits or underscores), and a method resolves only by the exact name it was registered under,
 so one method never has a second spelling for a guard to allow or a device to record.
 
@@ -50,6 +50,67 @@ through a reservation rebuilt from its own windows, whose subject carries the gu
 the IP address but no identifier or account. Two reservations may record the same key (a method that checks two secrets
 reserves the account twice), and each is given back.
 
+### Deciding which principals may use an application
+
+The package's application policy admits every principal. To keep some principals out of an application, bind a policy of
+your own that refuses them from `admit()` as `principal_ineligible` and delegates everything else to the package's. A
+refused principal gets `principal_ineligible` at sign-in, on every refresh and switch, and for an API key or a client
+credentials exchange (`unauthorized_client`); its sessions are kept and refresh again once the policy admits it. Return
+that reason: a refresh reports any refusal as `principal_ineligible`, but a sign-in and an API key report the reason you
+return, and a client credentials exchange answers any other reason with `invalid_client`, as if the client's
+credentials were wrong:
+
+```php
+use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+
+final readonly class StaffOnlyConsolePolicy implements ApplicationPolicy
+{
+    public function __construct(private GuardApplicationPolicy $package) {}
+
+    public function allowsMethod(string $guard, string $method): bool
+    {
+        return $this->package->allowsMethod($guard, $method);
+    }
+
+    public function admitIdentifier(string $guard, Identity $identity, ?string $identifierType): ?FailureReason
+    {
+        return $this->package->admitIdentifier($guard, $identity, $identifierType);
+    }
+
+    public function admit(string $guard, Identity $identity, Principal $principal, ?string $identifierType): ?FailureReason
+    {
+        if ($guard === 'console' && !$principal instanceof StaffMembership) {
+            return FailureReason::PRINCIPAL_INELIGIBLE;
+        }
+
+        return $this->package->admit($guard, $identity, $principal, $identifierType);
+    }
+
+    public function lifetimes(string $guard): TokenLifetimes
+    {
+        return $this->package->lifetimes($guard);
+    }
+}
+
+$this->app->singleton(ApplicationPolicy::class, StaffOnlyConsolePolicy::class);
+```
+
+The package asks `admitIdentifier()` inside `WriteConnection::during()` for the identity, and `admit()` for the identity
+and the principal, so a model your policy reads there, or a query-builder read on the identity's or the principal's
+connection, comes from the primary: a grant withdrawn moments ago is not still found on a lagging replica. Pin any other
+read that decides admission yourself, as [Operations](operations.md#read-replicas) shows.
+
+`authentication:check` asks a policy of your own, this one included, whether it allows every registered sign-in method
+and `client_credentials` on each `jwt` guard, and reports an exception it throws as a problem for the guard. It still
+holds an `api_key` guard to allowing `api_key`, and checks the passkey relying party of a guard your policy allows
+`passkey`. It does not warn about an application that allows nothing: that warning reads the package's settings, and
+the names your policy allows are its own.
+
 `AbstractGuard` is not final and may be extended for entirely new guard types.
 
 ### Writing a guard type
@@ -62,16 +123,19 @@ guard type has no `$this->name`, `$this->provider`, `$this->resolver`, `$this->e
 in the guard's credential timebox, the one `attempt()` and `validate()` run in.
 
 `bindVerifiedContext()` binds what it is given and checks none of it, so a guard type admits what its credential named
-first, as the package's guards do: the guard's audience must allow the method it reports, the identity, the principal
-and the principal's tenant must be active (`Admission\ActivationPolicy`), and the audience policy must admit the
-identity, then the identity as the principal. The tenant the activity check loaded is the one it binds:
+first, as the package's guards do: the application must allow the method it reports, the identity, the principal
+and the principal's tenant must be active (`Admission\ActivationPolicy`), and the application policy must admit the
+identity, then the identity as the principal, each asked inside `WriteConnection::during()` as the package asks them.
+The tenant the activity check loaded is the one it binds:
 
 ```php
 use Illuminate\Container\Container;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 
 final class HeaderKeyGuard extends AbstractGuard
@@ -102,17 +166,30 @@ final class HeaderKeyGuard extends AbstractGuard
 
     private function admit(Identity $identity): ?Identity
     {
-        $guard    = $this->context->name();
-        $audience = Container::getInstance()->make(AudiencePolicy::class);
+        $guard  = $this->context->name();
+        $policy = Container::getInstance()->make(ApplicationPolicy::class);
 
-        if (!$audience->allowsMethod($guard, 'header_key') || !ActivationPolicy::isActive($identity) || $audience->admitIdentifier($guard, $identity, null) !== null) {
+        if (!$policy->allowsMethod($guard, 'header_key') || !ActivationPolicy::isActive($identity)) {
+            return null;
+        }
+
+        if (WriteConnection::during($identity, fn (): ?FailureReason => $policy->admitIdentifier($guard, $identity, null)) !== null) {
             return null;
         }
 
         $principal = $this->resolvePrincipal($identity);
         $tenant    = $principal === null || !ActivationPolicy::isActive($principal) ? false : ActivationPolicy::activeTenant($principal);
 
-        if ($principal === null || $tenant === false || $audience->admit($guard, $identity, $principal, null) !== null) {
+        if ($principal === null || $tenant === false) {
+            return null;
+        }
+
+        $refusal = WriteConnection::during($identity, fn (): ?FailureReason => WriteConnection::during(
+            $principal,
+            fn (): ?FailureReason => $policy->admit($guard, $identity, $principal, null),
+        ));
+
+        if ($refusal !== null) {
             return null;
         }
 
@@ -162,7 +239,7 @@ driver was registered.
 
 ### Binding order
 
-Every default the package binds is bound only when nothing is bound yet: `PrincipalResolver`, `AudiencePolicy`,
+Every default the package binds is bound only when nothing is bound yet: `PrincipalResolver`, `ApplicationPolicy`,
 `AttemptLimiter`, `AdditionalFactorPolicy`, `ScopeRegistry`, `BreachedPasswordChecker`, `PasswordResetLinkSender`, and
 the `IdentifierNormalisers` and `SignInMethodManager` registries. Bind yours in a service provider's `register()`,
 before or after the package's provider: one bound before is kept, and one bound after replaces the default, so a factor
@@ -240,7 +317,8 @@ $passed = $result->isVerified();   // else $result->reason
 
 ### Authorization (`laravel-authorization`)
 
-- `Auth::principal()`, `Auth::tenant()` and `Auth::type()` are the subject an authorization decision is about.
+- `Auth::principal()` and `Auth::tenant()` are the subject an authorization decision is about; a caller's category is
+  authorization's to model, from the principal and its tenant.
 - `Auth::scopes()` is the ceiling the request's credential grants: `null` for a human's session, which no credential
   limits, the granted list for an API key or a client credentials token, and `[]` for a machine bound without one.
   Intersect the principal's permissions with it; a scope never grants anything by itself (see
@@ -251,21 +329,21 @@ $passed = $result->isVerified();   // else $result->reason
 ### Single sign-on (`laravel-sso`)
 
 - When the identity provider's callback has proven the identity, start the session with
-  `Auth::sessions($guard)->start($identity, $principal, 'sso', $context)`: the guard's audience must list the method
-  name, the identity is reloaded through the guard's provider, activity, the audience policy and the additional-factor
+  `Auth::sessions($guard)->start($identity, $principal, 'sso', $context)`: the application must list the method name,
+  the identity is reloaded through the guard's provider, activity, the application policy and the additional-factor
   policy all apply, and no attempt limit or timebox does, since nothing is guessed. No registration is needed.
 - For an assertion the package should verify itself, implement `Contracts\SignInMethod`, register it with
   `SignInMethodManager::extend()` and sign in through `signIn()`, which adds the limits and the timebox (see
   [Writing a sign-in method](signing-in.md#writing-a-sign-in-method)).
-- Either way the device records the method, so the guard's audience can stop allowing it and its sessions stop
+- Either way the device records the method, so the application can stop allowing it and its sessions stop
   refreshing.
 
 ### Audit (`laravel-audit-log`)
 
 - Every package event implements `Contracts\AuthenticationEvent` and carries one `Events\EventContext`, so one listener
   records them all from its snapshot (`toArray()`): when, the guard, the client, the identity, principal and tenant by
-  morph class and identifier, the principal's categorical type, the device's identifier, the method, and the credential
-  and its scopes, never a secret. The snapshot survives a queue whatever was deleted meanwhile, so a queued audit
-  listener can take the event as it is (see [Events](events.md#events)).
+  morph class and identifier, the device's identifier, the method, and the credential and its scopes, never a secret.
+  The snapshot survives a queue whatever was deleted meanwhile, so a queued audit listener can take the event as it is
+  (see [Events](events.md#events)).
 - Events that report a write are dispatched once it commits on the written row's connection, and never for a rolled-back
   one, so a queued audit listener records only what happened.

@@ -15,16 +15,16 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   sign-in fails as `principal_unresolved`, as before. `attempt()` never offers one.
 - Eligible principals (`SessionService::principals()`) are the identity's `principals()` read on the write connection
   (the resolver's default for an identity that is its own principal or has no `principals()`), active, in an active
-  tenant or none, and admitted by the audience policy with no identifier type. Offering a choice, and every later
+  tenant or none, and admitted by the application policy with no identifier type. Offering a choice, and every later
   `choice()` lookup, which recomputes the list, also admits the identity (`admitIdentifier()`) and each of them with the
   sign-in's identifier type (the one the choice stores): a principal the policy then refuses is neither offered nor
   listed, and when it refuses every one the sign-in fails with that reason, storing and reporting nothing.
   `principals($identity, $identifierType)` lists the same way for a switch screen given the type the session's device
-  records, so it lists only targets the audience policy lets that session switch to.
+  records, so it lists only targets the application policy lets that session switch to.
 - Each principal read with the others is checked on a stored copy (`WriteConnection::stored()`): Eloquent strict mode
-  prevents lazy loading on models read together, and the activity check and the audience policy read its tenant. The
-  list holds the principals as read.
-- Every sign-in asks the audience policy's `admitIdentifier()` before any principal is resolved or listed
+  prevents lazy loading on models read together, and the activity check (and any application policy that reads it) reads
+  its tenant. The list holds the principals as read.
+- Every sign-in asks the application policy's `admitIdentifier()` before any principal is resolved or listed
   (`SignInAdmission`), so with the package's policy a guard requiring a verified identifier refuses an unverified one
   as `identifier_unverified` whether the identity has principals or not, and the answer never tells someone holding an
   unverified identity's password whether it has been invited anywhere. A policy that wraps the package's keeps this by
@@ -48,15 +48,16 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
 - Every path of a switch, the retry included, runs every live check: the owner reloaded through the guard's provider
   and active (`RefreshAdmission`), the target resolved through the hinted path, of the target's class and owned by the
   owner as read from the principal's own key (`principal_mismatch`), active, its tenant active, admitted by the
-  audience policy, the session's method allowed, the identity and then the target admitted again with the type of
+  application policy, the session's method allowed, the identity and then the target admitted again with the type of
   identifier the session's sign-in used (the device's `sign_in_identifier_type`, written with `sign_in_method` at every
   sign-in; a session whose sign-in used none is not held to one, and a device loaded without the column throws a
   `LogicException` rather than reading as one that used none) so a principal a policy refuses to that identifier cannot
   be reached by switching, and no further factor asked (`additional_factor_required`).
 - With the current rotation id, the token's `pid` must be the principal the device records
-  (`device_principal_mismatch`). The absolute deadline stays the session's, held to `signed_in_at` plus the target
-  type's absolute lifetime (`session_expired` when that has passed); the idle deadline restarts under the target's
-  lifetimes. Both tokens are issued for the target before the write, and end at the restarted idle deadline.
+  (`device_principal_mismatch`). The absolute deadline stays the session's, held to `signed_in_at` plus the guard's
+  absolute lifetime (`session_expired` when that has passed), so a lifetime shortened since the sign-in applies and a
+  switch never extends the session; the idle deadline restarts under the guard's lifetimes. Both tokens are issued for
+  the target before the write, and end at the restarted idle deadline.
 - The switch is one compare-and-swap (`RefreshRotationStore::switchPrincipal()`) on the presented digest, an unrevoked
   row, both loaded deadlines and the loaded principal columns. It writes the rotation, both deadlines and, when the
   principal changes, the target and `principal_switched_at`. A switch to the recorded principal writes no switch.

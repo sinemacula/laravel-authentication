@@ -493,9 +493,10 @@ final class SessionLifetimeIntegrationTest extends TestCase
         $config->set('auth.defaults.guard', 'api');
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => StubPrincipal::class]);
         $config->set('auth.guards.api', [
-            'driver'   => 'jwt',
-            'provider' => 'identities',
-            'jwt'      => [
+            'driver'      => 'jwt',
+            'provider'    => 'identities',
+            'application' => ['methods' => ['password']],
+            'jwt'         => [
                 'access_ttl_minutes'           => 5,
                 'refresh_idle_ttl_minutes'     => 60,
                 'refresh_absolute_ttl_minutes' => 600,
@@ -503,9 +504,10 @@ final class SessionLifetimeIntegrationTest extends TestCase
             ],
         ]);
         $config->set('auth.guards.' . self::BRIEF, [
-            'driver'   => 'jwt',
-            'provider' => 'identities',
-            'jwt'      => [
+            'driver'      => 'jwt',
+            'provider'    => 'identities',
+            'application' => ['methods' => ['password']],
+            'jwt'         => [
                 'access_ttl_minutes'           => 5,
                 'refresh_idle_ttl_minutes'     => 2,
                 'refresh_absolute_ttl_minutes' => 600,

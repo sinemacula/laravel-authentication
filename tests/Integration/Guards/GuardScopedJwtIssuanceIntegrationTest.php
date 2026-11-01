@@ -180,9 +180,10 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
         $config->set('auth.defaults.guard', self::STAFF_GUARD);
 
         $config->set('auth.guards.' . self::STAFF_GUARD, [
-            'driver'   => 'jwt',
-            'provider' => 'identities',
-            'jwt'      => [
+            'driver'      => 'jwt',
+            'provider'    => 'identities',
+            'application' => ['methods' => ['password']],
+            'jwt'         => [
                 'keys'       => [self::STAFF_GUARD => self::STAFF_SECRET],
                 'active_kid' => self::STAFF_GUARD,
                 'audience'   => 'staff-api',
@@ -190,9 +191,10 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
         ]);
 
         $config->set('auth.guards.' . self::CUSTOMER_GUARD, [
-            'driver'   => 'jwt',
-            'provider' => 'identities',
-            'jwt'      => [
+            'driver'      => 'jwt',
+            'provider'    => 'identities',
+            'application' => ['methods' => ['password']],
+            'jwt'         => [
                 'keys'       => [self::CUSTOMER_GUARD => self::CUSTOMER_SECRET],
                 'active_kid' => self::CUSTOMER_GUARD,
                 'audience'   => 'customer-api',

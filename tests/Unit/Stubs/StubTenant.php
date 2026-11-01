@@ -6,13 +6,10 @@ namespace Tests\Unit\Stubs;
 
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsTenant;
-use SineMacula\Laravel\Authentication\Concerns\ProvidesType;
-use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 
 /**
- * Eloquent stub implementing the `Tenant` contract plus the optional `HasType`
- * capability via the package traits.
+ * Eloquent stub implementing the `Tenant` contract via the package trait.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -21,9 +18,9 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
  *
  * @inheritable
  */
-class StubTenant extends Model implements HasType, Tenant
+class StubTenant extends Model implements Tenant
 {
-    use ActsAsTenant, ProvidesType;
+    use ActsAsTenant;
 
     /** @var string|null The table associated with the model. */
     protected $table = 'stub_tenants';

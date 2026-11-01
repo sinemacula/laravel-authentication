@@ -22,8 +22,8 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
@@ -47,7 +47,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithSessions;
-use Tests\Fixtures\Sessions\InvitedTenantAudiencePolicy;
+use Tests\Fixtures\Sessions\InvitedTenantApplicationPolicy;
 use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ChoosingMember;
@@ -433,7 +433,7 @@ final class ChoosesPrincipalsTest extends TestCase
     public function testAnUnverifiedIdentifierIsRefusedAlikeWithOrWithoutPrincipals(bool $wrapped): void
     {
         if ($wrapped) {
-            app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy(app(AudiencePolicy::class), 0));
+            app()->instance(ApplicationPolicy::class, new InvitedTenantApplicationPolicy(app(ApplicationPolicy::class), 0));
         }
 
         Schema::table('activatable_tenant_members', static function (Blueprint $blueprint): void {
@@ -470,7 +470,7 @@ final class ChoosesPrincipalsTest extends TestCase
     {
         [$member, $own, $invited] = $this->seedChooser();
 
-        app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy(app(AudiencePolicy::class), $invited->tenant_id));
+        app()->instance(ApplicationPolicy::class, new InvitedTenantApplicationPolicy(app(ApplicationPolicy::class), $invited->tenant_id));
 
         $offered = $this->sessions(self::GUARD)->signIn('password', self::credentials('chooser@example.test'))->choice;
 
@@ -503,7 +503,7 @@ final class ChoosesPrincipalsTest extends TestCase
     {
         [, $own, $invited] = $this->seedChooser();
 
-        app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy(app(AudiencePolicy::class), $invited->tenant_id));
+        app()->instance(ApplicationPolicy::class, new InvitedTenantApplicationPolicy(app(ApplicationPolicy::class), $invited->tenant_id));
 
         $session = $this->sessions(self::GUARD)->choose($this->offer(), $own)->session;
 
@@ -536,7 +536,7 @@ final class ChoosesPrincipalsTest extends TestCase
 
         ChoosingMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $invited->getKey()]);
 
-        app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy(app(AudiencePolicy::class), $invited->getKey()));
+        app()->instance(ApplicationPolicy::class, new InvitedTenantApplicationPolicy(app(ApplicationPolicy::class), $invited->getKey()));
 
         $this->recordEvents([PrincipalChoiceRequired::class]);
 
@@ -599,10 +599,10 @@ final class ChoosesPrincipalsTest extends TestCase
 
         $token = $this->offer();
 
-        $audience = \Mockery::mock(AudiencePolicy::class);
-        $audience->shouldReceive('allowsMethod')->once()->with(self::GUARD, 'password')->andReturnFalse();
+        $policy = \Mockery::mock(ApplicationPolicy::class);
+        $policy->shouldReceive('allowsMethod')->once()->with(self::GUARD, 'password')->andReturnFalse();
 
-        app()->instance(AudiencePolicy::class, $audience);
+        app()->instance(ApplicationPolicy::class, $policy);
 
         self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions(self::GUARD)->choose($token, $first)->reason);
     }
@@ -767,7 +767,7 @@ final class ChoosesPrincipalsTest extends TestCase
 
     /**
      * An identity the resolver finds no default principal for has none to list,
-     * and the audience policy is never asked about one.
+     * and the application policy is never asked about one.
      *
      * @return void
      *
@@ -780,10 +780,10 @@ final class ChoosesPrincipalsTest extends TestCase
         $resolver = \Mockery::mock(PrincipalResolver::class);
         $resolver->shouldReceive('resolve')->once()->with($identity)->andReturnNull();
 
-        $audience = \Mockery::mock(AudiencePolicy::class);
-        $audience->shouldNotReceive('admit');
+        $policy = \Mockery::mock(ApplicationPolicy::class);
+        $policy->shouldNotReceive('admit');
 
-        app()->instance(AudiencePolicy::class, $audience);
+        app()->instance(ApplicationPolicy::class, $policy);
 
         self::assertSame([], self::sessionsOf($this->freshGuard()->setPrincipalResolver($resolver))->principals($identity));
     }
@@ -802,18 +802,18 @@ final class ChoosesPrincipalsTest extends TestCase
     {
         [$member, $own, $invited] = $this->seedChooser();
 
-        $package = app(AudiencePolicy::class);
+        $package = app(ApplicationPolicy::class);
 
-        app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy($package, $invited->tenant_id));
+        app()->instance(ApplicationPolicy::class, new InvitedTenantApplicationPolicy($package, $invited->tenant_id));
 
         self::assertSame([$own->getKey()], self::keys($this->sessions(self::GUARD)->principals($member, 'email')));
         self::assertSame([$own->getKey(), $invited->getKey()], self::keys($this->sessions(self::GUARD)->principals($member)));
 
-        $audience = \Mockery::mock(AudiencePolicy::class);
-        $audience->shouldReceive('admitIdentifier')->once()->with(self::GUARD, $member, 'email')->andReturn(FailureReason::IDENTIFIER_UNVERIFIED);
-        $audience->shouldReceive('admit')->twice()->with(self::GUARD, $member, \Mockery::type(ChoosingMembership::class), null)->andReturnNull();
+        $policy = \Mockery::mock(ApplicationPolicy::class);
+        $policy->shouldReceive('admitIdentifier')->once()->with(self::GUARD, $member, 'email')->andReturn(FailureReason::IDENTIFIER_UNVERIFIED);
+        $policy->shouldReceive('admit')->twice()->with(self::GUARD, $member, \Mockery::type(ChoosingMembership::class), null)->andReturnNull();
 
-        app()->instance(AudiencePolicy::class, $audience);
+        app()->instance(ApplicationPolicy::class, $policy);
 
         self::assertSame([], $this->sessions(self::GUARD)->principals($member, 'email'));
         self::assertSame([$own->getKey(), $invited->getKey()], self::keys($this->sessions(self::GUARD)->principals($member)));
@@ -833,7 +833,7 @@ final class ChoosesPrincipalsTest extends TestCase
     {
         [$member, $own, $invited] = $this->seedChooser();
 
-        app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy(app(AudiencePolicy::class), $invited->tenant_id));
+        app()->instance(ApplicationPolicy::class, new InvitedTenantApplicationPolicy(app(ApplicationPolicy::class), $invited->tenant_id));
 
         Model::preventLazyLoading();
 
@@ -1115,7 +1115,7 @@ final class ChoosesPrincipalsTest extends TestCase
 
     /**
      * The principals a 2D identity may sign in as are the resolver's default,
-     * itself; one the audience policy refuses has none.
+     * itself; one the application policy refuses has none.
      *
      * @return void
      *
@@ -1127,10 +1127,10 @@ final class ChoosesPrincipalsTest extends TestCase
 
         self::assertSame([$identity], $this->sessions()->principals($identity));
 
-        $audience = \Mockery::mock(AudiencePolicy::class);
-        $audience->shouldReceive('admit')->once()->andReturn(FailureReason::PRINCIPAL_INELIGIBLE);
+        $policy = \Mockery::mock(ApplicationPolicy::class);
+        $policy->shouldReceive('admit')->once()->andReturn(FailureReason::PRINCIPAL_INELIGIBLE);
 
-        app()->instance(AudiencePolicy::class, $audience);
+        app()->instance(ApplicationPolicy::class, $policy);
 
         self::assertSame([], $this->sessions()->principals($identity));
     }
@@ -1153,14 +1153,14 @@ final class ChoosesPrincipalsTest extends TestCase
         self::configureSessionGuards($config);
 
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
-        $config->set('auth.guards.' . self::GUARD, ['driver' => 'jwt', 'provider' => 'choosers', 'audience' => ['methods' => ['password', 'sso']]]);
+        $config->set('auth.guards.' . self::GUARD, ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password', 'sso']]]);
         $config->set('auth.providers.roles', ['driver' => 'model', 'model' => RoleMember::class]);
-        $config->set('auth.guards.' . self::ROLES_GUARD, ['driver' => 'jwt', 'provider' => 'roles', 'audience' => ['methods' => ['password']]]);
+        $config->set('auth.guards.' . self::ROLES_GUARD, ['driver' => 'jwt', 'provider' => 'roles', 'application' => ['methods' => ['password']]]);
         $config->set('auth.providers.verifiable_choosers', ['driver' => 'model', 'model' => VerifiableChoosingMember::class]);
         $config->set('auth.guards.verified', [
-            'driver'   => 'jwt',
-            'provider' => 'verifiable_choosers',
-            'audience' => ['methods' => ['password'], 'require_verified_identifier' => true],
+            'driver'      => 'jwt',
+            'provider'    => 'verifiable_choosers',
+            'application' => ['methods' => ['password'], 'require_verified_identifier' => true],
         ]);
     }
 

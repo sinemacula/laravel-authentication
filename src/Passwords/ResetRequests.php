@@ -13,8 +13,8 @@ use SineMacula\Laravel\Authentication\Codes\CodeRequest;
 use SineMacula\Laravel\Authentication\Codes\CodeSettings;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Database\SharedConnection;
@@ -184,7 +184,7 @@ final readonly class ResetRequests
         $guard      = $this->context->name();
         $identifier = $given === null ? null : $this->container->make(IdentifierVerifier::class)->canonical($type, $given);
 
-        if (!$this->container->make(AudiencePolicy::class)->allowsMethod($guard, PasswordSignIn::NAME)) {
+        if (!$this->container->make(ApplicationPolicy::class)->allowsMethod($guard, PasswordSignIn::NAME)) {
             return [CodeRequest::methodNotAllowed(), FailureReason::METHOD_NOT_ALLOWED, null];
         }
 

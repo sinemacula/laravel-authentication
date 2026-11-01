@@ -31,17 +31,17 @@ authorization package decides what they allow.
   the `IssuedApiKey` the issuing call returns, which holds it as a `SensitiveParameterValue` read through `key()`, so
   no dump shows it and serialising it throws. The exchange holds a presented client secret the same way.
 - A key belongs to one guard, one non-human identity, one principal and that principal's tenant, each of the last three
-  recorded by type (morph class, else class name) and identifier, so a tenant of another type under the same
-  identifier is not the key's. Every keyed operation of the service matches the principal's type and identifier, and
-  the guard, in its statement; a key of another principal or guard is absent.
+  recorded by type (morph class, else class name) and identifier, so a tenant of another type under the same identifier
+  is not the key's. Every keyed operation of the service matches the principal's morph type and identifier, and the
+  guard, in its statement; a key of another principal or guard is absent.
 - A presented key costs one indexed lookup of its public part on the write connection and a constant-time digest
   comparison, against a fixed digest when no key matched; never a password hash.
 - A client credentials exchange (RFC 6749 section 4.4) takes a key of a `jwt` guard, its public part as the client id
   and its secret as the client secret, and issues an access token of that guard with no device and no refresh token,
-  carrying the key's id (`cid`) and the granted scopes (`scope`), living the access lifetime for the principal's type and
-  never past the key's expiry. A token with `cid` must carry `scope` and name no device, or `parse()` rejects it. The
-  RFC 6749 5.1 response carries `scope` only when the token grants at least one: RFC 6749 3.3 has no empty scope value,
-  while the claim is `""` for none.
+  carrying the key's id (`cid`) and the granted scopes (`scope`), living the guard's access lifetime and never past the
+  key's expiry. A token with `cid` must carry `scope` and name no device, or `parse()` rejects it. The RFC 6749 5.1
+  response carries `scope` only when the token grants at least one: RFC 6749 3.3 has no empty scope value, while the
+  claim is `""` for none.
 - A client token is held to its key on every request (decided: reject at once rather than at token expiry): the key,
   read by primary key on the writer, must be the token's guard's, not revoked and not expired, the subject a machine,
   and `CredentialBinding` must hold for the loaded identity, principal and tenant. Revoking the key, or the end of a
@@ -53,9 +53,9 @@ authorization package decides what they allow.
 - Every write to a key is one conditional statement on its own connection (rotation: a conditional update of the
   replaced key, then the insert of its replacement, in one transaction), and its event is dispatched once committed
   there.
-- A keyed operation matches the guard and the principal's type and identifier in the statement and then compares the
-  key's recorded ones exactly, since a column's collation, such as MySQL's default `_ci`, can count distinct values like
-  `alice` and `Alice`, or guards `api` and `API`, as equal.
+- A keyed operation matches the guard and the principal's morph type and identifier in the statement and then compares
+  the key's recorded ones exactly, since a column's collation, such as MySQL's default `_ci`, can count distinct values
+  like `alice` and `Alice`, or guards `api` and `API`, as equal.
 - A credential's scopes are fixed when it is issued, after normalisation and the `ScopeRegistry`'s check; a malformed
   or rejected scope is an `InvalidScopeException`, the caller's error rather than a failed authentication. Any answer
   from the registry but `[]` refuses, naming the given scopes it names, or every given scope when it names none as
@@ -64,14 +64,14 @@ authorization package decides what they allow.
 ## Success Path
 
 - `Auth::apiKeys($guard)->issue($identity, $principal, $scopes)` resolves the principal for the identity through the
-  guard's resolver (as a pinned principal), asks the audience to admit it, normalises and registers the scopes, records
-  the tenant, draws a public part (again on the unlikely collision with a stored one, at most three times) and a
-  secret, inserts the row and returns the key once; `ApiKeyIssued` follows the commit.
+  guard's resolver (as a pinned principal), asks the application policy to admit it, normalises and registers the
+  scopes, records the tenant, draws a public part (again on the unlikely collision with a stored one, at most three
+  times) and a secret, inserts the row and returns the key once; `ApiKeyIssued` follows the commit.
 - An `api_key` guard request: parse the bearer key, look its public part up, compare digests, check the guard,
-  revocation and expiry, that the audience lists `api_key`, then the owner (exactly the recorded identity, a
+  revocation and expiry, that the application lists `api_key`, then the owner (exactly the recorded identity, a
   `MachineIdentity`, active) and the principal (exactly the recorded one, active, in an active tenant, of the recorded
-  type and tenant, admitted by the audience); bind with `Authenticated` and `PrincipalAssigned` only, and record the
-  last use at most once per throttle with one conditional update.
+  type and tenant, admitted by the application policy); bind with `Authenticated` and `PrincipalAssigned` only, and
+  record the last use at most once per throttle with one conditional update.
 - `rotate()` ends the replaced key at `now + overlap` or its own expiry, whichever comes first, with an explicit `CASE`
   (never `LEAST()` over a nullable column), and inserts the replacement with the same binding and scopes but only the
   expiry the call names: none by default (settled design 6.3), so rotating a key that expires without `expiresAt`
@@ -88,13 +88,13 @@ authorization package decides what they allow.
   Basic is `invalid_client`. Request failures are reported as `invalid_credentials` and not counted.
 - Every failure to authenticate the client (unknown, wrong secret, revoked, expired, another guard's key, owner or
   principal problems) is `invalid_client` (401, with a Basic challenge for a Basic client), counted per IP address; only
-  a principal the audience does not admit is `unauthorized_client`. A guard whose audience does not list
-  `client_credentials` answers `unauthorized_client` before looking at the key. A scope not granted is `invalid_scope`,
-  not counted. Past its limit an address gets 429 `slow_down` (RFC 8628's registered error). Each failure's
-  `AuthenticationFailed` names the client id only when it is a key's public part in form
-  (`PresentedClient::reportedId()`), else none: a client that sends its whole key as the id, or swaps id and secret,
-  would otherwise put the secret in an event (rule: no event field carries a secret), as the `api_key` guard already
-  never names one.
+  a principal the application policy refuses as `principal_ineligible` is `unauthorized_client` (a policy that gives any
+  other reason gets `invalid_client`). A guard whose application does not list `client_credentials` answers
+  `unauthorized_client` before looking at the key. A scope not granted is `invalid_scope`, not counted. Past its limit
+  an address gets 429 `slow_down` (RFC 8628's registered error). Each failure's `AuthenticationFailed` names the client
+  id only when it is a key's public part in form (`PresentedClient::reportedId()`), else none: a client that sends its
+  whole key as the id, or swaps id and secret, would otherwise put the secret in an event (rule: no event field carries
+  a secret), as the `api_key` guard already never names one.
 - `client_credentials.per_identifier` (per client id as given) is off by default. A client id is public (RFC 6749 2.2;
   it is the key's public part, shown in summaries and events), so a count on it lets anyone who knows it keep the real
   client out from any address, and it buys nothing against a 238-bit secret, the reason the `api_key` guard counts

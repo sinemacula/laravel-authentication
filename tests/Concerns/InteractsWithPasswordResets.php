@@ -139,16 +139,16 @@ trait InteractsWithPasswordResets
         $config->set('auth.providers.lookalike', ['driver' => 'look-alike-passwords']);
         $config->set('auth.providers.plain_identities', ['driver' => 'model', 'model' => IntegrationIdentity::class]);
         $config->set('auth.providers.lookalike_plain', ['driver' => 'look-alike-plain']);
-        $config->set('auth.guards.lookalike_plain', ['driver' => 'jwt', 'provider' => 'lookalike_plain', 'audience' => ['methods' => ['password']]]);
-        $config->set('auth.guards.plain', ['driver' => 'jwt', 'provider' => 'plain_identities', 'audience' => ['methods' => ['password']]]);
+        $config->set('auth.guards.lookalike_plain', ['driver' => 'jwt', 'provider' => 'lookalike_plain', 'application' => ['methods' => ['password']]]);
+        $config->set('auth.guards.plain', ['driver' => 'jwt', 'provider' => 'plain_identities', 'application' => ['methods' => ['password']]]);
         $config->set('auth.guards.plain_verified', [
-            'driver'   => 'jwt',
-            'provider' => 'plain_identities',
-            'audience' => ['methods' => ['password'], 'require_verified_identifier' => true],
+            'driver'      => 'jwt',
+            'provider'    => 'plain_identities',
+            'application' => ['methods' => ['password'], 'require_verified_identifier' => true],
         ]);
-        $config->set('auth.guards.lookalike', ['driver' => 'jwt', 'provider' => 'lookalike', 'audience' => ['methods' => ['password']]]);
+        $config->set('auth.guards.lookalike', ['driver' => 'jwt', 'provider' => 'lookalike', 'application' => ['methods' => ['password']]]);
         $config->set('auth.providers.mapped', ['driver' => 'mapped-column']);
-        $config->set('auth.guards.mapped', ['driver' => 'jwt', 'provider' => 'mapped', 'audience' => ['methods' => ['password']]]);
+        $config->set('auth.guards.mapped', ['driver' => 'jwt', 'provider' => 'mapped', 'application' => ['methods' => ['password']]]);
     }
 
     /**

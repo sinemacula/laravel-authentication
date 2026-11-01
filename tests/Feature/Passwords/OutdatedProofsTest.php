@@ -250,10 +250,10 @@ final class OutdatedProofsTest extends TestCase
     public function testAGuardsOwnPasswordIdentifierIsOutdatedToo(): void
     {
         config()->set('auth.guards.nicknames', [
-            'driver'   => 'jwt',
-            'provider' => 'password_identities',
-            'audience' => ['methods' => ['password']],
-            'sign_in'  => ['password_identifier' => 'nickname'],
+            'driver'      => 'jwt',
+            'provider'    => 'password_identities',
+            'application' => ['methods' => ['password']],
+            'sign_in'     => ['password_identifier' => 'nickname'],
         ]);
 
         $identity = self::seedResettable(['nickname' => 'ada']);

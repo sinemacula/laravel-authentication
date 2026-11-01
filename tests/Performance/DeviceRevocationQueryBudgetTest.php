@@ -374,7 +374,7 @@ final class DeviceRevocationQueryBudgetTest extends PerformanceContractTestCase
         self::configureSessionGuards($config);
 
         $config->set('auth.providers.cutoff', ['driver' => 'model', 'model' => CutoffIdentity::class]);
-        $config->set('auth.guards.cutoff', ['driver' => 'jwt', 'provider' => 'cutoff', 'audience' => ['methods' => ['password']]]);
+        $config->set('auth.guards.cutoff', ['driver' => 'jwt', 'provider' => 'cutoff', 'application' => ['methods' => ['password']]]);
     }
 
     /**

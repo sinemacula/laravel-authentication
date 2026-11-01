@@ -349,8 +349,9 @@ final class StandardAuthEventsIntegrationTest extends TestCase
         ]);
 
         $config->set('auth.guards.' . self::GUARD_NAME, [
-            'driver'   => 'jwt',
-            'provider' => 'users',
+            'driver'      => 'jwt',
+            'provider'    => 'users',
+            'application' => ['methods' => ['password']],
         ]);
     }
 }

@@ -1081,10 +1081,10 @@ final class EventSequenceTest extends TestCase
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
         $config->set('auth.providers.changeables', ['driver' => 'model', 'model' => ChangeableIdentity::class]);
         $config->set('auth.providers.machine_clients', ['driver' => 'model', 'model' => MachineClient::class]);
-        $config->set('auth.guards.choosers', ['driver' => 'jwt', 'provider' => 'choosers', 'audience' => ['methods' => ['password']]]);
-        $config->set('auth.guards.changes', ['driver' => 'jwt', 'provider' => 'changeables', 'audience' => ['methods' => ['password', 'email_code']]]);
-        $config->set('auth.guards.keys', ['driver' => 'api_key', 'provider' => 'machine_clients', 'audience' => ['methods' => ['api_key']]]);
-        $config->set('auth.guards.m2m', ['driver' => 'jwt', 'provider' => 'machine_clients', 'audience' => ['methods' => ['client_credentials']]]);
+        $config->set('auth.guards.choosers', ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password']]]);
+        $config->set('auth.guards.changes', ['driver' => 'jwt', 'provider' => 'changeables', 'application' => ['methods' => ['password', 'email_code']]]);
+        $config->set('auth.guards.keys', ['driver' => 'api_key', 'provider' => 'machine_clients', 'application' => ['methods' => ['api_key']]]);
+        $config->set('auth.guards.m2m', ['driver' => 'jwt', 'provider' => 'machine_clients', 'application' => ['methods' => ['client_credentials']]]);
     }
 
     /**

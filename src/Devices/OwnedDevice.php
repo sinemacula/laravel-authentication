@@ -69,9 +69,9 @@ final class OwnedDevice
 
     /**
      * Whether the device's session acts as the principal: the device records
-     * that principal's type and identifier, read from the row already loaded,
-     * with no query. A device that records no principal, or that is not an
-     * Eloquent device able to record one, acts as none.
+     * that principal's morph type and identifier, read from the row already
+     * loaded, with no query. A device that records no principal, or that is not
+     * an Eloquent device able to record one, acts as none.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal

@@ -285,9 +285,9 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * A guard whose audience does not allow the password method, one that signs
-     * in only by code, takes no password as proof, even the right one: nothing
-     * is counted, and a request is refused as needing reauthentication.
+     * A guard whose application does not allow the password method, one that
+     * signs in only by code, takes no password as proof, even the right one:
+     * nothing is counted, and a request is refused as needing reauthentication.
      *
      * @return void
      *
@@ -295,7 +295,7 @@ final class RecentAuthenticationTest extends TestCase
      */
     public function testAGuardWithoutPasswordsTakesNoPassword(): void
     {
-        config()->set('auth.guards.web.audience', ['methods' => ['email_code']]);
+        config()->set('auth.guards.web.application', ['methods' => ['email_code']]);
 
         $identity = self::seedChangeable();
         $check    = $this->check();

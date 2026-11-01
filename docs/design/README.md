@@ -40,9 +40,9 @@ The current note set is:
   listener), and when ended devices are pruned.
 - `principal-choice-and-switch.md`: how a sign-in that names no principal waits for the identity to choose one, and how
   a session switches to another principal on its device, proven by its refresh token.
-- `audience-policy.md`: what each guard decides about its sessions (methods, principal types, verified identifiers,
-  lifetimes per principal type), where every path enforces it, and how the attempt limits and identifier normalisers
-  meet it.
+- `application-policy.md`: what each application (a guard) decides about its sessions (methods and machine credentials,
+  none until it lists them; verified identifiers; the principals it admits; lifetimes), where every path enforces it,
+  and how the attempt limits and identifier normalisers meet it.
 - `one-time-codes.md`: how one-time codes are bound, stored, issued, checked and delivered, why a request for one looks
   the same for an identifier no one has, and who a code is ever sent to.
 - `passkeys.md`: how a guard's passkeys are registered, used to sign in usernameless and verified as a further factor,

@@ -200,7 +200,7 @@ final class PartiallySelectedDeviceIntegrationTest extends TestCase
         $config = app(ConfigRepository::class);
 
         $config->set('auth.defaults.guard', 'api');
-        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities']);
+        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities', 'application' => ['methods' => ['password']]]);
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => PartiallySelectedDeviceIdentity::class]);
 
         // Failed attempts wait out the timebox; keep it short.

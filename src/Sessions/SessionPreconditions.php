@@ -88,9 +88,9 @@ final class SessionPreconditions
 
     /**
      * Refuse a machine credential kind (`api_key`, `client_credentials`) as the
-     * method a session is started under: an audience may list one to allow the
-     * credential, but it never signs a session in, and a session recorded under
-     * one would pass for that credential.
+     * method a session is started under: an application may list one to allow
+     * the credential, but it never signs a session in, and a session recorded
+     * under one would pass for that credential.
      *
      * @param  string  $method
      * @return void

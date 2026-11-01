@@ -233,7 +233,6 @@ final class JwtGuardBenchHarness
 
         $guard->principal()?->getIdentity();
         $guard->tenant();
-        $guard->type();
     }
 
     /**
@@ -247,7 +246,6 @@ final class JwtGuardBenchHarness
 
         $guard->principal()?->getIdentity();
         $guard->tenant();
-        $guard->type();
     }
 
     /**

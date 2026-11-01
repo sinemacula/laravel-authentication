@@ -14,8 +14,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Device;
 
 /**
- * 3D identity fixture whose memberships carry a principal type of their own,
- * their tenant's, or none.
+ * 3D identity fixture whose memberships have a `type` column of their own and
+ * may act within a tenant.
  *
  * Its default principal is its first membership.
  *

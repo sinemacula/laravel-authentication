@@ -23,13 +23,13 @@ ships a hardened JWT guard.
 
 ## Core Concept
 
-| Concept       | What it is                                                                                 |
-|---------------|--------------------------------------------------------------------------------------------|
-| **Identity**  | Who logged in. The account behind the request - a person or a service account.             |
-| **Principal** | Who the request is acting as. Often the same as the identity; can be a role or membership. |
-| **Device**    | Which client obtained the login - a browser, a mobile app, a CLI session.                  |
-| **Tenant**    | The isolation boundary the principal acts within. Optional, for multi-tenant apps.         |
-| **Type**      | An optional label on the principal, or its tenant - e.g. `"staff"` vs `"client_admin"`.    |
+| Concept         | What it is                                                                                                                    |
+|-----------------|-------------------------------------------------------------------------------------------------------------------------------|
+| **Identity**    | Who logged in. The account behind the request - a person or a service account.                                                |
+| **Principal**   | Who the request is acting as. Often the same as the identity; can be a role or membership.                                    |
+| **Device**      | Which client obtained the login - a browser, a mobile app, a CLI session.                                                     |
+| **Tenant**      | The isolation boundary the principal acts within. Optional, for multi-tenant apps.                                            |
+| **Application** | The app being signed into, e.g. `admin`, `console`, `mobile`. Each application is a guard with its own methods and lifetimes. |
 
 Start **2D** (the identity is the principal) and grow into **3D** (identity → principal → tenant) without changing
 guards. Access tokens are self-verifying JWTs; refresh is stateful, held per device, so replays and revoked sessions
@@ -44,7 +44,8 @@ are caught on the server.
 - **Sessions per device**: list, sign out, sign out everywhere, revoke on security changes, and switch principal.
 - **Machine credentials**: API keys and OAuth 2.0 client credentials for non-human identities, with scopes.
 - **Account lifecycle**: password policy, password reset, identifier verification and changing an email or phone.
-- **Per-guard audiences**: which methods and principal types a guard admits, and lifetimes per principal type.
+- **Per-application settings**: which sign-in methods and machine credentials each application allows (none until it
+  lists them), whether identifiers must be verified, and its lifetimes.
 - **Database rate limits**, enumeration-resistant responses, and read-replica and Octane safety.
 - **Events** for every sign-in, refresh, revocation and failure, with one shared context and never a secret.
 - **Localisable messages**: the `401` and `429` messages translate through your `lang/{locale}.json`, and every other
@@ -69,13 +70,15 @@ php artisan migrate
 echo "AUTHENTICATION_JWT_KEY=$(openssl rand -base64 48)" >> .env
 ```
 
-Register a `jwt` guard and a `model` provider in `config/auth.php`:
+Register a `jwt` guard and a `model` provider in `config/auth.php`. Each guard is an application, and allows only the
+sign-in methods it lists:
 
 ```php
 'guards' => [
     'api' => [
-        'driver'   => 'jwt',
-        'provider' => 'users',
+        'driver'      => 'jwt',
+        'provider'    => 'users',
+        'application' => ['methods' => ['password']],
     ],
 ],
 
@@ -149,7 +152,7 @@ Route::middleware('auth:api')->get('/me', fn () => Auth::identity());
 | Guide                                                     | Covers                                                                   |
 |-----------------------------------------------------------|--------------------------------------------------------------------------|
 | [Installation](docs/guides/installation.md)               | Keys, guards and providers, the `401`, localisation, access-only mode    |
-| [Identity models](docs/guides/identity-models.md)         | 2D and 3D models, principal types, identifiers, verification, activity   |
+| [Identity models](docs/guides/identity-models.md)         | 2D and 3D models, identifiers, verification, activity                    |
 | [Signing in](docs/guides/signing-in.md)                   | The session service, one-time codes, passkeys, custom methods, factors   |
 | [Refreshing](docs/guides/refreshing.md)                   | Refresh, the refresh cookie and replay detection                         |
 | [Sessions](docs/guides/sessions.md)                       | Switching principal, signing out, listing devices and revocation         |

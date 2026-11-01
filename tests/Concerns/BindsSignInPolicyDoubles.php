@@ -6,11 +6,11 @@ namespace Tests\Concerns;
 
 use Illuminate\Contracts\Container\Container;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
-use Tests\Fixtures\Sessions\PermissiveAudiencePolicy;
+use Tests\Fixtures\Sessions\PermissiveApplicationPolicy;
 use Tests\Fixtures\Sessions\UnlimitedAttemptLimiter;
 
 /**
@@ -39,7 +39,7 @@ trait BindsSignInPolicyDoubles
      */
     protected static function bindSignInPolicyDoubles(Container $app, TokenLifetimes $lifetimes): void
     {
-        $app->instance(AudiencePolicy::class, new PermissiveAudiencePolicy($lifetimes));
+        $app->instance(ApplicationPolicy::class, new PermissiveApplicationPolicy($lifetimes));
         $app->singleton(AttemptLimiter::class, UnlimitedAttemptLimiter::class);
         $app->singleton(AdditionalFactorPolicy::class, NeverRequireAdditionalFactor::class);
     }

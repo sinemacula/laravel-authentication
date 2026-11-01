@@ -11,11 +11,14 @@ use Illuminate\Support\Facades\DB;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
+use SineMacula\Laravel\Authentication\Console\ApplicationChecks;
 use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
 use SineMacula\Laravel\Authentication\Console\PasswordChecks;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Models\Device;
@@ -23,6 +26,7 @@ use SineMacula\Laravel\Authentication\Passwords\NotifyingResetLinkSender;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Testing\FakePasswordResetLinkSender;
+use Tests\Fixtures\Sessions\RefusingApplicationPolicy;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\Integration\Fixtures\SeparateConnectionDevice;
@@ -42,6 +46,7 @@ use Tests\Unit\Stubs\StubReplacementPrincipalResolver;
  */
 #[CoversClass(CheckConfigurationCommand::class)]
 #[CoversClass(PasswordChecks::class)]
+#[CoversClass(ApplicationChecks::class)]
 final class CheckConfigurationCommandTest extends TestCase
 {
     /** @var string A signing secret long enough for HS256. */
@@ -55,6 +60,10 @@ final class CheckConfigurationCommandTest extends TestCase
 
     /** @var list<string> What a run prints for the package-wide settings after the storage and device checks. */
     private const array SHARED_OK = ['[sign_in] OK', '[passwords] OK', '[codes] OK', '[delivery] OK', '[passkeys] OK', '[api_keys] OK', '[identifier_changes] OK'];
+
+    /** @var string What a run prints for the `machine` guard when its application does not allow `api_key`. */
+    private const string API_KEY_NOT_ALLOWED = '[machine] An api_key guard\'s application must allow `api_key`, or every key it is presented is refused: '
+        . 'with the package\'s policy, list `api_key` in the guard\'s `application.methods`.';
 
     /** @var list<string> What a run prints when nothing the default setup configures has a problem. */
     private const array EVERY_SUBJECT_OK = [...self::PACKAGE_OK, '[api] OK', '[admin] OK', '[machine] OK'];
@@ -105,9 +114,9 @@ final class CheckConfigurationCommandTest extends TestCase
             ['auth.guards.api.principal_resolver' => \stdClass::class],
             '[api] Auth guard [api] principal_resolver [stdClass] resolved to [stdClass]',
         ];
-        yield 'a malformed audience' => [
-            ['auth.guards.api.audience' => ['methods' => []]],
-            '[api] Audience `methods` for guard [api] must be a non-empty list',
+        yield 'a malformed application' => [
+            ['auth.guards.api.application' => ['methods' => null]],
+            '[api] Application `methods` for guard [api] must be a list of lower-case sign-in method names',
         ];
         yield 'a malformed rate limit' => [
             ['auth.guards.api.rate_limits' => ['refresh' => ['per_ip' => ['max' => 0, 'decay_seconds' => 60]]]],
@@ -222,7 +231,7 @@ final class CheckConfigurationCommandTest extends TestCase
             '[delivery] authentication.delivery.queue.connection must name a connection configured in `queue.connections`, or be null for `queue.default`.',
         ];
         yield 'a code method with no sender bound' => [
-            ['auth.guards.api.audience' => ['methods' => ['password', 'phone_code']]],
+            ['auth.guards.api.application' => ['methods' => ['password', 'phone_code']]],
             '[codes] Guards [api] allow a code sign-in method, but no ' . OneTimeCodeSender::class . ' is bound to deliver the codes.',
         ];
         yield 'a passkey challenge lifetime out of range' => [
@@ -230,12 +239,12 @@ final class CheckConfigurationCommandTest extends TestCase
             '[passkeys] authentication.passkeys.challenge_ttl_seconds must be an integer from 30 to 600.',
         ];
         yield 'a guard that allows passkeys without a relying party' => [
-            ['auth.guards.api.audience' => ['methods' => ['password', 'passkey']]],
+            ['auth.guards.api.application' => ['methods' => ['password', 'passkey']]],
             '[api] Passkey relying party `id` for guard [api] must be a lower-case host name, not an IP address:',
         ];
         yield 'a guard that allows passkeys with an origin off its relying party' => [
             [
-                'auth.guards.api.audience'                      => ['methods' => ['passkey']],
+                'auth.guards.api.application'                   => ['methods' => ['passkey']],
                 'authentication.passkeys.relying_party.id'      => 'example.test',
                 'authentication.passkeys.relying_party.origins' => ['https://example.org'],
             ],
@@ -273,13 +282,17 @@ final class CheckConfigurationCommandTest extends TestCase
             ['auth.guards.machine.principal_resolver' => \stdClass::class],
             '[machine] Auth guard [machine] principal_resolver [stdClass] resolved to [stdClass]',
         ];
-        yield 'an api_key guard whose audience is malformed' => [
-            ['auth.guards.machine.audience' => ['methods' => 'api_key']],
-            '[machine] Audience `methods` for guard [machine] must be a non-empty list',
+        yield 'an api_key guard whose application is malformed' => [
+            ['auth.guards.machine.application' => ['methods' => 'api_key']],
+            '[machine] Application `methods` for guard [machine] must be a list of lower-case sign-in method names',
         ];
-        yield 'an api_key guard whose audience does not allow api keys' => [
-            ['auth.guards.machine.audience' => ['methods' => ['password']]],
-            '[machine] Audience `methods` of an api_key guard must list `api_key`, or every key it is presented is refused.',
+        yield 'an api_key guard whose application does not allow api keys' => [
+            ['auth.guards.machine.application' => ['methods' => ['password']]],
+            self::API_KEY_NOT_ALLOWED,
+        ];
+        yield 'an api_key guard whose application allows nothing' => [
+            ['auth.guards.machine.application' => ['methods' => []]],
+            self::API_KEY_NOT_ALLOWED,
         ];
         yield 'an api_key guard whose rate limits are malformed' => [
             ['auth.guards.machine.rate_limits' => ['api_key' => null]],
@@ -314,19 +327,30 @@ final class CheckConfigurationCommandTest extends TestCase
     public function testEveryProblemIsListedInOneRun(): void
     {
         config()->set([
-            'auth.guards.api.audience'                   => ['methods' => []],
+            'auth.guards.api.application'                => ['methods' => null],
             'auth.guards.api.refresh_token'              => ['header' => ''],
             'authentication.device.model'                => '',
             'authentication.device.prune_after_days'     => -1,
             'authentication.sign_in.pending_ttl_seconds' => 'soon',
         ]);
 
-        [$code, $output] = $this->check();
-
-        self::assertSame(1, $code);
-        self::assertContains('[admin] OK', $output);
-        self::assertCount(4, array_filter($output, static fn (string $line): bool => str_starts_with($line, '[api] ') || str_starts_with($line, '[device] ')));
-        self::assertCount(1, array_filter($output, static fn (string $line): bool => str_starts_with($line, '[sign_in] ')));
+        self::assertSame([1, [
+            '[storage] OK',
+            '[passwords] OK',
+            '[codes] OK',
+            '[delivery] OK',
+            '[passkeys] OK',
+            '[api_keys] OK',
+            '[identifier_changes] OK',
+            '[admin] OK',
+            '[machine] OK',
+            '[device] authentication.device.model must be a non-empty class-string of an Eloquent model implementing [' . EloquentDevice::class . ']; got [(empty string)].',
+            '[device] authentication.device.prune_after_days must be an integer from 0 to 3650.',
+            '[sign_in] authentication.sign_in.pending_ttl_seconds must be an integer from 30 to 3600.',
+            '[api] Application `methods` for guard [api] must be a list of lower-case sign-in method names: set `authentication.application.methods` '
+                . 'or the guard\'s `application.methods` override.',
+            '[api] Refresh token transport for guard [api]: `refresh_token.header` must be a header or cookie name without `.`.',
+        ]], $this->check());
     }
 
     /**
@@ -338,10 +362,10 @@ final class CheckConfigurationCommandTest extends TestCase
     public function testABoundSenderDeliversForTheCodeMethods(): void
     {
         config()->set([
-            'auth.guards.api.audience'   => ['methods' => ['phone_code']],
-            'auth.guards.admin.audience' => ['methods' => ['password', 'phone_code']],
-            'queue.default'              => 'database',
-            'queue.connections.database' => ['driver' => 'database'],
+            'auth.guards.api.application'   => ['methods' => ['phone_code']],
+            'auth.guards.admin.application' => ['methods' => ['password', 'phone_code']],
+            'queue.default'                 => 'database',
+            'queue.connections.database'    => ['driver' => 'database'],
         ]);
 
         FakeOneTimeCodeSender::fake($this->app);
@@ -352,17 +376,17 @@ final class CheckConfigurationCommandTest extends TestCase
     /**
      * Every `jwt` guard that allows a code method is named when no sender is
      * bound, a guard named with digits included; a guard of another driver is
-     * not one, whatever its audience lists.
+     * not one, whatever its application lists.
      *
      * @return void
      */
     public function testEveryGuardThatAllowsACodeMethodIsNamed(): void
     {
         config()->set([
-            'auth.guards.api.audience'   => ['methods' => ['phone_code']],
-            'auth.guards.2024'           => ['driver' => 'jwt', 'provider' => 'users', 'audience' => ['methods' => ['phone_code']]],
-            'auth.guards.web.audience'   => ['methods' => ['phone_code']],
-            'auth.guards.admin.audience' => ['methods' => ['password', 'email_code']],
+            'auth.guards.api.application'   => ['methods' => ['phone_code']],
+            'auth.guards.2024'              => ['driver' => 'jwt', 'provider' => 'users', 'application' => ['methods' => ['phone_code']]],
+            'auth.guards.web.application'   => ['methods' => ['phone_code']],
+            'auth.guards.admin.application' => ['methods' => ['password', 'email_code']],
         ]);
 
         [$code, $output] = $this->check();
@@ -393,8 +417,8 @@ final class CheckConfigurationCommandTest extends TestCase
         $manager->extend('typed', fn (): SignInMethod => new \stdClass); // @phpstan-ignore return.type
 
         config()->set([
-            'auth.guards.api.audience'   => ['methods' => ['whatsapp_code']],
-            'auth.guards.admin.audience' => ['methods' => ['sso', 'broken']],
+            'auth.guards.api.application'   => ['methods' => ['whatsapp_code']],
+            'auth.guards.admin.application' => ['methods' => ['sso', 'broken']],
         ]);
 
         [$code, $output] = $this->check();
@@ -405,8 +429,8 @@ final class CheckConfigurationCommandTest extends TestCase
 
     /**
      * Delivering on a `sync` connection is a warning, not a problem, whenever a
-     * `jwt` guard is configured, whatever its audience allows: any of them may
-     * send a password reset or an identifier change. With only `api_key`
+     * `jwt` guard is configured, whatever its application allows: any of them
+     * may send a password reset or an identifier change. With only `api_key`
      * guards, which deliver nothing, there is none.
      *
      * @return void
@@ -460,16 +484,16 @@ final class CheckConfigurationCommandTest extends TestCase
 
     /**
      * A delivery connection that is not configured is a problem and raises no
-     * warning; a guard whose audience is malformed counts as allowing no code
-     * method here, since its own checks report it.
+     * warning; a guard whose application is malformed counts as allowing no
+     * code method here, since its own checks report it.
      *
      * @return void
      */
     public function testMalformedSettingsAreReportedOnceWhereTheyBelong(): void
     {
         config()->set([
-            'auth.guards.api.audience'                 => ['methods' => []],
-            'auth.guards.admin.audience'               => ['methods' => ['phone_code']],
+            'auth.guards.api.application'              => ['methods' => ''],
+            'auth.guards.admin.application'            => ['methods' => ['phone_code']],
             'authentication.delivery.queue.connection' => 'missing',
             'authentication.identifier_changes'        => ['ttl_seconds' => 3600, 'recent_authentication_seconds' => '59'],
         ]);
@@ -489,8 +513,8 @@ final class CheckConfigurationCommandTest extends TestCase
             '[codes] Guards [admin] allow a code sign-in method, but no ' . OneTimeCodeSender::class . ' is bound to deliver the codes.',
             '[delivery] authentication.delivery.queue.connection must name a connection configured in `queue.connections`, or be null for `queue.default`.',
             '[identifier_changes] authentication.identifier_changes.recent_authentication_seconds must be an integer from 60 to 86400.',
-            '[api] Audience `methods` for guard [api] must be a non-empty list of lower-case sign-in method names:'
-                . ' set `authentication.audience.methods` or the guard\'s `audience.methods` override.',
+            '[api] Application `methods` for guard [api] must be a list of lower-case sign-in method names:'
+                . ' set `authentication.application.methods` or the guard\'s `application.methods` override.',
         ], $output);
     }
 
@@ -517,7 +541,7 @@ final class CheckConfigurationCommandTest extends TestCase
      */
     public function testOnlyTheNamedGuardsAreChecked(): void
     {
-        config()->set('auth.guards.admin.audience', ['methods' => []]);
+        config()->set('auth.guards.admin.application', ['methods' => []]);
 
         [$code, $output] = $this->check(['--guard' => ['api', 'web', 'missing', 'api']]);
 
@@ -572,7 +596,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
         self::assertSame([0, [...self::DEVICELESS_OK, '[machine] OK']], $this->check());
 
-        config()->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'users']);
+        config()->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'users', 'application' => ['methods' => ['password']]]);
 
         [$code, $output] = $this->check(['--guard' => ['machine']]);
 
@@ -589,28 +613,315 @@ final class CheckConfigurationCommandTest extends TestCase
      */
     public function testAGuardNamedWithDigitsIsChecked(): void
     {
-        config()->set('auth.guards', ['2024' => ['driver' => 'jwt', 'provider' => 'users']]);
+        config()->set('auth.guards', ['2024' => ['driver' => 'jwt', 'provider' => 'users', 'application' => ['methods' => ['password']]]]);
 
         self::assertSame([0, [...self::PACKAGE_OK, '[2024] OK']], $this->check());
     }
 
     /**
-     * An audience policy of the application's own reads its own settings, so
-     * the package's audience settings are not checked for it.
+     * An application policy of the application's own reads its own settings, so
+     * the package's application settings are not checked for it: it is asked
+     * instead, and a guard it allows nothing gets no warning, since the names
+     * it allows are its own to know.
      *
      * @return void
      */
-    public function testTheAudienceSettingsOfAnApplicationPolicyAreNotChecked(): void
+    public function testTheApplicationSettingsOfACustomPolicyAreNotChecked(): void
     {
-        config()->set('auth.guards.api.audience', ['methods' => []]);
+        config()->set('auth.guards.api.application', ['methods' => null]);
 
-        $policy = \Mockery::mock(AudiencePolicy::class);
+        $allowed = ['api.password', 'machine.api_key'];
+        $policy  = \Mockery::mock(ApplicationPolicy::class);
 
-        $policy->allows('allowsMethod')->andReturn(false);
+        $policy->allows('allowsMethod')->andReturnUsing(static fn (string $guard, string $method): bool => in_array("{$guard}.{$method}", $allowed, true));
 
-        $this->app?->instance(AudiencePolicy::class, $policy);
+        $this->app?->instance(ApplicationPolicy::class, $policy);
 
-        self::assertSame(0, $this->check()[0]);
+        self::assertSame([0, self::EVERY_SUBJECT_OK], $this->check());
+    }
+
+    /**
+     * A policy of the application's own that throws when it is asked is a
+     * problem for each guard it was asked about, and gives no warning.
+     *
+     * @return void
+     */
+    public function testACustomPolicyThatThrowsIsAProblemForEachGuard(): void
+    {
+        $policy = \Mockery::mock(ApplicationPolicy::class);
+
+        $policy->allows('allowsMethod')->andThrow(new \InvalidArgumentException('Unreadable policy settings.'));
+
+        $this->app?->instance(ApplicationPolicy::class, $policy);
+
+        [$code, $output] = $this->check();
+
+        self::assertSame(1, $code);
+        self::assertSame([...self::PACKAGE_OK, '[api] Unreadable policy settings.', '[admin] Unreadable policy settings.', '[machine] Unreadable policy settings.'], $output);
+    }
+
+    /**
+     * Rows of `[a name, what a policy of the application's own throws when
+     * asked it]`, for every name it is asked for a `jwt` guard: every
+     * registered sign-in method and `client_credentials`, each with an argument
+     * exception and with an exception of another kind.
+     *
+     * @return iterable<string, array{0: string, 1: \Exception}>
+     */
+    public static function provideAskedNames(): iterable
+    {
+        foreach (['password', 'phone_code', 'email_code', 'passkey', 'client_credentials'] as $name) {
+            yield "{$name}, an argument exception" => [$name, new \InvalidArgumentException("Unreadable `{$name}` setting.")];
+            yield "{$name}, an exception of another kind" => [$name, new \RuntimeException("Policy store down for `{$name}`.")];
+        }
+    }
+
+    /**
+     * A policy of the application's own that throws only when asked the name is
+     * a problem for each `jwt` guard, reported once, so every name is asked of
+     * it, the code methods the code check asks about included, and nothing it
+     * throws stops the run; the `api_key` guard, asked only `api_key`, passes.
+     *
+     * @param  string  $name
+     * @param  \Exception  $exception
+     * @return void
+     */
+    #[DataProvider('provideAskedNames')]
+    public function testACustomPolicyIsAskedEveryNameAJwtGuardCouldUse(string $name, \Exception $exception): void
+    {
+        $policy = \Mockery::mock(ApplicationPolicy::class);
+
+        $policy->allows('allowsMethod')->andReturnUsing(static function (string $guard, string $method) use ($name, $exception): bool {
+            if ($method === $name) {
+                throw $exception;
+            }
+
+            return true;
+        });
+
+        $this->app?->instance(ApplicationPolicy::class, $policy);
+
+        [$code, $output] = $this->check();
+
+        self::assertSame(1, $code);
+        $message = $exception->getMessage();
+
+        self::assertSame(["[api] {$message}", "[admin] {$message}"], array_values(array_filter($output, static fn (string $line): bool => str_ends_with($line, $message))));
+        self::assertContains('[machine] OK', $output);
+    }
+
+    /**
+     * Rows of `[the guards named with `--guard`, what a policy of the
+     * application's own throws when asked `phone_code`, what the run prints]`.
+     *
+     * @return iterable<string, array{0: list<string>, 1: \Exception, 2: list<string>}>
+     */
+    public static function provideGuardsLeftOut(): iterable
+    {
+        $problem = static fn (string $guard, string $message): string => "[codes] Guard [{$guard}]'s application policy could not say"
+            . " whether it allows a code sign-in method: {$message}";
+        $before = ['[storage] OK', '[device] OK', '[sign_in] OK', '[passwords] OK', '[delivery] OK', '[passkeys] OK', '[api_keys] OK', '[identifier_changes] OK'];
+
+        foreach ([new \InvalidArgumentException('Unreadable `phone_code` setting.'), new \RuntimeException('Policy store down.')] as $exception) {
+
+            $message = $exception->getMessage();
+            $kind    = $exception::class;
+
+            yield "only the api_key guard, {$kind}" => [['machine'], $exception, [...$before, '[machine] OK', $problem('api', $message), $problem('admin', $message)]];
+            yield "one jwt guard, {$kind}" => [['api'], $exception, [...$before, $problem('admin', $message), "[api] {$message}"]];
+        }
+    }
+
+    /**
+     * A policy of the application's own that throws when asked whether a `jwt`
+     * guard left out of the run with `--guard` allows a code sign-in method is
+     * a `[codes]` problem for that guard, reported once, since no check of the
+     * guard's own asks again; a named guard reports it as its own problem.
+     *
+     * @param  list<string>  $guards
+     * @param  \Exception  $exception
+     * @param  list<string>  $output
+     * @return void
+     */
+    #[DataProvider('provideGuardsLeftOut')]
+    public function testAPolicyThatThrowsForAGuardLeftOutIsACodesProblem(array $guards, \Exception $exception, array $output): void
+    {
+        $policy = \Mockery::mock(ApplicationPolicy::class);
+
+        $policy->allows('allowsMethod')->andReturnUsing(static function (string $guard, string $method) use ($exception): bool {
+            if ($method === 'phone_code') {
+                throw $exception;
+            }
+
+            return $method !== 'passkey';
+        });
+
+        $this->app?->instance(ApplicationPolicy::class, $policy);
+
+        self::assertSame([1, $output], $this->check(['--guard' => $guards]));
+    }
+
+    /**
+     * The package's policy throws over settings it cannot read, so a `jwt`
+     * guard left out of the run with `--guard` whose `methods` names a method
+     * no sign-in method can have is a `[codes]` problem for that guard, and the
+     * run fails, though no check of the guard's own runs.
+     *
+     * @return void
+     */
+    public function testThePackagePolicyOverUnreadableSettingsOfAGuardLeftOutIsACodesProblem(): void
+    {
+        config()->set('auth.guards.admin.application.methods', ['Password']);
+
+        $problem = '[codes] Guard [admin]\'s application policy could not say whether it allows a code sign-in method: Application `methods` for'
+            . ' guard [admin] must be a list of lower-case sign-in method names: set `authentication.application.methods` or the guard\'s'
+            . ' `application.methods` override.';
+
+        $before = ['[storage] OK', '[device] OK', '[sign_in] OK', '[passwords] OK', '[delivery] OK', '[passkeys] OK', '[api_keys] OK', '[identifier_changes] OK'];
+
+        self::assertSame([1, [...$before, '[machine] OK', $problem]], $this->check(['--guard' => ['machine']]));
+    }
+
+    /**
+     * Rows of `[whether a policy of the application's own allows the api_key
+     * guard `api_key`, the exit code, what the run prints]`.
+     *
+     * @return iterable<string, array{0: bool, 1: int, 2: list<string>}>
+     */
+    public static function provideApiKeyAnswers(): iterable
+    {
+        yield 'allowed' => [true, 0, self::EVERY_SUBJECT_OK];
+        yield 'not allowed' => [false, 1, [...self::PACKAGE_OK, '[api] OK', '[admin] OK', self::API_KEY_NOT_ALLOWED]];
+    }
+
+    /**
+     * An `api_key` guard has no other use, so its application must allow
+     * `api_key` under a policy of the application's own too: one that does
+     * passes, and one that does not is a problem for the guard.
+     *
+     * @param  bool  $allowsKeys
+     * @param  int  $code
+     * @param  list<string>  $output
+     * @return void
+     */
+    #[DataProvider('provideApiKeyAnswers')]
+    public function testAnApiKeyGuardMustAllowApiKeysUnderACustomPolicy(bool $allowsKeys, int $code, array $output): void
+    {
+        $policy = \Mockery::mock(ApplicationPolicy::class);
+
+        $policy->allows('allowsMethod')->andReturnUsing(static fn (string $guard, string $method): bool => $method === 'password' || ($method === 'api_key' && $allowsKeys));
+
+        $this->app?->instance(ApplicationPolicy::class, $policy);
+
+        self::assertSame([$code, $output], $this->check());
+    }
+
+    /**
+     * A policy of the application's own that wraps the package's, as one that
+     * decides which principals may use an application does, keeps every check
+     * that asks the policy: an `api_key` guard must allow `api_key`, and a
+     * guard it allows `passkey` needs a relying party. Only the warning about
+     * an application that allows nothing, which reads the package's settings,
+     * is given for the package's policy alone.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testAPolicyWrappingThePackagesKeepsTheChecksThatAskIt(): void
+    {
+        config()->set([
+            'auth.guards.api.application'     => ['methods' => []],
+            'auth.guards.admin.application'   => ['methods' => ['password', 'passkey']],
+            'auth.guards.machine.application' => ['methods' => []],
+        ]);
+
+        $relyingParty = '[admin] Passkey relying party `id` for guard [admin] must be a lower-case host name, not an IP address: set '
+            . '`authentication.passkeys.relying_party.id` or the guard\'s `passkeys.id` override.';
+
+        $package = $this->check();
+
+        $this->app?->instance(ApplicationPolicy::class, new RefusingApplicationPolicy($this->app->make(GuardApplicationPolicy::class), static fn (): bool => false));
+
+        self::assertSame([1, [...self::PACKAGE_OK, self::nothingAllowed('api'), '[api] OK', $relyingParty, self::API_KEY_NOT_ALLOWED]], $package);
+        self::assertSame([1, [...self::PACKAGE_OK, '[api] OK', $relyingParty, self::API_KEY_NOT_ALLOWED]], $this->check());
+    }
+
+    /**
+     * Only the `jwt` guards that allow nothing are warned about, wherever they
+     * come among the guards checked.
+     *
+     * @return void
+     */
+    public function testOnlyTheGuardsThatAllowNothingAreWarned(): void
+    {
+        config()->set('auth.guards.admin.application', ['methods' => []]);
+
+        self::assertSame([0, [...self::PACKAGE_OK, self::nothingAllowed('admin'), '[api] OK', '[admin] OK', '[machine] OK']], $this->check());
+    }
+
+    /**
+     * A `jwt` guard that allows nothing, by its own empty list or the package
+     * default, is a warning naming the guard, not a problem: the exit code is
+     * `0` and the guard is still reported as checked.
+     *
+     * @return void
+     */
+    public function testAJwtGuardThatAllowsNothingIsAWarning(): void
+    {
+        config()->set([
+            'auth.guards.api.application' => ['methods' => []],
+            'auth.guards.admin'           => ['driver' => 'jwt', 'provider' => 'users'],
+        ]);
+
+        self::assertSame([0, [...self::PACKAGE_OK, self::nothingAllowed('api'), self::nothingAllowed('admin'), '[api] OK', '[admin] OK', '[machine] OK']], $this->check());
+    }
+
+    /**
+     * Rows of `[what a jwt guard lists, whether it is warned about]`: it is
+     * warned about only when it lists nothing but `api_key`, which allows
+     * nothing on a `jwt` guard; any other name counts, registered or not, since
+     * the application may start sessions under it itself.
+     *
+     * @return iterable<string, array{0: list<string>, 1: bool}>
+     */
+    public static function provideAllowedNames(): iterable
+    {
+        yield 'only api_key' => [['api_key'], true];
+        yield 'client_credentials' => [['client_credentials'], false];
+        yield 'a package method' => [['passkey'], false];
+        yield 'a method the application registered' => [['sso'], false];
+        yield 'a name nothing is registered under' => [['unregistered'], false];
+        yield 'api_key and a name nothing is registered under' => [['api_key', 'unregistered'], false];
+    }
+
+    /**
+     * Whether a `jwt` guard that lists only the names is warned about.
+     *
+     * @param  list<string>  $methods
+     * @param  bool  $warned
+     * @return void
+     */
+    #[DataProvider('provideAllowedNames')]
+    public function testOnlyAGuardThatAllowsNoUsableNameIsWarned(array $methods, bool $warned): void
+    {
+        $manager = $this->app?->make(SignInMethodManager::class);
+
+        assert($manager instanceof SignInMethodManager);
+
+        $manager->extend('sso', fn (): SignInMethod => \Mockery::mock(SignInMethod::class));
+
+        config()->set([
+            'auth.guards.api.application'                   => ['methods' => $methods],
+            'authentication.passkeys.relying_party.id'      => 'example.test',
+            'authentication.passkeys.relying_party.origins' => ['https://example.test'],
+        ]);
+
+        [$code, $output] = $this->check();
+
+        self::assertSame(0, $code);
+        self::assertSame($warned, in_array(self::nothingAllowed('api'), $output, true));
+        self::assertContains('[api] OK', $output);
     }
 
     /**
@@ -658,32 +969,13 @@ final class CheckConfigurationCommandTest extends TestCase
     public function testAGuardThatUsesPasskeysPassesWithAValidRelyingParty(): void
     {
         config()->set([
-            'auth.guards.api.audience'                      => ['methods' => ['password', 'passkey']],
+            'auth.guards.api.application'                   => ['methods' => ['password', 'passkey']],
             'auth.guards.admin.passkeys'                    => ['id' => 'admin.example.test', 'origins' => ['https://admin.example.test']],
             'authentication.passkeys.relying_party.id'      => 'example.test',
             'authentication.passkeys.relying_party.origins' => ['https://example.test'],
         ]);
 
         self::assertSame([0, self::EVERY_SUBJECT_OK], $this->check());
-    }
-
-    /**
-     * The audience of an api_key guard is not held to `api_key` under an
-     * application's own policy, which reads its own settings.
-     *
-     * @return void
-     */
-    public function testAnApiKeyGuardsAudienceIsNotCheckedForAnApplicationPolicy(): void
-    {
-        config()->set('auth.guards.machine.audience', ['methods' => ['password']]);
-
-        $policy = \Mockery::mock(AudiencePolicy::class);
-
-        $policy->allows('allowsMethod')->andReturnFalse();
-
-        $this->app?->instance(AudiencePolicy::class, $policy);
-
-        self::assertSame(0, $this->check()[0]);
     }
 
     /**
@@ -797,12 +1089,25 @@ final class CheckConfigurationCommandTest extends TestCase
         $config->set('authentication.jwt.active_kid', 'kid');
         $config->set('auth.providers.users', ['driver' => 'model', 'model' => IntegrationIdentity::class]);
         $config->set('auth.guards.web', ['driver' => 'session', 'provider' => 'users']);
-        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'users']);
-        $config->set('auth.guards.admin', ['driver' => 'jwt', 'provider' => 'users']);
+        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'users', 'application' => ['methods' => ['password']]]);
+        $config->set('auth.guards.admin', ['driver' => 'jwt', 'provider' => 'users', 'application' => ['methods' => ['password']]]);
         $config->set('auth.providers.machines', ['driver' => 'model', 'model' => MachineClient::class]);
-        $config->set('auth.guards.machine', ['driver' => 'api_key', 'provider' => 'machines', 'audience' => ['methods' => ['api_key']]]);
+        $config->set('auth.guards.machine', ['driver' => 'api_key', 'provider' => 'machines', 'application' => ['methods' => ['api_key']]]);
         $config->set('queue.default', 'database');
         $config->set('queue.connections.database', ['driver' => 'database']);
+    }
+
+    /**
+     * The warning about a `jwt` guard that allows nothing.
+     *
+     * @param  string  $guard
+     * @return string
+     */
+    private static function nothingAllowed(string $guard): string
+    {
+        return "[{$guard}] Allows no sign-in method or machine credential: every sign-in, refresh, code and password reset request is refused as "
+            . '`method_not_allowed` and every client credentials exchange as `unauthorized_client`. List the methods the application uses in '
+            . 'the guard\'s `application.methods` (or `authentication.application.methods`).';
     }
 
     /**

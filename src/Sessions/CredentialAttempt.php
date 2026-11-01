@@ -6,8 +6,8 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Illuminate\Contracts\Container\Container;
 use SineMacula\Laravel\Authentication\Admission\Refused;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
@@ -18,7 +18,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
  * session service's `signIn()` both take, and take the same way, each calling
  * them in its own order.
  *
- * `checkMethod()` asks the audience policy whether it allows the method, and
+ * `checkMethod()` asks the application policy whether it allows the method, and
  * `begin()` then takes the sign-in's slot on the identifier and IP limits from
  * the limiter the entry point resolved, so each entry point keeps its own order
  * between the two: when it reads the identifier for the limits and when it
@@ -42,15 +42,15 @@ final readonly class CredentialAttempt
     /**
      * Constructor.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy  $audience
+     * @param  \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy  $policy
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts  $accounts
      * @param  \SineMacula\Laravel\Authentication\Contracts\AttemptLimiter  $limiter
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation  $reservation
      */
     private function __construct(
 
-        /** The audience policy that allowed the method. */
-        public AudiencePolicy $audience,
+        /** The application policy that allowed the method. */
+        public ApplicationPolicy $policy,
 
         /** The slots the sign-in takes on the accounts whose secret it checks. */
         public AccountAttempts $accounts,
@@ -63,35 +63,35 @@ final readonly class CredentialAttempt
     ) {}
 
     /**
-     * The audience policy, resolved from the container then, when it allows the
-     * method on the guard, or the refusal (`method_not_allowed`) of a sign-in
-     * it does not allow, before anything is counted.
+     * The application policy, resolved from the container then, when it allows
+     * the method on the guard, or the refusal (`method_not_allowed`) of a
+     * sign-in it does not allow, before anything is counted.
      *
      * @param  \Illuminate\Contracts\Container\Container  $container
      * @param  string  $guard
      * @param  string  $method
-     * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Contracts\AudiencePolicy
+     * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public static function checkMethod(Container $container, string $guard, string $method): AudiencePolicy|Refused
+    public static function checkMethod(Container $container, string $guard, string $method): ApplicationPolicy|Refused
     {
-        $audience = $container->make(AudiencePolicy::class);
+        $policy = $container->make(ApplicationPolicy::class);
 
-        return $audience->allowsMethod($guard, $method) ? $audience : new Refused(FailureReason::METHOD_NOT_ALLOWED);
+        return $policy->allowsMethod($guard, $method) ? $policy : new Refused(FailureReason::METHOD_NOT_ALLOWED);
     }
 
     /**
-     * Begin a sign-in the audience policy allowed: the identifier and the IP
+     * Begin a sign-in the application policy allowed: the identifier and the IP
      * address must have attempts left on the limiter (`rate_limited`, with the
      * wait).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\AttemptLimiter  $limiter
-     * @param  \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy  $audience
+     * @param  \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy  $policy
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject  $subject
      * @return self|\SineMacula\Laravel\Authentication\Admission\Refused
      */
-    public static function begin(AttemptLimiter $limiter, AudiencePolicy $audience, AttemptSubject $subject): Refused|self
+    public static function begin(AttemptLimiter $limiter, ApplicationPolicy $policy, AttemptSubject $subject): Refused|self
     {
         $reservation = $limiter->acquire($subject);
 
@@ -99,7 +99,7 @@ final readonly class CredentialAttempt
             return new Refused(FailureReason::RATE_LIMITED, retryAfter: $reservation->retryAfter);
         }
 
-        return new self($audience, new AccountAttempts($limiter, $subject->guard), $limiter, $reservation);
+        return new self($policy, new AccountAttempts($limiter, $subject->guard), $limiter, $reservation);
     }
 
     /**

@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Admission\Refused;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
@@ -28,7 +28,7 @@ use SineMacula\Laravel\Authentication\Sessions\PrincipalChoices;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Concerns\InteractsWithSessions;
-use Tests\Fixtures\Sessions\InvitedTenantAudiencePolicy;
+use Tests\Fixtures\Sessions\InvitedTenantApplicationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ChoosingMember;
 use Tests\Integration\Fixtures\ChoosingMembership;
@@ -140,9 +140,9 @@ final class PrincipalChoicesTest extends TestCase
     }
 
     /**
-     * With an identifier type, the admissible principals are those the audience
-     * policy also admits with it; an identity refused the type has none, and is
-     * refused with the policy's reason.
+     * With an identifier type, the admissible principals are those the
+     * application policy also admits with it; an identity refused the type has
+     * none, and is refused with the policy's reason.
      *
      * @return void
      *
@@ -154,7 +154,7 @@ final class PrincipalChoicesTest extends TestCase
 
         $choices = $this->choices($this->freshGuard(self::GUARD));
 
-        app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy(app(AudiencePolicy::class), $invited->tenant_id));
+        app()->instance(ApplicationPolicy::class, new InvitedTenantApplicationPolicy(app(ApplicationPolicy::class), $invited->tenant_id));
 
         [$typed, $typedRefusal] = $choices->admissible($member, 'email');
 
@@ -162,11 +162,11 @@ final class PrincipalChoicesTest extends TestCase
         self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $typedRefusal);
         self::assertSame([$own->getKey(), $invited->getKey()], self::keys($choices->admissible($member, null)[0]));
 
-        $audience = \Mockery::mock(AudiencePolicy::class);
-        $audience->shouldReceive('admitIdentifier')->once()->with(self::GUARD, $member, 'email')->andReturn(FailureReason::IDENTIFIER_UNVERIFIED);
-        $audience->shouldReceive('admit')->twice()->with(self::GUARD, $member, \Mockery::type(ChoosingMembership::class), null)->andReturnNull();
+        $policy = \Mockery::mock(ApplicationPolicy::class);
+        $policy->shouldReceive('admitIdentifier')->once()->with(self::GUARD, $member, 'email')->andReturn(FailureReason::IDENTIFIER_UNVERIFIED);
+        $policy->shouldReceive('admit')->twice()->with(self::GUARD, $member, \Mockery::type(ChoosingMembership::class), null)->andReturnNull();
 
-        app()->instance(AudiencePolicy::class, $audience);
+        app()->instance(ApplicationPolicy::class, $policy);
 
         self::assertSame([[], FailureReason::IDENTIFIER_UNVERIFIED], $choices->admissible($member, 'email'));
         self::assertSame([$own->getKey(), $invited->getKey()], self::keys($choices->admissible($member, null)[0]));
@@ -253,8 +253,8 @@ final class PrincipalChoicesTest extends TestCase
     }
 
     /**
-     * An identifier type the audience policy refuses every principal to refuses
-     * the sign-in with the policy's reason, with no choice stored.
+     * An identifier type the application policy refuses every principal to
+     * refuses the sign-in with the policy's reason, with no choice stored.
      *
      * @return void
      *
@@ -267,7 +267,7 @@ final class PrincipalChoicesTest extends TestCase
 
         ChoosingMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $invited->getKey()]);
 
-        app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy(app(AudiencePolicy::class), $invited->getKey()));
+        app()->instance(ApplicationPolicy::class, new InvitedTenantApplicationPolicy(app(ApplicationPolicy::class), $invited->getKey()));
 
         $refused = $this->choices($this->freshGuard(self::GUARD))->offerChoice($member, 'password', 'email', SignInContext::fromRequest(app('request')), null);
 
@@ -346,7 +346,7 @@ final class PrincipalChoicesTest extends TestCase
         self::configureSessionGuards($config);
 
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
-        $config->set('auth.guards.' . self::GUARD, ['driver' => 'jwt', 'provider' => 'choosers', 'audience' => ['methods' => ['password']]]);
+        $config->set('auth.guards.' . self::GUARD, ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password']]]);
     }
 
     /**

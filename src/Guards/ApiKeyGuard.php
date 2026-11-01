@@ -11,7 +11,7 @@ use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyAuthentication;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyLookup;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyOutcome;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyToken;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -27,11 +27,11 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  *
  * Resolution, once per request: one indexed lookup of the key's public part on
  * the write connection, the secret's SHA-256 digest compared in constant time,
- * the key held to this guard and to its revocation and expiry, the guard's
- * audience required to allow `api_key`, then the key's owner and principal
- * admitted (see `ApiKeyAuthentication`). The request binds the owner and the
- * principal with the key's scopes, as an authentication rather than a sign-in
- * (no `Validated` or `Login`), and records the key's last use, at most once per
+ * the key held to this guard and to its revocation and expiry, the application
+ * required to allow `api_key`, then the key's owner and principal admitted (see
+ * `ApiKeyAuthentication`). The request binds the owner and the principal with
+ * the key's scopes, as an authentication rather than a sign-in (no `Validated`
+ * or `Login`), and records the key's last use, at most once per
  * `last_used_throttle_seconds`. A rejected key dispatches one
  * `AuthenticationFailed` (flow `api_key`) and nothing else. Keys carry no
  * device and no refresh.
@@ -49,7 +49,7 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  */
 final class ApiKeyGuard extends AbstractGuard
 {
-    /** @var string The credential kind a guard's audience lists to accept API keys, and the method its contexts report. */
+    /** @var string The credential kind an application lists to accept API keys, and the method its contexts report. */
     public const string METHOD = 'api_key';
 
     /**
@@ -146,11 +146,11 @@ final class ApiKeyGuard extends AbstractGuard
     {
         [$public, $secret] = ApiKeyToken::split($presented) ?? ['', ''];
 
-        /** @var \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy $audience */
-        $audience = Container::getInstance()->make(AudiencePolicy::class);
+        /** @var \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy $policy */
+        $policy = Container::getInstance()->make(ApplicationPolicy::class);
 
         $context = $this->context;
 
-        return (new ApiKeyAuthentication($context->name(), self::METHOD, $context->provider(), $context->resolver(), $audience))->authenticate($public, $secret, $now);
+        return (new ApiKeyAuthentication($context->name(), self::METHOD, $context->provider(), $context->resolver(), $policy))->authenticate($public, $secret, $now);
     }
 }
