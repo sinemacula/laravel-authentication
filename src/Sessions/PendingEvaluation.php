@@ -113,7 +113,10 @@ final readonly class PendingEvaluation
      * The principals the identity may use the application as, and the reason
      * the last one left out was refused, if any. With an identifier type, the
      * application policy must admit the identity with it first, or none is
-     * listed (not even which there are) and its reason is returned.
+     * listed (not even which there are) and its reason is returned. Each
+     * principal is judged through `WriteConnection::stored()`, so its tenant,
+     * which the checks read, is loaded even when the list hydrated it with lazy
+     * loading prevented (Eloquent strict mode).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?string  $identifierType
@@ -131,6 +134,7 @@ final readonly class PendingEvaluation
             return [[], $refusal];
         }
 
+        $guard      = $this->context->name();
         $principals = [];
 
         foreach ($this->candidates($identity) as $candidate) {
@@ -139,7 +143,7 @@ final readonly class PendingEvaluation
                 continue;
             }
 
-            $reason = PrincipalAdmission::refusal($this->context->name(), $candidate);
+            $reason = WriteConnection::stored($candidate, static fn (Principal $stored): ?FailureReason => PrincipalAdmission::refusal($guard, $stored));
 
             if ($reason === null) {
                 $principals[] = $candidate;
