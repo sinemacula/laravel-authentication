@@ -48,22 +48,58 @@ the published config:
 ```
 
 Every package event implements `SineMacula\...\Contracts\AuthenticationEvent` and carries one `EventContext` in
-`$event->context` (also `$event->context()`), so one listener takes them all and attributes each the same way. Record
-the event's class, the context's snapshot (`toArray()`) and whichever of the event's own fields you need:
+`$event->context` (also `$event->context()`), so one audit mapper takes them all and attributes each the same way. With
+`laravel-iam` installed, it maps every `AuthenticationEvent` into `laravel-audit-log`, and there is nothing to wire.
+Without it, register a mapper in a service provider's `boot()`:
 
 ```php
-use Illuminate\Support\Facades\Event;
+use SineMacula\Laravel\AuditLog\Facades\AuditLog;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
-use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 
-Event::listen(AuthenticationEvent::class, function (AuthenticationEvent $event): void {
-    AuditLog::record(
-        event: $event::class,
-        context: $event->context()->toArray(),
-        reason: $event instanceof AuthenticationFailed ? $event->reason->value : null,
-    );
-});
+AuditLog::map(AuthenticationEvent::class, AuthenticationAuditMapper::class);
 ```
+
+The mapper gives each event an explicit, dotted code, never one derived from the class name (which changes on a
+rename), fills the record from the context's snapshot, and returns it, or `null` to skip the event:
+
+```php
+use SineMacula\Laravel\AuditLog\Contracts\EventMapper;
+use SineMacula\Laravel\AuditLog\Records\PendingRecord;
+use SineMacula\Laravel\AuditLog\Records\Reference;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
+use SineMacula\Laravel\Authentication\Events\SignedIn;
+
+final class AuthenticationAuditMapper implements EventMapper
+{
+    public function map(object $event, PendingRecord $record): ?PendingRecord
+    {
+        $code = match ($event::class) {
+            SignedIn::class             => 'authentication.signed_in',
+            SessionRevoked::class       => 'authentication.session_revoked',
+            AuthenticationFailed::class => 'authentication.failed',
+            default                     => null,
+        };
+
+        if ($code === null) {
+            return null;
+        }
+
+        $context = $event->context();
+
+        $record->event($code)
+            ->by(Reference::of($context->identityType, $context->identityId))
+            ->asPrincipal(Reference::of($context->principalType, $context->principalId))
+            ->forTenant(Reference::of($context->tenantType, $context->tenantId))
+            ->usingCredential($context->credentialId)
+            ->withProperties(['guard' => $context->guard, 'session' => $context->sessionId, 'method' => $context->method]);
+
+        return $event instanceof AuthenticationFailed ? $record->failed($event->reason->value) : $record;
+    }
+}
+```
+
+A mapped event is recorded at once: the events that report a write are already dispatched after it commits.
 
 The context holds the guard, the client of the request being served (IP address and user agent, cleaned as the session
 columns are), and as much as the event's flow established of the identity, the principal, the tenant it acts within, the

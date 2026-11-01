@@ -392,18 +392,16 @@ seam has a default that works alone.
   configuration may not lower (see [Freshness](sessions.md#freshness)). A caller that means only "within so many
   seconds" passes `FreshnessRequirement::within($seconds)`, which takes every proof kind: a list of kinds of its own
   narrows the configured kinds to those both take.
+- `factor_change` covers only this package's own factor changes, not the factor package's operation names
+  (`mfa.add_factor`, `mfa.replace_factor`, `mfa.remove_factor`, `mfa.generate_recovery_codes`). An application that
+  wants those to take only a further factor or a recovery code configures an entry for each under `freshness`, with
+  `additional_factor` and `recovery_code` as its proofs; without one, the factor package's own requirement decides.
 - When every sign-in requires a further factor, a password is no longer the only factor, and `passwords.min_length`
   may be lowered from 15 to 8, as NIST SP 800-63B allows (see [Password policy](passwords.md#password-policy)).
 
-`verifyFactor()` used to answer `null` once verified and the `FailureReason` otherwise. A factor package written against
-that still runs, wrongly: a `null` check, or a truthiness one, now takes every answer for a refusal. Ask the result:
+`verifyFactor()` answers a result: ask it, never check it for `null` or truthiness:
 
 ```php
-// Before: null once verified, else the FailureReason.
-$reason = Auth::passkeys()->verifyFactor($identity, $challenge, $credential);
-$passed = $reason === null;
-
-// After
 $result = Auth::passkeys()->verifyFactor($identity, $challenge, $credential);
 $passed = $result->isVerified();   // else $result->reason
 ```
@@ -446,10 +444,14 @@ $passed = $result->isVerified();   // else $result->reason
 
 ### Audit (`laravel-audit-log`)
 
-- Every package event implements `Contracts\AuthenticationEvent` and carries one `Events\EventContext`, so one listener
-  records them all from its snapshot (`toArray()`): when, the guard, the client, the identity, principal and tenant by
-  morph class and identifier, the session's identifier, the method, and the credential and its scopes, never a secret.
-  The snapshot survives a queue whatever was deleted meanwhile, so a queued audit listener can take the event as it is
-  (see [Events](events.md#events)).
+- With `laravel-iam` installed, it maps every package event into the audit log, and there is nothing to wire. Without
+  it, register an `EventMapper` for `Contracts\AuthenticationEvent` with `AuditLog::map()`, giving each event an
+  explicit, dotted code (see [Events](events.md#events) for an example).
+- Every package event carries one `Events\EventContext`, so one mapper records them all from its snapshot: when, the
+  guard, the client, the identity, principal and tenant by type and identifier, the session's identifier, the method,
+  and the credential and its scopes, never a secret.
 - Events that report a write are dispatched once it commits on the written row's connection, and never for a rolled-back
-  one, so a queued audit listener records only what happened.
+  one, so a mapped event is recorded at once and only for what happened.
+- `laravel-audit-log` also records Laravel's own `Login`, `Failed` and `Logout`. This package's guards dispatch those
+  beside their own `SignedIn`, `AuthenticationFailed` and `SessionRevoked`, so list every guard whose driver is `jwt`
+  or `api_key` in `audit-log.capture.laravel.except_guards`, or each sign-in is recorded twice.
