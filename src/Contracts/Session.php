@@ -82,8 +82,7 @@ interface Session
 
     /**
      * Return when the session started: the sign-in that created the session.
-     * The absolute deadline is counted from it. `null` only for a session that
-     * has no start.
+     * The absolute deadline is counted from it. `null` when none was recorded.
      *
      * @return ?\Carbon\CarbonInterface
      *

@@ -170,8 +170,7 @@ final class SessionModelOverrideTest extends TestCase
     /**
      * Skip the parent's default `authentication_sessions` migration so this
      * test can verify that the custom-table override is the only
-     * `authentication_sessions`-shaped table on the connection (TAC:
-     * `Schema::hasTable('authentication_sessions') === false`).
+     * `authentication_sessions`-shaped table on the connection.
      *
      * @return void
      */

@@ -88,10 +88,8 @@ final class SessionMigrationCollisionTest extends TestCase
     }
 
     /**
-     * When the collision guard throws, the pre-existing
-     * `authentication_sessions` table remains untouched - specifically, the
-     * sentinel column seeded before the throw is still present, proving the
-     * abort happened before `Schema::create(...)` could mutate the schema.
+     * When the collision guard throws, the existing `authentication_sessions`
+     * table is left as it was: the guard aborts before `Schema::create()`.
      *
      * @return void
      */

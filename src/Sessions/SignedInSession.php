@@ -12,10 +12,8 @@ use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 
 /**
  * A session the session service started, refreshed or switched: who signed in,
- * as which principal, in which session, how, and the session's token pair,
- * whose refresh token the client must keep to refresh the session, or to prove
- * it holds the session when it signs in again on the same device, which then
- * replaces it.
+ * as which principal, its record, how, and its token pair. The client keeps the
+ * refresh token to refresh the session, or to have a later sign-in replace it.
  *
  * @api
  *

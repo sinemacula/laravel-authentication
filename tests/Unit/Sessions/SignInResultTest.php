@@ -69,8 +69,8 @@ final class SignInResultTest extends TestCase
 
     /**
      * A started session says nothing about whether it is new: every sign-in
-     * creates one, so the session carries exactly who, as whom, on which
-     * session, with which tokens and how.
+     * creates one, so the session carries exactly who, as whom, its record, its
+     * tokens and how.
      *
      * @return void
      */

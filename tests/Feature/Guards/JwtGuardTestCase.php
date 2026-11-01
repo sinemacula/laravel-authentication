@@ -38,8 +38,8 @@ use Tests\Unit\Stubs\StubSession;
  *
  * Owns collaborator mocks, the in-memory `stub_sessions` schema, the frozen
  * Carbon and JWT clocks, and the helper factories used by every concrete
- * `JwtGuardTest` variant. Subclasses focus on a single behavioural slice of
- * JwtGuard so each class stays focused on a single concern.
+ * `JwtGuardTest` variant. Each subclass covers one slice of JwtGuard's
+ * behaviour.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
