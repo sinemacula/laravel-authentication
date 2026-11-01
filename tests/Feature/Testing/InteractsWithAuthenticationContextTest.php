@@ -568,8 +568,7 @@ final class InteractsWithAuthenticationContextTest extends TestCase
     }
 
     /**
-     * Sign the identity with the email in on the guard and return the session
-     * its session lives on.
+     * Sign the identity with the email in on the guard and return its session.
      *
      * @param  string  $guard
      * @param  string  $email

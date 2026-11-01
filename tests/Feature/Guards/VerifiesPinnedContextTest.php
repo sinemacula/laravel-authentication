@@ -459,8 +459,8 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * A pinned session of another guard's sessions, or of none, fails the
-     * attempt like a missing one.
+     * A pinned session of another guard, or of none, fails the attempt like a
+     * missing one.
      *
      * @param  ?string  $guard
      * @return void
@@ -737,9 +737,9 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * Build a session with the supplied identifier and revocation time, in a
-     * session of the guard that started now, acting as the principal when one
-     * is given.
+     * Build a session of the guard that started now, with the supplied
+     * identifier and revocation time, acting as the principal when one is
+     * given.
      *
      * @param  ?string  $identifier
      * @param  ?\Carbon\CarbonImmutable  $revokedAt

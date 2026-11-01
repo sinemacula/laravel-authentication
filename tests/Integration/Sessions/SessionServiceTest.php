@@ -210,8 +210,8 @@ final class SessionServiceTest extends TestCase
     /**
      * The replaced session ends at once: its access token, still within its
      * lifetime, is refused by `auth:api`, its refresh token is refused as
-     * revoked, and only the new session is listed. The new session's refresh
-     * keeps its session.
+     * revoked, and only the new session is listed. Refreshing the new session
+     * keeps it.
      *
      * @return void
      *

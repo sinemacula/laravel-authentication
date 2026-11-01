@@ -548,8 +548,7 @@ final class RevocationWriterTest extends TestCase
 
     /**
      * Revoking a principal's sessions revokes only the sessions acting as it,
-     * of every identity's sessions recording it, and ends the pending sign-ins
-     * that would act as it.
+     * of every identity, and ends the pending sign-ins that would act as it.
      *
      * @return void
      *

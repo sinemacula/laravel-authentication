@@ -412,11 +412,11 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A refresh that rotates a session deriving its end from another table,
-     * whose session ends at 12:03 on the primary while the replica still shows
-     * it ended at 11:00, succeeds and caps both tokens at 12:03: the deadlines
-     * that bound the issued pair are read from the writer too, not only the
-     * ones that judged the token.
+     * A refresh that rotates a session that derives its end from another table
+     * and ends at 12:03 on the primary, while the replica still shows it ended
+     * at 11:00, succeeds and caps both tokens at 12:03: the deadlines that
+     * bound the issued pair are read from the writer too, not only the ones
+     * that judged the token.
      *
      * @return void
      *
@@ -445,10 +445,10 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * A grace retry for a session deriving its end from another table, whose
-     * session ends at 12:01 on the primary while the replica does not yet show
-     * it, is handed a pair that expires at 12:01: the reissue reads the
-     * session's end from the writer instead of minting tokens that outlive it.
+     * A grace retry for a session that derives its end from another table and
+     * ends at 12:01 on the primary, while the replica does not yet show it, is
+     * handed a pair that expires at 12:01: the reissue reads the session's end
+     * from the writer instead of minting tokens that outlive it.
      *
      * @return void
      *
@@ -477,9 +477,9 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Tokens issued at sign-in for a session deriving its end from another
-     * table, whose session ends at 12:01 on the primary while the replica does
-     * not yet show it, expire at 12:01.
+     * Tokens issued at sign-in for a session that derives its end from another
+     * table and ends at 12:01 on the primary, while the replica does not yet
+     * show it, expire at 12:01.
      *
      * @return void
      *
@@ -1076,9 +1076,9 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
     /**
      * Write an identity with a `revocation_log` session that derives its
-     * revocation and the end of its session from the `session_revocations` and
-     * `session_ends` tables through the split connection, creating those tables
-     * on the primary and the replica.
+     * revocation and its end from the `session_revocations` and `session_ends`
+     * tables through the split connection, creating those tables on the primary
+     * and the replica.
      *
      * @param  class-string<\SineMacula\Laravel\Authentication\Models\Session>  $model
      * @return array{0: \Tests\Integration\Fixtures\RevocationLogIdentity, 1: \SineMacula\Laravel\Authentication\Models\Session}

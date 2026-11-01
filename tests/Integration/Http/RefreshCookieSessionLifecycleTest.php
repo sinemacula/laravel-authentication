@@ -281,9 +281,9 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
-     * Logging out from a route outside the cookie's path revokes the session's
-     * session and clears the cookie: the cookie it held no longer refreshes and
-     * the access token no longer authenticates.
+     * Logging out from a route outside the cookie's path revokes the session
+     * and clears the cookie: the cookie it held no longer refreshes and the
+     * access token no longer authenticates.
      *
      * @return void
      */

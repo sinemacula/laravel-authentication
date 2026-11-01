@@ -116,7 +116,7 @@ final class BearerAuthenticationTest extends TestCase
      * A valid access token authenticates the request with exactly
      * `Authenticated`, `PrincipalAssigned` and `SessionAuthenticated`, which
      * carry the guard, the request's client, the identity, the session and the
-     * method its session records.
+     * method it records.
      *
      * @return void
      *

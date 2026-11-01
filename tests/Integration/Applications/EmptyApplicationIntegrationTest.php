@@ -125,8 +125,8 @@ final class EmptyApplicationIntegrationTest extends TestCase
 
     /**
      * A session started while the method was listed no longer refreshes once
-     * the application lists nothing, through the route, and its session is kept;
-     * its access token still authenticates until it expires; once the method is
+     * the application lists nothing, through the route, and is not revoked; its
+     * access token still authenticates until it expires; once the method is
      * listed again the same refresh token refreshes.
      *
      * @return void

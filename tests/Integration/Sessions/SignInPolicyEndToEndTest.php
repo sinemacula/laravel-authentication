@@ -608,7 +608,7 @@ final class SignInPolicyEndToEndTest extends TestCase
      * application policy: a principal it refuses is refused as
      * `principal_ineligible` before anything is written, and once it refuses a
      * principal whose session already exists, that session no longer refreshes,
-     * and the session is kept.
+     * and is not revoked.
      *
      * @return void
      *

@@ -24,11 +24,10 @@ use Tests\Integration\Fixtures\CutoffIdentity;
 use Tests\TestCase;
 
 /**
- * Feature tests of a principal's revocation scope: whether its sessions can
- * hold sessions is decided by its owner as stored, read afresh, never by an
- * identity relation whoever loaded the principal set on it; an owner that
- * cannot be read does not stop its sessions being ended, and neither does
- * Eloquent strict mode.
+ * Feature tests of a principal's revocation scope: whether it has sessions is
+ * decided by its owner as stored, read afresh, never by an identity relation
+ * whoever loaded the principal set on it; an owner that cannot be read does not
+ * stop its sessions being ended, and neither does Eloquent strict mode.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -153,9 +153,9 @@ final class ApplicationPolicyIntegrationTest extends TestCase
     }
 
     /**
-     * A session stamped from the policy's lifetimes for the guard gets the
-     * guard's session, and a refresh of it returns an access token on the
-     * guard's access lifetime, never past the absolute deadline.
+     * A session stamped from the policy's lifetimes for the guard takes the
+     * guard's absolute lifetime, and a refresh of it returns an access token on
+     * the guard's access lifetime, never past the absolute deadline.
      *
      * @return void
      *

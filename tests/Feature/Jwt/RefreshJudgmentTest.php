@@ -139,8 +139,7 @@ final class RefreshJudgmentTest extends TestCase
     }
 
     /**
-     * Rows of `[session changes, failure]` for a session that holds no live
-     * session.
+     * Rows of `[session changes, failure]` for a session that is not live.
      *
      * @return iterable<string, array{0: array<string, mixed>, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
      */

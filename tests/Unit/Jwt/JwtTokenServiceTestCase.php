@@ -171,7 +171,7 @@ abstract class JwtTokenServiceTestCase extends TestCase
 
     /**
      * Build a Session mock whose getSessionIdentifier() returns the supplied
-     * value, in a session that started now with the default lifetimes.
+     * value, started now with the default lifetimes.
      *
      * @param  mixed  $id
      * @return \SineMacula\Laravel\Authentication\Contracts\Session

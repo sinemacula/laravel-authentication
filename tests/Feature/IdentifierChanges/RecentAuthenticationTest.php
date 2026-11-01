@@ -158,9 +158,9 @@ final class RecentAuthenticationTest extends TestCase
 
     /**
      * A proof accepted before the transaction stands under the lock as the rows
-     * read then: a session while it is still a live session (read with its row
-     * locked), a password while the locked row holds the hash read before it
-     * was checked, and a confirmation time always; nothing is counted.
+     * read then: a session while it is still live (read with its row locked), a
+     * password while the locked row holds the hash read before it was checked,
+     * and a confirmation time always; nothing is counted.
      *
      * @return void
      *

@@ -124,8 +124,8 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A session started for an externally verified identity reloads it once and
-     * writes the session once.
+     * Starting a session for an externally verified identity reloads it once
+     * and writes the session once.
      *
      * @return void
      *

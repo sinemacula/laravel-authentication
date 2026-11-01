@@ -26,8 +26,8 @@ use Tests\Integration\Fixtures\CutoffIdentity;
 use Tests\TestCase;
 
 /**
- * End-to-end tests of signing out everywhere else from a session that has no
- * session: the request's own access-only token is kept by leaving the
+ * End-to-end tests of signing out everywhere else from a request whose token
+ * names no session: the request's own access-only token is kept by leaving the
  * identity's "tokens valid after" cutoff where it is, while every session is
  * revoked; without the keep, the cutoff ends that token too.
  *

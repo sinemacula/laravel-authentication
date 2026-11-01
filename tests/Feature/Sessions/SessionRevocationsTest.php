@@ -85,9 +85,9 @@ final class SessionRevocationsTest extends TestCase
 
     /**
      * Signing out the binding resolves the session the request carries, then
-     * revokes its session (`signed_out`), reports `SessionRevoked` and then
-     * `Logout` under the guard's name, and forgets the binding; signing out
-     * again revokes and reports nothing.
+     * revokes it (`signed_out`), reports `SessionRevoked` and then `Logout`
+     * under the guard's name, and forgets the binding; signing out again
+     * revokes and reports nothing.
      *
      * @return void
      *

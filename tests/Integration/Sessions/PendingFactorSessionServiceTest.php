@@ -488,9 +488,9 @@ final class PendingFactorSessionServiceTest extends TestCase
 
     /**
      * A proven session that changes after the factor was asked for is not
-     * replaced: a refresh before the completion makes it unknown to the
-     * pending sign-in, and one in the middle of the completion makes the swap
-     * miss; either way the completion starts on a new session, which records the
+     * replaced: a refresh before the completion makes it unknown to the pending
+     * sign-in, and one in the middle of the completion makes the swap miss.
+     * Either way the completion starts on a new session, which records the
      * sign-in's identifier type, reports no revocation, and leaves the changed
      * session live.
      *

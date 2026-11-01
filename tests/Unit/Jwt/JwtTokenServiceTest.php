@@ -563,9 +563,9 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * An access token never expires after the idle deadline of its session's
-     * session either, from which the bearer path rejects it: an idle lifetime
-     * shorter than the access lifetime shortens the token to match.
+     * An access token never expires after the idle deadline of its session
+     * either, from which the bearer path rejects it: an idle lifetime shorter
+     * than the access lifetime shortens the token to match.
      *
      * @return void
      *

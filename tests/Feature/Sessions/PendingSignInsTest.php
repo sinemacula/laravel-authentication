@@ -349,9 +349,9 @@ final class PendingSignInsTest extends TestCase
     }
 
     /**
-     * The session a choice proved is continued for a principal only while it is
-     * the identity's unchanged, unrevoked session of the guard that records
-     * that principal.
+     * The session a choice proved counts for a principal only while it is the
+     * identity's unchanged, unrevoked session of the guard that records that
+     * principal.
      *
      * @return void
      *

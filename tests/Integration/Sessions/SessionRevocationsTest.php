@@ -25,7 +25,7 @@ use Tests\TestCase;
 /**
  * Integration tests of a guard's session revocations signing a binding out
  * everywhere for an identity that records a "tokens valid after" cutoff: the
- * cutoff stays where it is only when the binding's own session is kept and has
+ * cutoff stays where it is only when the binding's own token is kept and names
  * no session, and moves to now otherwise.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

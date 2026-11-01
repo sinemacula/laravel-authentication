@@ -112,8 +112,8 @@ final class AbstractGuardEventContextTest extends AbstractGuardTestCase
     /**
      * `PrincipalAssigned` and `SessionAuthenticated` of one bind carry the same
      * context: the guard, the request's client, the identity, principal, the
-     * tenant the principal names, the session, and the method the session's
-     * session records.
+     * tenant the principal names, the session, and the method the session
+     * records.
      *
      * @return void
      */

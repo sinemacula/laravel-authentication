@@ -1369,8 +1369,8 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Assert a sign-in failed with the reason, started no session, and created
-     * no session.
+     * Assert a sign-in failed with the reason, returned no session, and wrote
+     * no session row.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInResult  $result

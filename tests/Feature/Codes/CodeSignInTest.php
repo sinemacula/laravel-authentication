@@ -98,9 +98,8 @@ final class CodeSignInTest extends TestCase
     }
 
     /**
-     * The code sent to a verified number starts a session for its identity, on
-     * a session that records the method and the identifier type, and uses the
-     * code up.
+     * The code sent to a verified number starts a session for its identity that
+     * records the method and the identifier type, and uses the code up.
      *
      * @return void
      *

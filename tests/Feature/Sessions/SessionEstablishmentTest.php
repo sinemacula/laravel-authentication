@@ -276,7 +276,7 @@ final class SessionEstablishmentTest extends TestCase
             ) {}
 
             /**
-             * Record the proven session, rotating the session the first time.
+             * Record the proven session, rotating it the first time.
              *
              * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
              * @return bool
@@ -466,9 +466,9 @@ final class SessionEstablishmentTest extends TestCase
 
     /**
      * A session that continues a spent pending sign-in (a choice already used
-     * up) records the client that sign-in began from as its session's creation,
-     * runs in the client continuing it, and gives back the slots the sign-in
-     * took once the caller's transaction commits.
+     * up) records the client that sign-in began from as its creation, runs in
+     * the client continuing it, and gives back the slots the sign-in took once
+     * the caller's transaction commits.
      *
      * @return void
      *
