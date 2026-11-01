@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\TenantPolicyChanges;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
@@ -137,8 +138,9 @@ final class TenantPolicyChangesTest extends TestCase
     /**
      * A session whose owner or principal no longer loads lacks what the policy
      * is asked about, so it is judged short without asking: an active one is
-     * revoked and reported, a pending one is left for its activation, which
-     * would refuse it.
+     * revoked and reported, naming the owner, principal and tenant the row
+     * records, with the session holding its revocation; a pending one is left
+     * for its activation, which would refuse it.
      *
      * @param  string  $table
      * @return void
@@ -148,7 +150,7 @@ final class TenantPolicyChangesTest extends TestCase
     #[DataProvider('provideActorTables')]
     public function testASessionWhoseActorsNoLongerLoadIsJudgedShort(string $table): void
     {
-        [, , $tenant] = $this->seedMember();
+        [$member, $membership, $tenant] = $this->seedMember();
 
         $active  = $this->signedIn();
         $pending = $this->pendingFor();
@@ -164,7 +166,15 @@ final class TenantPolicyChangesTest extends TestCase
         self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, $this->rowOf($active->record->getKey())->getRevokedReason());
         self::assertNull($this->rowOf($pending)->getRevokedAt());
         self::assertSame([], $this->policy->asked);
-        self::assertSame(RevocationReason::TENANT_POLICY_CHANGED, $this->recordedEvent(SessionRevoked::class)->reason);
+        $revoked = $this->recordedEvent(SessionRevoked::class);
+
+        self::assertSame(RevocationReason::TENANT_POLICY_CHANGED, $revoked->reason);
+        self::assertSame(IdentifierCoercion::stringify($member->getKey()), $revoked->context->identityId);
+        self::assertSame(IdentifierCoercion::stringify($membership->getKey()), $revoked->context->principalId);
+        self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $revoked->context->tenantId);
+        self::assertInstanceOf(Session::class, $revoked->context->session);
+        self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, $revoked->context->session->getRevokedReason());
+        self::assertFalse($revoked->context->session->isDirty());
     }
 
     /**
@@ -312,6 +322,34 @@ final class TenantPolicyChangesTest extends TestCase
         $this->policy->requirement = new TenantRequirement('v1', connections: ['conn-a']);
 
         self::assertSame(1, $this->sessions('members')->tenantPolicyChanged($tenant));
+        self::assertNotNull($this->rowOf($session->record->getKey())->getRevokedAt());
+    }
+
+    /**
+     * A session that records no guard is judged for none, the policy asked
+     * about the empty application name, and revoked when it falls short, its
+     * report naming no guard.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionThatRecordsNoGuardIsJudgedForNone(): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        $session = $this->signedIn();
+
+        DB::table('authentication_sessions')->where('id', $session->record->getKey())->update(['guard' => null]);
+
+        $this->policy->requirement = new TenantRequirement('v1', connections: ['conn-a']);
+        $this->policy->asked       = [];
+
+        $this->recordEvents([SessionRevoked::class]);
+
+        self::assertSame(1, $this->sessions('members')->tenantPolicyChanged($tenant));
+        self::assertSame('', $this->policy->asked[0]->application ?? null);
+        self::assertNull($this->recordedEvent(SessionRevoked::class)->context->guard);
         self::assertNotNull($this->rowOf($session->record->getKey())->getRevokedAt());
     }
 

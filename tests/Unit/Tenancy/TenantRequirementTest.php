@@ -115,13 +115,15 @@ final class TenantRequirementTest extends TestCase
     }
 
     /**
-     * A version of exactly 64 characters is kept.
+     * A version of exactly 64 characters is kept, however many bytes they
+     * take.
      *
      * @return void
      */
     public function testAVersionOfTheLongestLengthIsKept(): void
     {
         self::assertSame(str_repeat('v', 64), (new TenantRequirement(str_repeat('v', 64)))->version);
+        self::assertSame(str_repeat('é', 64), (new TenantRequirement(str_repeat('é', 64)))->version);
     }
 
     /**

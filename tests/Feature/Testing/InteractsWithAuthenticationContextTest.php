@@ -409,6 +409,7 @@ final class InteractsWithAuthenticationContextTest extends TestCase
                 EloquentSession&Model $session,
             ): void {
                 $test->actingAsIdentity($member, guard: 'members')->assertBoundIdentity($member)->assertBoundTenant($tenant);
+                $test->actingInTenant($tenant, 'members')->assertBoundTenant($tenant);
                 $test->actingAsPrincipal($membership)->assertBoundPrincipal($membership)->assertBoundScopes(null);
                 $test->actingOnSession($session)->assertBoundSession($session);
                 $test->stopActing()->assertBoundIdentity(null);

@@ -271,6 +271,62 @@ final class TenantPolicyCheckTest extends TestCase
     }
 
     /**
+     * A sign-in's evidence is read in place of the session's stored proofs
+     * when both are given: a further factor the session stores does not meet
+     * a requirement the sign-in's own proofs do not.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignInsEvidenceIsReadOverTheSessionsProofs(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $session = $this->signedIn();
+        $now     = CarbonImmutable::now();
+
+        self::recordProof($session, ProofKind::ADDITIONAL_FACTOR, $now, ['otp'], new Evaluation(true, true));
+
+        $this->policy->requirement = new TenantRequirement(factor: new Requirement(new RequirementPart));
+
+        self::assertTrue(TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now)->isMet());
+
+        $evidence = SessionEvidence::of(SignInProof::unattested('password', $now));
+
+        self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now, $evidence)->standing);
+        self::assertSame([$evidence->firstFactor], $this->check->judged[1]->proofs());
+    }
+
+    /**
+     * What a tenant requires is the policy's answer, asked about the guard,
+     * identity, principal, tenant and session given.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheRequirementIsThePolicysAnswerForTheSession(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $session = $this->signedIn();
+
+        $this->policy->requirement = new TenantRequirement('v7', connections: ['conn-a']);
+        $this->policy->asked       = [];
+
+        $requirement = TenantPolicyCheck::requirementFor('members', $member, $membership, $tenant, $session);
+
+        self::assertSame($this->policy->requirement, $requirement);
+        self::assertCount(1, $this->policy->asked);
+        self::assertSame('members', $this->policy->asked[0]->application);
+        self::assertSame($member, $this->policy->asked[0]->identity);
+        self::assertSame($membership, $this->policy->asked[0]->principal);
+        self::assertSame($tenant, $this->policy->asked[0]->tenant);
+        self::assertSame($session, $this->policy->asked[0]->session);
+    }
+
+    /**
      * The sign-in's evidence read in memory keeps to the limit asked for,
      * newest first, as the stored proofs' query does.
      *
