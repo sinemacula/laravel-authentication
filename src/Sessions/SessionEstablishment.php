@@ -98,11 +98,11 @@ final readonly class SessionEstablishment
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  ?list<array<string, string>>  $attemptWindows
-     * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
+     * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
-    public function proceed(Admitted $admitted, string $method, ?string $identifierType, SignInContext $context, ?array $attemptWindows = null): SignInResult
+    public function proceed(Admitted $admitted, string $method, ?string $identifierType, SignInContext $context, ?array $attemptWindows = null): Refused|SignInResult
     {
         $proven = $context->refreshToken === null
             ? null
@@ -112,16 +112,18 @@ final readonly class SessionEstablishment
     }
 
     /**
-     * Ask the additional-factor policy about the sign-in on the proven session
-     * (or none): when it requires a further factor, hand out a pending sign-in
-     * that remembers the session and the attempt-limit slots the sign-in took,
-     * and dispatch `AdditionalFactorRequired` once it is committed; otherwise
-     * start a new session, which replaces the proven one. When the proven
-     * session changed before it could be replaced, the sign-in is reconsidered
-     * without it, factor policy included; it never retries the session. A
-     * session that completes a spent pending sign-in (a choice of principal)
-     * gives back the slots that sign-in took once committed, and records the
-     * client the sign-in began from.
+     * Refuse a sign-in whose deadline (`SignInContext::$notAfter`) has already
+     * passed at `$now` as `session_expired`, before anything is asked or
+     * written. Otherwise ask the additional-factor policy about the sign-in on
+     * the proven session (or none): when it requires a further factor, hand out
+     * a pending sign-in that remembers the session and the attempt-limit slots
+     * the sign-in took, and dispatch `AdditionalFactorRequired` once it is
+     * committed; otherwise start a new session, which replaces the proven one.
+     * When the proven session changed before it could be replaced, the sign-in
+     * is reconsidered without it, factor policy included; it never retries the
+     * session. A session that completes a spent pending sign-in (a choice of
+     * principal) gives back the slots that sign-in took once committed, and
+     * records the client the sign-in began from.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $proven
@@ -131,7 +133,7 @@ final readonly class SessionEstablishment
      * @param  \Carbon\CarbonImmutable  $now
      * @param  ?list<array<string, string>>  $attemptWindows
      * @param  ?\SineMacula\Laravel\Authentication\Models\PendingSignIn  $spent
-     * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
+     * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
@@ -144,7 +146,11 @@ final readonly class SessionEstablishment
         CarbonImmutable $now,
         ?array $attemptWindows,
         ?PendingSignIn $spent = null,
-    ): SignInResult {
+    ): Refused|SignInResult {
+        if ($context->hasPassedDeadline($now)) {
+            return Refused::after(FailureReason::SESSION_EXPIRED, $admitted);
+        }
+
         $admitted = $admitted->on($proven);
 
         if ($this->requiresAdditionalFactor($admitted, $method, $context)) {
@@ -168,7 +174,8 @@ final readonly class SessionEstablishment
     }
 
     /**
-     * Use the pending sign-in up, check it again and write its session, in one
+     * Use the pending sign-in up, check it again (its deadline, which time
+     * waiting may have passed, included) and write its session, in one
      * transaction on the pending sign-in's connection, then schedule what
      * reports the session and the give-back of the slots its sign-in took.
      *
@@ -221,6 +228,7 @@ final readonly class SessionEstablishment
         $policy   = $this->container->make(ApplicationPolicy::class);
         $admitted = match (true) {
             !$this->pendings->consume($found, $now)                         => new Refused(FailureReason::PENDING_INVALID),
+            $context->hasPassedDeadline($now)                               => new Refused(FailureReason::SESSION_EXPIRED, $factor->identity, $factor->principal),
             !$policy->allowsMethod($this->context->name(), $factor->method) => new Refused(FailureReason::METHOD_NOT_ALLOWED, $factor->identity, $factor->principal),
             default                                                         => (new SignInAdmission($policy))->admit(
                 $this->context->name(),

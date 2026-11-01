@@ -9,11 +9,11 @@ deleted. Starting a session is in
 
 ## Invariants
 
-- A session is active while `revoked_at` is null and both `idle_expires_at` and `absolute_expires_at` are after now: a
-  deadline has passed from the second it names, as on the bearer, refresh and sign-in pin paths
-  (`SessionDeadlines::hasEnded()`). The `active()` scope `ActsAsSession` brings and the listing apply the same rule
-  through `ActiveSessions::constrain()`, with the columns of the model's name accessors, so a model without the trait is
-  listed the same way.
+- A session is active while `revoked_at` is null, `idle_expires_at` is after now, and `absolute_expires_at` is after now
+  or `null` (no absolute deadline): a deadline has passed from the second it names, as on the bearer, refresh and
+  sign-in pin paths (`SessionDeadlines::hasEnded()`). The `active()` scope `ActsAsSession` brings and the listing apply
+  the same rule through `ActiveSessions::constrain()`, with the columns of the model's name accessors, so a model
+  without the trait is listed the same way.
 - The listing (`SessionService::sessions()`, from `EndsSessions`) reads the identity's `sessions()` relation on the
   write connection (the query itself through `WriteConnection::query()`, and anything the relation reads while it is
   built inside `WriteConnection::during()` for the identity), so a revocation the primary holds is never listed as live.

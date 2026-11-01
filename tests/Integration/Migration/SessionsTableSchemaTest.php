@@ -60,7 +60,7 @@ final class SessionsTableSchemaTest extends TestCase
         'refresh_rotated_at'      => true,
         'signed_in_at'            => false,
         'idle_expires_at'         => false,
-        'absolute_expires_at'     => false,
+        'absolute_expires_at'     => true,
         'revoked_at'              => true,
         'revoked_reason'          => true,
         'created_at'              => true,
@@ -121,8 +121,9 @@ final class SessionsTableSchemaTest extends TestCase
 
     /**
      * The table has exactly these columns, each with its nullability: the owner
-     * and both deadlines are required, and everything a later feature or the
-     * client supplies is optional.
+     * and the idle deadline are required, the absolute deadline is optional (a
+     * session may have none), and everything a later feature or the client
+     * supplies is optional.
      *
      * @return void
      */

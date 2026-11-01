@@ -56,8 +56,9 @@ names none waits for the identity to choose (`choice()`, `choose()`), and a live
   be reached by switching, and no further factor asked (`additional_factor_required`).
 - With the current rotation id, the token's `principal` must be the principal the session records
   (`session_principal_mismatch`). The absolute deadline stays the session's, held to `signed_in_at` plus the guard's
-  absolute lifetime (`session_expired` when that has passed), so a lifetime shortened since the sign-in applies and a
-  switch never extends the session; the idle deadline restarts under the guard's lifetimes. Both tokens are issued for
+  absolute lifetime (`session_expired` when that has passed), so a lifetime shortened or set since the sign-in applies
+  and a switch never extends the session or lifts its deadline; a session with no absolute deadline under a guard with
+  no absolute limit keeps none. The idle deadline restarts under the guard's lifetimes. Both tokens are issued for
   the target before the write, and end at the restarted idle deadline.
 - The switch is one compare-and-swap (`RefreshRotationStore::switchPrincipal()`) on the presented digest, an unrevoked
   row, both loaded deadlines and the loaded principal columns. It writes the rotation, both deadlines and, when the

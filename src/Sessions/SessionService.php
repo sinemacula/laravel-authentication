@@ -165,11 +165,12 @@ final readonly class SessionService
      * identity, principal (the context's, verified, or the resolver's default),
      * tenant and application policy must admit it; a password is rehashed when
      * its hash is outdated; the client's refresh token, if any, is checked as
-     * proof of an existing session; the additional-factor policy is asked, and
-     * when it requires a further factor the result is a pending sign-in instead
-     * of a session; otherwise the session starts. A success gives back the
-     * attempt's slots and those the method took on the accounts it checked; a
-     * pending sign-in keeps them all until it completes.
+     * proof of an existing session; a deadline the context supplies that has
+     * already passed fails as `session_expired`; the additional-factor policy
+     * is asked, and when it requires a further factor the result is a pending
+     * sign-in instead of a session; otherwise the session starts. A success
+     * gives back the attempt's slots and those the method took on the accounts
+     * it checked; a pending sign-in keeps them all until it completes.
      *
      * @param  string  $method
      * @param  array<array-key, mixed>  $input
@@ -273,7 +274,8 @@ final readonly class SessionService
      * sign-in took back only when the session starts, once the delete is
      * committed on the pending sign-in's connection, and reports a failure to
      * give them back to the exception handler. In the same transaction it is
-     * checked again (the method still allowed, the identity, principal and
+     * checked again (the sign-in's deadline, if it supplied one, not passed
+     * while it waited, the method still allowed, the identity, principal and
      * tenant active, and the application policy admitting them with the
      * identifier type the sign-in used) and a new session is written, replacing
      * the proven session when it is unchanged. The factor policy is not asked
@@ -399,7 +401,9 @@ final readonly class SessionService
      * principal must be the identity's, resolved through the hinted path as the
      * very one named (`principal_mismatch`), and with its tenant active and
      * admitted by the application policy with the identifier type the sign-in
-     * used; the additional-factor policy is asked, and a required factor turns
+     * used; the sign-in's deadline, if it supplied one, must not have passed
+     * while it waited (`session_expired`); the additional-factor policy is
+     * asked, and a required factor turns
      * the choice into a pending factor carrying its attempt-limit slots;
      * otherwise a new session starts, replacing the session the client proved
      * it holds when that session records the chosen principal, and the slots
@@ -441,9 +445,10 @@ final readonly class SessionService
             return $this->fail($admitted, $method, $context, null, []);
         }
 
-        $proven = PendingSignIns::provenSession($pending, $identity, $admitted->principal);
+        $proven  = PendingSignIns::provenSession($pending, $identity, $admitted->principal);
+        $outcome = $this->bound($this->establishment->establish($admitted, $proven, $method, $pending->identifier_type, $context, $now, $pending->attempt_windows, $pending));
 
-        return $this->bound($this->establishment->establish($admitted, $proven, $method, $pending->identifier_type, $context, $now, $pending->attempt_windows, $pending));
+        return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, null, []) : $outcome;
     }
 
     /**
@@ -700,14 +705,16 @@ final readonly class SessionService
      * Bind the guard to the session a sign-in started, once establishment has
      * scheduled what reports it (`Validated`, `Login`, `Authenticated`,
      * `PrincipalAssigned` and `SessionAuthenticated`), and answer the result; a
-     * result without a session binds nothing.
+     * result without a session, and a refusal, bind nothing.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInResult  $result
-     * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
+     * @template TResult of \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
+     *
+     * @param  TResult  $result
+     * @return TResult
      */
-    private function bound(SignInResult $result): SignInResult
+    private function bound(Refused|SignInResult $result): Refused|SignInResult
     {
-        $session = $result->session;
+        $session = $result instanceof SignInResult ? $result->session : null;
 
         if ($session !== null) {
             $this->binding->login($session->identity, $session->principal, $session->record);

@@ -380,15 +380,17 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * Rows of `[seconds to the idle deadline, seconds to the absolute one]`:
-     * the cookie expires at whichever comes first.
+     * Rows of `[seconds to the idle deadline, seconds to the absolute one or
+     * null]`: the cookie expires at whichever comes first, the idle one when
+     * the session has no absolute deadline.
      *
-     * @return iterable<string, array{0: int, 1: int}>
+     * @return iterable<string, array{0: int, 1: ?int}>
      */
     public static function provideDeadlines(): iterable
     {
         yield 'the idle deadline first' => [3600, 7200];
         yield 'the absolute deadline first' => [7200, 3600];
+        yield 'no absolute deadline' => [3600, null];
     }
 
     /**
@@ -397,18 +399,19 @@ final class RefreshTokenTransportTest extends TestCase
      * when the session ends.
      *
      * @param  int  $idle
-     * @param  int  $absolute
+     * @param  ?int  $absolute
      * @return void
      */
     #[DataProvider('provideDeadlines')]
-    public function testTheCookieCarriesTheTokenUntilTheSessionEnds(int $idle, int $absolute): void
+    public function testTheCookieCarriesTheTokenUntilTheSessionEnds(int $idle, ?int $absolute): void
     {
         $now = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
 
         Carbon::setTestNow($now);
 
         try {
-            $cookie = self::cookieTransport('.example.test')->cookie(self::TOKEN, new PlainSessionFixture('session-1', $now->addSeconds($idle), $now->addSeconds($absolute)));
+            $session = new PlainSessionFixture('session-1', $now->addSeconds($idle), $absolute === null ? null : $now->addSeconds($absolute));
+            $cookie  = self::cookieTransport('.example.test')->cookie(self::TOKEN, $session);
         } finally {
             Carbon::setTestNow();
         }
@@ -425,14 +428,14 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A session that has ended, or that has no deadlines, gets no cookie.
+     * A session that has ended, or that has no idle deadline, gets no cookie.
      *
      * @return void
      */
     public function testAnEndedSessionGetsNoCookie(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Cannot set a refresh cookie for a session that has ended or that has no idle and absolute deadlines.');
+        $this->expectExceptionMessage('Cannot set a refresh cookie for a session that has ended or that has no idle deadline.');
 
         self::cookieTransport()->cookie(self::TOKEN, new PlainSessionFixture('session-1'));
     }

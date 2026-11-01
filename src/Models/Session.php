@@ -62,7 +62,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * @property ?\Carbon\CarbonInterface $refresh_rotated_at
  * @property \Carbon\CarbonInterface $signed_in_at
  * @property \Carbon\CarbonInterface $idle_expires_at
- * @property \Carbon\CarbonInterface $absolute_expires_at
+ * @property ?\Carbon\CarbonInterface $absolute_expires_at
  * @property ?\Carbon\CarbonInterface $revoked_at
  * @property ?string $revoked_reason
  *

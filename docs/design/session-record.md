@@ -31,6 +31,13 @@ gets a new session, so "the device" and "the record" are no longer one thing.
   `_absolute_index` and `_revoked_index`. Laravel's default name for the owner index of the default table is 69
   characters, over MySQL's 64; with these suffixes, a configured name of up to 47 characters fits PostgreSQL's 63.
 - Tokens name their session in the `sid` claim (`Claims::SESSION_ID`); nothing here depends on the claim's name.
+- `idle_expires_at` is required and `absolute_expires_at` nullable: `null` means the session has no absolute deadline,
+  because its application sets no absolute limit (`refresh_absolute_ttl_minutes` is `null`) and its sign-in supplied no
+  deadline of its own (`SignInContext::$notAfter`). `Session::getAbsoluteExpiresAt()` returns `null` for it, a session
+  loaded without the column still throws a `LogicException`, and every reader (the deadline rule, token expiry, the
+  refresh rotation and its compare-and-swap, a switch, the listing, the summary, pruning) treats `null` as "ends when
+  idle". Otherwise the absolute deadline is the earlier of `signed_in_at` plus the limit and the sign-in's deadline, and
+  nothing ever writes a later one: a refresh keeps it, a switch only lowers it.
 - Every sign-in is a new session. What a client proves to have its previous session replaced (the device key, in the
   package's reading) is that session's current refresh token, validly signed for the guard: possession of the only
   credential the client holds for it. No other key material exists, and the IP address and user agent never count. It

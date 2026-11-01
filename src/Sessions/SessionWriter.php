@@ -72,7 +72,11 @@ final readonly class SessionWriter
      * user agent of the client the sign-in came from (`$origin`) as its
      * creation, the context's client and the sign-in as its last use (so
      * recording the use when the guard binds it writes nothing more), the
-     * digest of a new rotation id, and both deadlines.
+     * digest of a new rotation id, and both deadlines: the absolute one capped
+     * at the context's deadline, if it gives one, and `null` when neither it
+     * nor the application sets one. A context whose deadline has already passed
+     * is an `InvalidArgumentException`: establishment refuses such a sign-in
+     * first.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  string  $method
@@ -83,6 +87,7 @@ final readonly class SessionWriter
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $origin
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
+     * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Throwable
      */
@@ -115,16 +120,17 @@ final readonly class SessionWriter
      * so it cannot be replaced.
      *
      * Every sign-in is a new session, so the new session is written exactly as
-     * `create()` writes one, except that a client name or platform the context
-     * does not give is the proven session's (the client proved it is the same
-     * one). The proven session is revoked first, with the reason `superseded`
-     * and both of its digests forgotten, by one compare-and-swap that applies
-     * only while the row still holds the digest the client proved, is not
-     * revoked, and records the owner, principal and guard it was proven for;
-     * any concurrent refresh, revocation or change makes it affect no row, and
-     * then nothing is written. The revocation, the new session and its pair are
-     * one transaction, so a cancelled insert or a failure while issuing leaves
-     * the proven session as it was.
+     * `create()` writes one, the context's deadline included, except that a
+     * client name or platform the context does not give is the proven session's
+     * (the client proved it is the same one). The proven session is revoked
+     * first, with the reason `superseded` and both of its digests forgotten, by
+     * one compare-and-swap that applies only while the row still holds the
+     * digest the client proved, is not revoked, and records the owner,
+     * principal and guard it was proven for; any concurrent refresh, revocation
+     * or change makes it affect no row, and then nothing is written. The
+     * revocation, the new session and its pair are one transaction, so a
+     * cancelled insert or a failure while issuing leaves the proven session as
+     * it was.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  string  $method
@@ -135,6 +141,7 @@ final readonly class SessionWriter
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $origin
      * @return ?\SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
+     * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Throwable
      */
@@ -153,6 +160,7 @@ final readonly class SessionWriter
             $context->client,
             $context->clientName ?? self::recorded($previous, $previous->getClientNameName()),
             $context->platform   ?? self::recorded($previous, $previous->getPlatformName()),
+            notAfter: $context->notAfter,
         );
         $session = $this->newSession($admitted, $method, $identifierType, $described, $origin);
 
@@ -289,7 +297,8 @@ final readonly class SessionWriter
     /**
      * The state of a session that starts at `$now`: the client as its last use,
      * the digest of the new rotation id with no previous one, the start itself,
-     * and both deadlines.
+     * and both deadlines, the absolute one the earlier of the application's
+     * limit and the context's deadline, either alone, or none.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  string  $rotationId
@@ -297,6 +306,8 @@ final readonly class SessionWriter
      * @param  \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  $lifetimes
      * @param  \Carbon\CarbonImmutable  $now
      * @return array<string, mixed>
+     *
+     * @throws \InvalidArgumentException
      */
     private static function sessionState(
         EloquentSession&Model $session,
@@ -305,7 +316,11 @@ final readonly class SessionWriter
         TokenLifetimes $lifetimes,
         CarbonImmutable $now,
     ): array {
-        $absolute = $lifetimes->absoluteDeadline($now);
+        if ($context->hasPassedDeadline($now)) {
+            throw new \InvalidArgumentException('Cannot start a session whose deadline is not after its start.');
+        }
+
+        $absolute = $lifetimes->absoluteDeadline($now, $context->notAfter);
 
         return [
             $session->getLastUsedAtName()         => $session->fromDateTime($now),

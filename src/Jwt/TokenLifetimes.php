@@ -13,9 +13,13 @@ use Carbon\CarbonInterface;
  *
  * An access token lives for the access lifetime, never past the end of its
  * session. A session ends at its idle deadline unless a refresh moves that
- * deadline forward, and at its absolute deadline however often it is refreshed:
- * each refresh sets the idle deadline to the idle lifetime from now, never past
- * the absolute deadline, which is fixed when the session starts.
+ * deadline forward, and at its absolute deadline, when it has one, however
+ * often it is refreshed: each refresh sets the idle deadline to the idle
+ * lifetime from now, never past the absolute deadline, which is fixed when the
+ * session starts. The absolute deadline is the earlier of the absolute lifetime
+ * from the sign-in and a deadline the sign-in supplied (a provider's session
+ * deadline, say), either alone when the other is absent; with neither, the
+ * session has no absolute deadline and ends only when it goes idle.
  *
  * A refresh token that was just rotated stays usable for a short grace window,
  * so a client that lost the response, or a second tab refreshing at the same
@@ -48,7 +52,7 @@ final readonly class TokenLifetimes
      *
      * @param  int  $accessTtlMinutes
      * @param  int  $refreshIdleTtlMinutes
-     * @param  int  $refreshAbsoluteTtlMinutes
+     * @param  ?int  $refreshAbsoluteTtlMinutes
      * @param  int  $refreshGraceSeconds
      *
      * @throws \InvalidArgumentException
@@ -61,40 +65,60 @@ final readonly class TokenLifetimes
         /** How long a session stays signed in without a refresh, in minutes. */
         public int $refreshIdleTtlMinutes,
 
-        /** How long a session stays signed in however often it is refreshed, in minutes. */
-        public int $refreshAbsoluteTtlMinutes,
+        /** How long a session stays signed in however often it is refreshed, in minutes; `null` for no absolute limit. */
+        public ?int $refreshAbsoluteTtlMinutes,
 
         /** How long a just-rotated refresh token still gets the current credential, in seconds; 0 disables it. */
         public int $refreshGraceSeconds,
     ) {
         self::assertWithin('access token lifetime', $accessTtlMinutes, self::MIN_TTL_MINUTES, self::MAX_ACCESS_TTL_MINUTES, 'minutes');
         self::assertWithin('idle session lifetime', $refreshIdleTtlMinutes, self::MIN_TTL_MINUTES, self::MAX_REFRESH_TTL_MINUTES, 'minutes');
-        self::assertWithin('absolute session lifetime', $refreshAbsoluteTtlMinutes, self::MIN_TTL_MINUTES, self::MAX_REFRESH_TTL_MINUTES, 'minutes');
+
+        if ($refreshAbsoluteTtlMinutes !== null) {
+            self::assertWithin('absolute session lifetime', $refreshAbsoluteTtlMinutes, self::MIN_TTL_MINUTES, self::MAX_REFRESH_TTL_MINUTES, 'minutes');
+        }
+
         self::assertWithin('refresh grace window', $refreshGraceSeconds, 0, self::MAX_GRACE_SECONDS, 'seconds');
     }
 
     /**
-     * The absolute deadline of a session that starts at the given time.
+     * The absolute deadline of a session that starts at the given time: the
+     * earlier of the absolute lifetime from then and `$notAfter`, the deadline
+     * the sign-in supplied, either alone when the other is absent, in the
+     * start's timezone; `null` when the guard sets no absolute lifetime and the
+     * sign-in supplied none.
      *
      * @param  \Carbon\CarbonInterface  $signedInAt
-     * @return \Carbon\CarbonImmutable
+     * @param  ?\Carbon\CarbonInterface  $notAfter
+     * @return ?\Carbon\CarbonImmutable
      */
-    public function absoluteDeadline(CarbonInterface $signedInAt): CarbonImmutable
+    public function absoluteDeadline(CarbonInterface $signedInAt, ?CarbonInterface $notAfter = null): ?CarbonImmutable
     {
-        return self::after($signedInAt, $this->refreshAbsoluteTtlMinutes);
+        $limit = $this->refreshAbsoluteTtlMinutes === null ? null : self::after($signedInAt, $this->refreshAbsoluteTtlMinutes);
+
+        if ($notAfter === null) {
+            return $limit;
+        }
+
+        $cap = CarbonImmutable::createFromTimestamp($notAfter->getTimestamp(), $signedInAt->getTimezone());
+
+        return $limit === null ? $cap : self::earliest($limit, $cap);
     }
 
     /**
      * The idle deadline a session gets at the given time: the idle lifetime
-     * from then, but never past the session's absolute deadline.
+     * from then, but never past the session's absolute deadline when it has
+     * one.
      *
      * @param  \Carbon\CarbonInterface  $now
-     * @param  \Carbon\CarbonInterface  $absolute
+     * @param  ?\Carbon\CarbonInterface  $absolute
      * @return \Carbon\CarbonImmutable
      */
-    public function idleDeadline(CarbonInterface $now, CarbonInterface $absolute): CarbonImmutable
+    public function idleDeadline(CarbonInterface $now, ?CarbonInterface $absolute): CarbonImmutable
     {
-        return self::earliest(self::after($now, $this->refreshIdleTtlMinutes), $absolute);
+        $idle = self::after($now, $this->refreshIdleTtlMinutes);
+
+        return $absolute === null ? $idle : self::earliest($idle, $absolute);
     }
 
     /**

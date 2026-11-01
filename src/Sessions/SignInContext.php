@@ -4,6 +4,8 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions;
 
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Http\Request;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -12,8 +14,8 @@ use SineMacula\Laravel\Authentication\Http\ClientText;
 /**
  * Where a sign-in comes from and what it asks for: the client (its IP address
  * and user agent), the name and platform it gives itself, the principal it
- * wants to act as, and the refresh token it holds for a session it signed in on
- * before.
+ * wants to act as, the refresh token it holds for a session it signed in on
+ * before, and a deadline of the session's own.
  *
  * The client name and platform come from the client, so they are made safe to
  * store as `ClientContext` makes the user agent safe: NUL bytes removed,
@@ -27,6 +29,14 @@ use SineMacula\Laravel\Authentication\Http\ClientText;
  * client holds that session: the sign-in then revokes it (`superseded`) as it
  * creates the new one (see the session service). Without it nothing else is
  * revoked.
+ *
+ * The deadline (`notAfter`, cut to the whole second) caps the session the
+ * sign-in starts: its absolute deadline is the earlier of it and the
+ * application's absolute limit, or it alone when the application sets none, and
+ * refresh, a switch of principal and a reauthentication never move it. An
+ * external provider's session deadline is one source. It is the application's
+ * or a trusted adapter's to supply, never read from the request, and a sign-in
+ * whose deadline has already passed is refused as `session_expired`.
  *
  * @api
  *
@@ -44,6 +54,9 @@ final readonly class SignInContext
     /** @var ?string Cleaned platform the client reported. */
     public ?string $platform;
 
+    /** @var ?\Carbon\CarbonImmutable Latest the session may last, cut to the whole second. */
+    public ?CarbonImmutable $notAfter;
+
     /**
      * Constructor.
      *
@@ -52,6 +65,7 @@ final readonly class SignInContext
      * @param  ?string  $platform
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?string  $refreshToken
+     * @param  ?\Carbon\CarbonInterface  $notAfter
      */
     public function __construct(
 
@@ -69,13 +83,48 @@ final readonly class SignInContext
 
         /** Refresh token of the client's previous session, which the sign-in replaces when it proves it. */
         #[\SensitiveParameter] public ?string $refreshToken = null,
+
+        // Latest the session may last, such as a provider's session deadline.
+        ?CarbonInterface $notAfter = null,
     ) {
         $this->clientName = ClientText::clean($clientName, self::DESCRIPTION_MAX_LENGTH);
         $this->platform   = ClientText::clean($platform, self::DESCRIPTION_MAX_LENGTH);
+        $this->notAfter   = $notAfter === null ? null : CarbonImmutable::instance($notAfter)->startOfSecond();
     }
 
     /**
-     * Read the context of a sign-in from its request.
+     * The same context with the deadline capped at `$notAfter` too: the earlier
+     * of the two, either alone when the other is absent, none for neither. A
+     * deadline is only ever lowered this way.
+     *
+     * @param  ?\Carbon\CarbonInterface  $notAfter
+     * @return self
+     */
+    public function withNotAfter(?CarbonInterface $notAfter): self
+    {
+        $earliest = $notAfter === null || ($this->notAfter !== null && $this->notAfter->getTimestamp() <= $notAfter->getTimestamp())
+            ? $this->notAfter
+            : $notAfter;
+
+        return new self($this->client, $this->clientName, $this->platform, $this->principal, $this->refreshToken, $earliest);
+    }
+
+    /**
+     * Whether the deadline has been reached at the given time: a session must
+     * end after it starts, so a sign-in whose deadline is this second or
+     * earlier cannot start one. A context without a deadline never has.
+     *
+     * @param  \Carbon\CarbonInterface  $at
+     * @return bool
+     */
+    public function hasPassedDeadline(CarbonInterface $at): bool
+    {
+        return $this->notAfter !== null && $this->notAfter->getTimestamp() <= $at->getTimestamp();
+    }
+
+    /**
+     * Read the context of a sign-in from its request, which never supplies a
+     * deadline.
      *
      * @param  \Illuminate\Http\Request  $request
      * @param  ?string  $clientName

@@ -20,11 +20,12 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 /**
  * Which sessions are live, and the listing of an identity's live sessions.
  *
- * A session is active while it is not revoked and both its idle and absolute
- * deadlines are still ahead: a deadline has passed from the second it names, as
- * on every other path. The listing reads the identity's `sessions()` relation
- * on the write connection, so it never shows a session a replica has not yet
- * seen revoked, and summarises each session without its digests.
+ * A session is active while it is not revoked and its idle deadline, and its
+ * absolute deadline when it has one, are still ahead: a deadline has passed
+ * from the second it names, as on every other path. The listing reads the
+ * identity's `sessions()` relation on the write connection, so it never shows a
+ * session a replica has not yet seen revoked, and summarises each session
+ * without its digests.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -54,9 +55,13 @@ final class ActiveSessions
     {
         $at = $session->fromDateTime($now);
 
+        $absolute = $session->qualifyColumn($session->getAbsoluteExpiresAtName());
+
         $query->whereNull($session->qualifyColumn($session->getRevokedAtName()))
             ->where($session->qualifyColumn($session->getIdleExpiresAtName()), '>', $at)
-            ->where($session->qualifyColumn($session->getAbsoluteExpiresAtName()), '>', $at);
+            ->where(static function (Builder $query) use ($absolute, $at): void {
+                $query->whereNull($absolute)->orWhere($absolute, '>', $at);
+            });
     }
 
     /**

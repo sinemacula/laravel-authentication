@@ -525,6 +525,85 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
+     * Rows of `[absolute lifetime or null, seconds from now to the context's
+     * deadline or null, seconds from now to the expected absolute deadline or
+     * null, seconds from now to the expected idle deadline]`.
+     *
+     * @return iterable<string, array{0: ?int, 1: ?int, 2: ?int, 3: int}>
+     */
+    public static function provideCaps(): iterable
+    {
+        yield from [
+            'the application limit alone'      => [120, null, 7200, 3600],
+            'a deadline before the limit'      => [120, 5400, 5400, 3600],
+            'a deadline before the idle limit' => [120, 1800, 1800, 1800],
+            'a deadline after the limit'       => [120, 9000, 7200, 3600],
+            'a deadline with no limit'         => [null, 5400, 5400, 3600],
+            'neither a deadline nor a limit'   => [null, null, null, 3600],
+        ];
+    }
+
+    /**
+     * A new session's absolute deadline is the earlier of the application's
+     * limit and the context's deadline, either alone, or none when there is
+     * neither, and its idle deadline never passes it; replacing a proven
+     * session caps the new one at the context's deadline the same way.
+     *
+     * @param  ?int  $absolute
+     * @param  ?int  $deadlineIn
+     * @param  ?int  $absoluteIn
+     * @param  int  $idleIn
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideCaps')]
+    public function testTheSessionIsCappedAtTheContextsDeadline(?int $absolute, ?int $deadlineIn, ?int $absoluteIn, int $idleIn): void
+    {
+        $identity  = $this->seedIdentity();
+        $lifetimes = new TokenLifetimes(5, 60, $absolute, 30);
+        $context   = $this->context()->withNotAfter($deadlineIn === null ? null : $this->now->addSeconds($deadlineIn));
+        $first     = $this->writer()->create($this->admitted($identity), 'password', 'email', $context, $lifetimes, $this->now, $context->client);
+        $proven    = Session::query()->whereKey($first->record->getKey())->firstOrFail();
+        $second    = $this->writer()->replace($this->admitted($identity)->on($proven), 'password', 'email', $context, $lifetimes, $this->now, $context->client);
+
+        self::assertNotNull($second);
+
+        foreach ([$first->record, $second->record] as $written) {
+
+            $record = Session::query()->whereKey($written->getKey())->firstOrFail();
+
+            self::assertSame($absoluteIn === null ? null : $this->now->getTimestamp() + $absoluteIn, $record->getAbsoluteExpiresAt()?->getTimestamp());
+            self::assertSame($this->now->getTimestamp() + $idleIn, $record->getIdleExpiresAt()?->getTimestamp());
+        }
+    }
+
+    /**
+     * The writer refuses a context whose deadline is the session's start or
+     * earlier, before writing anything: establishment refuses such a sign-in
+     * first, so this only guards the writer's own contract.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testCreateRefusesADeadlineThatIsNotAfterTheStart(): void
+    {
+        $identity = $this->seedIdentity();
+        $context  = $this->context()->withNotAfter($this->now);
+
+        try {
+            $this->writer()->create($this->admitted($identity), 'password', 'email', $context, $this->lifetimes(), $this->now, $context->client);
+
+            self::fail('Expected the writer to refuse the deadline.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertSame('Cannot start a session whose deadline is not after its start.', $exception->getMessage());
+        }
+
+        self::assertSame(0, Session::query()->count());
+    }
+
+    /**
      * Configure the guards.
      *
      * @param  mixed  $app

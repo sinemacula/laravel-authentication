@@ -141,8 +141,9 @@ final class JwtTokenService
      * part of its context: the identity and principal, the tenant when one is
      * given, and the session when one is given, must each have an identifier
      * that can be written into its claim (a saved model's scalar key). Refuses,
-     * too, a session that has ended or that has no deadlines, and a non-human
-     * identity: a machine gets tokens only from a client credentials exchange.
+     * too, a session that has ended or that has no idle deadline, and a
+     * non-human identity: a machine gets tokens only from a client credentials
+     * exchange.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -204,17 +205,17 @@ final class JwtTokenService
      * Encode a refresh-token payload bound to a specific session.
      *
      * The token expires at the session's idle deadline, and never after its
-     * absolute deadline: the session row is the source of truth for how long
-     * the session lasts, and the token mirrors it. `$issuedAt` (default now,
-     * cut to the whole second) sets `iat`.
+     * absolute deadline when it has one: the session row is the source of truth
+     * for how long the session lasts, and the token mirrors it. `$issuedAt`
+     * (default now, cut to the whole second) sets `iat`.
      *
      * The caller MUST hash the supplied plaintext `$rotationId` before
      * persisting it on the session row. Refuses to issue a token that `parse()`
      * would reject or that would lose its principal: the session, and the
      * principal when one is given, must each have an identifier that can be
      * written into its claim, and the rotation id must not be empty. Refuses,
-     * too, a session that has ended or that has no deadlines, and a session a
-     * non-human identity owns, or a non-human principal: a machine has no
+     * too, a session that has ended or that has no idle deadline, and a session
+     * a non-human identity owns, or a non-human principal: a machine has no
      * session and no refresh.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
@@ -398,9 +399,10 @@ final class JwtTokenService
 
     /**
      * Return when the session ends, the earlier of its idle and absolute
-     * deadlines, refusing to issue for a session that has ended at the issue
-     * time or that has no deadlines: a token for it could never be used, and
-     * must not be able to extend a session that is over.
+     * deadlines (the idle one alone when it has no absolute one), refusing to
+     * issue for a session that has ended at the issue time or that has no idle
+     * deadline: a token for it could never be used, and must not be able to
+     * extend a session that is over.
      *
      * The deadlines are read inside `WriteConnection::during()` for the
      * session, so a session that derives one from another table caps its tokens
@@ -414,10 +416,8 @@ final class JwtTokenService
      */
     private function sessionEnd(Session $session, CarbonInterface $issuedAt): CarbonImmutable
     {
-        [$idle, $absolute] = WriteConnection::during($session, static fn (): ?array => SessionDeadlines::liveDeadlines($session, $issuedAt))
-            ?? throw new \InvalidArgumentException('Cannot issue a token for a session that has ended or that has no idle and absolute deadlines.');
-
-        return CarbonImmutable::createFromTimestamp(min($idle->getTimestamp(), $absolute->getTimestamp()));
+        return WriteConnection::during($session, static fn (): ?CarbonImmutable => SessionDeadlines::liveEnd($session, $issuedAt))
+            ?? throw new \InvalidArgumentException('Cannot issue a token for a session that has ended or that has no idle deadline.');
     }
 
     /**

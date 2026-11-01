@@ -69,6 +69,10 @@ return new class extends Migration {
             // factor cannot be guessed by signing in again.
             $blueprint->text('attempt_windows')->nullable();
 
+            // The deadline the sign-in supplied for its session, if any, so a
+            // completion caps the session at it and refuses once it passed.
+            $blueprint->dateTime('not_after', 0)->nullable();
+
             $blueprint->dateTime('expires_at', 0);
             $blueprint->datetimes(0);
 

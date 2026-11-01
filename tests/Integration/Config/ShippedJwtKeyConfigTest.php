@@ -291,6 +291,31 @@ final class ShippedJwtKeyConfigTest extends TestCase
     }
 
     /**
+     * `AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES=null` reads as an
+     * explicit `null`, so a guard on the shipped config sets no absolute limit,
+     * while its idle lifetime stays the default.
+     *
+     * @return void
+     */
+    public function testShippedAbsoluteLifetimeReadsNullFromEnv(): void
+    {
+        $this->putTokenSettings();
+        putenv('AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES=null');
+
+        $jwt = $this->shippedJwtConfig();
+
+        self::assertArrayHasKey('refresh_absolute_ttl_minutes', $jwt);
+        self::assertNull($jwt['refresh_absolute_ttl_minutes']);
+
+        config()->set('authentication.jwt', $jwt);
+
+        $lifetimes = $this->shippedService()->lifetimes();
+
+        self::assertNull($lifetimes->refreshAbsoluteTtlMinutes);
+        self::assertSame(60 * 24 * 90, $lifetimes->refreshIdleTtlMinutes);
+    }
+
+    /**
      * A lifetime in the environment that is not a whole number fails closed
      * when the guard is resolved, rather than being cast to some integer.
      *

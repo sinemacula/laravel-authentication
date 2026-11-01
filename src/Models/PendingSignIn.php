@@ -48,6 +48,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * @property ?string $proven_session_id
  * @property ?string $proven_session_refresh_key
  * @property ?list<array<string, string>> $attempt_windows
+ * @property ?\Carbon\CarbonInterface $not_after
  * @property \Carbon\CarbonInterface $expires_at
  */
 final class PendingSignIn extends Model
@@ -111,6 +112,7 @@ final class PendingSignIn extends Model
     {
         return [
             'attempt_windows' => 'array',
+            'not_after'       => 'datetime',
             'expires_at'      => 'datetime',
         ];
     }

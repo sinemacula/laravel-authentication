@@ -173,7 +173,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
         $this->moveClockTo($idle);
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Cannot issue a token for a session that has ended or that has no idle and absolute deadlines.');
+        $this->expectExceptionMessage('Cannot issue a token for a session that has ended or that has no idle deadline.');
 
         $this->issue($type, $identity, $session);
     }

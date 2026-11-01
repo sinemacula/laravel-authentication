@@ -22,18 +22,22 @@ other rotated token as a replay that revokes the session.
   every session timestamp is stored at). Every check, every value written, and both issued tokens' `iat` use it, so a
   request that later waits on a row lock is still judged at the moment it started. Application servers are expected to
   keep synchronised clocks.
-- A session has an idle and an absolute deadline, both required. A session has ended from the second either
-  deadline names, or when either is missing (`SessionDeadlines::hasEnded()`, the one rule shared by refresh, the bearer
-  path, sign-in pins, and issuance). A rotation moves the idle deadline to `idleDeadline($now, absolute)`, the idle
-  lifetime from `$now` capped at the absolute deadline, and never writes the absolute deadline, so it is kept across
-  rotations. A refresh token expires at the earlier of the two deadlines, and an access token after the access lifetime
-  but never after the earlier of the two deadlines, from which the bearer path rejects it, so no token outlives its
-  session even when the idle lifetime is shorter than the access lifetime.
+- A session has an idle deadline, required, and an absolute deadline, which is `null` when the application sets no
+  absolute limit and the sign-in supplied no deadline of its own. A session has ended from the second either deadline
+  names, or when the idle one is missing (`SessionDeadlines::hasEnded()`, the one rule shared by refresh, the bearer
+  path, sign-in pins, and issuance); one with no absolute deadline ends only when it goes idle. A rotation moves the
+  idle deadline to `idleDeadline($now, absolute)`, the idle lifetime from `$now` capped at the absolute deadline when
+  there is one, and never writes the absolute deadline, so it is kept across rotations, `null` included: a refresh
+  never adds or extends one. A refresh token expires at the earlier of the two deadlines (the idle one alone without an
+  absolute one), and an access token after the access lifetime but never after the session's end, from which the
+  bearer path rejects it, so no token outlives its session even when the idle lifetime is shorter than the access
+  lifetime.
 - The rotation is a single compare-and-swap `UPDATE` on the session's own connection that applies only while the row
   still holds the presented id as current, is not revoked, and has both deadlines exactly as they were loaded (equality
-  on the raw stored values, exact because the columns are whole-second). It records the presented digest as previous,
-  `$now` as the rotation time, the successor's digest as current, and the new idle deadline. There is never more than
-  one swap per exchange.
+  on the raw stored values, exact because the columns are whole-second; a `null` absolute deadline is matched as `IS
+  NULL`, which the query builder writes for a `null` value, on SQLite, PostgreSQL and MySQL alike). It records the
+  presented digest as previous, `$now` as the rotation time, the successor's digest as current, and the new idle
+  deadline. There is never more than one swap per exchange.
 - The new pair is issued before the swap, and returned only once the swap has committed. A failure while issuing
   (signing, randomness, an identifier that cannot be read) therefore happens before anything is written and leaves the
   presented refresh token valid.

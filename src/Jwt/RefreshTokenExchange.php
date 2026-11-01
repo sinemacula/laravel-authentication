@@ -402,13 +402,13 @@ final readonly class RefreshTokenExchange
      * pair for it.
      *
      * The new idle deadline is the idle lifetime the application policy gives
-     * the guard, from `$now`, never past the absolute deadline, which a
-     * rotation never moves. Both tokens are issued at `$now`, the time the
-     * session was judged at, before anything is written, so a failure while
-     * issuing (signing, randomness, an identifier that cannot be read) leaves
-     * the presented refresh token valid. The pair is only returned once the
-     * compare-and-swap has committed; when the swap misses, the row changed
-     * under the exchange and is judged again.
+     * the guard, from `$now`, never past the absolute deadline when the session
+     * has one, which a rotation never moves (and never adds). Both tokens are
+     * issued at `$now`, the time the session was judged at, before anything is
+     * written, so a failure while issuing (signing, randomness, an identifier
+     * that cannot be read) leaves the presented refresh token valid. The pair
+     * is only returned once the compare-and-swap has committed; when the swap
+     * misses, the row changed under the exchange and is judged again.
      *
      * @formatter:off
      *
@@ -418,7 +418,7 @@ final readonly class RefreshTokenExchange
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $session
      * @param  string  $rotationId
      * @param  \Carbon\CarbonImmutable  $now
-     * @param  \Carbon\CarbonInterface  $absolute
+     * @param  ?\Carbon\CarbonInterface  $absolute
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
      *
@@ -436,7 +436,7 @@ final readonly class RefreshTokenExchange
         Admitted $session,
         #[\SensitiveParameter] string $rotationId,
         CarbonImmutable $now,
-        CarbonInterface $absolute,
+        ?CarbonInterface $absolute,
         ClientContext $client,
     ): AuthenticationFailed|ExchangedRefresh {
         $next = RefreshTokenHasher::successor($rotationId);

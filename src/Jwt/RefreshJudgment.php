@@ -35,14 +35,14 @@ final class RefreshJudgment
      * Judge the presented rotation id against the session at `$now`.
      *
      * In order: a revoked session fails as `session_revoked`; a session past
-     * either deadline, or without one, as `session_expired` (an ended session
-     * is not revoked: it simply cannot be refreshed); a session holding no
-     * refresh credential as `refresh_key_missing`. Only then is the rotation id
-     * compared, in constant time: the current one, with the absolute deadline
-     * the rotation keeps; the previous one inside the grace window; or anything
-     * else, which is a replay (`rotation_reuse`). Nothing is compared before
-     * the session is known to be live, so such a row cannot be used to
-     * time-probe the valid rotation-id space.
+     * either deadline, or without an idle one, as `session_expired` (an ended
+     * session is not revoked: it simply cannot be refreshed); a session holding
+     * no refresh credential as `refresh_key_missing`. Only then is the rotation
+     * id compared, in constant time: the current one, with the absolute
+     * deadline the rotation keeps (`null` for none); the previous one inside
+     * the grace window; or anything else, which is a replay (`rotation_reuse`).
+     * Nothing is compared before the session is known to be live, so such a row
+     * cannot be used to time-probe the valid rotation-id space.
      *
      * The session's state is read inside `WriteConnection::during()` for the
      * session, so a session that derives any of it from a relation or another
@@ -54,7 +54,7 @@ final class RefreshJudgment
      * @param  string  $rotationId
      * @param  \Carbon\CarbonImmutable  $now
      * @param  \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  $lifetimes
-     * @return array{0: \SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch, 1: \Carbon\CarbonInterface}|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     * @return array{0: \SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch, 1: ?\Carbon\CarbonInterface}|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      *
      * @formatter:on
      *

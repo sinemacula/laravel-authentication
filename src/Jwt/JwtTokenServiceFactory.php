@@ -20,9 +20,11 @@ use SineMacula\Laravel\Authentication\Config\IntegerSetting;
  * `config/authentication.php`; nothing here falls back to a literal. A value
  * missing at both levels, of the wrong type, or out of range fails closed with
  * an `InvalidJwtConfigurationException`, at either level: a malformed guard
- * override is never ignored in favour of the package value. `issuer` and
- * `audience` are required too: every token carries them and every parse checks
- * them, so a guard with neither set at either level fails closed.
+ * override is never ignored in favour of the package value. Only the absolute
+ * session lifetime may be `null`, explicitly, at either level, for no absolute
+ * limit. `issuer` and `audience` are required too: every token carries them and
+ * every parse checks them, so a guard with neither set at either level fails
+ * closed.
  *
  * Each guard's service is built on first use and kept for the factory's life, a
  * container singleton's, so a later change to the configuration does not reach
@@ -134,7 +136,7 @@ final class JwtTokenServiceFactory
         return new TokenLifetimes(
             $this->resolveJwtInteger($guard, $guardJwtConfig, 'access_ttl_minutes', TokenLifetimes::MIN_TTL_MINUTES, TokenLifetimes::MAX_ACCESS_TTL_MINUTES),
             $this->resolveJwtInteger($guard, $guardJwtConfig, 'refresh_idle_ttl_minutes', TokenLifetimes::MIN_TTL_MINUTES, TokenLifetimes::MAX_REFRESH_TTL_MINUTES),
-            $this->resolveJwtInteger($guard, $guardJwtConfig, 'refresh_absolute_ttl_minutes', TokenLifetimes::MIN_TTL_MINUTES, TokenLifetimes::MAX_REFRESH_TTL_MINUTES),
+            $this->resolveAbsoluteTtl($guard, $guardJwtConfig),
             $this->resolveJwtInteger($guard, $guardJwtConfig, 'refresh_grace_seconds', 0, TokenLifetimes::MAX_GRACE_SECONDS),
         );
     }
@@ -316,6 +318,44 @@ final class JwtTokenServiceFactory
 
             $message = "JWT `{$key}` for guard [{$guard}] must be an integer from {$min} to {$max}:"
                 . " set `authentication.jwt.{$key}` or the guard's `jwt.{$key}` override.";
+
+            throw new InvalidJwtConfigurationException($message);
+        }
+
+        return $integer;
+    }
+
+    /**
+     * Resolve the absolute session lifetime, which may be explicitly `null` for
+     * no absolute limit: a per-guard override that is present wins, `null`
+     * included, so a guard can lift a limit the package value sets; otherwise
+     * the package value, `null` included. A value missing at both levels fails
+     * closed rather than reading as no limit, and so does any other value that
+     * is not an integer (or a string of digits) within the range.
+     *
+     * @param  string  $guard
+     * @param  array<string, mixed>  $guardJwtConfig
+     * @return ?int
+     *
+     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
+     */
+    private function resolveAbsoluteTtl(string $guard, #[\SensitiveParameter] array $guardJwtConfig): ?int
+    {
+        $key     = 'refresh_absolute_ttl_minutes';
+        $package = $this->config->get('authentication.jwt');
+        $present = array_key_exists($key, $guardJwtConfig) || (is_array($package) && array_key_exists($key, $package));
+        $value   = array_key_exists($key, $guardJwtConfig) ? $guardJwtConfig[$key] : $this->config->get("authentication.jwt.{$key}");
+        $integer = IntegerSetting::parse($value);
+
+        if ($present && $value === null) {
+            return null;
+        }
+
+        if ($integer === null || $integer < TokenLifetimes::MIN_TTL_MINUTES || $integer > TokenLifetimes::MAX_REFRESH_TTL_MINUTES) {
+
+            $message = "JWT `{$key}` for guard [{$guard}] must be null (no absolute limit) or an integer from"
+                . ' ' . TokenLifetimes::MIN_TTL_MINUTES . ' to ' . TokenLifetimes::MAX_REFRESH_TTL_MINUTES
+                . ": set `authentication.jwt.{$key}` or the guard's `jwt.{$key}` override.";
 
             throw new InvalidJwtConfigurationException($message);
         }

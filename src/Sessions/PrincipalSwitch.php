@@ -55,8 +55,9 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * method still allowed; and the additional-factor policy, which may not ask for
  * a further factor (sign in again as the target then).
  *
- * A switch keeps the session's absolute clock, restarts the idle one, and
- * writes in one compare-and-swap.
+ * A switch keeps the session's absolute clock (it only ever lowers the absolute
+ * deadline, to the guard's absolute lifetime from the sign-in, and never adds
+ * or extends one), restarts the idle one, and writes in one compare-and-swap.
  *
  * One switch is one instance, built with the guard's context, the client and
  * the target when the switch runs.
@@ -329,9 +330,9 @@ final readonly class PrincipalSwitch
         $deadlines = $this->deadlines($session, $now);
 
         $refusal = match (true) {
-            !IdentifierCoercion::matches($session->getRawOriginal($id), $presented[1]) => FailureReason::SESSION_PRINCIPAL_MISMATCH,
-            $deadlines[1]->getTimestamp() <= $now->getTimestamp()                      => FailureReason::SESSION_EXPIRED,
-            default                                                                    => null,
+            !IdentifierCoercion::matches($session->getRawOriginal($id), $presented[1])      => FailureReason::SESSION_PRINCIPAL_MISMATCH,
+            $deadlines[1] !== null && $deadlines[1]->getTimestamp() <= $now->getTimestamp() => FailureReason::SESSION_EXPIRED,
+            default                                                                         => null,
         };
 
         return $refusal === null
@@ -346,7 +347,7 @@ final readonly class PrincipalSwitch
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  array{0: string, 1: mixed}  $presented
-     * @param  array{0: \Carbon\CarbonImmutable, 1: \Carbon\CarbonImmutable}  $deadlines
+     * @param  array{0: \Carbon\CarbonImmutable, 1: ?\Carbon\CarbonImmutable}  $deadlines
      * @param  \Carbon\CarbonImmutable  $now
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
      *
@@ -365,7 +366,7 @@ final readonly class PrincipalSwitch
         $next        = RefreshTokenHasher::successor($presented[0]);
 
         // Both tokens end with the session, now at its restarted idle deadline,
-        // which is never after the absolute one.
+        // which is never after the absolute one when there is one.
         $session->setAttribute($session->getIdleExpiresAtName(), $deadlines[0]);
 
         $tokens = $this->issue($admitted, $session, $next, $now);
@@ -459,22 +460,24 @@ final readonly class PrincipalSwitch
 
     /**
      * The session's deadlines after the switch, idle then absolute: the
-     * absolute one kept, held to the guard's absolute lifetime counted from the
-     * sign-in (so a lifetime shortened since then applies and a switch never
-     * extends the session), and the idle one restarted from `$now` within it.
+     * absolute one the earlier of the stored one and the guard's absolute
+     * lifetime counted from the sign-in, either alone when the other is absent
+     * (so a lifetime set or shortened since then applies, and a switch never
+     * extends the session), `null` for neither; and the idle one restarted from
+     * `$now` within it.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \Carbon\CarbonImmutable  $now
-     * @return array{0: \Carbon\CarbonImmutable, 1: \Carbon\CarbonImmutable}
+     * @return array{0: \Carbon\CarbonImmutable, 1: ?\Carbon\CarbonImmutable}
      *
      * @throws \Throwable
      */
     private function deadlines(EloquentSession&Model $session, CarbonImmutable $now): array
     {
         $lifetimes = Container::getInstance()->make(ApplicationPolicy::class)->lifetimes($this->context->name());
-        $stored    = CarbonImmutable::instance($session->getAbsoluteExpiresAt() ?? $now);
+        $stored    = $session->getAbsoluteExpiresAt();
         $signedIn  = $session->getSignedInAt();
-        $absolute  = $signedIn === null ? $stored : $stored->min($lifetimes->absoluteDeadline($signedIn));
+        $absolute  = $signedIn === null ? $stored?->toImmutable() : $lifetimes->absoluteDeadline($signedIn, $stored);
 
         return [$lifetimes->idleDeadline($now, $absolute), $absolute];
     }

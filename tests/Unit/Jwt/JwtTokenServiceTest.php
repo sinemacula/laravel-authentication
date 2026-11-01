@@ -659,6 +659,21 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
+     * A refresh token of a session with no absolute deadline expires at its
+     * idle deadline, however far ahead.
+     *
+     * @return void
+     */
+    public function testRefreshTokenOfASessionWithoutAnAbsoluteDeadlineExpiresAtItsIdleDeadline(): void
+    {
+        $record = $this->mockSessionEndingAt('session-42', $this->now->copy()->addDays(400), null);
+
+        $claims = $this->refreshClaims($this->makeService()->issueRefreshToken($record, 'rotation-id'));
+
+        self::assertSame($this->now->getTimestamp() + (400 * 86400), $claims[Claims::EXPIRES_AT->value]);
+    }
+
+    /**
      * A refresh token never expires after the session's absolute deadline, even
      * when the stored idle deadline lies beyond it.
      *
@@ -763,13 +778,14 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
             'absolute reached this second' => [3600, 0],
             'absolute passed'              => [3600, -60],
             'no idle deadline'             => [null, 86400],
-            'no absolute deadline'         => [3600, null],
+            'no deadlines'                 => [null, null],
+            'no absolute, idle reached'    => [0, null],
         ];
     }
 
     /**
-     * No access token is issued for a session that has ended or has no
-     * deadlines: it could never be used, and a token must not outlive its
+     * No access token is issued for a session that has ended or has no idle
+     * deadline: it could never be used, and a token must not outlive its
      * session.
      *
      * @param  ?int  $idleIn
@@ -784,14 +800,14 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $record = $this->mockSessionEndingAt('session-42', $this->secondsFromNow($idleIn), $this->secondsFromNow($absoluteIn));
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Cannot issue a token for a session that has ended or that has no idle and absolute deadlines.');
+        $this->expectExceptionMessage('Cannot issue a token for a session that has ended or that has no idle deadline.');
 
         $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, $record);
     }
 
     /**
-     * No refresh token is issued for a session that has ended or has no
-     * deadlines, so issuing cannot extend a session that is over.
+     * No refresh token is issued for a session that has ended or has no idle
+     * deadline, so issuing cannot extend a session that is over.
      *
      * @param  ?int  $idleIn
      * @param  ?int  $absoluteIn
@@ -803,7 +819,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $record = $this->mockSessionEndingAt('session-42', $this->secondsFromNow($idleIn), $this->secondsFromNow($absoluteIn));
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Cannot issue a token for a session that has ended or that has no idle and absolute deadlines.');
+        $this->expectExceptionMessage('Cannot issue a token for a session that has ended or that has no idle deadline.');
 
         $this->makeService()->issueRefreshToken($record, 'rotation-id');
     }

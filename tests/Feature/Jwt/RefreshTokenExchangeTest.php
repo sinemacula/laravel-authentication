@@ -824,22 +824,23 @@ final class RefreshTokenExchangeTest extends TestCase
 
     /**
      * Rows of `[idle deadline, absolute deadline]` for sessions that have ended
-     * or never had deadlines, relative to the frozen clock in seconds.
+     * or have no idle deadline, relative to the frozen clock in seconds.
      *
      * @return iterable<string, array{0: ?int, 1: ?int}>
      */
     public static function provideEndedSessions(): iterable
     {
         yield from [
-            'idle reached'         => [0, 3600],
-            'absolute reached'     => [3600, 0],
-            'no idle deadline'     => [null, 3600],
-            'no absolute deadline' => [3600, null],
+            'idle reached'              => [0, 3600],
+            'absolute reached'          => [3600, 0],
+            'no idle deadline'          => [null, 3600],
+            'no deadlines'              => [null, null],
+            'no absolute, idle reached' => [0, null],
         ];
     }
 
     /**
-     * A session that has ended, or that has no deadlines, fails as
+     * A session that has ended, or that has no idle deadline, fails as
      * `session_expired` before its owner is loaded or its digest compared, and
      * nothing is written: the session is not revoked.
      *
@@ -931,6 +932,41 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame($expectedIdle, $result->record->getIdleExpiresAt()?->getTimestamp());
         self::assertFalse($result->record->isDirty());
         self::assertSame([], $this->dispatched);
+    }
+
+    /**
+     * Refreshing a session with no absolute deadline rotates it with the same
+     * compare-and-swap, matching the absent deadline as such, moves its idle
+     * deadline the full idle lifetime, and adds no absolute deadline.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testExchangeRotatesASessionWithoutAnAbsoluteDeadline(): void
+    {
+        $session = $this->seedSession(32, [
+            'refresh_key'         => RefreshTokenHasher::hash(self::ROTATION_ID),
+            'idle_expires_at'     => $this->now->copy()->addMinute(),
+            'absolute_expires_at' => null,
+        ]);
+
+        $this->expectRefreshContext(32);
+        $this->recordEvents();
+
+        $result = $this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client());
+
+        self::assertInstanceOf(ExchangedRefresh::class, $result);
+
+        $expectedIdle = $this->now->getTimestamp() + (self::REFRESH_TTL * 60);
+        $stored       = StubSession::query()->findOrFail($session->id);
+
+        self::assertSame(RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)), $stored->refresh_key);
+        self::assertSame($expectedIdle, $stored->idle_expires_at?->getTimestamp());
+        self::assertNull($stored->absolute_expires_at);
+        self::assertNull($result->record->getAbsoluteExpiresAt());
+        self::assertSame($expectedIdle, $this->refreshClaims($result->tokens->refreshToken)[Claims::EXPIRES_AT->value]);
     }
 
     /**

@@ -219,13 +219,13 @@ Each guard issues access tokens and keeps sessions for these lifetimes, set in t
 in a guard's `jwt` block. The defaults are 5 minutes for access tokens, and 90 days idle and 180 days absolute for
 sessions:
 
-| Key                            | Default | Range        | Env                                               |
-|--------------------------------|---------|--------------|---------------------------------------------------|
-| `access_ttl_minutes`           | 5       | 1 to 1440    | `AUTHENTICATION_JWT_ACCESS_TTL_MINUTES`           |
-| `refresh_idle_ttl_minutes`     | 129600  | 1 to 5256000 | `AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES`     |
-| `refresh_absolute_ttl_minutes` | 259200  | 1 to 5256000 | `AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES` |
-| `refresh_grace_seconds`        | 30      | 0 to 300     | `AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS`        |
-| `leeway_seconds`               | 30      | 0 to 300     | `AUTHENTICATION_JWT_LEEWAY_SECONDS`               |
+| Key                            | Default | Range                            | Env                                               |
+|--------------------------------|---------|----------------------------------|---------------------------------------------------|
+| `access_ttl_minutes`           | 5       | 1 to 1440                        | `AUTHENTICATION_JWT_ACCESS_TTL_MINUTES`           |
+| `refresh_idle_ttl_minutes`     | 129600  | 1 to 5256000                     | `AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES`     |
+| `refresh_absolute_ttl_minutes` | 259200  | 1 to 5256000, or `null` for none | `AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES` |
+| `refresh_grace_seconds`        | 30      | 0 to 300                         | `AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS`        |
+| `leeway_seconds`               | 30      | 0 to 300                         | `AUTHENTICATION_JWT_LEEWAY_SECONDS`               |
 
 A session ends at its idle deadline unless a refresh moves that deadline forward, and at its absolute deadline however
 often it is refreshed: each refresh sets the idle deadline to the idle lifetime from now, never past the absolute
@@ -233,8 +233,20 @@ deadline, and never moves the absolute deadline. Tokens mirror the session: a re
 idle deadline, and an access token after the access lifetime but never after the session's idle or absolute deadline.
 With an idle lifetime shorter than the access lifetime, access tokens therefore expire at the idle deadline, together
 with the refresh token, so clients must refresh before their access token expires. A session past either deadline, or
-without one, is over everywhere: its access tokens are rejected (with no leeway), it cannot be pinned on sign-in, it
-cannot be refreshed (`session_expired`), and no token can be issued for it. It is ended, not revoked.
+without an idle one, is over everywhere: its access tokens are rejected (with no leeway), it cannot be pinned on
+sign-in, it cannot be refreshed (`session_expired`), and no token can be issued for it. It is ended, not revoked.
+
+An application may set no absolute limit: set `refresh_absolute_ttl_minutes` to `null` explicitly, in the package block
+(`AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES=null`, which `env()` reads as `null`) or in a guard's `jwt` block,
+where a `null` override lifts the package's limit for that guard alone. Its sessions have no absolute deadline
+(`absolute_expires_at` is `null`) and end only when they go idle, are revoked, or reach a deadline their sign-in
+supplied (below); a refresh never adds one, and a switch of principal adds one only when the guard has set a limit since
+the sign-in, counted from it. The idle lifetime is always required, and an absolute lifetime missing at both levels
+fails closed rather than reading as none.
+
+A sign-in may supply a deadline of its own, such as an external provider's session deadline, on its `SignInContext`
+(see [Signing in](signing-in.md#a-sign-ins-own-deadline)): the session's absolute deadline is then the earlier of it
+and the application's limit, or the deadline alone when the application sets none.
 
 A guard override that is present and not `null` wins; otherwise the package value applies. Each value must be an integer
 or a string of digits (as `env()` returns it) within its range. A value that is missing, malformed, or out of range
@@ -357,22 +369,22 @@ longer name gives index names that PostgreSQL cuts short without an error, or th
 
 A session is one sign-in, on one application, on one device. The shipped migration creates these columns:
 
-| Column                                                 | Holds                                                  |
-|--------------------------------------------------------|--------------------------------------------------------|
-| `id`                                                   | UUID v7 primary key, carried in every token as `sid`   |
-| `authenticatable_type`, `authenticatable_id`           | The owning identity (required)                         |
-| `principal_type`, `principal_id`                       | The principal the session acts as (any key type)       |
-| `principal_switched_at`                                | When the session last switched its principal           |
-| `guard`, `sign_in_method`                              | The guard and sign-in method that created it           |
-| `sign_in_identifier_type`                              | The type of identifier that sign-in used, if any       |
-| `client_name`, `platform`                              | What the client calls itself (`Work laptop`, `macOS`)  |
-| `created_ip`, `created_user_agent`                     | The client at sign-in                                  |
-| `last_used_at`, `last_used_ip`, `last_used_user_agent` | The client at the last use                             |
-| `refresh_key`, `previous_refresh_key`                  | Digests of the current and previous rotation ids       |
-| `refresh_rotated_at`                                   | When the current rotation id replaced the previous one |
-| `signed_in_at`                                         | When the session started (required)                    |
-| `idle_expires_at`, `absolute_expires_at`               | End without a refresh, and end regardless (required)   |
-| `revoked_at`, `revoked_reason`                         | When and why the session was revoked                   |
+| Column                                                 | Holds                                                                  |
+|--------------------------------------------------------|------------------------------------------------------------------------|
+| `id`                                                   | UUID v7 primary key, carried in every token as `sid`                   |
+| `authenticatable_type`, `authenticatable_id`           | The owning identity (required)                                         |
+| `principal_type`, `principal_id`                       | The principal the session acts as (any key type)                       |
+| `principal_switched_at`                                | When the session last switched its principal                           |
+| `guard`, `sign_in_method`                              | The guard and sign-in method that created it                           |
+| `sign_in_identifier_type`                              | The type of identifier that sign-in used, if any                       |
+| `client_name`, `platform`                              | What the client calls itself (`Work laptop`, `macOS`)                  |
+| `created_ip`, `created_user_agent`                     | The client at sign-in                                                  |
+| `last_used_at`, `last_used_ip`, `last_used_user_agent` | The client at the last use                                             |
+| `refresh_key`, `previous_refresh_key`                  | Digests of the current and previous rotation ids                       |
+| `refresh_rotated_at`                                   | When the current rotation id replaced the previous one                 |
+| `signed_in_at`                                         | When the session started (required)                                    |
+| `idle_expires_at`, `absolute_expires_at`               | End without a refresh (required), and end regardless (`null` for none) |
+| `revoked_at`, `revoked_reason`                         | When and why the session was revoked                                   |
 
 Every timestamp is a `datetime` stored to the whole second, so a deadline years ahead fits on every engine (MySQL's
 `timestamp` type ends in January 2038), and the table is indexed on the owner, the principal, the guard, both

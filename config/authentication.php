@@ -188,10 +188,16 @@ return [
         // lives `access_ttl_minutes` (1 to 1440). A session ends
         // `refresh_idle_ttl_minutes` after its last refresh, and in any case
         // `refresh_absolute_ttl_minutes` after it started (each 1 to 5256000,
-        // ten years). No token outlives its session: a refresh token, and an
+        // ten years), or earlier at a deadline its sign-in supplied. Set
+        // `refresh_absolute_ttl_minutes` to `null` explicitly (here, in a
+        // guard's override, or AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES
+        // =null) for no absolute limit: such a session ends only when it goes
+        // idle or reaches its sign-in's deadline. The idle lifetime is always
+        // required. No token outlives its session: a refresh token, and an
         // access token whose lifetime is longer, expire when it would. Values
         // must be integers, or digit strings as `env()` returns them; anything
-        // else fails closed when the guard is resolved.
+        // else, a missing absolute lifetime included, fails closed when the
+        // guard is resolved.
         'access_ttl_minutes'           => env('AUTHENTICATION_JWT_ACCESS_TTL_MINUTES', 5),
         'refresh_idle_ttl_minutes'     => env('AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES', 60 * 24 * 90),
         'refresh_absolute_ttl_minutes' => env('AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES', 60 * 24 * 180),

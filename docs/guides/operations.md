@@ -168,7 +168,8 @@ Passkeys are never pruned: one lasts until its owner removes it.
 Revoked and ended sessions are kept for audit: a session is pruned once it has been over for
 `session.prune_after_days` (default 30, from 0 to 3650), counted from when it was revoked or passed its idle or absolute
 deadline, whichever came first, never from when it was created, so a long session is kept as long after it ends as a
-short one. With 0, a session is pruned from the second it ends. The value must be an integer, or a digit string
+short one; a session with no absolute deadline is pruned once it went idle or was revoked. With 0, a session is pruned
+from the second it ends. The value must be an integer, or a digit string
 as `env()` returns one; anything else fails with an `InvalidArgumentException` when pruning runs. Each chunk is one
 conditional `DELETE`, and nothing is read.
 

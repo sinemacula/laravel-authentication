@@ -59,14 +59,17 @@ final class SessionDeadlinesTest extends TestCase
             'absolute reached this second' => [60, 0, true],
             'absolute passed'              => [60, -1, true],
             'no idle deadline'             => [null, 120, true],
-            'no absolute deadline'         => [60, null, true],
+            'no absolute deadline'         => [60, null, false],
+            'no absolute, idle reached'    => [0, null, true],
+            'no absolute, idle passed'     => [-1, null, true],
             'no deadlines'                 => [null, null, true],
         ];
     }
 
     /**
      * A session has ended from the second either deadline names, or when it has
-     * no deadline at all; fractions of a second do not count.
+     * no idle deadline; one with no absolute deadline ends only when it goes
+     * idle. Fractions of a second do not count.
      *
      * @param  ?int  $idleIn
      * @param  ?int  $absoluteIn
@@ -77,14 +80,52 @@ final class SessionDeadlinesTest extends TestCase
     public function testHasEndedAtEitherDeadlineOrWithoutOne(?int $idleIn, ?int $absoluteIn, bool $ended): void
     {
         $now     = $this->now->startOfSecond();
-        $session = $this->session($idleIn === null ? null : $now->addSeconds($idleIn), $absoluteIn === null ? null : $now->addSeconds($absoluteIn), 2);
+        $session = $this->session($idleIn === null ? null : $now->addSeconds($idleIn), $absoluteIn === null ? null : $now->addSeconds($absoluteIn), 3);
 
         self::assertSame($ended, SessionDeadlines::hasEnded($session, $this->now));
         self::assertSame($ended, SessionDeadlines::liveDeadlines($session, $this->now) === null);
+        self::assertSame($ended, SessionDeadlines::liveEnd($session, $this->now) === null);
     }
 
     /**
-     * A live session's deadlines are returned as the session reported them.
+     * Rows of `[seconds from now to the idle deadline, seconds from now to the
+     * absolute deadline or null, seconds from now to the end]` for live
+     * sessions.
+     *
+     * @return iterable<string, array{0: int, 1: ?int, 2: int}>
+     */
+    public static function provideLiveSessions(): iterable
+    {
+        yield from [
+            'idle first'           => [60, 120, 60],
+            'absolute first'       => [120, 60, 60],
+            'both at once'         => [60, 60, 60],
+            'no absolute deadline' => [60, null, 60],
+        ];
+    }
+
+    /**
+     * A live session ends at the earlier of its deadlines, its idle one alone
+     * when it has no absolute one, on whole seconds.
+     *
+     * @param  int  $idleIn
+     * @param  ?int  $absoluteIn
+     * @param  int  $endsIn
+     * @return void
+     */
+    #[DataProvider('provideLiveSessions')]
+    public function testLiveEndIsTheEarlierDeadline(int $idleIn, ?int $absoluteIn, int $endsIn): void
+    {
+        $now = $this->now->startOfSecond();
+        $end = SessionDeadlines::liveEnd($this->session($now->addSeconds($idleIn), $absoluteIn === null ? null : $now->addSeconds($absoluteIn)), $this->now);
+
+        self::assertSame($now->getTimestamp() + $endsIn, $end?->getTimestamp());
+        self::assertSame(0, $end->microsecond);
+    }
+
+    /**
+     * A live session's deadlines are returned as the session reported them, the
+     * absolute one `null` when it has none.
      *
      * @return void
      */
@@ -94,6 +135,7 @@ final class SessionDeadlinesTest extends TestCase
         $absolute = $this->now->addDay();
 
         self::assertSame([$idle, $absolute], SessionDeadlines::liveDeadlines($this->session($idle, $absolute), $this->now));
+        self::assertSame([$idle, null], SessionDeadlines::liveDeadlines($this->session($idle, null), $this->now));
     }
 
     /**

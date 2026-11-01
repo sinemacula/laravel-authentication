@@ -16,9 +16,11 @@ use SineMacula\Laravel\Authentication\Database\SessionRetention;
  *
  * Retention is counted from the time the session ended (the revocation or the
  * deadline), never from when the session was created, so a session is kept for
- * audit for the same time however long it lasted. A pruned session's tokens
- * fail as an unknown session, just as they already fail once it is revoked or
- * ended, so retention changes nothing about authentication.
+ * audit for the same time however long it lasted. A session with no absolute
+ * deadline is pruned once it goes idle or is revoked: a `null` absolute
+ * deadline never matches the absolute condition. A pruned session's tokens fail
+ * as an unknown session, just as they already fail once it is revoked or ended,
+ * so retention changes nothing about authentication.
  *
  * The trait composes `MassPrunable` and replaces its `prunable()`, so a model
  * opts in with this trait alone: using `MassPrunable` beside it would be a

@@ -67,7 +67,10 @@ is rejected as if the session were missing. The application policy is asked agai
 started the session (the session's `sign_in_method`) must still be one the guard allows (`method_not_allowed`; a session
 that records none fails too), and the policy must still admit the owner as the principal (`principal_ineligible`).
 Neither revokes the session, so the session refreshes again once the policy allows it. Each rotation moves the idle
-deadline by the idle lifetime the policy gives the guard.
+deadline by the idle lifetime the policy gives the guard, never past the session's absolute deadline, and never moves
+the absolute deadline: a session capped at its sign-in's own deadline stays capped, and one with no absolute deadline
+(an application that sets no absolute limit) gets none from a refresh. The new refresh token, and the cookie that
+carries it, expire at the session's end, its idle deadline alone when it has no absolute one.
 
 A refresh token is accepted only for the principal its session records. After a switch (see [Switching
 principal](sessions.md#switching-principal)), the refresh token of the principal switched from fails with

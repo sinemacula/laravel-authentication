@@ -169,6 +169,7 @@ final class ApplicationPolicyIntegrationTest extends TestCase
         $absolute   = $lifetimes->absoluteDeadline(Carbon::now());
 
         self::assertInstanceOf(TypedIdentity::class, $identity);
+        self::assertNotNull($absolute);
         self::assertSame(Carbon::now()->addDay()->getTimestamp(), $absolute->getTimestamp());
 
         $record = new Session;

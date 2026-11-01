@@ -926,6 +926,61 @@ final class PrincipalSwitchTest extends TestCase
     }
 
     /**
+     * A switch of a session with no absolute deadline, under a guard that sets
+     * no absolute limit, adds none: the session still ends only when it goes
+     * idle, its idle deadline restarted from the switch.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchAddsNoAbsoluteDeadline(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $this->bindLifetimes(new TokenLifetimes(5, 60, null, 30));
+
+        $session = $this->signIn();
+
+        self::assertNull(DB::table('authentication_sessions')->value('absolute_expires_at'));
+
+        $this->advance(60);
+
+        $switched = $this->switched($session, $second);
+
+        self::assertNull($switched->record->getAbsoluteExpiresAt());
+        self::assertNull(DB::table('authentication_sessions')->value('absolute_expires_at'));
+        self::assertSame($this->now->addMinutes(60)->toDateTimeString(), $this->storedTime('idle_expires_at'));
+    }
+
+    /**
+     * A session that started with no absolute deadline is held, at its next
+     * switch, to an absolute limit the guard set since, counted from the
+     * sign-in: a switch only ever lowers the absolute deadline.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALimitSetSinceTheSignInLowersTheSwitchedSession(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $this->bindLifetimes(new TokenLifetimes(5, 60, null, 30), new TokenLifetimes(5, 60, 10, 30));
+
+        $session = $this->signIn();
+        $signIn  = $this->now;
+
+        $this->advance(60);
+
+        $switched = $this->switched($session, $second);
+
+        self::assertSame($signIn->addMinutes(10)->getTimestamp(), $switched->record->getAbsoluteExpiresAt()?->getTimestamp());
+        self::assertSame($signIn->addMinutes(10)->toDateTimeString(), $this->storedTime('absolute_expires_at'));
+        self::assertSame($signIn->addMinutes(10)->toDateTimeString(), $this->storedTime('idle_expires_at'));
+    }
+
+    /**
      * A session the guard's shortened absolute lifetime has ended fails as
      * `session_expired` from the second of that deadline, although the deadline
      * it stored when it started under the longer lifetime is still ahead, and
@@ -1160,6 +1215,25 @@ final class PrincipalSwitchTest extends TestCase
         self::assertIsInt($expiry);
 
         return $expiry;
+    }
+
+    /**
+     * Bind an application policy that allows and admits everything and gives
+     * the guard the lifetimes, in turn, the last one from then on.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  $first
+     * @param  \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  ...$then
+     * @return void
+     */
+    private function bindLifetimes(TokenLifetimes $first, TokenLifetimes ...$then): void
+    {
+        $policy = \Mockery::mock(ApplicationPolicy::class);
+        $policy->shouldReceive('allowsMethod')->andReturnTrue();
+        $policy->shouldReceive('admitIdentifier')->andReturnNull();
+        $policy->shouldReceive('admit')->andReturnNull();
+        $policy->shouldReceive('lifetimes')->with(self::GUARD)->andReturn($first, ...$then);
+
+        app()->instance(ApplicationPolicy::class, $policy);
     }
 
     /**

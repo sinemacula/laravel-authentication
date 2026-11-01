@@ -156,8 +156,9 @@ final readonly class RefreshTokenTransport
     }
 
     /**
-     * When the session ends, the earlier of its deadlines, read on the write
-     * connection, as the refresh token's own `exp` is.
+     * When the session ends, the earlier of its deadlines (the idle one alone
+     * when it has no absolute one), read on the write connection, as the
+     * refresh token's own `exp` is.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return \Carbon\CarbonImmutable
@@ -166,10 +167,8 @@ final readonly class RefreshTokenTransport
      */
     private static function sessionEnd(Session $session): CarbonImmutable
     {
-        [$idle, $absolute] = WriteConnection::during($session, static fn (): ?array => SessionDeadlines::liveDeadlines($session, Carbon::now()))
-            ?? throw new \InvalidArgumentException('Cannot set a refresh cookie for a session that has ended or that has no idle and absolute deadlines.');
-
-        return CarbonImmutable::createFromTimestamp(min($idle->getTimestamp(), $absolute->getTimestamp()));
+        return WriteConnection::during($session, static fn (): ?CarbonImmutable => SessionDeadlines::liveEnd($session, Carbon::now()))
+            ?? throw new \InvalidArgumentException('Cannot set a refresh cookie for a session that has ended or that has no idle deadline.');
     }
 
     /**

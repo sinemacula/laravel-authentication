@@ -74,7 +74,10 @@ return new class extends Migration {
             $blueprint->dateTime('refresh_rotated_at', 0)->nullable();
             $blueprint->dateTime('signed_in_at', 0);
             $blueprint->dateTime('idle_expires_at', 0);
-            $blueprint->dateTime('absolute_expires_at', 0);
+
+            // No absolute deadline when the application sets no absolute limit
+            // and the sign-in supplied no deadline of its own.
+            $blueprint->dateTime('absolute_expires_at', 0)->nullable();
 
             $blueprint->dateTime('revoked_at', 0)->nullable();
             $blueprint->string('revoked_reason', 64)->nullable();

@@ -262,7 +262,8 @@ final readonly class PendingSignIns
 
     /**
      * The context a completion of the pending sign-in runs in: the client that
-     * completes it, with the description the sign-in gave.
+     * completes it, with the description and the session deadline the sign-in
+     * gave.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\PendingSignIn  $pending
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -270,7 +271,7 @@ final readonly class PendingSignIns
      */
     public static function context(PendingSignIn $pending, ClientContext $client): SignInContext
     {
-        return new SignInContext($client, $pending->client_name, $pending->platform);
+        return new SignInContext($client, $pending->client_name, $pending->platform, notAfter: $pending->not_after);
     }
 
     /**
@@ -475,6 +476,7 @@ final readonly class PendingSignIns
             'proven_session_id'          => $session === null ? null : IdentifierCoercion::stringify($session->getSessionIdentifier()),
             'proven_session_refresh_key' => $session?->getRefreshKey(),
             'attempt_windows'            => $attemptWindows,
+            'not_after'                  => $context->notAfter,
             'expires_at'                 => $expiresAt,
         ])->save();
 

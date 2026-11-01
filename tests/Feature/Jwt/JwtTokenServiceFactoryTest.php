@@ -808,6 +808,24 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
+     * Rows of `[key, a valid value other than the default]` for every integer
+     * key a `null` cannot lift: all but the absolute lifetime.
+     *
+     * @return iterable<string, array{0: string, 1: int}>
+     */
+    public static function provideRequiredIntegerKeys(): iterable
+    {
+        foreach (self::provideIntegerKeys() as $name => [$key, $value]) {
+
+            if ($key === 'refresh_absolute_ttl_minutes') {
+                continue;
+            }
+
+            yield $name => [$key, $value];
+        }
+    }
+
+    /**
      * Without an override, or with a `null` one, the package value applies.
      *
      * @param  string  $key
@@ -816,7 +834,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @throws \Random\RandomException
      */
-    #[DataProvider('provideIntegerKeys')]
+    #[DataProvider('provideRequiredIntegerKeys')]
     public function testPackageValueAppliesWithoutAnOverride(string $key, int $value): void
     {
         config()->set("authentication.jwt.{$key}", $value);
@@ -826,6 +844,36 @@ final class JwtTokenServiceFactoryTest extends TestCase
         $this->setGuardOverrides([$key => null]);
 
         self::assertSame($value, $this->resolved($key));
+    }
+
+    /**
+     * The absolute lifetime may be `null`, explicitly, for no absolute limit: a
+     * package `null` applies to every guard without an override, a guard's
+     * `null` override lifts the package's limit for that guard alone, and a
+     * guard's number caps a package `null`.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testTheAbsoluteLifetimeMayBeExplicitlyNone(): void
+    {
+        $key = 'refresh_absolute_ttl_minutes';
+
+        config()->set("authentication.jwt.{$key}", null);
+
+        self::assertNull($this->resolved($key));
+
+        $this->setGuardOverrides([$key => 600]);
+
+        self::assertSame(600, $this->resolved($key));
+
+        config()->set("authentication.jwt.{$key}", 60 * 24 * 180);
+
+        $this->setGuardOverrides([$key => null]);
+
+        self::assertNull($this->resolved($key));
+        self::assertSame(60 * 24 * 180, PackageAuth::jwt('staff')->lifetimes()->refreshAbsoluteTtlMinutes);
     }
 
     /**
@@ -889,7 +937,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * A package value that is not an integer, `null` included, fails closed.
+     * A package value that is not an integer, `null` included, fails closed:
+     * only the absolute lifetime may be none.
      *
      * @param  mixed  $value
      * @return void
@@ -1334,12 +1383,12 @@ final class JwtTokenServiceFactoryTest extends TestCase
      * The value the resolved service uses for the given key.
      *
      * @param  string  $key
-     * @return int
+     * @return ?int
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    private function resolved(string $key): int
+    private function resolved(string $key): ?int
     {
         $service   = $this->lifetimeService();
         $lifetimes = $service->lifetimes();
@@ -1474,9 +1523,11 @@ final class JwtTokenServiceFactoryTest extends TestCase
      */
     private function expectInvalidKey(string $key, int $min, int $max): void
     {
+        $range = $key === 'refresh_absolute_ttl_minutes' ? 'null (no absolute limit) or an integer' : 'an integer';
+
         $this->expectException(InvalidJwtConfigurationException::class);
         $this->expectExceptionMessage(
-            "JWT `{$key}` for guard [package_default] must be an integer from {$min} to {$max}:"
+            "JWT `{$key}` for guard [package_default] must be {$range} from {$min} to {$max}:"
             . " set `authentication.jwt.{$key}` or the guard's `jwt.{$key}` override.",
         );
     }

@@ -57,12 +57,12 @@ identifier cannot be reached by switching to it, the session's sign-in method mu
 additional-factor policy must not ask for a further factor (`additional_factor_required`: sign in again as the target).
 
 With the current rotation id, the token's principal must be the one the session records (`session_principal_mismatch`).
-The switch keeps the session's absolute deadline, held to the guard's absolute lifetime counted from the sign-in
-(`session_expired` when that has passed), restarts the idle one under the guard's lifetimes, issues both tokens for the
-target, then records the target, the switch time (`principal_switched_at`), the rotation and both deadlines in one
-compare-and-swap. The access tokens of the principal switched from stop at once, and switching back does not revive them
-(see [Session](configuration.md#session)). A switch to the principal the session already records rotates the credential
-like a refresh and reports no switch.
+The switch keeps the session's absolute deadline (or its having none), held to the guard's absolute lifetime counted
+from the sign-in (`session_expired` when that has passed), restarts the idle one under the guard's lifetimes, issues
+both tokens for the target, then records the target, the switch time (`principal_switched_at`), the rotation and both
+deadlines in one compare-and-swap. The access tokens of the principal switched from stop at once, and switching back
+does not revive them (see [Session](configuration.md#session)). A switch to the principal the session already records
+rotates the credential like a refresh and reports no switch.
 
 With the previous rotation id inside the grace window, the current credential for the target is handed back, writing
 nothing, only when the session records the target and either its last rotation was the switch to it (a lost switch
@@ -152,7 +152,8 @@ session.
 ### Listing sessions
 
 `sessions()` returns one page of an identity's active sessions for a "where you're signed in" screen: every session it
-holds on any guard that is not revoked and is before both its idle and absolute deadline, most recently used first
+holds on any guard that is not revoked and is before its idle deadline and its absolute deadline when it has one (each
+summary's `absolute_expires_at` is `null` when it has none), most recently used first
 (sessions never used last), then newest first:
 
 ```php
