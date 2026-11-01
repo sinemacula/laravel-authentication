@@ -42,6 +42,9 @@ final class ProofWriterTest extends TestCase
 {
     use InteractsWithSessions;
 
+    /** @var string The id a proof judged in memory was given: a UUID, as the proofs table's key is on PostgreSQL. */
+    private const string JUDGED_PROOF_ID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f71';
+
     /**
      * Freeze the clocks and create the tables.
      *
@@ -88,9 +91,9 @@ final class ProofWriterTest extends TestCase
         $identity = $this->seedIdentity();
         $session  = $this->newSession();
 
-        ProofWriter::record($session, 'admin', self::furtherFactor(CarbonImmutable::now()->addMilliseconds(400)), 'proof-judged-in-memory');
+        ProofWriter::record($session, 'admin', self::furtherFactor(CarbonImmutable::now()->addMilliseconds(400)), self::JUDGED_PROOF_ID);
 
-        $row = SessionProof::query()->findOrFail('proof-judged-in-memory');
+        $row = SessionProof::query()->findOrFail(self::JUDGED_PROOF_ID);
 
         self::assertSame(IdentifierCoercion::stringify($session->getKey()), $row->getAttribute('session_id'));
         self::assertSame('admin', $row->getAttribute('guard'));
