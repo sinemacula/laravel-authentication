@@ -28,6 +28,7 @@ use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Integration\Fixtures\EncryptedDescriptionSession;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
@@ -296,6 +297,72 @@ final class SessionWriterTest extends TestCase
 
         self::assertSame('42', $record->client_name);
         self::assertSame('7', $record->platform);
+    }
+
+    /**
+     * A description is inherited as the session model reads it, not as it is
+     * stored, so a model that encrypts its descriptions encrypts the inherited
+     * ones once: the new session reads back what the proven one recorded.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testReplaceInheritsTheDescriptionsAsTheModelReadsThem(): void
+    {
+        config()->set('authentication.session.model', EncryptedDescriptionSession::class);
+
+        $identity = $this->seedIdentity();
+        $context  = $this->context('Laptop', 'macOS');
+        $first    = $this->writer()->create($this->admitted($identity), 'password', 'email', $context, $this->lifetimes(), $this->now, $context->client);
+        $proven   = EncryptedDescriptionSession::query()->whereKey($first->record->getKey())->firstOrFail();
+
+        self::assertNotSame('Laptop', $proven->getRawOriginal('client_name'));
+
+        $session = $this->writer()->replace($this->admitted($identity)->on($proven), 'password', 'email', $this->context(), $this->lifetimes(), $this->now, $context->client);
+
+        self::assertNotNull($session);
+
+        $record = EncryptedDescriptionSession::query()->whereKey($session->record->getKey())->firstOrFail();
+
+        self::assertSame('Laptop', $record->client_name);
+        self::assertSame('macOS', $record->platform);
+    }
+
+    /**
+     * A description the proven session was loaded without is not inherited, and
+     * is not asked for, so a model that prevents reading a missing attribute
+     * replaces it all the same.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testReplaceInheritsNoDescriptionTheProvenSessionWasLoadedWithout(): void
+    {
+        $identity = $this->seedIdentity();
+        $context  = $this->context('Laptop', 'macOS');
+        $first    = $this->writer()->create($this->admitted($identity), 'password', 'email', $context, $this->lifetimes(), $this->now, $context->client);
+        $proven   = Session::query()
+            ->whereKey($first->record->getKey())
+            ->select(['id', 'authenticatable_type', 'authenticatable_id', 'principal_type', 'principal_id', 'guard', 'refresh_key', 'revoked_at'])
+            ->firstOrFail();
+
+        Model::preventAccessingMissingAttributes();
+
+        try {
+            $session = $this->writer()->replace($this->admitted($identity)->on($proven), 'password', 'email', $this->context(), $this->lifetimes(), $this->now, $context->client);
+        } finally {
+            Model::preventAccessingMissingAttributes(false);
+        }
+
+        self::assertNotNull($session);
+
+        $record = Session::query()->whereKey($session->record->getKey())->firstOrFail();
+
+        self::assertNull($record->client_name);
+        self::assertNull($record->platform);
+        self::assertSame('superseded', Session::query()->whereKey($proven->getKey())->value('revoked_reason'));
     }
 
     /**

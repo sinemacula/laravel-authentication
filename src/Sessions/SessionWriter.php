@@ -230,8 +230,12 @@ final readonly class SessionWriter
     }
 
     /**
-     * A description the session recorded, as loaded: its text, or `null` when
-     * it recorded none.
+     * A description the session recorded, as the model reads it: its text, or
+     * `null` when it recorded none or it is not loaded.
+     *
+     * Read through the model's casts and accessors rather than as stored, since
+     * the new session writes it through its casts and mutators again: a stored
+     * value would be cast twice (an encrypted name encrypted a second time).
      *
      * @param  \Illuminate\Database\Eloquent\Model  $session
      * @param  string  $column
@@ -239,7 +243,7 @@ final readonly class SessionWriter
      */
     private static function recorded(Model $session, string $column): ?string
     {
-        $value = $session->getRawOriginal($column);
+        $value = array_key_exists($column, $session->getAttributes()) ? $session->getAttribute($column) : null;
 
         return is_scalar($value) ? (string) $value : null;
     }
