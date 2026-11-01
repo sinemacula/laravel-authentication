@@ -64,12 +64,14 @@ admitted again as a refresh admits it (its owner, principal and tenant active, t
 still eligible). A revocation that commits first refuses the step-up; one that commits after ends the new token at its
 next request, as it ends every access token of the session.
 
-The new access token's `auth_time` is the proof's time, and its `amr` gains the proof's values, and `mfa` when the
-evaluation reports multifactor authentication. The session keeps its key, its refresh token and its deadlines: a refresh
-afterwards issues tokens that still carry the step-up, since `auth_time` and `amr` are derived from the session's proofs
-each time a token is issued. No refresh token is issued and nothing is bound to the request, which is already
-authenticated. `SteppedUp` reports it once committed, with the proof's kind; a refusal is an `AccessTokenResult` whose
-`reason` says why, reported by `AuthenticationFailed` with the flow `step_up`, and never thrown.
+The new access token's `auth_time` is the newest time of the session's proofs, so never earlier than the step-up proof's
+(a reauthentication recorded after the proof was made keeps its own, later time), and its `amr` gains the proof's
+values, and `mfa` when the evaluation reports multifactor authentication. The session keeps its key, its refresh token
+and its deadlines: a refresh afterwards issues tokens that still carry the step-up, since `auth_time` and `amr` are
+derived from the session's proofs each time a token is issued. No refresh token is issued and nothing is bound to the
+request, which is already authenticated. `SteppedUp` reports it once committed, with the proof's kind and, as the
+context's method, the method the adapter verified it with; a refusal is an `AccessTokenResult` whose `reason` says why,
+reported by `AuthenticationFailed` with the flow `step_up` and the same method, and never thrown.
 
 ## Reauthenticating
 
@@ -128,6 +130,9 @@ $proof = $freshness->freshProof(Auth::session(), 'mfa.add_factor');
 // Made stricter by the caller's own: the shorter age, the kinds both take, either's flags.
 $proof = $freshness->freshProof(Auth::session(), 'payouts.change', new FreshnessRequirement(300, [ProofKind::ADDITIONAL_FACTOR], multifactor: true));
 
+// A maximum age alone: every kind counts, so only the configured age is shortened.
+$proof = $freshness->freshProof(Auth::session(), 'sso.reauthenticate', FreshnessRequirement::within(300));
+
 if ($proof === null) {
     return response()->json(['message' => 'Confirm it is you.', 'step_up' => true], 403);
 }
@@ -140,8 +145,10 @@ it must have reported multifactor authentication or been observed to resist phis
 requirement and none of the caller's is never fresh, nor is one whose two requirements take no kind in common. A voided
 proof never counts. The session is never trusted as the caller holds it: it is read again on the write connection and
 must still be live for its guard before its proofs are read, two queries in all, and none when the operation has no
-requirement. A caller that acts on the answer atomically locks the session in its transaction and asks inside it, as an
-identifier change does (see [Changing identifiers](identifier-changes.md#recent-authentication)).
+requirement. That read takes no lock, and inside a transaction it may be served from a snapshot taken before the
+caller's lock (MySQL's REPEATABLE READ), so a caller that acts on the answer atomically locks the session in its
+transaction, checks the locked row is still live itself, and asks inside it, as an identifier change does (see
+[Changing identifiers](identifier-changes.md)).
 
 The package binds `Freshness\ConfiguredFreshness`. Rebind the contract for a requirement the stored proofs cannot show,
 such as a minimum assurance level or an additional verification of your own; an implementation keeps no state between

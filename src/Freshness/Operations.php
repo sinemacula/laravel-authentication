@@ -5,7 +5,11 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Freshness;
 
 /**
- * The names of the operations this package asks the freshness policy about.
+ * The names of the operations this package defines, each configured with a
+ * requirement by default. Of them, the package itself asks the freshness policy
+ * only about `identifier_change`, before an identifier change; the password
+ * establishment and factor change the other two name are not checked by this
+ * package, and are there for whatever gates those operations.
  *
  * Any other name an application or another package uses is its own, in the same
  * form: lower-case segments of letters, digits and underscores, each starting

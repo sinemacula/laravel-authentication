@@ -19,6 +19,9 @@ the token's claims and every freshness answer are worked out from them, never st
   external provider's session also records its provenance, once. Proofs and provenance carry unchanged from a pending
   sign-in to its session and across every refresh and switch of principal; a sign-in that replaces a session starts a
   new session with its own.
+- Every read of proofs is of the session's own: those recorded under its key and bound to its guard and its owner (the
+  morph type and key the session records), so a proof left behind by an earlier session whose key a later one reuses,
+  after the sessions were deleted without their proofs, never counts for it.
 - Every read of proofs is on the write connection and bounded: the claims read one aggregate query grouped by kind,
   `amr` set and multifactor report (`SessionProofs::history()`), and freshness reads the newest proof a requirement
   takes with `LIMIT 1` on the session, kind and time index (`SessionProofs::newestMeeting()`), so a session with many
@@ -46,8 +49,10 @@ the token's claims and every freshness answer are worked out from them, never st
   by key on the write connection, requiring it live for its guard, before reading its proofs; it reads nothing when the
   operation has no requirement. An operation with no requirement, or two requirements with no kind in common, is never
   fresh. The latest `auth_time` never stands in for the proof that meets a requirement.
-- An identifier change proves a recent authentication with the `identifier_change` operation: a session proof asks the
-  policy, inside the change's transaction once the session's row is locked as well; a password proof is a first-factor
+- An identifier change proves a recent authentication with the `identifier_change` operation: a session proof must be
+  one of the identity's live sessions of the guard, as stored, and the policy must find a proof for it; inside the
+  change's transaction both are checked again on the session's locked row, which the change judges itself, since the
+  policy's own read takes no lock; a password proof is a first-factor
   reauthentication made now and is taken only when the requirement takes `first_factor_reauthentication` and asks for
   neither multifactor authentication nor phishing resistance.
 
@@ -62,7 +67,9 @@ the token's claims and every freshness answer are worked out from them, never st
 4. A client proves its first factor again through `reauthenticate()`: the attempt is counted and verified, the proof
    recorded, a new access token issued with `auth_time` renewed, `Reauthenticated` dispatched once committed.
 5. Before a sensitive operation, the caller asks `FreshnessPolicy::freshProof($session, $operation)` and acts only on a
-   proof; a caller that acts atomically locks the session first and asks inside its transaction.
+   proof; a caller that acts atomically locks the session first, checks the locked row is still live itself (the
+   policy's own read takes no lock, so a transaction may serve it from an earlier snapshot), and asks inside its
+   transaction.
 
 ## Failure / Edge Cases
 

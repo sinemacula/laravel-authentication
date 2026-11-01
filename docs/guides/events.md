@@ -20,7 +20,7 @@
 | `SineMacula\...\Events\AdditionalFactorRequired`  | A sign-in waits for a further factor, once committed                                                |
 | `SineMacula\...\Events\PrincipalChoiceRequired`   | A sign-in waits for a choice of principal, once committed                                           |
 | `SineMacula\...\Events\PrincipalSwitched`         | A session switched its principal, once committed                                                    |
-| `SineMacula\...\Events\SteppedUp`                 | A session recorded a further factor or recovery code, once committed; with kind                     |
+| `SineMacula\...\Events\SteppedUp`                 | A session recorded a further factor or recovery code, once committed; with kind and method          |
 | `SineMacula\...\Events\Reauthenticated`           | A session was reauthenticated with its first factor, once committed                                 |
 | `SineMacula\...\Events\IdentifierVerified`        | An identifier was verified (after commit); carries type                                             |
 | `SineMacula\...\Events\PasswordSet`               | A password was set or reset, once committed; with flow                                              |
@@ -66,8 +66,9 @@ Event::listen(AuthenticationEvent::class, function (AuthenticationEvent $event):
 
 The context holds the guard, the client of the request being served (IP address and user agent, cleaned as the session
 columns are), and as much as the event's flow established of the identity, the principal, the tenant it acts within, the
-session and the sign-in method (for a session's events, the method it records), and the credential (an API key or a
-passkey) in `credentialId` with the scopes it grants in `scopes` (`null` for a human identity's session, which no
+session and the sign-in method (for a session's events, the method it records; for a step-up or a reauthentication,
+the method that proved it, such as `totp` or `passkey`, whether it succeeded or failed), and the credential (an API key
+or a passkey) in `credentialId` with the scopes it grants in `scopes` (`null` for a human identity's session, which no
 credential limits); what was not established is `null`. It also snapshots, when the event is built, when it happened
 (`occurredAt`), the identity, the principal and the tenant each by morph class and identifier (`identityMorphClass` and
 `identityId`, `principalMorphClass` and `principalId`, `tenantMorphClass` and `tenantId`; the morph class is an Eloquent

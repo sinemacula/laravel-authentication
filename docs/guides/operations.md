@@ -207,10 +207,12 @@ Schedule::command('model:prune', [
 
 A custom session model opts in with the `PrunesSessions` trait alone (it brings Laravel's `MassPrunable` with it, and
 using `MassPrunable` beside it is a PHP trait collision), and pruning reads its columns from the `EloquentSession` name
-accessors; schedule it under its own class name. Run `php artisan model:prune --model="App\Models\Session" --pretend` to
-see how many sessions would go. Pruning changes nothing about authentication: a pruned session's tokens fail as an
-unknown session, exactly as they already failed once it was revoked or ended. Queued listeners of an event about a
-session that has since been pruned cannot re-fetch it (see [Events](events.md#events)).
+accessors; schedule it under its own class name. A custom model that soft-deletes has its pruned sessions deleted
+outright, as Laravel's mass pruning force-deletes, so their IP addresses and user agents are not kept. Run `php artisan
+model:prune --model="App\Models\Session" --pretend` to see how many sessions would go. Pruning changes nothing about
+authentication: a pruned session's tokens fail as an unknown session, exactly as they already failed once it was revoked
+or ended. Queued listeners of an event about a session that has since been pruned cannot re-fetch it (see
+[Events](events.md#events)).
 
 Before a token's `sid` is looked up, it is checked against the session model's primary key: a UUID for `HasUuids`, a
 ULID for `HasUlids`, an integer for an integer key, and a non-empty string otherwise. A `sid` that cannot be a key is

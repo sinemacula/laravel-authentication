@@ -58,6 +58,12 @@ helpers cannot see a sign-out, so call `stopActing()`. `Auth::forgetGuards()` cr
 on until the test acts again. A queued job a worker runs (`queue:work`, or a
 `Worker` in the test) still starts signed out, as in production, and the next request is acted as again.
 
+Acting on a session binds the guard to it and proves nothing about it. An access token for a session carries `auth_time`
+and `amr` derived from the proofs the session records, so a session the test made itself, with no first-factor proof,
+cannot be refreshed, switched, stepped up or reauthenticated (issuing for it throws a `LogicException`), and holds no
+proof a freshness check finds. A test that needs tokens or freshness for a session starts it through the session
+service (`Auth::sessions()->signIn()` or `start()`), which records the first factor as a real sign-in does.
+
 ## Fakes
 
 Each fake binds a fresh instance in place of the package's or the application's binding with `fake()` (in the

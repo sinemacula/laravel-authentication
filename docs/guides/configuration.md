@@ -489,10 +489,11 @@ authentication time, so a recent step-up with a weak factor does not make a sess
 a strong one (see [Freshness](sessions.md#freshness)).
 
 The package names three operations (`Freshness\Operations`): `identifier_change`, which an identifier change checks for
-a session proof (see [Changing identifiers](identifier-changes.md#recent-authentication)), and `password_establishment`
-and `factor_change`, which it names for the password and factor features to check. The application or another package
-names its own (`mfa.add_factor`, `sso.reauthenticate`): lower-case segments separated by dots, read as array keys, never
-as configuration paths. An operation with no entry, and no requirement passed by its caller, is never fresh.
+a session proof (see [Changing identifiers](identifier-changes.md)), and `password_establishment` and `factor_change`,
+which nothing in the package checks yet: they are configured for whatever gates establishing a password or changing a
+factor. The application or another package names its own (`mfa.add_factor`, `sso.reauthenticate`): lower-case segments
+separated by dots, read as array keys, never as configuration paths. An operation with no entry, and no requirement
+passed by its caller, is never fresh.
 
 A guard overrides any operation in a `freshness` block on its `config/auth.php` entry; an entry it sets wins whole, and
 `null` removes the operation for that guard:

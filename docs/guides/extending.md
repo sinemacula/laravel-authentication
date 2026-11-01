@@ -312,9 +312,11 @@ seam has a default that works alone.
   proves an identifier change, or any operation whose freshness takes a further factor (see [Stepping
   up](sessions.md#stepping-up)). A factor verified outside a session proves nothing on its own.
 - Before a sensitive operation of its own (adding or removing a factor, say), the factor package asks
-  `FreshnessPolicy::freshProof($session, 'mfa.add_factor')`, under an operation name of its own that the application
-  configures under `freshness`, and passes a `FreshnessRequirement` of its own for a floor the configuration may not
-  lower (see [Freshness](sessions.md#freshness)). The package names `factor_change` for this.
+  `FreshnessPolicy::freshProof($session, 'mfa.add_factor')`, under a namespaced operation name of its own that the
+  application configures under `freshness`, and passes a `FreshnessRequirement` of its own for a floor the
+  configuration may not lower (see [Freshness](sessions.md#freshness)). A caller that means only "within so many
+  seconds" passes `FreshnessRequirement::within($seconds)`, which takes every proof kind: a list of kinds of its own
+  narrows the configured kinds to those both take.
 - When every sign-in requires a further factor, a password is no longer the only factor, and `passwords.min_length`
   may be lowered from 15 to 8, as NIST SP 800-63B allows (see [Password policy](passwords.md#password-policy)).
 
