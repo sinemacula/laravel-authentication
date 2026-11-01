@@ -6,6 +6,8 @@ namespace SineMacula\Laravel\Authentication\Proofs;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
@@ -21,7 +23,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * replica cannot hide a proof just written, and always bounded, whatever the
  * session's age.
  *
- * Only counting proofs are read: one not voided, and, for a further factor or a
+ * Only the session's own proofs are read, bound to its key, guard and owner,
+ * and only counting ones: one not voided, and, for a further factor or a
  * recovery code, one its adapter accepted (only accepted ones are stored, so
  * this is a second line). `history()` reads them in one aggregate query,
  * grouped by kind, `amr` values and multifactor report with each group's newest
@@ -98,21 +101,53 @@ final class SessionProofs
     }
 
     /**
-     * The query for the session's counting proofs, on the write PDO.
+     * The query for the session's counting proofs, on the write PDO: those
+     * bound to the session as it is now, its key, its guard and its owner, as
+     * `ProofWriter` binds them, so a proof left behind by an earlier session
+     * whose key a later one reuses never counts for it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return \Illuminate\Database\Eloquent\Builder<\SineMacula\Laravel\Authentication\Models\SessionProof>
      */
     private static function counting(Session $session): Builder
     {
-        $additional = [ProofKind::ADDITIONAL_FACTOR->value, ProofKind::RECOVERY_CODE->value];
+        $additional  = [ProofKind::ADDITIONAL_FACTOR->value, ProofKind::RECOVERY_CODE->value];
+        [$type, $id] = self::owner($session);
 
         return WriteConnection::query(SessionProof::query())
             ->where('session_id', IdentifierCoercion::stringify($session->getSessionIdentifier()) ?? '')
+            ->where('guard', $session->getGuard() ?? '')
+            ->where('authenticatable_type', $type)
+            ->where('authenticatable_id', $id)
             ->whereNull('voided_at')
             ->where(static function (Builder $query) use ($additional): void {
                 $query->whereNotIn('kind', $additional)->orWhere('accepted', true);
             });
+    }
+
+    /**
+     * The owner's morph type and key the session records, as `ProofWriter`
+     * writes them on its proofs; empty for a session that is not an Eloquent
+     * session, which no proof is bound to. The columns are named by the
+     * relation of a blank instance, so the recorded type is never instantiated.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @return array{0: string, 1: string}
+     */
+    private static function owner(Session $session): array
+    {
+        if (!$session instanceof EloquentSession || !$session instanceof Model) {
+            return ['', ''];
+        }
+
+        /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession $blank */
+        $blank = $session->newInstance();
+        $owner = $blank->authenticatable();
+
+        return [
+            IdentifierCoercion::stringify($session->getAttribute($owner->getMorphType()))      ?? '',
+            IdentifierCoercion::stringify($session->getAttribute($owner->getForeignKeyName())) ?? '',
+        ];
     }
 
     /**

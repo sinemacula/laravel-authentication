@@ -28,9 +28,11 @@ use SineMacula\Laravel\Authentication\Proofs\ProofHistory;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
+use Tests\Unit\Stubs\PlainSessionFixture;
 
 /**
  * Feature tests of the reads of a session's proofs against the database: the
@@ -179,6 +181,83 @@ final class SessionProofsTest extends TestCase
         $this->expectExceptionMessage('The session records no counting first factor, so no access token can say when or how it authenticated.');
 
         AuthenticationClaims::forSession($record);
+    }
+
+    /**
+     * A proof recorded under the session's key but bound to another guard or
+     * another owner, as one left behind by an earlier session whose key a later
+     * one reuses would be, counts for neither the claims nor freshness; bound
+     * to the session as it is, the same proof counts for both.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAProofBoundToAnotherGuardOrOwnerNeverCounts(): void
+    {
+        $record = $this->signedIn()->record;
+        $bound  = ['guard' => 'api', 'authenticatable_type' => $record->getAttribute('authenticatable_type'), 'authenticatable_id' => $record->getAttribute('authenticatable_id')];
+        $stepUp = new FreshnessRequirement(900, [ProofKind::ADDITIONAL_FACTOR]);
+        $others = [
+            'another guard'      => ['guard' => 'admin'],
+            'another owner type' => ['authenticatable_type' => 'another-model'],
+            'another owner key'  => ['authenticatable_id' => '999999'],
+        ];
+
+        self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now, ['otp'], new Evaluation(true, true));
+
+        foreach ($others as $case => $binding) {
+
+            DB::table('authentication_proofs')->where('kind', 'additional_factor')->update([...$bound, ...$binding]);
+
+            $summary = AuthenticationClaims::forSession($record);
+
+            self::assertSame(['pwd'], $summary->methods, $case);
+            self::assertNull(SessionProofs::newestMeeting($record, $stepUp, $this->now), $case);
+        }
+
+        DB::table('authentication_proofs')->where('kind', 'additional_factor')->update($bound);
+
+        self::assertSame(['pwd', 'otp', 'mfa'], AuthenticationClaims::forSession($record)->methods);
+        self::assertSame(ProofKind::ADDITIONAL_FACTOR, SessionProofs::newestMeeting($record, $stepUp, $this->now)?->kind);
+    }
+
+    /**
+     * A session whose only first factor is bound to another owner has no
+     * claims: issuing for it fails closed.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionWhoseFirstFactorIsAnothersHasNoClaims(): void
+    {
+        $record = $this->signedIn()->record;
+
+        DB::table('authentication_proofs')->update(['authenticatable_id' => '999999']);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('The session records no counting first factor, so no access token can say when or how it authenticated.');
+
+        AuthenticationClaims::forSession($record);
+    }
+
+    /**
+     * A session that is not an Eloquent session records no owner a proof could
+     * be bound to, so even proofs under its key count for nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionThatIsNotAModelHasNoProofs(): void
+    {
+        $record = $this->signedIn()->record;
+        $plain  = new PlainSessionFixture((string) IdentifierCoercion::stringify($record->getKey()));
+
+        self::assertNull(SessionProofs::history($plain)->authenticatedAt());
+        self::assertNull(SessionProofs::newestMeeting($plain, new FreshnessRequirement(900, [ProofKind::FIRST_FACTOR]), $this->now));
+        self::assertNotNull(SessionProofs::history($record)->authenticatedAt());
     }
 
     /**
