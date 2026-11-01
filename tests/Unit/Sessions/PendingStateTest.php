@@ -146,12 +146,21 @@ final class PendingStateTest extends TestCase
     }
 
     /**
-     * The state is a utility: it cannot be instantiated.
+     * The state is a utility: it cannot be instantiated from outside.
      *
      * @return void
      */
     public function testConstructorIsPrivate(): void
     {
-        self::assertTrue((new \ReflectionMethod(PendingState::class, '__construct'))->isPrivate());
+        $reflection  = new \ReflectionClass(PendingState::class);
+        $constructor = $reflection->getConstructor();
+
+        self::assertNotNull($constructor);
+        self::assertTrue($constructor->isPrivate());
+
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $constructor->invoke($instance);
+
+        self::assertInstanceOf(PendingState::class, $instance);
     }
 }

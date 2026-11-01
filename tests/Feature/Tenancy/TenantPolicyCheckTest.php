@@ -353,6 +353,25 @@ final class TenantPolicyCheckTest extends TestCase
     }
 
     /**
+     * The check is a static utility that cannot be instantiated from outside.
+     *
+     * @return void
+     */
+    public function testConstructorIsPrivate(): void
+    {
+        $reflection  = new \ReflectionClass(TenantPolicyCheck::class);
+        $constructor = $reflection->getConstructor();
+
+        self::assertNotNull($constructor);
+        self::assertTrue($constructor->isPrivate());
+
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $constructor->invoke($instance);
+
+        self::assertInstanceOf(TenantPolicyCheck::class, $instance);
+    }
+
+    /**
      * A session that records no first factor cannot meet a further factor.
      *
      * @return void

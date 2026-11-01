@@ -70,12 +70,21 @@ final class SwitchFloorTest extends TestCase
     }
 
     /**
-     * The floor is a utility: it cannot be instantiated.
+     * The floor is a utility: it cannot be instantiated from outside.
      *
      * @return void
      */
     public function testConstructorIsPrivate(): void
     {
-        self::assertTrue((new \ReflectionMethod(SwitchFloor::class, '__construct'))->isPrivate());
+        $reflection  = new \ReflectionClass(SwitchFloor::class);
+        $constructor = $reflection->getConstructor();
+
+        self::assertNotNull($constructor);
+        self::assertTrue($constructor->isPrivate());
+
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $constructor->invoke($instance);
+
+        self::assertInstanceOf(SwitchFloor::class, $instance);
     }
 }
