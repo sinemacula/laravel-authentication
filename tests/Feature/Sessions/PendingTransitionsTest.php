@@ -11,6 +11,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
@@ -156,25 +157,49 @@ final class PendingTransitionsTest extends TestCase
     }
 
     /**
-     * A row that changed since it was loaded (rotated, revoked, a version
-     * recorded) is left as it is, and the caller judges it again.
+     * Rows of `[change]`, one per predicate of the compare-and-swap, that a
+     * write between the load and the swap makes to the session's row.
      *
+     * @return iterable<string, array{0: array<string, ?string>}>
+     */
+    public static function provideChangesSinceTheLoad(): iterable
+    {
+        yield 'rotated' => [['refresh_key' => hash('sha256', 'rotated')]];
+        yield 'revoked' => [['revoked_at' => '2026-04-06 12:00:00', 'revoked_reason' => 'revoked']];
+        yield 'pending' => [['status' => 'pending', 'requires' => '["mfa"]']];
+        yield 'another principal' => [['principal_id' => '999999']];
+        yield 'another principal type' => [['principal_type' => 'another-type']];
+        yield 'another tenant' => [['tenant_id' => 'elsewhere']];
+        yield 'a version recorded' => [['tenant_policy_version' => 'v9']];
+        yield 'a moved idle deadline' => [['idle_expires_at' => '2026-04-07 12:00:00']];
+        yield 'a moved absolute deadline' => [['absolute_expires_at' => '2026-10-06 12:00:00']];
+    }
+
+    /**
+     * A row that changed in any column the compare-and-swap holds since it was
+     * loaded is left exactly as it is, nothing is reported, and the caller
+     * judges it again: each of its predicates refuses the swap on its own.
+     *
+     * @param  array<string, ?string>  $change
      * @return void
      *
      * @throws \Throwable
      */
-    public function testARowChangedSinceItWasLoadedIsLeftAlone(): void
+    #[DataProvider('provideChangesSinceTheLoad')]
+    public function testARowChangedSinceItWasLoadedIsLeftAlone(array $change): void
     {
         [$member, $membership, $tenant] = $this->seedMember();
 
         $session = $this->signedIn();
 
-        DB::table('authentication_sessions')->where('id', $session->getKey())->update(['tenant_policy_version' => 'v9']);
+        DB::table('authentication_sessions')->where('id', $session->getKey())->update($change);
+
+        $row = (array) DB::table('authentication_sessions')->sole();
 
         $this->recordEvents([SessionReturnedToPending::class]);
 
         self::assertNull($this->transitions()->returnToPending($session, new Admitted($member, $membership, $tenant), AuthenticationFlow::REFRESH, $this->now));
-        self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
+        self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
         self::assertSame([], $this->recordedClasses());
     }
 

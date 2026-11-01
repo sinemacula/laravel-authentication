@@ -269,6 +269,32 @@ final class TenantPolicyCheckTest extends TestCase
     }
 
     /**
+     * The sign-in's evidence read in memory keeps to the limit asked for,
+     * newest first, as the stored proofs' query does.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignInsEvidenceReadInMemoryKeepsToTheLimit(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $now    = CarbonImmutable::now();
+        $first  = SignInProof::unattested('password', $now)->recorded();
+        $newest = SignInProof::unattested('password', $now)->recorded();
+
+        $this->policy->requirement = new TenantRequirement(factor: new Requirement(new RequirementPart));
+
+        TenantPolicyCheck::check('members', $member, $membership, $tenant, null, $now, new SessionEvidence($first, [$newest, $first], null));
+
+        $subject = $this->check->judged[0];
+
+        self::assertSame([$newest], $subject->proofs(null, null, 1));
+        self::assertSame([$newest, $first], $subject->proofs(null, null, 2));
+    }
+
+    /**
      * A session that records no first factor cannot meet a further factor.
      *
      * @return void

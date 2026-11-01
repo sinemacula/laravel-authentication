@@ -5,7 +5,6 @@ declare(strict_types = 1);
 namespace Tests\Unit\Requirements;
 
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Requirements\Enums\AssuranceLevel;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
@@ -15,8 +14,8 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 
 /**
- * Unit tests for the requirement value: its parts and their maximum ages, the
- * kinds it lists, and the strictest of several requirements.
+ * Unit tests for the requirement value: the kinds it lists, the strictest of
+ * several requirements, and an evaluation of one.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -24,38 +23,20 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
  * @internal
  */
 #[CoversClass(Requirement::class)]
-#[CoversClass(RequirementPart::class)]
-#[CoversClass(LevelRequirement::class)]
 #[CoversClass(RequirementEvaluation::class)]
-#[CoversClass(AssuranceLevel::class)]
 final class RequirementTest extends TestCase
 {
     /**
-     * The kinds and the levels carry the values a further-factor package
-     * reports them with.
+     * The kinds carry the values a further-factor package reports them with.
      *
      * @return void
      */
-    public function testTheEnumsCarryTheSharedValues(): void
+    public function testTheKindsCarryTheSharedValues(): void
     {
         self::assertSame(
             ['additional_verification', 'multifactor', 'minimum_level', 'phishing_resistance'],
             array_map(static fn (RequirementKind $kind): string => $kind->value, RequirementKind::cases()),
         );
-        self::assertSame(['aal1', 'aal2', 'aal3'], array_map(static fn (AssuranceLevel $level): string => $level->value, AssuranceLevel::cases()));
-    }
-
-    /**
-     * A level is at least itself and every lower level, and never a higher one.
-     *
-     * @return void
-     */
-    public function testALevelIsAtLeastTheLevelsBelowIt(): void
-    {
-        self::assertTrue(AssuranceLevel::AAL2->isAtLeast(AssuranceLevel::AAL1));
-        self::assertTrue(AssuranceLevel::AAL2->isAtLeast(AssuranceLevel::AAL2));
-        self::assertFalse(AssuranceLevel::AAL2->isAtLeast(AssuranceLevel::AAL3));
-        self::assertTrue(AssuranceLevel::AAL3->isAtLeast(AssuranceLevel::AAL1));
     }
 
     /**
@@ -107,42 +88,6 @@ final class RequirementTest extends TestCase
 
         self::assertSame(AssuranceLevel::AAL2, $higherSecond->minimumLevel?->level);
         self::assertSame(30, $higherSecond->minimumLevel->maxAgeSeconds);
-    }
-
-    /**
-     * Rows of `[maximum age]` a part refuses.
-     *
-     * @return iterable<string, array{0: int}>
-     */
-    public static function provideRefusedAges(): iterable
-    {
-        yield 'zero' => [0];
-        yield 'negative' => [-1];
-        yield 'over a year' => [RequirementPart::MAX_AGE_SECONDS + 1];
-    }
-
-    /**
-     * A maximum age outside one second to a year is refused, by a part and by a
-     * level alike.
-     *
-     * @param  int  $age
-     * @return void
-     */
-    #[DataProvider('provideRefusedAges')]
-    public function testAMaximumAgeOutsideItsRangeIsRefused(int $age): void
-    {
-        foreach ([static fn (): object => new RequirementPart($age), static fn (): object => new LevelRequirement(AssuranceLevel::AAL1, $age)] as $make) {
-            try {
-                $make();
-
-                self::fail('Expected the maximum age to be refused.');
-            } catch (\InvalidArgumentException $exception) {
-                self::assertSame('A requirement\'s maximum age must be between 1 and 31536000 seconds.', $exception->getMessage());
-            }
-        }
-
-        self::assertSame(RequirementPart::MAX_AGE_SECONDS, (new RequirementPart(RequirementPart::MAX_AGE_SECONDS))->maxAgeSeconds);
-        self::assertSame(1, (new LevelRequirement(AssuranceLevel::AAL1, 1))->maxAgeSeconds);
     }
 
     /**

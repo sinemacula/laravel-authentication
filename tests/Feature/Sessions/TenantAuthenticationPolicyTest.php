@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Events\SessionActivated;
 use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -74,6 +75,7 @@ use Tests\TestCase;
 #[CoversClass(RefreshTokenExchange::class)]
 #[CoversClass(RefreshRotationStore::class)]
 #[CoversClass(TenantPolicyChanges::class)]
+#[CoversClass(AbstractGuard::class)]
 final class TenantAuthenticationPolicyTest extends TestCase
 {
     use InteractsWithProofs, InteractsWithSessions;
