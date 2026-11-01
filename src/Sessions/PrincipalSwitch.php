@@ -218,14 +218,13 @@ final readonly class PrincipalSwitch
     /**
      * Hold the admitted principal to what makes it the target the session may
      * switch to: it must be the very target (`principal_mismatch`); the
-     * application policy must admit the identity and then the target with the
-     * type of identifier the session's sign-in used, as that sign-in was
-     * admitted, so a policy that refuses such an identifier (an unverified one,
-     * say), or some principals to it, refuses the switch for its reason; and
-     * the additional-factor policy must not ask a further factor
-     * (`additional_factor_required`). A session whose sign-in used no
-     * identifier is not held to an identifier type. The type is read on the
-     * write connection.
+     * application policy must admit the identity with the type of identifier
+     * the session's sign-in used, as that sign-in was admitted, so a policy
+     * that refuses such an identifier (an unverified one, say) refuses the
+     * switch for its reason; and the additional-factor policy must not ask a
+     * further factor (`additional_factor_required`). A session whose sign-in
+     * used no identifier is not held to an identifier type. The type is read on
+     * the write connection.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
@@ -248,9 +247,8 @@ final readonly class PrincipalSwitch
     }
 
     /**
-     * The application policy's reason to refuse the target to the session's
-     * identifier type, if any: first for the identity as a whole, as its
-     * sign-in was asked, then for the target.
+     * The application policy's reason to refuse the identity to the session's
+     * identifier type, if any, as its sign-in was asked.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  string  $type
@@ -262,11 +260,7 @@ final readonly class PrincipalSwitch
      */
     private function admitWithType(Admitted $admitted, string $type): ?FailureReason
     {
-        $policy = Container::getInstance()->make(ApplicationPolicy::class);
-        $guard  = $this->context->name();
-
-        return ApplicationAdmission::admitIdentifier($policy, $guard, $admitted->identity, $type)
-            ?? ApplicationAdmission::admit($policy, $guard, $admitted->identity, $admitted->principal, $type);
+        return ApplicationAdmission::admitIdentifier(Container::getInstance()->make(ApplicationPolicy::class), $this->context->name(), $admitted->identity, $type);
     }
 
     /**

@@ -327,14 +327,13 @@ falls back to a literal: a key missing from both blocks, a value of the wrong sh
 name no method can be registered under, such as `Password`), or a key the policy does not know fails closed with an
 `InvalidArgumentException` naming the guard and the key the first time the guard's policy is used. The policy is
 `Contracts\ApplicationPolicy`, bound to `Applications\GuardApplicationPolicy`; bind your own implementation to decide
-differently. The package's admits every principal; an application that decides which principals may hold its sessions
-refuses the others from `admit()` as `principal_ineligible`, the one reason a sign-in, a refresh, a switch, an API key
-and a client credentials exchange all report alike; the package asks it on the write connection (see
-[Extending](extending.md#deciding-which-principals-may-use-an-application)). Its `admitIdentifier()` is the check every
-sign-in makes before any principal is resolved, so a policy of your own keeps the guarantee above only by deciding
-verification there, for the identity as a whole; one that wraps the package's policy delegates `admitIdentifier()` to it
-like the other methods. A refusal from `admit()` comes only once a principal resolves, so an identity with none would
-get `principal_unresolved` instead. A policy of your own decides the session's deadlines through `lifetimes($guard)`,
+differently. Which principals may hold an application's sessions is not configuration but the `ApplicationAccess`
+contract, and which tenants they may act in `TenantAccess` (see
+[Extending](extending.md#deciding-which-principals-may-use-an-application)); the defaults admit any principal to any
+application, in its own tenant only. The policy's `admitIdentifier()` is the check every sign-in makes before any
+principal is resolved, so a policy of your own keeps the guarantee above only by deciding verification there, for the
+identity as a whole; one that wraps the package's policy delegates `admitIdentifier()` to it like the other methods. A
+policy of your own decides the session's deadlines through `lifetimes($guard)`,
 while an access token's lifetime and the refresh grace window still come from the guard's `jwt` configuration (the token
 capped at the session's end). See `docs/design/application-policy.md` for every point where the policy is enforced.
 

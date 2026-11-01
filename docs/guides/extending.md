@@ -53,58 +53,75 @@ reserves the account twice), and each is given back.
 
 ### Deciding which principals may use an application
 
-The package's application policy admits every principal. To keep some principals out of an application, bind a policy of
-your own that refuses them from `admit()` as `principal_ineligible` and delegates everything else to the package's. A
-refused principal gets `principal_ineligible` at sign-in, on every refresh and switch, and for an API key or a client
-credentials exchange (`unauthorized_client`); its sessions are kept and refresh again once the policy admits it. Return
-that reason: a refresh reports any refusal as `principal_ineligible`, but a sign-in and an API key report the reason you
-return, and a client credentials exchange answers any other reason with `invalid_client`, as if the client's
-credentials were wrong:
+Which principals may use an application is the `ApplicationAccess` contract's answer, and the package's default
+(`AdmitAnyPrincipal`) lets any principal use any application. To keep some principals out of an application, bind your
+own. The package never interprets the answer beyond yes or no: a refused principal gets `principal_ineligible` at
+sign-in, at the choice of principal (and is left out of `principals()`), on every refresh and switch, and for an API key
+or a client credentials exchange (`unauthorized_client`); its sessions are kept and refresh again once it is let back
+in:
 
 ```php
-use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
-use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 
-final readonly class StaffOnlyConsolePolicy implements ApplicationPolicy
+final readonly class StaffOnlyConsole implements ApplicationAccess
 {
-    public function __construct(private GuardApplicationPolicy $package) {}
-
-    public function allowsMethod(string $guard, string $method): bool
+    public function mayUse(string $application, Principal $principal): bool
     {
-        return $this->package->allowsMethod($guard, $method);
-    }
-
-    public function admitIdentifier(string $guard, Identity $identity, ?string $identifierType): ?FailureReason
-    {
-        return $this->package->admitIdentifier($guard, $identity, $identifierType);
-    }
-
-    public function admit(string $guard, Identity $identity, Principal $principal, ?string $identifierType): ?FailureReason
-    {
-        if ($guard === 'console' && !$principal instanceof StaffMembership) {
-            return FailureReason::PRINCIPAL_INELIGIBLE;
-        }
-
-        return $this->package->admit($guard, $identity, $principal, $identifierType);
-    }
-
-    public function lifetimes(string $guard): TokenLifetimes
-    {
-        return $this->package->lifetimes($guard);
+        return $application !== 'console' || $principal instanceof StaffMembership;
     }
 }
 
-$this->app->singleton(ApplicationPolicy::class, StaffOnlyConsolePolicy::class);
+$this->app->singleton(ApplicationAccess::class, StaffOnlyConsole::class);
 ```
 
-The package asks `admitIdentifier()` inside `WriteConnection::during()` for the identity, and `admit()` for the identity
-and the principal, so a model your policy reads there, or a query-builder read on the identity's or the principal's
-connection, comes from the primary: a grant withdrawn moments ago is not still found on a lagging replica. Pin any other
-read that decides admission yourself, as [Operations](operations.md#read-replicas) shows.
+The package asks `mayUse()` inside `WriteConnection::during()` for the principal, so a model your contract reads there,
+or a query-builder read on the principal's connection, comes from the primary: a grant withdrawn moments ago is not
+still found on a lagging replica. Pin any other read that decides access yourself, as
+[Operations](operations.md#read-replicas) shows. A contract that holds request state is bound `scoped`, not
+`singleton`, so a long-running worker does not carry it into the next request.
+
+### Letting principals act in other tenants
+
+A session acts in one tenant, its active tenant: by default the principal's own, or none for a platform principal. The
+`TenantAccess` contract says whether a principal may act in a tenant (`null` for none), and the package's default
+(`OwnTenantOnly`) allows only that default. An application whose principals may act in a tenant below their own, or
+whose platform principals may act in any tenant, binds its own, answered from its own tree and roles, with a
+`TenantResolver` that finds a tenant by its opaque identifier. The package never sees the tree: it asks the resolver
+only for a tenant other than the principal's own, and its default (`ResolveNoTenant`) finds none, so binding
+`TenantAccess` alone still refuses every other tenant:
+
+```php
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
+use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
+
+final readonly class DescendantTenants implements TenantAccess, TenantResolver
+{
+    public function mayActIn(Principal $principal, ?Tenant $tenant): bool
+    {
+        $own = $principal->getTenant();
+
+        return $tenant === null ? $own === null : $own !== null && Organisation::isWithin($tenant, $own);
+    }
+
+    public function resolve(string $tenantId): ?Tenant
+    {
+        return Organisation::query()->useWritePdo()->find($tenantId);
+    }
+}
+
+$this->app->singleton(DescendantTenants::class);
+$this->app->singleton(TenantAccess::class, DescendantTenants::class);
+$this->app->singleton(TenantResolver::class, DescendantTenants::class);
+```
+
+A refused or unresolved tenant is `tenant_ineligible`, and an inactive one (`CanBeActive`) `tenant_inactive`, which is
+reported only for a tenant the principal may act in. The selected tenant is asked at sign-in
+(`SignInContext::$tenant`), at the choice of principal and on every switch, and the session's active tenant again on
+every refresh; a bearer request checks only that the active tenant is still active. Both contracts are asked inside
+`WriteConnection::during()` for the principal and the tenant, as `ApplicationAccess` is.
 
 `authentication:check` asks a policy of your own, this one included, whether it allows every registered sign-in method
 and `client_credentials` on each `jwt` guard, and reports an exception it throws as a problem for the guard. It still
@@ -170,14 +187,15 @@ in the guard's credential timebox, the one `attempt()` and `validate()` run in.
 
 `bindVerifiedContext()` binds what it is given and checks none of it, so a guard type admits what its credential named
 first, as the package's guards do: the application must allow the method it reports, the identity, the principal
-and the principal's tenant must be active (`Admission\ActivationPolicy`), and the application policy must admit the
-identity, then the identity as the principal, each asked inside `WriteConnection::during()` as the package asks them.
-The tenant the activity check loaded is the one it binds:
+and the principal's tenant must be active (`Admission\ActivationPolicy`), the application policy must admit the
+identity, and `ApplicationAccess` must let the principal use the application, each asked inside
+`WriteConnection::during()` as the package asks them. The tenant the activity check loaded is the one it binds:
 
 ```php
 use Illuminate\Container\Container;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
@@ -230,12 +248,9 @@ final class HeaderKeyGuard extends AbstractGuard
             return null;
         }
 
-        $refusal = WriteConnection::during($identity, fn (): ?FailureReason => WriteConnection::during(
-            $principal,
-            fn (): ?FailureReason => $policy->admit($guard, $identity, $principal, null),
-        ));
+        $access = Container::getInstance()->make(ApplicationAccess::class);
 
-        if ($refusal !== null) {
+        if (!WriteConnection::during($principal, fn (): bool => $access->mayUse($guard, $principal))) {
             return null;
         }
 

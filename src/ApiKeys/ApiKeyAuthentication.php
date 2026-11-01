@@ -83,7 +83,7 @@ final readonly class ApiKeyAuthentication
         $refusal = ApiKeyLookup::refusal($key, $this->guard, $now) ?? ($this->policy->allowsMethod($this->guard, $this->method) ? null : FailureReason::METHOD_NOT_ALLOWED);
 
         return new ApiKeyOutcome($key, $refusal === null
-            ? (new ApiKeyAdmission($this->guard, $this->provider, $this->resolver, $this->policy))->admit($key)
+            ? (new ApiKeyAdmission($this->guard, $this->provider, $this->resolver))->admit($key)
             : new Refused($refusal));
     }
 }

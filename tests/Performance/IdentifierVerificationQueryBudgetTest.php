@@ -19,7 +19,6 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 use Tests\Concerns\InteractsWithVerifiableIdentities;
 use Tests\Integration\Fixtures\VerifiableIdentity;
-use Tests\Unit\Stubs\PlainPrincipalFixture;
 
 /**
  * Query-budget contracts for identifier verification and the sign-in gate.
@@ -121,7 +120,7 @@ final class IdentifierVerificationQueryBudgetTest extends PerformanceContractTes
 
         $policy = app(ApplicationPolicy::class);
 
-        self::assertNull($this->assertQueryBudget(0, 0, static fn (): mixed => $policy->admit(self::GUARD, $identity, new PlainPrincipalFixture(1), 'email')));
+        self::assertNull($this->assertQueryBudget(0, 0, static fn (): mixed => $policy->admitIdentifier(self::GUARD, $identity, 'email')));
     }
 
     /**

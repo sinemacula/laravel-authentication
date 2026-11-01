@@ -12,14 +12,11 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainIdentityFixture;
-use Tests\Unit\Stubs\PlainPrincipalFixture;
-use Tests\Unit\Stubs\StubTenant;
 use Tests\Unit\Stubs\StubVerifiableIdentity;
 
 /**
@@ -54,11 +51,11 @@ final class GuardApplicationPolicyTest extends TestCase
      * The shipped defaults, read from the package's own configuration file,
      * list no method and require no verified identifier, so out of the box an
      * application allows nothing until it lists what it uses, and admits any
-     * principal, in a tenant or not.
+     * identity whatever identifier it signed in with.
      *
      * @return void
      */
-    public function testShippedDefaultsAllowNothingAndAdmitAnyPrincipal(): void
+    public function testShippedDefaultsAllowNothingAndAdmitAnyIdentity(): void
     {
         /** @var array<string, mixed> $shipped */
         $shipped = require dirname(__DIR__, 3) . '/config/authentication.php';
@@ -71,8 +68,8 @@ final class GuardApplicationPolicyTest extends TestCase
             self::assertFalse($this->policy()->allowsMethod(self::GUARD, $name), "The shipped defaults allow `{$name}`.");
         }
 
-        self::assertNull($this->admit(new PlainPrincipalFixture(1)));
-        self::assertNull($this->admit(new PlainPrincipalFixture(2, tenant: new StubTenant)));
+        self::assertNull($this->admitIdentifier('email'));
+        self::assertNull($this->admitIdentifier(null));
     }
 
     /**
@@ -108,29 +105,6 @@ final class GuardApplicationPolicyTest extends TestCase
             self::assertFalse($this->policy()->allowsMethod(self::GUARD, $name), "An empty list allows `{$name}`.");
             self::assertTrue($this->policy()->allowsMethod('other', $name));
         }
-    }
-
-    /**
-     * The package policy has no rule about principals: `admit()` answers
-     * exactly as `admitIdentifier()` does, without reading the principal.
-     *
-     * @return void
-     */
-    public function testAdmitIsTheVerifiedIdentifierGateAlone(): void
-    {
-        $this->setGuardApplication(['require_verified_identifier' => true]);
-
-        $principal = \Mockery::mock(Principal::class);
-        $principal->shouldNotReceive('getTenant');
-
-        foreach ([[true, 'email'], [false, 'email'], [true, 'phone'], [false, null]] as [$verified, $type]) {
-            self::assertSame(
-                $this->policy()->admitIdentifier(self::GUARD, $this->verifiable($verified), $type),
-                $this->policy()->admit(self::GUARD, $this->verifiable($verified), $principal, $type),
-            );
-        }
-
-        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->policy()->admit(self::GUARD, $this->verifiable(false), $principal, 'email'));
     }
 
     /**
@@ -231,7 +205,7 @@ final class GuardApplicationPolicyTest extends TestCase
      */
     public function testVerifiedIdentifierIsNotRequiredByDefault(): void
     {
-        self::assertNull($this->policy()->admit(self::GUARD, $this->verifiable(false), new PlainPrincipalFixture(1), 'email'));
+        self::assertNull($this->policy()->admitIdentifier(self::GUARD, $this->verifiable(false), 'email'));
     }
 
     /**
@@ -245,11 +219,11 @@ final class GuardApplicationPolicyTest extends TestCase
     {
         $this->setGuardApplication(['require_verified_identifier' => true]);
 
-        self::assertNull($this->policy()->admit(self::GUARD, $this->verifiable(true), new PlainPrincipalFixture(1), 'email'));
-        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->policy()->admit(self::GUARD, $this->verifiable(false), new PlainPrincipalFixture(1), 'email'));
-        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->policy()->admit(self::GUARD, $this->verifiable(true), new PlainPrincipalFixture(1), 'phone'));
-        self::assertNull($this->policy()->admit(self::GUARD, $this->verifiable(false), new PlainPrincipalFixture(1), null));
-        self::assertNull($this->policy()->admit('other', $this->verifiable(false), new PlainPrincipalFixture(1), 'email'));
+        self::assertNull($this->policy()->admitIdentifier(self::GUARD, $this->verifiable(true), 'email'));
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->policy()->admitIdentifier(self::GUARD, $this->verifiable(false), 'email'));
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->policy()->admitIdentifier(self::GUARD, $this->verifiable(true), 'phone'));
+        self::assertNull($this->policy()->admitIdentifier(self::GUARD, $this->verifiable(false), null));
+        self::assertNull($this->policy()->admitIdentifier('other', $this->verifiable(false), 'email'));
     }
 
     /**
@@ -286,7 +260,7 @@ final class GuardApplicationPolicyTest extends TestCase
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage(PlainIdentityFixture::class . ' cannot verify identifiers');
 
-        $this->policy()->admit(self::GUARD, $this->identity(), new PlainPrincipalFixture(1), 'email');
+        $this->policy()->admitIdentifier(self::GUARD, $this->identity(), 'email');
     }
 
     /**
@@ -334,7 +308,7 @@ final class GuardApplicationPolicyTest extends TestCase
         $this->setGuardApplication([$key => $value]);
 
         $this->assertFailsClosed($message, fn (): bool => $this->policy()->allowsMethod(self::GUARD, 'password'));
-        $this->assertFailsClosed($message, fn (): ?FailureReason => $this->admit(new PlainPrincipalFixture(1)));
+        $this->assertFailsClosed($message, fn (): ?FailureReason => $this->admitIdentifier('email'));
         $this->assertFailsClosed($message, function (): bool {
             $this->packagePolicy()->validate(self::GUARD);
 
@@ -502,16 +476,16 @@ final class GuardApplicationPolicyTest extends TestCase
     }
 
     /**
-     * Ask the policy to admit the principal to the guard, for an identity that
-     * owns it and a sign-in that used no identifier.
+     * Ask the policy to admit an identity to the guard with an identifier of
+     * the type.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?string  $type
      * @param  string  $guard
      * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      */
-    private function admit(Principal $principal, string $guard = self::GUARD): ?FailureReason
+    private function admitIdentifier(?string $type, string $guard = self::GUARD): ?FailureReason
     {
-        return $this->policy()->admit($guard, $this->identity(), $principal, null);
+        return $this->policy()->admitIdentifier($guard, $this->identity(), $type);
     }
 
     /**

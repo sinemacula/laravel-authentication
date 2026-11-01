@@ -22,8 +22,9 @@ in carries the same obligation:
 - `resolveDefaultPrincipal()`, `resolveHintedPrincipal()`, `sessions()` and, when `ModelProvider` checks a password,
   `getAuthPassword()` already run inside `WriteConnection::during()` for the identity, `getTenant()` for the principal,
   `isActive()` for the model it belongs to, a session's guard, sign-in method, refresh state, session deadlines and
-  revocation for the session, and an application policy's `admitIdentifier()` for the identity and `admit()` for the
-  identity and the principal (so a policy of your own that admits on a grant or a membership row reads the primary's):
+  revocation for the session, an application policy's `admitIdentifier()` for the identity, `ApplicationAccess` and the
+  `TenantResolver` for the principal, and `TenantAccess` for the principal and the tenant (so a contract of your own
+  that admits on a grant or a membership row reads the primary's):
   every model read made there, on any connection, goes to that connection's writer, and so does a query-builder read on
   the model's own connection. A query-builder or `DB` read on another connection, or made by a principal or identity
   that is not an Eloquent model, or a read a policy makes from `allowsMethod()`, must pin itself.

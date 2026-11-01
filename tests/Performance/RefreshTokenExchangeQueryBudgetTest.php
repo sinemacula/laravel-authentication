@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -30,7 +30,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\RefreshResult;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
-use Tests\Fixtures\Sessions\RefusingApplicationPolicy;
+use Tests\Fixtures\Sessions\RefusingApplicationAccess;
 use Tests\Integration\Fixtures\TenantAware3dIdentity;
 use Tests\Integration\Fixtures\TenantAware3dPrincipal;
 use Tests\Integration\Fixtures\TenantAware3dTenant;
@@ -583,7 +583,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $session  = $this->seedSession($identity, ['refresh_key' => RefreshTokenHasher::hash('ineligible-rotation-id')]);
         $token    = $this->tokens()->issueRefreshToken($session, 'ineligible-rotation-id', $identity);
 
-        app()->instance(ApplicationPolicy::class, new RefusingApplicationPolicy(app(ApplicationPolicy::class), static fn (): bool => true));
+        app()->instance(ApplicationAccess::class, new RefusingApplicationAccess(static fn (): bool => true));
 
         $guard  = $this->freshJwtGuard(self::GUARD);
         $events = $this->recordRefreshEvents();

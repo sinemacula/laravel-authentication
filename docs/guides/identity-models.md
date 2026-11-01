@@ -137,9 +137,11 @@ $this->app->singleton(PrincipalResolver::class, MyTenantScopedResolver::class);
 
 ## Which principals may use an application
 
-Which principals may use an application is the application policy's `admit()`: the package's admits every principal, so
-rebind `ApplicationPolicy` to refuse some (see
-[Extending](extending.md#deciding-which-principals-may-use-an-application)). What a principal may do is authorisation's.
+Which principals may use an application is the `ApplicationAccess` contract's answer: the package's admits every
+principal, so bind your own to refuse some (see
+[Extending](extending.md#deciding-which-principals-may-use-an-application)). Which tenants a principal may act in is
+`TenantAccess`'s: by default only its own, or none for a platform principal. What a principal may do is
+authorisation's.
 
 ## Identifiers
 

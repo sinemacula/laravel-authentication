@@ -13,6 +13,7 @@ use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
@@ -33,6 +34,8 @@ use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
+use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 
@@ -291,10 +294,11 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `ApplicationPolicy` declares exactly the four questions the session layer
-     * asks an application: may this method start a session, may this identity
-     * sign in with this identifier, may this principal hold one, and for how
-     * long, which depends on the guard alone.
+     * `ApplicationPolicy` declares exactly the three questions the session
+     * layer asks an application's settings: may this method start a session,
+     * may this identity sign in with this identifier, and for how long, which
+     * depends on the guard alone. Which principals may hold a session is not
+     * among them.
      *
      * @return void
      */
@@ -302,10 +306,31 @@ final class ContractDeclarationTest extends TestCase
     {
         $lifetimes = (new \ReflectionMethod(ApplicationPolicy::class, 'lifetimes'))->getParameters();
 
-        self::assertSame(['admit', 'admitIdentifier', 'allowsMethod', 'lifetimes'], self::declaredMethods(ApplicationPolicy::class));
+        self::assertSame(['admitIdentifier', 'allowsMethod', 'lifetimes'], self::declaredMethods(ApplicationPolicy::class));
         self::assertCount(1, $lifetimes);
         self::assertSame('guard', $lifetimes[0]->getName());
         self::assertSame('string', (string) $lifetimes[0]->getType());
+    }
+
+    /**
+     * The access contracts each declare one yes-or-no question, and the
+     * resolver one lookup by an opaque identifier: may this principal use this
+     * application, may it act in this tenant (or in none), and which tenant an
+     * identifier names.
+     *
+     * @return void
+     */
+    public function testTheAccessContractsDeclareOneQuestionEach(): void
+    {
+        $mayActIn = (new \ReflectionMethod(TenantAccess::class, 'mayActIn'))->getParameters();
+        $resolve  = (new \ReflectionMethod(TenantResolver::class, 'resolve'))->getParameters();
+
+        self::assertSame(['mayUse'], self::declaredMethods(ApplicationAccess::class));
+        self::assertSame(['mayActIn'], self::declaredMethods(TenantAccess::class));
+        self::assertSame(['resolve'], self::declaredMethods(TenantResolver::class));
+        self::assertSame('?' . Tenant::class, (string) $mayActIn[1]->getType());
+        self::assertSame('string', (string) $resolve[0]->getType());
+        self::assertSame('?' . Tenant::class, (string) (new \ReflectionMethod(TenantResolver::class, 'resolve'))->getReturnType());
     }
 
     /**

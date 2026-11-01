@@ -274,7 +274,10 @@ return [
     | sign-ins that use no identifier, such as SSO, are not affected. A
     | malformed value, or an unknown key, fails closed with an
     | `InvalidArgumentException` naming the guard and the key when the guard's
-    | policy is first used.
+    | policy is first used. Which principals may use an application, and which
+    | tenants they may act in, are not settings here but the `ApplicationAccess`
+    | and `TenantAccess` contracts: by default any principal may use any
+    | application, in its own tenant only.
     |
     */
 

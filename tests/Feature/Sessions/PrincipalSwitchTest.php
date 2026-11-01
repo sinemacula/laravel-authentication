@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -46,7 +47,7 @@ use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 use Tests\Concerns\InteractsWithSessions;
-use Tests\Fixtures\Sessions\InvitedTenantApplicationPolicy;
+use Tests\Fixtures\Sessions\RefusingApplicationAccess;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\ChoosingMembership;
@@ -619,39 +620,26 @@ final class PrincipalSwitchTest extends TestCase
     }
 
     /**
-     * A switch admits its target with the type of identifier the session's
-     * sign-in used, as that sign-in admitted its own principal: a policy that
-     * refuses a principal to that identifier refuses the switch to it for its
-     * reason, leaving the session as it was, while a session started without an
-     * identifier may switch to it.
+     * A switch asks `ApplicationAccess` about its target: a principal it keeps
+     * out of the application is refused as `principal_ineligible`, the refusal
+     * naming the target, and the session is left as it was.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testATargetRefusedToTheSessionsIdentifierIsRefused(): void
+    public function testATargetTheAccessRefusesIsRefused(): void
     {
-        [, $second, $member] = $this->seedMemberships();
+        [, $second] = $this->seedMemberships();
 
-        app()->instance(ApplicationPolicy::class, new InvitedTenantApplicationPolicy(app(ApplicationPolicy::class), $second->tenant_id));
+        self::refuseTenantsPrincipals($second->tenant_id);
 
         $session = $this->signIn();
         $row     = (array) DB::table('authentication_sessions')->sole();
-
-        self::assertSame('email', $row['sign_in_identifier_type']);
-
-        $refused = $this->assertSwitchFails(FailureReason::IDENTIFIER_UNVERIFIED, $session, $second);
+        $refused = $this->assertSwitchFails(FailureReason::PRINCIPAL_INELIGIBLE, $session, $second);
 
         self::assertSame(IdentifierCoercion::stringify($second->getKey()), $refused->context->principalId);
         self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
-
-        DB::table('authentication_sessions')->delete();
-
-        $started = $this->sessions(self::GUARD)->start($member, null, 'password')->session;
-
-        self::assertNotNull($started);
-        self::assertNull(DB::table('authentication_sessions')->value('sign_in_identifier_type'));
-        self::assertTrue($this->sessions(self::GUARD)->switchPrincipal($started->tokens->refreshToken, $second)->isSwitched());
     }
 
     /**
@@ -687,7 +675,7 @@ final class PrincipalSwitchTest extends TestCase
     /**
      * A session loaded without the type of identifier its sign-in used is
      * reported rather than switched as if the sign-in used none, which would
-     * skip the policy's refusal of the target to that identifier, and the
+     * skip the policy's refusal of the identity with that identifier, and the
      * session stays as it was.
      *
      * @return void
@@ -697,8 +685,6 @@ final class PrincipalSwitchTest extends TestCase
     public function testASessionLoadedWithoutItsIdentifierTypeIsReported(): void
     {
         [, $second] = $this->seedMemberships();
-
-        app()->instance(ApplicationPolicy::class, new InvitedTenantApplicationPolicy(app(ApplicationPolicy::class), $second->tenant_id));
 
         $session = $this->signIn();
         $row     = (array) DB::table('authentication_sessions')->sole();
@@ -717,9 +703,9 @@ final class PrincipalSwitchTest extends TestCase
     }
 
     /**
-     * A switch screen that lists the identity's principals with the identifier
-     * type the session records offers only the targets a switch admits, while
-     * the list without a type holds every eligible principal.
+     * A switch screen that lists the identity's principals, with the identifier
+     * type the session records or without one, offers only the targets a switch
+     * admits: those `ApplicationAccess` lets use the application.
      *
      * @return void
      *
@@ -729,7 +715,7 @@ final class PrincipalSwitchTest extends TestCase
     {
         [$first, $second, $member] = $this->seedMemberships();
 
-        app()->instance(ApplicationPolicy::class, new InvitedTenantApplicationPolicy(app(ApplicationPolicy::class), $second->tenant_id));
+        self::refuseTenantsPrincipals($second->tenant_id);
 
         $session = $this->signIn();
         $guard   = Auth::manager()->guard(self::GUARD);
@@ -741,8 +727,8 @@ final class PrincipalSwitchTest extends TestCase
 
         self::assertSame('email', $type);
         self::assertSame([$first->getKey()], array_map(static fn (Principal $principal): mixed => $principal->getPrincipalIdentifier(), $listed));
-        self::assertCount(2, $this->sessions(self::GUARD)->principals($member));
-        $this->assertSwitchFails(FailureReason::IDENTIFIER_UNVERIFIED, $session, $second);
+        self::assertCount(1, $this->sessions(self::GUARD)->principals($member));
+        $this->assertSwitchFails(FailureReason::PRINCIPAL_INELIGIBLE, $session, $second);
     }
 
     /**
@@ -767,7 +753,6 @@ final class PrincipalSwitchTest extends TestCase
         $policy = \Mockery::mock(ApplicationPolicy::class);
         $policy->shouldReceive('allowsMethod')->andReturnUsing($package->allowsMethod(...));
         $policy->shouldReceive('lifetimes')->andReturnUsing($package->lifetimes(...));
-        $policy->shouldReceive('admit')->with(self::GUARD, \Mockery::any(), \Mockery::any(), null)->andReturnNull();
         $policy->shouldReceive('admitIdentifier')
             ->once()
             ->with(self::GUARD, \Mockery::on(static fn (Identity $identity): bool => $identity->getAuthIdentifier() === $member->getKey()), 'email')
@@ -895,7 +880,6 @@ final class PrincipalSwitchTest extends TestCase
         $policy = \Mockery::mock(ApplicationPolicy::class);
         $policy->shouldReceive('allowsMethod')->andReturnTrue();
         $policy->shouldReceive('admitIdentifier')->andReturnNull();
-        $policy->shouldReceive('admit')->andReturnNull();
         $policy->shouldReceive('lifetimes')
             ->with(self::GUARD)
             ->andReturn(app(JwtTokenServiceFactory::class)->forGuard(self::GUARD)->lifetimes(), new TokenLifetimes(5, 60, 10, 30));
@@ -1030,7 +1014,6 @@ final class PrincipalSwitchTest extends TestCase
         $policy = \Mockery::mock(ApplicationPolicy::class);
         $policy->shouldReceive('allowsMethod')->andReturnTrue();
         $policy->shouldReceive('admitIdentifier')->andReturnNull();
-        $policy->shouldReceive('admit')->andReturnNull();
         $policy->shouldReceive('lifetimes')
             ->with(self::GUARD)
             ->andReturn(app(JwtTokenServiceFactory::class)->forGuard(self::GUARD)->lifetimes(), new TokenLifetimes(5, 60, 10, 30));
@@ -1263,7 +1246,6 @@ final class PrincipalSwitchTest extends TestCase
         $policy = \Mockery::mock(ApplicationPolicy::class);
         $policy->shouldReceive('allowsMethod')->andReturnTrue();
         $policy->shouldReceive('admitIdentifier')->andReturnNull();
-        $policy->shouldReceive('admit')->andReturnNull();
         $policy->shouldReceive('lifetimes')->with(self::GUARD)->andReturn($first, ...$then);
 
         app()->instance(ApplicationPolicy::class, $policy);
@@ -1336,5 +1318,19 @@ final class PrincipalSwitchTest extends TestCase
         CarbonImmutable::setTestNow($time);
 
         JWT::$timestamp = $time->getTimestamp();
+    }
+
+    /**
+     * Bind an application access that keeps the principals of the tenant out of
+     * every application.
+     *
+     * @param  mixed  $tenantId
+     * @return void
+     */
+    private static function refuseTenantsPrincipals(mixed $tenantId): void
+    {
+        app()->instance(ApplicationAccess::class, new RefusingApplicationAccess(
+            static fn (string $guard, Principal $principal): bool => IdentifierCoercion::matches($principal->getTenant()?->getTenantIdentifier(), $tenantId),
+        ));
     }
 }

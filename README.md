@@ -50,6 +50,8 @@ are caught on the server.
 - **Account lifecycle**: password policy, password reset, identifier verification and changing an email or phone.
 - **Per-application settings**: which sign-in methods and machine credentials each application allows (none until it
   lists them), whether identifiers must be verified, and its lifetimes.
+- **Access contracts**: whether a principal may use an application and whether it may act in a tenant, answered by your
+  application from its own tree and roles (by default any principal may use any application, in its own tenant only).
 - **Database rate limits**, enumeration-resistant responses, and read-replica and Octane safety.
 - **Events** for every sign-in, refresh, revocation and failure, with one shared context and never a secret.
 - **Localisable messages**: the `401` and `429` messages translate through your `lang/{locale}.json`, and every other

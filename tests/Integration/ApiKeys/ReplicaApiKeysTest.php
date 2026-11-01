@@ -24,7 +24,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithApplicationGrants;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Concerns\InteractsWithMachineCredentials;
-use Tests\Fixtures\Sessions\GrantedApplicationPolicy;
+use Tests\Fixtures\Sessions\GrantedApplicationAccess;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\Integration\Fixtures\MachineMembership;
@@ -248,7 +248,7 @@ final class ReplicaApiKeysTest extends TestCase
         self::assertTrue($this->authenticates('machine', $issued->key()));
         self::assertTrue($this->exchange($client)->isGranted());
 
-        $this->withdrawOnThePrimary(GrantedApplicationPolicy::GRANTS, $grant);
+        $this->withdrawOnThePrimary(GrantedApplicationAccess::GRANTS, $grant);
         $this->recordMachineEvents([AuthenticationFailed::class]);
 
         self::assertFalse($this->authenticates('machine', $issued->key()));

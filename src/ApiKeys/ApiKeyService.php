@@ -11,9 +11,8 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Database\Query\Expression;
 use Illuminate\Support\Str;
-use SineMacula\Laravel\Authentication\Admission\ApplicationAdmission;
 use SineMacula\Laravel\Authentication\Admission\PinnedPrincipal;
-use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
+use SineMacula\Laravel\Authentication\Admission\PrincipalAdmission;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
@@ -25,6 +24,7 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\ApiKeyIssued;
 use SineMacula\Laravel\Authentication\Events\ApiKeyRevoked;
 use SineMacula\Laravel\Authentication\Events\ApiKeyRotated;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Models\ApiKey;
@@ -374,25 +374,24 @@ final readonly class ApiKeyService
 
     /**
      * The principal, as the guard's resolver returns it for the identity, that
-     * the application admits; a key may only be issued for that.
+     * `ApplicationAccess` lets use the application; a key may only be issued
+     * for that.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\MachineIdentity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return \SineMacula\Laravel\Authentication\Contracts\Principal
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
-     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     private function actingPrincipal(MachineIdentity $identity, Principal $principal): Principal
     {
         $name     = $this->context->name();
         $resolved = PinnedPrincipal::resolve($this->context->resolver(), $identity, $principal);
+        $refusal  = $resolved === null || PrincipalAdmission::mayUse($name, $resolved) ? null : FailureReason::PRINCIPAL_INELIGIBLE;
 
-        /** @var \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy $policy */
-        $policy = $this->container->make(ApplicationPolicy::class);
-
-        return ApiKeyRules::principal($name, $resolved, $resolved === null ? null : ApplicationAdmission::admit($policy, $name, $identity, $resolved, null));
+        return ApiKeyRules::principal($name, $resolved, $refusal);
     }
 
     /**

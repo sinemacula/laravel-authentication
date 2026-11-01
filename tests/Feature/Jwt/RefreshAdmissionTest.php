@@ -13,6 +13,7 @@ use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\Refused;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -21,8 +22,12 @@ use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
+use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
+use SineMacula\Laravel\Authentication\Tenancy\OwnTenantOnly;
+use SineMacula\Laravel\Authentication\Tenancy\ResolveNoTenant;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubSession;
@@ -30,8 +35,8 @@ use Tests\Unit\Stubs\StubSession;
 /**
  * Feature tests for whom a session's refresh token signs in again: the
  * session's owner, as the principal the token names, active, in an active
- * tenant, and still allowed by the application policy. Each refusal carries as
- * much of the session as was resolved before it.
+ * tenant, and still allowed by the application policy and `ApplicationAccess`.
+ * Each refusal carries as much of the session as was resolved before it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -55,6 +60,9 @@ final class RefreshAdmissionTest extends TestCase
     /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy The application policy. */
     private MockInterface $policy;
 
+    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\ApplicationAccess Whether a principal may use the application. */
+    private MockInterface $access;
+
     /**
      * Build the collaborators and the session table.
      *
@@ -68,11 +76,15 @@ final class RefreshAdmissionTest extends TestCase
         $this->provider = \Mockery::mock(IdentityProvider::class);
         $this->resolver = \Mockery::mock(PrincipalResolver::class);
         $this->policy   = \Mockery::mock(ApplicationPolicy::class);
+        $this->access   = \Mockery::mock(ApplicationAccess::class);
 
         $this->policy->shouldReceive('allowsMethod')->with(self::GUARD, 'password')->andReturnTrue()->byDefault();
-        $this->policy->shouldReceive('admit')->andReturnNull()->byDefault();
+        $this->access->shouldReceive('mayUse')->andReturnTrue()->byDefault();
 
         $this->app?->instance(ApplicationPolicy::class, $this->policy);
+        $this->app?->instance(ApplicationAccess::class, $this->access);
+        $this->app?->singleton(TenantAccess::class, OwnTenantOnly::class);
+        $this->app?->singleton(TenantResolver::class, ResolveNoTenant::class);
 
         self::createSessionRecordTable('stub_sessions');
     }
@@ -294,9 +306,9 @@ final class RefreshAdmissionTest extends TestCase
 
     /**
      * A method the guard no longer allows, or a session that records none, is
-     * refused as `method_not_allowed`, and a principal the policy no longer
-     * admits as `principal_ineligible`; each carries the admitted session,
-     * tenant included.
+     * refused as `method_not_allowed`, and a principal `ApplicationAccess` no
+     * longer lets use the application as `principal_ineligible`; each carries
+     * the admitted session, tenant included.
      *
      * @return void
      */
@@ -315,10 +327,10 @@ final class RefreshAdmissionTest extends TestCase
         $noMethod   = $this->admission()->admit($unstated, 'p-1');
 
         $this->policy->shouldReceive('allowsMethod')->with(self::GUARD, 'password')->andReturnTrue();
-        $this->policy->shouldReceive('admit')
+        $this->access->shouldReceive('mayUse')
             ->once()
-            ->withArgs(static fn (string $guard, Identity $admitted, Principal $acting, ?string $type): bool => $guard === self::GUARD && $admitted === $identity && $type === null)
-            ->andReturn(FailureReason::PRINCIPAL_INELIGIBLE);
+            ->withArgs(static fn (string $guard, Principal $acting): bool => $guard === self::GUARD && $acting->getPrincipalIdentifier() === 'p-1')
+            ->andReturnFalse();
 
         $ineligible = $this->admission()->admit($removed, 'p-1');
 

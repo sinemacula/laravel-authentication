@@ -29,11 +29,13 @@ use Illuminate\Support\ServiceProvider;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Applications\AdmitAnyPrincipal;
 use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
@@ -42,7 +44,9 @@ use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
+use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
@@ -70,7 +74,9 @@ use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Scopes\AcceptAnyScope;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
+use SineMacula\Laravel\Authentication\Tenancy\OwnTenantOnly;
 use SineMacula\Laravel\Authentication\Tenancy\RequireNothingOfTenants;
+use SineMacula\Laravel\Authentication\Tenancy\ResolveNoTenant;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
@@ -569,6 +575,32 @@ final class AuthenticationServiceProviderTest extends TestCase
         self::assertInstanceOf(RequireNothingOfTenants::class, app(TenantAuthenticationPolicy::class));
         self::assertTrue($app->isShared(RequirementCheck::class));
         self::assertInstanceOf(MeetNoRequirement::class, app(RequirementCheck::class));
+    }
+
+    /**
+     * The default access contracts and tenant resolver (any principal in any
+     * application, a principal in its own tenant only, no other tenant
+     * resolved) are bound as singletons, so the application can bind its own.
+     *
+     * @return void
+     */
+    public function testRegistersTheDefaultAccessContracts(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        $defaults = [
+            ApplicationAccess::class => AdmitAnyPrincipal::class,
+            TenantAccess::class      => OwnTenantOnly::class,
+            TenantResolver::class    => ResolveNoTenant::class,
+        ];
+
+        foreach ($defaults as $contract => $default) {
+            self::assertTrue($app->isShared($contract));
+            self::assertInstanceOf($default, app($contract));
+            self::assertSame(app($contract), app($contract));
+        }
     }
 
     /**

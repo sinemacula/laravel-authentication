@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use SineMacula\Laravel\Authentication\Admission\ApplicationAdmission;
 use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesIdentifierVerification;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
@@ -26,7 +27,6 @@ use Tests\Integration\Fixtures\QueryingVerifiableIdentity;
 use Tests\Integration\Fixtures\VerifiableIdentity;
 use Tests\Integration\Fixtures\VerificationLogIdentity;
 use Tests\TestCase;
-use Tests\Unit\Stubs\PlainPrincipalFixture;
 
 /**
  * Proves verified state is read from the write connection: a verification the
@@ -109,11 +109,11 @@ final class ReplicaIdentifierVerifierTest extends TestCase
     {
         $identity = (new QueryingVerifiableIdentity)->newFromBuilder(['id' => 1]);
 
-        self::assertNull(app(ApplicationPolicy::class)->admit('api', $identity, new PlainPrincipalFixture(1), 'email'));
+        self::assertNull(ApplicationAdmission::admitIdentifier(app(ApplicationPolicy::class), 'api', $identity, 'email'));
 
         DB::connection(self::PRIMARY_CONNECTION)->table('verifiable_identities')->update(['email_verified_at' => null]);
 
-        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, app(ApplicationPolicy::class)->admit('api', $identity, new PlainPrincipalFixture(1), 'email'));
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, ApplicationAdmission::admitIdentifier(app(ApplicationPolicy::class), 'api', $identity, 'email'));
     }
 
     /**

@@ -40,6 +40,7 @@ final class FailureReasonTest extends TestCase
             'principal_mismatch',
             'principal_inactive',
             'tenant_inactive',
+            'tenant_ineligible',
             'principal_ineligible',
             'sso_required',
             'identifier_unverified',

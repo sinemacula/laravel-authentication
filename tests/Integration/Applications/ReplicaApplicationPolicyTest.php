@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithApplicationGrants;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Sessions\GrantedApplicationAccess;
 use Tests\Fixtures\Sessions\GrantedApplicationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -127,7 +128,7 @@ final class ReplicaApplicationPolicyTest extends TestCase
         self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->recordedEvent(AuthenticationFailed::class)->reason);
 
         $this->verify($identity);
-        $this->withdrawOnThePrimary(GrantedApplicationPolicy::GRANTS, $grant);
+        $this->withdrawOnThePrimary(GrantedApplicationAccess::GRANTS, $grant);
 
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions()->signIn('password', self::credentials())->reason);
     }
@@ -148,7 +149,7 @@ final class ReplicaApplicationPolicyTest extends TestCase
 
         self::assertTrue($this->sessions()->start($identity, null, 'sso')->isSignedIn());
 
-        $this->withdrawOnThePrimary(GrantedApplicationPolicy::GRANTS, $grant);
+        $this->withdrawOnThePrimary(GrantedApplicationAccess::GRANTS, $grant);
 
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions()->start($identity, null, 'sso')->reason);
     }
@@ -173,7 +174,7 @@ final class ReplicaApplicationPolicyTest extends TestCase
 
         self::assertNotNull($refreshed->session);
 
-        $this->withdrawOnThePrimary(GrantedApplicationPolicy::GRANTS, $grant);
+        $this->withdrawOnThePrimary(GrantedApplicationAccess::GRANTS, $grant);
 
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions()->refresh($refreshed->session->tokens->refreshToken)->reason);
         self::assertNull(DB::table('authentication_sessions')->useWritePdo()->value('revoked_at'));
@@ -231,7 +232,7 @@ final class ReplicaApplicationPolicyTest extends TestCase
 
         self::assertCount(2, $this->sessions('members')->principals($member, 'email'));
 
-        $this->withdrawOnThePrimary(GrantedApplicationPolicy::GRANTS, $grant);
+        $this->withdrawOnThePrimary(GrantedApplicationAccess::GRANTS, $grant);
 
         $principals = $this->sessions('members')->principals($member, 'email');
 

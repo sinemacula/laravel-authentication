@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -102,25 +103,24 @@ final class ApplicationPolicyIntegrationTest extends TestCase
     }
 
     /**
-     * The package policy admits every stored principal, in a tenant or not,
-     * whatever its `type` or its tenant's `category`, without reading the
-     * tenant.
+     * The package's application access lets every stored principal use the
+     * application, in a tenant or not, whatever its `type` or its tenant's
+     * `category`, without reading the tenant.
      *
      * @return void
      */
     public function testEveryStoredPrincipalIsAdmitted(): void
     {
-        $policy = app(ApplicationPolicy::class);
+        $access = app(ApplicationAccess::class);
 
         foreach ([['client_admin', 'staff'], [null, 'staff'], ['contractor', null], [null, null]] as [$type, $category]) {
 
             $membership = $this->seedMembership($type, $category);
-            $identity   = $membership->getIdentity();
 
             DB::enableQueryLog();
             DB::flushQueryLog();
 
-            self::assertNull($policy->admit(self::GUARD, $identity, $membership, null));
+            self::assertTrue($access->mayUse(self::GUARD, $membership));
             self::assertSame([], DB::getQueryLog());
             self::assertFalse($membership->relationLoaded('tenant'));
         }

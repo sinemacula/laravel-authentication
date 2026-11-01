@@ -13,10 +13,10 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyService;
-use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use Tests\Fixtures\Sessions\RefusingApplicationPolicy;
+use Tests\Fixtures\Sessions\RefusingApplicationAccess;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\MachineAccount;
@@ -170,19 +170,16 @@ trait InteractsWithMachineCredentials
     }
 
     /**
-     * Rebind the application policy around the bound one so every guard refuses
-     * a membership whose `type` is the one given as `principal_ineligible`, as
-     * an application that keeps service accounts apart would.
+     * Bind an application access that keeps a membership whose `type` is the
+     * one given out of every guard, refused as `principal_ineligible`, as an
+     * application that keeps service accounts apart would.
      *
      * @param  string  $type
      * @return void
      */
     protected function refuseMembershipsOfType(string $type): void
     {
-        $inner = app(ApplicationPolicy::class);
-
-        app()->instance(ApplicationPolicy::class, new RefusingApplicationPolicy(
-            $inner,
+        app()->instance(ApplicationAccess::class, new RefusingApplicationAccess(
             static fn (string $guard, Principal $principal): bool => $principal instanceof MachineMembership && $principal->type === $type,
         ));
     }

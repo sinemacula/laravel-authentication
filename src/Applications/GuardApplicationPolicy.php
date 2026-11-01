@@ -7,7 +7,6 @@ namespace SineMacula\Laravel\Authentication\Applications;
 use Illuminate\Config\Repository as ConfigRepository;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
@@ -29,8 +28,8 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * `method_not_allowed`; it is the package default, so each application lists
  * what it allows. The application settings are read on every call, so a change
  * to them applies at once; the lifetimes come from the guard's token service,
- * which the token service factory builds once and keeps. Every principal is
- * admitted: an application that keeps some out rebinds the policy.
+ * which the token service factory builds once and keeps. Which principals may
+ * use the application is `ApplicationAccess`'s answer, not the policy's.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -72,31 +71,12 @@ final readonly class GuardApplicationPolicy implements ApplicationPolicy
     }
 
     /**
-     * Admit every principal, holding the identity only to the
-     * verified-identifier requirement (`admitIdentifier()`).
-     *
-     * @param  string  $guard
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?string  $identifierType
-     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
-     *
-     * @throws \InvalidArgumentException
-     * @throws \LogicException
-     */
-    #[\Override]
-    public function admit(string $guard, Identity $identity, Principal $principal, ?string $identifierType): ?FailureReason
-    {
-        return $this->admitIdentifier($guard, $identity, $identifierType);
-    }
-
-    /**
      * For a guard that sets `require_verified_identifier` and a sign-in that
      * used an identifier of a type, refuse the identity as
      * `identifier_unverified` unless it reports that identifier verified (read
      * on the write connection); otherwise admit it (`null`). The identity must
      * implement `HasVerifiableIdentifiers` then; one that does not is a
-     * misconfiguration (`LogicException`). `admit()` asks it too.
+     * misconfiguration (`LogicException`).
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity

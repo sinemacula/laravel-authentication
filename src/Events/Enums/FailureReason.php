@@ -55,11 +55,16 @@ enum FailureReason: string
     // The principal reported inactive
     case PRINCIPAL_INACTIVE = 'principal_inactive';
 
-    // The tenant the principal acts within reported inactive, or opts into
-    // activation and cannot be loaded
+    // The principal's own tenant, or the tenant the session acts in, reported
+    // inactive, or opts into activation and cannot be loaded
     case TENANT_INACTIVE = 'tenant_inactive';
 
-    // The application policy does not admit the identity as the principal
+    // The tenant selected cannot be resolved, or the tenant access contract
+    // does not let the principal act in it
+    case TENANT_INELIGIBLE = 'tenant_ineligible';
+
+    // The application access contract does not let the principal use the
+    // application
     case PRINCIPAL_INELIGIBLE = 'principal_ineligible';
 
     // The tenant's authentication policy requires a session established through

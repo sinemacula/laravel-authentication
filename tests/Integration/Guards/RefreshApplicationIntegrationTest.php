@@ -15,6 +15,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
@@ -29,6 +30,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Sessions\RefusingApplicationAccess;
 use Tests\TestCase;
 
 /**
@@ -187,20 +189,20 @@ final class RefreshApplicationIntegrationTest extends TestCase
     }
 
     /**
-     * An owner the application policy no longer admits cannot refresh the
-     * session.
+     * A principal `ApplicationAccess` no longer lets use the application cannot
+     * refresh the session, which is kept.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAnOwnerTheApplicationNoLongerAdmitsIsNotRefreshed(): void
+    public function testAPrincipalTheApplicationNoLongerAdmitsIsNotRefreshed(): void
     {
         $this->seedIdentity();
 
         $session = $this->signIn();
 
-        $this->bindApplicationPolicy(admit: FailureReason::PRINCIPAL_INELIGIBLE);
+        app()->instance(ApplicationAccess::class, new RefusingApplicationAccess(static fn (): bool => true));
         $this->recordEvents([AuthenticationFailed::class]);
 
         self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
@@ -351,20 +353,18 @@ final class RefreshApplicationIntegrationTest extends TestCase
     }
 
     /**
-     * Bind an application policy with the given answers, and the guard's own
+     * Bind an application policy with the given answer, and the guard's own
      * lifetimes unless others are given.
      *
      * @param  bool  $allowsMethod
-     * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $admit
      * @param  ?\SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  $lifetimes
      * @return void
      */
-    private function bindApplicationPolicy(bool $allowsMethod = true, ?FailureReason $admit = null, ?TokenLifetimes $lifetimes = null): void
+    private function bindApplicationPolicy(bool $allowsMethod = true, ?TokenLifetimes $lifetimes = null): void
     {
         $policy = \Mockery::mock(ApplicationPolicy::class);
 
         $policy->shouldReceive('allowsMethod')->with('api', 'password')->andReturn($allowsMethod);
-        $policy->shouldReceive('admit')->andReturn($admit);
         $policy->shouldReceive('lifetimes')->andReturnUsing(static fn (string $guard): TokenLifetimes => $lifetimes ?? Auth::manager()->jwt($guard)->lifetimes());
 
         app()->instance(ApplicationPolicy::class, $policy);

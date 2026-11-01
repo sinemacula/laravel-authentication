@@ -26,7 +26,8 @@ live session moves to another principal
   (`SignInAdmission`), so with the package's policy a guard requiring a verified identifier refuses an unverified one
   as `identifier_unverified` whether the identity has principals or not, and the answer never tells someone holding an
   unverified identity's password whether it has been invited anywhere. A policy that wraps the package's keeps this by
-  asking the wrapped `admitIdentifier()`.
+  asking the wrapped `admitIdentifier()`. Which principals may use the application is `ApplicationAccess`'s answer,
+  asked only once a principal resolves, so for an identity with none the sign-in answers `principal_unresolved`.
 - A choice is a pending session (see `session-service.md`) whose `requires` holds `principal` and which records no
   principal. The identity-level factor policy is asked before any choice, so a required factor comes first (`mfa`, then
   `principal`), and no principal is listed or chosen while it is outstanding (`pending_action_not_allowed`).

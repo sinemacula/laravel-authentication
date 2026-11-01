@@ -16,6 +16,7 @@ use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\HasSessions;
@@ -58,6 +59,9 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy The application policy in the container. */
     private MockInterface $policy;
 
+    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\ApplicationAccess The application access in the container. */
+    private MockInterface $access;
+
     /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\AttemptLimiter The attempt limiter in the container. */
     private MockInterface $limiter;
 
@@ -84,7 +88,6 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $this->policy->shouldReceive('allowsMethod')->byDefault()->andReturnUsing(fn (): bool => $this->record('allowsMethod', true));
         $this->policy->shouldReceive('admitIdentifier')->byDefault()->andReturnUsing(fn (): mixed => $this->record('admitIdentifier', null));
-        $this->policy->shouldReceive('admit')->byDefault()->andReturnUsing(fn (): mixed => $this->record('admit', null));
         $this->limiter->shouldReceive('acquire')
             ->byDefault()
             ->andReturnUsing(fn (AttemptSubject $subject): AttemptReservation => $this->record('acquire', new AttemptReservation($subject, null)));
@@ -93,7 +96,11 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         assert($this->app !== null);
 
+        $this->access = \Mockery::mock(ApplicationAccess::class);
+        $this->access->shouldReceive('mayUse')->byDefault()->andReturnUsing(fn (): bool => $this->record('mayUse', true));
+
         $this->app->instance(ApplicationPolicy::class, $this->policy);
+        $this->app->instance(ApplicationAccess::class, $this->access);
         $this->app->instance(AttemptLimiter::class, $this->limiter);
         $this->app->instance(AdditionalFactorPolicy::class, $this->factors);
 
@@ -105,10 +112,10 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     /**
      * A successful attempt asks the application policy for the method first,
      * then reserves an attempt, finds the account, reserves an attempt on the
-     * account, checks the password, admits the identity with its identifier and
-     * then as its principal, rehashes the password with the credentials it
-     * signed in with, asks the factor policy, and only then gives both
-     * reservations back, the attempt's and the account's.
+     * account, checks the password, admits the identity with its identifier,
+     * asks whether its principal may use the application, rehashes the password
+     * with the credentials it signed in with, asks the factor policy, and only
+     * then gives both reservations back, the attempt's and the account's.
      *
      * @return void
      *
@@ -133,7 +140,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
             ->once()
             ->with(self::GUARD_NAME, $identity, 'email')
             ->andReturnUsing(fn (): mixed => $this->record('admitIdentifier', null));
-        $this->policy->shouldReceive('admit')->once()->with(self::GUARD_NAME, $identity, $principal, 'email')->andReturnUsing(fn (): mixed => $this->record('admit', null));
+        $this->access->shouldReceive('mayUse')->once()->with(self::GUARD_NAME, $principal)->andReturnUsing(fn (): bool => $this->record('mayUse', true));
 
         $reservations = [];
 
@@ -178,7 +185,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
                 'acquire account',
                 'validateCredentials',
                 'admitIdentifier',
-                'admit',
+                'mayUse',
                 'rehashPasswordIfRequired',
                 'requiresAdditionalFactor',
                 'release',
@@ -405,7 +412,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         $this->resolver->shouldReceive('resolve')->once()->andReturn($principal);
 
         $this->policy->shouldReceive('admitIdentifier')->once()->with(self::GUARD_NAME, $identity, 'username')->andReturnNull();
-        $this->policy->shouldReceive('admit')->once()->with(self::GUARD_NAME, $identity, $principal, 'username')->andReturnNull();
+        $this->access->shouldReceive('mayUse')->once()->with(self::GUARD_NAME, $principal)->andReturnTrue();
 
         $subjects = [];
 
@@ -564,15 +571,15 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * When the application policy refuses the identity as its principal, the
-     * attempt fails with the policy's reason and the whole context, and nothing
-     * is bound.
+     * When `ApplicationAccess` keeps the principal out of the application, the
+     * attempt fails as `principal_ineligible` with the whole context, and
+     * nothing is bound.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAnApplicationPolicyRefusalFailsTheAttempt(): void
+    public function testAnApplicationAccessRefusalFailsTheAttempt(): void
     {
         $identity  = $this->mockIdentity();
         $principal = $this->mockActivePrincipal();
@@ -581,7 +588,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $this->resolver->shouldReceive('resolve')->once()->andReturn($principal);
 
-        $this->policy->shouldReceive('admit')->once()->andReturn(FailureReason::PRINCIPAL_INELIGIBLE);
+        $this->access->shouldReceive('mayUse')->once()->andReturnFalse();
         $this->factors->shouldNotReceive('requiresAdditionalFactor');
         $this->provider->shouldNotReceive('rehashPasswordIfRequired');
         $this->expectNoSlotGivenBack();
@@ -821,7 +828,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $this->policy->shouldNotReceive('allowsMethod');
         $this->policy->shouldNotReceive('admitIdentifier');
-        $this->policy->shouldNotReceive('admit');
+        $this->access->shouldNotReceive('mayUse');
         $this->limiter->shouldNotReceive('acquire');
         $this->factors->shouldNotReceive('requiresAdditionalFactor');
         $this->provider->shouldNotReceive('rehashPasswordIfRequired');

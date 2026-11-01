@@ -21,7 +21,7 @@ use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
-use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -45,7 +45,7 @@ use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\InteractsWithTypedPrincipals;
 use Tests\Concerns\InteractsWithVerifiableIdentities;
-use Tests\Fixtures\Sessions\RefusingApplicationPolicy;
+use Tests\Fixtures\Sessions\RefusingApplicationAccess;
 use Tests\Integration\Fixtures\TypedIdentity;
 use Tests\Integration\Fixtures\TypedMembership;
 use Tests\Integration\Fixtures\TypedTenant;
@@ -611,8 +611,8 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * An application that decides which principals may use a guard rebinds the
-     * application policy: a principal it refuses is refused as
+     * An application that decides which principals may use a guard binds its
+     * application access: a principal it refuses is refused as
      * `principal_ineligible` before anything is written, and once it refuses a
      * principal whose session already exists, that session no longer refreshes,
      * and is not revoked.
@@ -621,18 +621,16 @@ final class SignInPolicyEndToEndTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testAReboundPolicyRefusesThePrincipalOnSignInAndRefresh(): void
+    public function testAReboundAccessRefusesThePrincipalOnSignInAndRefresh(): void
     {
-        $package = app(ApplicationPolicy::class);
-
-        self::refuseMembersOfType($package, 'contractor');
+        self::refuseMembersOfType('contractor');
 
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions('members')->signIn('password', $this->seedMember('contractor@example.test', 'contractor'))->reason);
         self::assertSame(0, Session::query()->count());
 
         $session = $this->signedIn($this->sessions('members')->signIn('password', $this->seedMember('client@example.test', 'client_staff')));
 
-        self::refuseMembersOfType($package, 'client_staff');
+        self::refuseMembersOfType('client_staff');
 
         $this->recordEvents([AuthenticationFailed::class]);
 
@@ -793,17 +791,15 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * Rebind the application policy around the given one so the `members` guard
-     * refuses every membership whose `type` is the one given.
+     * Bind an application access that keeps every membership whose `type` is
+     * the one given out of the `members` guard.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy  $inner
      * @param  string  $type
      * @return void
      */
-    private static function refuseMembersOfType(ApplicationPolicy $inner, string $type): void
+    private static function refuseMembersOfType(string $type): void
     {
-        app()->instance(ApplicationPolicy::class, new RefusingApplicationPolicy(
-            $inner,
+        app()->instance(ApplicationAccess::class, new RefusingApplicationAccess(
             static fn (string $guard, Principal $principal): bool => $guard === 'members' && $principal instanceof TypedMembership && $principal->type === $type,
         ));
     }

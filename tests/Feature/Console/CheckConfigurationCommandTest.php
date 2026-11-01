@@ -26,7 +26,7 @@ use SineMacula\Laravel\Authentication\Passwords\NotifyingResetLinkSender;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Testing\FakePasswordResetLinkSender;
-use Tests\Fixtures\Sessions\RefusingApplicationPolicy;
+use Tests\Fixtures\Sessions\DelegatingApplicationPolicy;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\Integration\Fixtures\SeparateConnectionSession;
@@ -924,7 +924,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
         $package = $this->check();
 
-        $this->app?->instance(ApplicationPolicy::class, new RefusingApplicationPolicy($this->app->make(GuardApplicationPolicy::class), static fn (): bool => false));
+        $this->app?->instance(ApplicationPolicy::class, new DelegatingApplicationPolicy($this->app->make(GuardApplicationPolicy::class)));
 
         self::assertSame([1, [...self::PACKAGE_OK, self::nothingAllowed('api'), '[api] OK', $relyingParty, self::API_KEY_NOT_ALLOWED]], $package);
         self::assertSame([1, [...self::PACKAGE_OK, '[api] OK', $relyingParty, self::API_KEY_NOT_ALLOWED]], $this->check());

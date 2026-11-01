@@ -26,6 +26,7 @@ use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\HasSessions;
@@ -531,6 +532,41 @@ final class SessionServiceTest extends TestCase
         self::assertSameModel($member, $this->recordedEvent(AuthenticationFailed::class)->context->identity);
         self::assertNull($this->recordedEvent(AuthenticationFailed::class)->context->principal);
         self::assertSame(0, Session::query()->count());
+    }
+
+    /**
+     * `ApplicationAccess` decides whether the principal may use the
+     * application: refused for the member's only principal, none is left, so
+     * the sign-in fails as `principal_ineligible` once the password is
+     * verified, naming the member and no principal or tenant, since none was
+     * selected.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheApplicationAccessRefusalFailsTheSignIn(): void
+    {
+        [$member, $membership] = $this->seedMember();
+
+        $access = $this->bindMock(ApplicationAccess::class);
+        $access->shouldReceive('mayUse')
+            ->once()
+            ->with('members', \Mockery::on(static fn (Principal $principal): bool => $principal->getPrincipalIdentifier() === $membership->getKey()))
+            ->andReturnFalse();
+
+        $this->recordEvents([Failed::class, AuthenticationFailed::class]);
+
+        $this->assertSignInFails(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions('members')->signIn('password', self::credentials('member@example.test')));
+
+        $failed = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSameModel($member, $failed->context->identity);
+        self::assertNull($failed->context->principal);
+        self::assertNull($failed->context->tenant);
+        self::assertSame('password', $failed->context->method);
+        self::assertSame('member@example.test', $failed->identifier);
+        self::assertSame($failed->context->identity, $this->recordedEvent(Failed::class)->user);
     }
 
     /**
