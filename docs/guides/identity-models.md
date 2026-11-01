@@ -335,21 +335,9 @@ is recorded or reported. Laravel's `signed` middleware, if you add it to the rou
 403 before `consume()` runs, so the route never sees `expired` and nothing is reported; leave it off to tell the two
 apart.
 
-`consume()` used to answer the verifier's `IdentifierVerification`, or `null` for any refused link. A check written for
-that still runs, wrongly: a `null`, `!== null` or truthiness check is now always given an outcome, refusals included,
-and a `match` on the old enum's cases never matches. Match the one enum instead:
+`consume()` answers one enum, `VerificationLinkOutcome`. Match it:
 
 ```php
-// Before
-use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
-
-$verification = app(VerificationLinks::class)->consume($request);
-
-if ($verification === null) {
-    abort(403);   // a refused link: tampered with, expired, or no longer the identifier's
-}
-
-// After
 use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 
@@ -394,22 +382,9 @@ the type, or one its normaliser rejects, is `identifier_invalid` when a code is 
 an identity that cannot verify identifiers throws a `LogicException`, and a machine identity, which has none to verify,
 an `InvalidArgumentException`.
 
-`verify()` used to answer the verifier's `IdentifierVerification` for an accepted code and the `FailureReason` for a
-refused one. A check written for those still runs, wrongly: an `instanceof` check against either enum is now never
-true, and a `match` on their cases never matches. Match the one enum instead:
+`verify()` answers one enum, `VerificationOutcome`. Match it:
 
 ```php
-// Before
-use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Facades\Auth;
-
-$result = Auth::codes('mobile')->verify($identity, 'phone', $code);
-
-if ($result instanceof FailureReason) {
-    return response()->json(['error' => $result->value], 422);   // invalid_credentials, code_expired, code_exhausted
-}
-
-// After
 use SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 
