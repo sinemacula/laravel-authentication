@@ -50,11 +50,11 @@ return [
     | Every authentication that binds a persisted EloquentSession records when,
     | from which IP address, and with which user agent it was last used, at most
     | once per `last_used_throttle_seconds` (0 records every use). Laravel's
-    | `model:prune` deletes sessions that ended (revoked, or past its
-    | idle or absolute deadline) more than `prune_after_days` ago (0 to 3650,
-    | counted from that end, not from creation; 0 prunes them as soon as they
-    | end; an integer, or a digit string as `env()` returns one; anything else
-    | fails closed when pruning runs, and `authentication:check` reports it).
+    | `model:prune` deletes sessions that ended (revoked, or past their idle or
+    | absolute deadline) more than `prune_after_days` ago (0 to 3650, counted
+    | from that end, not from creation; 0 prunes them as soon as they end; an
+    | integer, or a digit string as `env()` returns one; anything else fails
+    | closed when pruning runs, and `authentication:check` reports it).
     | The shipped model opts in with the `PrunesSessions` trait, as a custom
     | model does.
     |

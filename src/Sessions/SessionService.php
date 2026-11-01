@@ -400,10 +400,10 @@ final readonly class SessionService
      * admitted by the application policy with the identifier type the sign-in
      * used; the additional-factor policy is asked, and a required factor turns
      * the choice into a pending factor carrying its attempt-limit slots;
-     * otherwise the session starts on a new session, replacing the session the
-     * client proved it holds when that session records the chosen principal,
-     * and the slots are given back once committed. Every token that continues
-     * no live choice of this guard fails as `pending_invalid`.
+     * otherwise a new session starts, replacing the session the client proved
+     * it holds when that session records the chosen principal, and the slots
+     * are given back once committed. Every token that continues no live choice
+     * of this guard fails as `pending_invalid`.
      *
      * @param  string  $token
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal

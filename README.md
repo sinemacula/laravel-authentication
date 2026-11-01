@@ -15,7 +15,8 @@
 </div>
 
 Stateless contextual authentication for Laravel. Distinguishes the authenticated **Identity** from the acting
-**Principal** and the issuing **Session**, exposed through Laravel's standard `Auth` facade, middleware, and events.
+**Principal** and the **Session** it signed in on, exposed through Laravel's standard `Auth` facade, middleware, and
+events.
 
 Drops into Laravel's existing auth machinery - same `Auth::check()`, `Auth::user()`, `auth()->guard('api')`, same
 middleware, same events. Adds contextual accessors (`Auth::identity()`, `Auth::principal()`, `Auth::session()`) and

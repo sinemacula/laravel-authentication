@@ -174,7 +174,7 @@ final readonly class SessionWriter
     /**
      * A new, unsaved session of the configured model for the admitted sign-in,
      * created from the origin's client, with the context's client name and
-     * platform, and no session yet.
+     * platform, and none of the state it starts with (`sessionState()`) yet.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  string  $method

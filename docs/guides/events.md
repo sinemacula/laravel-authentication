@@ -99,19 +99,20 @@ request without a token dispatches nothing.
 `complete()`), with the method that proved who signed in, and a refresh, which renews the session and dispatches
 `Refreshed` and then `SignedIn` with `$refresh` set and the method the session records. `attempt()` starts no session
 and never dispatches `SignedIn`: Laravel's `Login` reports its sign-ins, and code that calls `start()` after `attempt()`
-reports the sign-in once. Every sign-in creates a session, so `SessionCreated` precedes every sign-in's `SignedIn`; a
-sign-in that proved the client's previous session dispatches that session's `SessionRevoked` (`superseded`) before both.
-A sign-in the additional-factor policy holds for a further factor dispatches `AdditionalFactorRequired` instead, once
-committed: from `signIn()` it answers the sign-in's `Attempting`, and from `start()`, which dispatches no `Attempting`,
-it is the only event. Completing it dispatches `SignedIn`, and discarding it `AuthenticationFailed` with
-`additional_factor_failed`. A sign-in that waits for a choice of principal dispatches `PrincipalChoiceRequired` the same
-way; choosing starts the session (or a pending factor) as above, and discarding the choice dispatches
-`AuthenticationFailed` with `principal_choice_abandoned`. A switch of principal is no sign-in: it dispatches
-`PrincipalSwitched`, and no `Login` or `SignedIn`. The event that reports a session's write (`SessionCreated`,
-`SignedIn`, `Refreshed` or `PrincipalSwitched`) is scheduled before the guard is bound to the session, so a listener
-that throws on `Validated`, `Login`, `Authenticated`, `PrincipalAssigned` or `SessionAuthenticated` cannot keep it from
-being reported (its exception still reaches the caller). Outside a transaction it is therefore dispatched before those
-bind events: read the event's context in its listener, not the guard, which may not be bound to the new session yet.
+reports the sign-in once. `SessionCreated` precedes the `SignedIn` of every sign-in that starts a session (not a
+refresh's, which keeps its session); a sign-in that proved the client's previous session dispatches that session's
+`SessionRevoked` (`superseded`) before both. A sign-in the additional-factor policy holds for a further factor
+dispatches `AdditionalFactorRequired` instead, once committed: from `signIn()` it answers the sign-in's `Attempting`,
+and from `start()`, which dispatches no `Attempting`, it is the only event. Completing it dispatches `SignedIn`, and
+discarding it `AuthenticationFailed` with `additional_factor_failed`. A sign-in that waits for a choice of principal
+dispatches `PrincipalChoiceRequired` the same way; choosing starts the session (or a pending factor) as above, and
+discarding the choice dispatches `AuthenticationFailed` with `principal_choice_abandoned`. A switch of principal is no
+sign-in: it dispatches `PrincipalSwitched`, and no `Login` or `SignedIn`. The event that reports a session's write
+(`SessionCreated`, `SignedIn`, `Refreshed` or `PrincipalSwitched`) is scheduled before the guard is bound to the
+session, so a listener that throws on `Validated`, `Login`, `Authenticated`, `PrincipalAssigned` or
+`SessionAuthenticated` cannot keep it from being reported (its exception still reaches the caller). Outside a
+transaction it is therefore dispatched before those bind events: read the event's context in its listener, not the
+guard, which may not be bound to the new session yet.
 
 `AuthenticationFailed` reports every failed sign-in, refresh, switch of principal, bearer token, API key, client
 credentials exchange, request for a one-time code, verification by code or link, password reset request or submission,

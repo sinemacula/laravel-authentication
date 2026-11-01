@@ -43,10 +43,10 @@ trait VerifiesPinnedContext
 
     /**
      * Look a caller-supplied session up among the identity's own sessions and
-     * return the live row, when its session acts as the principal being bound.
-     * Returns `null` when the identity owns no live session of the same class
-     * with that identifier (see `resolveSessionFromHint()`), or the session
-     * records another principal, or none.
+     * return the live row, when it acts as the principal being bound. Returns
+     * `null` when the identity owns no live session of the same class with that
+     * identifier (see `resolveSessionFromHint()`), or the session records
+     * another principal, or none.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -67,11 +67,11 @@ trait VerifiesPinnedContext
      * Returns null when the identity does not implement `HasSessions`, the hint
      * cannot be a key of the session model (no query is made), or the session
      * is not found (`IdentitySessions::find()`), belongs to another guard's
-     * sessions (or to none), has been revoked, or its session has ended (past
-     * its idle or absolute deadline, or without deadlines): such a session is
-     * treated exactly like a missing one, from the row already loaded, on the
-     * write connection (see `OwnedSession`). The deadlines are checked against
-     * the current time with no leeway, so a pin cannot outlive its session. A
+     * sessions (or to none), has been revoked, or has ended (past its idle or
+     * absolute deadline, or without deadlines): such a session is treated
+     * exactly like a missing one, from the row already loaded, on the write
+     * connection (see `OwnedSession`). The deadlines are checked against the
+     * current time with no leeway, so a pin cannot outlive its session. A
      * `sessions()` relation over a model that is not an `EloquentSession` is a
      * misconfiguration, and throws.
      *

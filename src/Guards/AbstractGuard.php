@@ -295,10 +295,10 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * Pins are verified, not trusted, because callers may take them from
      * request input: the principal must resolve through the resolver's hinted
      * path to the same principal of the same class, and the session must be one
-     * of the identity's own sessions of this guard that is not revoked and
-     * whose session has not ended (a session of another guard, or of none,
-     * counts as missing). The resolved instances are bound, and a pin that
-     * fails either check fails the attempt.
+     * of the identity's own sessions of this guard that is not revoked and has
+     * not ended (a session of another guard, or of none, counts as missing).
+     * The resolved instances are bound, and a pin that fails either check fails
+     * the attempt.
      *
      * A failure fires Laravel's `Failed`, carrying the account the credentials
      * named when there is one, and then `AuthenticationFailed` with the reason.

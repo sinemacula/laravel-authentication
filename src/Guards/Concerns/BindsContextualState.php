@@ -183,12 +183,11 @@ trait BindsContextualState
      * access.
      *
      * A trusted bind, like `login()`: the session is bound as given, with no
-     * check that it belongs to the identity, is not revoked, or has a session
-     * that has not ended. A session taken from request input must be proven to
-     * be one of the identity's live sessions first, as `attempt()` does for the
-     * session pinned on it. The event carries the tenant the bound principal
-     * names, or none when it cannot be loaded, and the method the session's
-     * session records.
+     * check that it belongs to the identity, is not revoked, or has not ended.
+     * A session taken from request input must be proven to be one of the
+     * identity's live sessions first, as `attempt()` does for the session
+     * pinned on it. The event carries the tenant the bound principal names, or
+     * none when it cannot be loaded, and the method the session records.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return static

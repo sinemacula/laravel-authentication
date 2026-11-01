@@ -135,10 +135,10 @@ interface ContextualGuard extends Guard
      * than being replaced by it.
      *
      * A trusted bind, like `login()`: the session is bound as given, with no
-     * check that it belongs to the identity, is not revoked, or has a session
-     * that has not ended. A session taken from request input must be proven to
-     * be one of the identity's live sessions first, as `attempt()` does for the
-     * session pinned on it.
+     * check that it belongs to the identity, is not revoked, or has not ended.
+     * A session taken from request input must be proven to be one of the
+     * identity's live sessions first, as `attempt()` does for the session
+     * pinned on it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return static

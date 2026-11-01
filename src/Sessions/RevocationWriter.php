@@ -91,8 +91,8 @@ final readonly class RevocationWriter
     }
 
     /**
-     * End every session of the scopes, except on the given session, and return
-     * how many sessions this call revoked. Once the transaction commits, each
+     * End every session of the scopes, except the given session, and return how
+     * many sessions this call revoked. Once the transaction commits, each
      * revoked session is reported, then each scope with its count and the
      * cutoff this call set for it.
      *

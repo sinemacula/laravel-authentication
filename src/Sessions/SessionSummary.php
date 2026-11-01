@@ -99,7 +99,7 @@ final readonly class SessionSummary implements \JsonSerializable, Arrayable
     ) {}
 
     /**
-     * Summarise a session read with its session deadlines.
+     * Summarise a session read with its deadlines.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  bool  $current

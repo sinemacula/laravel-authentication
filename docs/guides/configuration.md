@@ -381,10 +381,11 @@ missing, and its refresh token fails with `session_revoked`. Revoking a session 
 than when its access tokens expire. Revocation marks the row, with the time and a reason in `revoked_reason`, and clears
 both refresh digests; it never deletes the row (pruning does, later). The package revokes a session when it
 signs out, when the application revokes it or signs an identity or principal out everywhere (see
-[Signing out and revoking sessions](sessions.md#signing-out-and-revoking-sessions)), and when the refresh exchange
-detects a replay. Revoking is idempotent, so a session that is already revoked keeps its first revocation, and
-`SessionRevoked` reports each revocation the package makes. A session that has ended, past its idle or absolute
-deadline, is rejected the same way on the bearer path and as a sign-in pin, and fails refresh with `session_expired`
+[Signing out and revoking sessions](sessions.md#signing-out-and-revoking-sessions)), when a sign-in that proves the
+client holds it replaces it (`superseded`, see [Signing in](signing-in.md#signing-in-the-session-service)), and when
+the refresh exchange detects a replay. Revoking is idempotent, so a session that is already revoked keeps its first
+revocation, and `SessionRevoked` reports each revocation the package makes. A session that has ended, past its idle or
+absolute deadline, is rejected the same way on the bearer path and as a sign-in pin, and fails refresh with `session_expired`
 (see [Token and session lifetimes](#token-and-session-lifetimes)). An access token that names a session is accepted only
 for the principal the session records (`principal_type`, `principal_id`), and only when it was issued no
 earlier than the second of the session's last principal switch (`principal_switched_at`); otherwise it fails with

@@ -43,9 +43,9 @@ final class SessionDeadlines
     }
 
     /**
-     * Return a session's idle and absolute deadlines while its session is live
-     * at the given time, or `null` once it has ended (see `hasEnded()`). Each
-     * deadline is read once.
+     * Return a session's idle and absolute deadlines while it is live at the
+     * given time, or `null` once it has ended (see `hasEnded()`). Each deadline
+     * is read once.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \Carbon\CarbonInterface  $now

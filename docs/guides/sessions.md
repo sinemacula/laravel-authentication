@@ -82,7 +82,7 @@ transaction it follows the commit, after the bind events, and a rollback drops i
 
 `Auth::logout()` (or `Auth::guard('api')->logout()`) signs the request's session out: the session the guard is bound to
 is revoked with reason `signed_out`, `SessionRevoked` reports it once committed, Laravel's `Logout` follows, and the
-guard stays signed out for the rest of the request. The session's access and refresh tokens stop at once. A session
+guard stays signed out for the rest of the request. The session's access and refresh tokens stop at once. A request
 without a persisted session (an access-only token) has nothing to revoke and is only forgotten; a guest request does
 nothing. `Auth::sessions('api')->signOut()` does the same and returns whether it revoked a session. `logout()` cannot
 reach the response, so clear a browser's refresh cookie on it with `Auth::refreshTransport('api')->forgetCookie()` (see

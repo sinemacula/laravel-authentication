@@ -59,7 +59,8 @@ return new class extends Migration {
             $blueprint->string('created_user_agent', 512)->nullable();
 
             // The session the client proved it holds, and the digest it was
-            // proven against, so completion continues it only if unchanged.
+            // proven against, so completion replaces it (revoking it as
+            // `superseded`) only if unchanged.
             $blueprint->string('proven_session_id')->nullable();
             $blueprint->string('proven_session_refresh_key', 64)->nullable();
 

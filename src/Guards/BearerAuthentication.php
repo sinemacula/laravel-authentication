@@ -236,9 +236,9 @@ final readonly class BearerAuthentication
     /**
      * Hold the admitted token to the session it names, when it names one: the
      * session must be one of the identity's own, of this guard, not revoked,
-     * and with a session that has not ended, and the session must act as the
-     * token's principal and not have switched principal since the token was
-     * issued (`session_principal_mismatch`), so a switch ends the tokens of the
+     * and not ended, and it must act as the token's principal and not have
+     * switched principal since the token was issued
+     * (`session_principal_mismatch`), so a switch ends the tokens of the
      * principal it switched from at once. A token that names no session has no
      * session to revoke, so it must instead have been issued after the "tokens
      * valid after" time of its identity and of its principal, when they record

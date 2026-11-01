@@ -18,8 +18,7 @@ use SineMacula\Laravel\Authentication\SessionRecords\IdentitySessions;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * Which sessions hold a live session, and the listing of an identity's live
- * sessions.
+ * Which sessions are live, and the listing of an identity's live sessions.
  *
  * A session is active while it is not revoked and both its idle and absolute
  * deadlines are still ahead: a deadline has passed from the second it names, as
