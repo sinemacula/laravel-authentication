@@ -16,7 +16,9 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
  * verification or a minimum assurance level is not part of it, so a caller that
  * needs those rebinds the freshness policy. The stricter of two requirements
  * (`stricter()`) keeps the shorter age, the kinds both take, and either's
- * flags; two that take no kind in common can never be met together.
+ * flags; two that take no kind in common can never be met together. A caller
+ * that only means "within so many seconds" passes `within()`, which takes every
+ * kind, so it shortens the configured age without narrowing its kinds.
  *
  * @api
  *
@@ -60,6 +62,20 @@ final readonly class FreshnessRequirement
         }
 
         $this->proofs = self::kinds($proofs);
+    }
+
+    /**
+     * A requirement of a maximum age alone: every proof kind counts, and
+     * neither flag is asked for.
+     *
+     * @param  int  $maxAgeSeconds
+     * @return self
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function within(int $maxAgeSeconds): self
+    {
+        return new self($maxAgeSeconds, ProofKind::cases());
     }
 
     /**

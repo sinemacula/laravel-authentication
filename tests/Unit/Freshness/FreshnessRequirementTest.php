@@ -125,6 +125,28 @@ final class FreshnessRequirementTest extends TestCase
     }
 
     /**
+     * A requirement of an age alone takes every proof kind and asks for no
+     * flag, so made stricter with a configured requirement it keeps that
+     * requirement's kinds and flags and only shortens its age.
+     *
+     * @return void
+     */
+    public function testARequirementOfAnAgeAloneTakesEveryKind(): void
+    {
+        $within = FreshnessRequirement::within(300);
+
+        self::assertSame([300, ProofKind::cases(), false, false], [$within->maxAgeSeconds, $within->proofs, $within->multifactor, $within->phishingResistant]);
+
+        $configured = new FreshnessRequirement(900, [ProofKind::ADDITIONAL_FACTOR, ProofKind::RECOVERY_CODE], true);
+
+        self::assertEquals(new FreshnessRequirement(300, [ProofKind::ADDITIONAL_FACTOR, ProofKind::RECOVERY_CODE], true), $configured->stricter($within));
+
+        $this->expectException(\InvalidArgumentException::class);
+
+        FreshnessRequirement::within(0);
+    }
+
+    /**
      * The operations the package names.
      *
      * @return void
