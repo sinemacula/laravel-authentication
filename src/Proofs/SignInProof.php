@@ -153,7 +153,7 @@ final readonly class SignInProof
                 $provenance === null ? null : self::provenanceFrom($provenance),
             );
         } catch (\InvalidArgumentException|\UnexpectedValueException|\ValueError $exception) {
-            throw new \LogicException('A pending sign-in keeps a first factor or provenance the package cannot read.', 0, $exception);
+            throw new \LogicException('A pending sign-in keeps a first factor or provenance the package cannot read.', previous: $exception);
         }
     }
 
