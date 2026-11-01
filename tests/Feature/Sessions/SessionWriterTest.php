@@ -273,8 +273,8 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * A description the proven session recorded as a number, as a custom model
-     * might load it, is inherited as its text.
+     * A description the proven session reads as a number, as a custom model
+     * that casts it might, is inherited as its text.
      *
      * @return void
      *
@@ -286,7 +286,9 @@ final class SessionWriterTest extends TestCase
         $first    = $this->writer()->create($this->admitted($identity), 'password', 'email', $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
         $proven   = Session::query()->whereKey($first->record->getKey())->firstOrFail();
 
-        $proven->forceFill(['client_name' => 42, 'platform' => 7])->syncOriginal();
+        $proven->mergeCasts(['client_name' => 'integer', 'platform' => 'integer'])->forceFill(['client_name' => '42', 'platform' => '7'])->syncOriginal();
+
+        self::assertSame(42, $proven->getAttribute('client_name'));
 
         $context = $this->context();
         $session = $this->writer()->replace($this->admitted($identity)->on($proven), 'password', 'email', $context, $this->lifetimes(), $this->now, $context->client);
