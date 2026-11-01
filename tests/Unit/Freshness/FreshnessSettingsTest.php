@@ -112,6 +112,17 @@ final class FreshnessSettingsTest extends TestCase
     }
 
     /**
+     * A name that is not an operation's has no requirement, and is answered
+     * before any block is read: a malformed block is not reached.
+     *
+     * @return void
+     */
+    public function testANameThatIsNoOperationsIsAnsweredWithoutReadingTheBlocks(): void
+    {
+        self::assertNull(self::settings('soon', 'soon')->requirement('api', 'Identifier Change'));
+    }
+
+    /**
      * Rows of `[package block, guard block, message]`: every malformed block,
      * name and entry, at the package's level and a guard's.
      *
