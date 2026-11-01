@@ -214,9 +214,8 @@ final class IdentifierChangeRequestsTest extends TestCase
     /**
      * A newer request replaces the identity's pending change of the type,
      * through any guard, on that guard's own session: its request, guard,
-     * identifier and times are written over the old ones, and the old
-     * request's code is invalidated. A change of another type is a change of
-     * its own.
+     * identifier and times are written over the old ones, and the old request's
+     * code is invalidated. A change of another type is a change of its own.
      *
      * @return void
      *

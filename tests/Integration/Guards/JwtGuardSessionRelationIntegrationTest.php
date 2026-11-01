@@ -130,7 +130,12 @@ final class JwtGuardSessionRelationIntegrationTest extends TestCase
         $identity = $this->seedIdentity();
 
         $malformed = new Session;
-        $malformed->forceFill([...self::liveSession(), 'id' => 'not-a-uuid', 'authenticatable_type' => $identity->getMorphClass(), 'authenticatable_id' => (string) $identity->getKey()]); // @phpstan-ignore cast.string
+        $malformed->forceFill([
+            ...self::liveSession(),
+            'id'                   => 'not-a-uuid',
+            'authenticatable_type' => $identity->getMorphClass(),
+            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+        ]);
 
         // The proofs table keeps any key as a string, so the token can say how
         // the session authenticated.

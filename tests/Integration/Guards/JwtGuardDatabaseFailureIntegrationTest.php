@@ -124,10 +124,15 @@ final class JwtGuardDatabaseFailureIntegrationTest extends TestCase
         $identity->forceFill(['email' => 'outage@example.test', 'password' => 'irrelevant'])->save();
 
         $session = new UnreachableSession;
-        $session->forceFill([...self::liveSession(), 'id' => self::SESSION_ID, 'authenticatable_type' => $identity->getMorphClass(), 'authenticatable_id' => (string) $identity->getKey()]); // @phpstan-ignore cast.string
+        $session->forceFill([
+            ...self::liveSession(),
+            'id'                   => self::SESSION_ID,
+            'authenticatable_type' => $identity->getMorphClass(),
+            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+        ]);
 
-        // Its sign-in's proof is on the storage connection; only its own row
-        // is out of reach.
+        // Its sign-in's proof is on the storage connection; only its own row is
+        // out of reach.
         self::recordProof($session, ProofKind::FIRST_FACTOR, Carbon::now(), ['pwd']);
 
         $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session);

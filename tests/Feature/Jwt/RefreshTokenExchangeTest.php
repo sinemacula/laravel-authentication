@@ -197,8 +197,8 @@ final class RefreshTokenExchangeTest extends TestCase
         self::createSessionRecordTable('stub_sessions');
         self::migrateProofTables();
 
-        // A session row a test saves records the first factor its sign-in
-        // would have, so the tokens issued for it carry `auth_time` and `amr`.
+        // A session row a test saves records the first factor its sign-in would
+        // have, so the tokens issued for it carry `auth_time` and `amr`.
         FirstFactorRecorder::listen(app(Dispatcher::class), static fn (): bool => true);
     }
 
