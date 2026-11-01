@@ -139,6 +139,10 @@ final class ConcurrentFreshSignInsTest extends TestCase
 
         $pid = pcntl_fork();
 
+        if ($pid < 0) {
+            self::fail('The second side could not be forked.');
+        }
+
         if ($pid === 0) {
             $this->runInChild(function () use ($grace): string {
                 $inserting = "{$this->outcomes}/inserting";
@@ -277,9 +281,11 @@ final class ConcurrentFreshSignInsTest extends TestCase
     /**
      * Fail the race that was never set up: roll the first side's transaction
      * back and stop and reap the second side, so neither is left holding locks
-     * on the tables the teardown drops.
+     * on the tables the teardown drops. The pid is the forked child's, never a
+     * failed fork's `-1`, which `posix_kill()` would send to every process the
+     * user may signal.
      *
-     * @param  int  $pid
+     * @param  positive-int  $pid
      * @param  string  $message
      * @return never
      */
