@@ -179,9 +179,12 @@ strings, the form the proofs record them in, whatever the session model's key ty
 own: they go with their session, so a session deleted any other way (a truncation included) leaves them behind, and an
 application that deletes sessions itself deletes, in the same transaction, the rows of the `proofs.table` and
 `proofs.provenance_table` tables whose `session_id` is the session's key as a string (the form they record it in,
-whatever the session model's key type, so an integer key is compared as its digits). Every sign-in deletes whatever is
-recorded under its new session's key before it records its own, so a key the database issues again (an integer key whose
-counter a truncation reset) never inherits an earlier session's proofs.
+whatever the session model's key type, so an integer key is compared as its digits). Every sign-in also deletes whatever
+is recorded under its new session's key before it records its own, so a key the database issues again (an integer key
+whose counter a truncation reset) does not inherit an earlier session's proofs. That deletion reads as of its
+transaction's snapshot: on MySQL at REPEATABLE READ, a sign-in inside a transaction of your own that read the database
+before the earlier session's rows were committed does not see them, so delete a session's rows with it rather than rely
+on the sign-in.
 
 The package's models live outside your application's `app/Models`, so name them when you schedule the command:
 

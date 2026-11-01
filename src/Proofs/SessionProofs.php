@@ -106,8 +106,10 @@ final class SessionProofs
      * `ProofWriter` binds them, so another identity's or application's proof
      * under the same key never counts for it. A sign-in deletes what an earlier
      * session whose key it reuses left under it before recording its own
-     * (`ProofWriter::clear()`), so the same identity's proofs from that earlier
-     * session never count either.
+     * (`ProofWriter::clear()`, within the limit it states), so the same
+     * identity's proofs from that earlier session do not count either. The
+     * binding columns compare byte for byte, so a key or owner that differs
+     * only in case is another.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return \Illuminate\Database\Eloquent\Builder<\SineMacula\Laravel\Authentication\Models\SessionProof>

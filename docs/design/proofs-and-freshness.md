@@ -21,12 +21,17 @@ the token's claims and every freshness answer are worked out from them, never st
   new session with its own.
 - Every read of proofs is of the session's own: those recorded under its key and bound to its guard and its owner (the
   morph type and key the session records), so another identity's or application's proof under the same key never
-  counts for it. A sign-in deletes every proof and provenance recorded under its new session's key before it records
-  its own (`ProofWriter::clear()`), so a key the database issues again (an integer key whose counter a truncation
-  reset, after the sessions were deleted without their proofs) inherits nothing, the same identity's proofs included.
-  It finds them with a plain read on the write connection and deletes by their own keys only what it found: a delete
-  that matches nothing would lock the last gap of the proofs' and the provenance's indexes on MySQL, where every new
-  time-ordered key falls, and two sign-ins holding that lock while inserting their own proofs would deadlock.
+  counts for it. The key, guard, owner and `amr` columns compare byte for byte (a binary collation on MySQL and
+  MariaDB, whose default ones ignore case and accents), so a key, owner or value that differs only in those is another.
+  A sign-in deletes every proof and provenance recorded under its new session's key before it records its own
+  (`ProofWriter::clear()`), so a key the database issues again (an integer key whose counter a truncation reset, after
+  the sessions were deleted without their proofs) inherits nothing, the same identity's proofs included. It finds them
+  with a plain read on the write connection and deletes by their own keys only what it found: a delete that matches
+  nothing would lock the last gap of the proofs' and the provenance's indexes on MySQL, where every new time-ordered key
+  falls, and two sign-ins holding that lock while inserting their own proofs would deadlock. The plain read sees the
+  transaction's snapshot, so on MySQL at REPEATABLE READ a sign-in inside an application's transaction whose first
+  plain read predates the orphans' commit misses them; deleting a session's rows with it is the guarantee, this the
+  second line.
 - Every read of proofs is on the write connection and bounded: the claims read one aggregate query grouped by kind,
   `amr` set and multifactor report (`SessionProofs::history()`), and freshness reads the newest proof a requirement
   takes with `LIMIT 1` on the session, kind and time index (`SessionProofs::newestMeeting()`), so a session with many

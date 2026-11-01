@@ -121,8 +121,14 @@ final class ProofWriter
      * of the proofs' and the provenance's indexes, so two sign-ins that each
      * held that lock and then inserted their own proof would deadlock. A plain
      * read takes no lock, and a delete by the key of a row that exists locks
-     * only that row. Orphans under a new key were left by a session that ended
-     * before the key was issued again, so nothing writes them concurrently.
+     * only that row. Orphans under a new key were committed before the earlier
+     * session's row was deleted (a proof is written under that row's lock), so
+     * before the new row could be inserted, and nothing writes them
+     * concurrently. The plain read sees them unless the transaction's snapshot
+     * is older: on MySQL at REPEATABLE READ, a sign-in inside an application's
+     * transaction whose first plain read came before they were committed does
+     * not see them. Deleting a session's proofs with it, as pruning does, is
+     * what keeps a reissued key clean; this is the second line.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return void
