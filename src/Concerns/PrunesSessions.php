@@ -35,8 +35,11 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * connection: the keys of up to a chunk of prunable sessions are read, the
  * proofs and provenance recorded for those keys are deleted (by the keys as
  * strings, bound to the string column they are recorded in, whatever the
- * session model's key type), then the sessions themselves. A session deleted
- * any other way leaves its proofs and provenance behind.
+ * session model's key type), then the sessions themselves, deleted outright
+ * even on a model that soft-deletes, as Laravel's mass pruning force-deletes (a
+ * soft-deleted session would never be selected again, and its IP address and
+ * user agent would be kept for good). A session deleted any other way leaves
+ * its proofs and provenance behind.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -122,7 +125,7 @@ trait PrunesSessions
         (new SessionProof)->newQuery()->whereIn('session_id', $recorded)->delete();
         (new SessionProvenance)->newQuery()->whereIn('session_id', $recorded)->delete();
 
-        $deleted = $this->newQuery()->whereKey($keys)->delete();
+        $deleted = $this->newQuery()->whereKey($keys)->forceDelete();
 
         return is_int($deleted) ? $deleted : 0;
     }

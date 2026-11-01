@@ -17,13 +17,15 @@ use SineMacula\Laravel\Authentication\Concerns\PrunesSessions;
 use SineMacula\Laravel\Authentication\Models\Session;
 use Tests\Integration\Fixtures\IntegerKeyPruningSession;
 use Tests\Integration\Fixtures\ScopedRenamedPruningSession;
+use Tests\Integration\Fixtures\SoftDeletingPruningSession;
 use Tests\TestCase;
 
 /**
  * Integration tests for pruning sessions with Laravel's `model:prune`, against
  * the shipped table on each supported database: which ended sessions are
  * deleted at each boundary of the retention, with their proofs and provenance,
- * and how a custom model opts in, an integer-keyed one included.
+ * and how a custom model opts in, an integer-keyed and a soft-deleting one
+ * included.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -63,6 +65,7 @@ final class SessionPruningIntegrationTest extends TestCase
         Carbon::setTestNow();
         Schema::dropIfExists('scoped_renamed_pruning_sessions');
         Schema::dropIfExists('integer_key_pruning_sessions');
+        Schema::dropIfExists('soft_deleting_pruning_sessions');
 
         parent::tearDown();
     }
@@ -292,6 +295,48 @@ final class SessionPruningIntegrationTest extends TestCase
 
         self::assertEqualsCanonicalizing(['2', '2', '12', '12'], DB::table('authentication_proofs')->pluck('session_id')->all());
         self::assertEqualsCanonicalizing(['2', '12'], DB::table('authentication_provenance')->pluck('session_id')->all());
+    }
+
+    /**
+     * A session model that soft-deletes has its ended sessions deleted outright
+     * with their proofs and provenance, as Laravel's mass pruning
+     * force-deletes, rather than marked deleted, which would leave them out of
+     * every later prune and keep them for good.
+     *
+     * @return void
+     */
+    public function testASoftDeletingModelPrunesItsSessionsOutright(): void
+    {
+        Schema::create('soft_deleting_pruning_sessions', static function (Blueprint $table): void {
+            $table->increments('id');
+            $table->string('guard');
+            $table->dateTime('revoked_at', 0)->nullable();
+            $table->dateTime('idle_expires_at', 0);
+            $table->dateTime('absolute_expires_at', 0)->nullable();
+            $table->softDeletes();
+        });
+
+        $future = Carbon::parse(self::NOW)->addDays(30);
+
+        DB::table('soft_deleting_pruning_sessions')->insert([
+            ['guard' => 'api', 'revoked_at' => Carbon::parse(self::CUTOFF), 'idle_expires_at' => $future, 'absolute_expires_at' => $future],
+            ['guard' => 'api', 'revoked_at' => null, 'idle_expires_at' => $future, 'absolute_expires_at' => $future],
+        ]);
+
+        $this->insertProofsOf('1');
+        $this->insertProofsOf('2');
+
+        Artisan::call('model:prune', ['--model' => [SoftDeletingPruningSession::class]]);
+
+        $remaining = DB::table('soft_deleting_pruning_sessions')->get(['id', 'deleted_at'])->all();
+
+        Schema::dropIfExists('soft_deleting_pruning_sessions');
+
+        self::assertCount(1, $remaining);
+        self::assertSame('2', (string) $remaining[0]->id);
+        self::assertNull($remaining[0]->deleted_at);
+        self::assertSame(['2', '2'], DB::table('authentication_proofs')->pluck('session_id')->all());
+        self::assertSame(['2'], DB::table('authentication_provenance')->pluck('session_id')->all());
     }
 
     /**
