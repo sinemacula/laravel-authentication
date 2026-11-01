@@ -13,15 +13,16 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\SessionRecords\IdentitySessions;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * The sessions a bulk revocation ends: an identity's, or a principal's, pending
- * sessions among them (a pending session is a session row like any other, so
- * its credential ends with it), the "tokens valid after" cutoff that ends its
- * access tokens issued without a session, and, for an identity whose
- * identifiers can be changed, its pending identifier changes, which end with
- * them.
+ * The sessions a bulk revocation ends: an identity's, a principal's, or those
+ * acting in a tenant, pending sessions among them (a pending session is a
+ * session row like any other, so its credential ends with it), the "tokens
+ * valid after" cutoff that ends its access tokens issued without a session,
+ * and, for an identity whose identifiers can be changed, its pending identifier
+ * changes, which end with them.
  *
  * An identity's sessions are those its `sessions()` relation returns, of every
  * guard; a principal's are the configured session model's sessions that record
@@ -135,6 +136,33 @@ final readonly class RevocationScope
             $principal,
             $tenant,
         );
+    }
+
+    /**
+     * Every session acting in the tenant (whose active tenant it is), of the
+     * configured session model, of every guard, read on the write connection
+     * through the session table's tenant index, whatever principal it acts as:
+     * a principal of another tenant may act in this one, and pending sessions
+     * recording the tenant end with the rest. It has no cutoff and no identity
+     * or principal of its own: a token without a session acts only in its
+     * principal's own tenant, which the principals' scopes end.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @return self
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     */
+    public static function activeTenant(Tenant $tenant): self
+    {
+        $id = IdentifierCoercion::stringify($tenant->getTenantIdentifier());
+
+        if ($id === null) {
+            return new self(null, null, null, null, $tenant);
+        }
+
+        $model = SessionLookup::model();
+
+        return new self([WriteConnection::query($model->newQuery())->where($model->qualifyColumn($model->getTenantIdName()), $id), $model], null, null, null, $tenant);
     }
 
     /**

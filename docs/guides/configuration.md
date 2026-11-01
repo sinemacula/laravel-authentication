@@ -204,7 +204,7 @@ with no header type, php-jwt's default `JWT`, or the other type's is rejected as
 | `sub_type`          | access                      | `person` for a human identity, `machine` for a client             |
 | `principal`         | access; refresh, optional   | the principal the identity acts as                                |
 | `sid`               | refresh; a session's access | the session                                                       |
-| `tenant_id`         | access, with a tenant       | the tenant the principal acts within                              |
+| `tenant_id`         | access, with a tenant       | the active tenant: the session's, or the principal's own          |
 | `auth_time`         | a session's access          | when the session last authenticated                               |
 | `amr`               | a session's access          | the session's authentication method references, a list            |
 | `cid`               | client credentials          | the API key the token was exchanged for                           |
@@ -214,11 +214,12 @@ with no header type, php-jwt's default `JWT`, or the other type's is rejected as
 `sub_type` is `machine` exactly when the token names an API key in `cid`, and is checked against the identity's kind on
 every request, so a human's token can never be read as a machine's or the other way round. A session's access token
 carries `auth_time` and `amr` derived from the session when the token is issued; a token without a session carries
-neither. The bearer path does not read `tenant_id`, `auth_time` or `amr`: they are for the token's readers, and live no
-longer than the access token does. On a request the package exposes none of them, and a decision about how fresh or how
-strong the authentication is asks `FreshnessPolicy` (see [Freshness](#freshness)). `tenant_id` names the tenant the
-principal acts within when the token is issued, and is carried only: the package does not check it on a request, and
-`Auth::tenant()` stays the principal's tenant, read live.
+neither. The bearer path does not read `auth_time` or `amr`: they are for the token's readers, and live no longer than
+the access token does. On a request the package exposes neither, and a decision about how fresh or how strong the
+authentication is asks `FreshnessPolicy` (see [Freshness](#freshness)). `tenant_id` is always the session's active
+tenant, the one the session records, and is checked against the session on every request
+(`session_tenant_mismatch`); a token without a session names the principal's own tenant. `Auth::tenant()` is that
+active tenant.
 
 ## Token and session lifetimes
 
@@ -377,29 +378,29 @@ longer name gives index names that PostgreSQL cuts short without an error, or th
 
 A session is one sign-in, on one application, on one device. The shipped migration creates these columns:
 
-| Column                                                 | Holds                                                                  |
-|--------------------------------------------------------|------------------------------------------------------------------------|
-| `id`                                                   | UUID v7 primary key, carried in every token as `sid`                   |
-| `generation`                                           | A random UUID written at insert and never changed (required)           |
-| `authenticatable_type`, `authenticatable_id`           | The owning identity (required)                                         |
-| `principal_type`, `principal_id`                       | The principal the session acts as (any key type)                       |
-| `status`                                               | `active` (the default) or `pending`                                    |
-| `requires`                                             | What a pending session waits on, in order (`mfa`, `principal`)         |
-| `pending_key`                                          | Digest of the pending credential's secret                              |
-| `supersedes_session_id`, `supersedes_refresh_key`      | The session a pending sign-in replaces when it first activates         |
-| `attempt_windows`                                      | The attempt slots a pending sign-in keeps until it first activates     |
-| `tenant_id`, `tenant_policy_version`                   | The active tenant, and the version of its policy last met              |
-| `switched_at`                                          | When the session last switched its principal or tenant                 |
-| `guard`, `sign_in_method`                              | The guard and sign-in method that created it                           |
-| `sign_in_identifier_type`                              | The type of identifier that sign-in used, if any                       |
-| `client_name`, `platform`                              | What the client calls itself (`Work laptop`, `macOS`)                  |
-| `created_ip`, `created_user_agent`                     | The client at sign-in                                                  |
-| `last_used_at`, `last_used_ip`, `last_used_user_agent` | The client at the last use                                             |
-| `refresh_key`, `previous_refresh_key`                  | Digests of the current and previous rotation ids                       |
-| `refresh_rotated_at`                                   | When the current rotation id replaced the previous one                 |
-| `signed_in_at`                                         | When the session started (required)                                    |
-| `idle_expires_at`, `absolute_expires_at`               | End without a refresh (required), and end regardless (`null` for none) |
-| `revoked_at`, `revoked_reason`                         | When and why the session was revoked                                   |
+| Column                                                 | Holds                                                                                                    |
+|--------------------------------------------------------|----------------------------------------------------------------------------------------------------------|
+| `id`                                                   | UUID v7 primary key, carried in every token as `sid`                                                     |
+| `generation`                                           | A random UUID written at insert and never changed (required)                                             |
+| `authenticatable_type`, `authenticatable_id`           | The owning identity (required)                                                                           |
+| `principal_type`, `principal_id`                       | The principal the session acts as (any key type)                                                         |
+| `status`                                               | `active` (the default) or `pending`                                                                      |
+| `requires`                                             | What a pending session waits on, in order (`mfa`, `principal`)                                           |
+| `pending_key`                                          | Digest of the pending credential's secret                                                                |
+| `supersedes_session_id`, `supersedes_refresh_key`      | The session a pending sign-in replaces when it first activates                                           |
+| `attempt_windows`                                      | The attempt slots a pending sign-in keeps until it first activates                                       |
+| `tenant_id`, `tenant_policy_version`                   | The active tenant's opaque identifier (`null` for none, indexed), and the version of its policy last met |
+| `switched_at`                                          | When the session's context last changed (principal or active tenant, a return to pending, an activation) |
+| `guard`, `sign_in_method`                              | The guard and sign-in method that created it                                                             |
+| `sign_in_identifier_type`                              | The type of identifier that sign-in used, if any                                                         |
+| `client_name`, `platform`                              | What the client calls itself (`Work laptop`, `macOS`)                                                    |
+| `created_ip`, `created_user_agent`                     | The client at sign-in                                                                                    |
+| `last_used_at`, `last_used_ip`, `last_used_user_agent` | The client at the last use                                                                               |
+| `refresh_key`, `previous_refresh_key`                  | Digests of the current and previous rotation ids                                                         |
+| `refresh_rotated_at`                                   | When the current rotation id replaced the previous one                                                   |
+| `signed_in_at`                                         | When the session started (required)                                                                      |
+| `idle_expires_at`, `absolute_expires_at`               | End without a refresh (required), and end regardless (`null` for none)                                   |
+| `revoked_at`, `revoked_reason`                         | When and why the session was revoked                                                                     |
 
 Every timestamp is a `datetime` stored to the whole second, so a deadline years ahead fits on every engine (MySQL's
 `timestamp` type ends in January 2038), and the table is indexed on the owner, the principal, the guard, both deadlines,
@@ -438,27 +439,29 @@ column names come from the contract's accessors (`getRefreshKeyName()`, `getRevo
 migration creates the default names, so a model that renames a column needs its own migration.
 
 A session with `revoked_at` set is rejected everywhere: an access token naming it fails exactly as if the session were
-missing, and its refresh token fails with `session_revoked`. Revoking a session therefore ends it at once rather
-than when its access tokens expire. Revocation marks the row, with the time and a reason in `revoked_reason`, and clears
-both refresh digests; it never deletes the row (pruning does, later). The package revokes a session when it
-signs out, when the application revokes it or signs an identity or principal out everywhere (see
+missing, and its refresh token fails with `session_revoked`. Revoking a session therefore ends it at once rather than
+when its access tokens expire. Revocation marks the row, with the time and a reason in `revoked_reason`, and clears both
+refresh digests; it never deletes the row (pruning does, later). The package revokes a session when it signs out, when
+the application revokes it or signs an identity or principal out everywhere (see
 [Signing out and revoking sessions](sessions.md#signing-out-and-revoking-sessions)), when a sign-in that proves the
-client holds it replaces it (`superseded`, see [Signing in](signing-in.md#signing-in-the-session-service)), and when
-the refresh exchange detects a replay. Revoking is idempotent, so a session that is already revoked keeps its first
+client holds it replaces it (`superseded`, see [Signing in](signing-in.md#signing-in-the-session-service)), and when the
+refresh exchange detects a replay. Revoking is idempotent, so a session that is already revoked keeps its first
 revocation, and `SessionRevoked` reports each revocation the package makes. A session that has ended, past its idle or
 absolute deadline, is rejected the same way on the bearer path and as a sign-in pin, and fails refresh with
 `session_expired` (see [Token and session lifetimes](#token-and-session-lifetimes)). An access token that names a
-session is accepted only for the principal the session records (`principal_type`, `principal_id`), and only when it was
-issued no earlier than the second of the session's last switch (`switched_at`); otherwise it fails
-with `session_principal_mismatch`. A switch therefore ends the access tokens of the principal it switched from at once,
-and switching back does not revive the ones issued before it. A session that records no principal accepts no token, and
-a session pinned on `attempt()` must record the principal being bound. Both checks read the row already loaded, with no
-extra query. `ActsAsSession` reads any stored timestamp as a value, with or without a `datetime` cast on the column, and
-throws a `LogicException` when the session was loaded without one of its refresh or revocation state columns (both
-digests, the rotation time, the session's start, the switch time, both deadlines, and the revocation time) or
-without the sign-in's identifier type (`sign_in_identifier_type`), for example through a `sessions()` relation or a
-global scope that selects other columns, so a partial select is reported instead of being read as a session that is not
-revoked, has no deadline, or whose sign-in used no identifier.
+session is accepted only in the tenant the session records (`tenant_id`, else `session_tenant_mismatch`), for the
+principal it records (`principal_type`, `principal_id`, else `session_principal_mismatch`), and only when it was issued
+no earlier than the second of the session's last context change (`switched_at`, else `session_switched`). A switch
+therefore ends the access tokens of the principal or tenant it switched from at once, and switching back does not revive
+the ones issued before it. A session that records no principal accepts no token, and a session pinned on `attempt()`
+must record the principal being bound. The checks read the row already loaded, with no extra query, except that a
+session acting in a tenant other than its principal's own resolves it once per request to check it is still active.
+`ActsAsSession` reads any stored timestamp as a value, with or without a `datetime` cast on the column, and throws a
+`LogicException` when the session was loaded without one of its refresh or revocation state columns (both digests, the
+rotation time, the session's start, the switch time, both deadlines, and the revocation time) or without the
+sign-in's identifier type (`sign_in_identifier_type`), for example through a `sessions()` relation or a global scope
+that selects other columns, so a partial select is reported instead of being read as a session that is not revoked, has
+no deadline, or whose sign-in used no identifier.
 
 ### Pending sessions
 

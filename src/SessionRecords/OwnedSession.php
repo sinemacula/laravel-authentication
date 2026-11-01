@@ -12,6 +12,7 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
@@ -85,6 +86,24 @@ final class OwnedSession
     public static function actsAs(Session $session, Principal $principal): bool
     {
         return $session instanceof EloquentSession && $session instanceof Model && PrincipalReference::isRecordedOn($session, $principal);
+    }
+
+    /**
+     * Whether the session acts in the tenant a token names (its `tenant_id`):
+     * the session records that tenant's identifier, or records none for a token
+     * that names none.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  mixed  $tenantId
+     * @return bool
+     *
+     * @throws \LogicException
+     */
+    public static function actsIn(Session $session, mixed $tenantId): bool
+    {
+        $recorded = WriteConnection::during($session, static fn (): ?string => $session->getTenantId());
+
+        return $recorded === null ? $tenantId === null : IdentifierCoercion::matches($recorded, $tenantId);
     }
 
     /**

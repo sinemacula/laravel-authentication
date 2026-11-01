@@ -407,8 +407,8 @@ final class SessionRevocationsTest extends TestCase
     /**
      * A tenant's deactivation ends the sessions of the principals listed for
      * it, principals of two types with one identifier each, and reports one
-     * `SignedOutEverywhere` per principal, however often one is listed; with
-     * none listed it ends nothing.
+     * `SignedOutEverywhere` per principal, however often one is listed, and a
+     * session both find is ended once.
      *
      * @return void
      *
@@ -426,14 +426,43 @@ final class SessionRevocationsTest extends TestCase
 
         $this->recordEvents([SignedOutEverywhere::class]);
 
-        self::assertSame(0, $revocations->tenantDeactivated($tenant, []));
-        self::assertSame([], $this->recordedClasses());
         self::assertSame(1, $revocations->tenantDeactivated($tenant, [$membership, $membership, $eager]));
 
         $principals = array_map(static fn (object $event): ?string => $event instanceof SignedOutEverywhere ? $event->context->principalMorphClass : null, $this->recorded);
 
         self::assertSame([ActivatableTenantMembership::class, EagerTenantMembership::class], $principals);
         self::assertSame('tenant_deactivated', DB::table('authentication_sessions')->value('revoked_reason'));
+    }
+
+    /**
+     * With no principal listed, a tenant's deactivation still ends every
+     * session acting in the tenant, whatever its principal, reporting each
+     * revocation with the tenant and signing no one out everywhere; a session
+     * acting in another tenant is left alone, and a second call ends nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATenantsDeactivationEndsTheSessionsActingInIt(): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        $this->seedMember('other@example.test');
+
+        self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('member@example.test'));
+        self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('other@example.test'));
+
+        $revocations = SessionRevocations::forContext($this->freshGuard('members')->context(), app());
+
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class]);
+
+        self::assertSame(1, $revocations->tenantDeactivated($tenant, []));
+        self::assertSame([SessionRevoked::class], $this->recordedClasses());
+        self::assertSame($tenant, $this->recordedEvent(SessionRevoked::class)->context->tenant);
+        self::assertSame(RevocationReason::TENANT_DEACTIVATED, $this->recordedEvent(SessionRevoked::class)->reason);
+        self::assertSame(1, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
+        self::assertSame(0, $revocations->tenantDeactivated($tenant, []));
     }
 
     /**

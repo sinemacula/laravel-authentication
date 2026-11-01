@@ -31,14 +31,19 @@ are told apart, which claims are checked on every parse, and which the bearer pa
   are derived from the session's proofs when the token is issued (`Proofs\AuthenticationClaims::forSession()`, see
   `proofs-and-freshness.md`), read on the write connection, and `auth_time` is never later than `iat`. A parse holds
   `auth_time` to an integer not after `iat` plus the leeway and `amr` to a list of non-empty strings.
-- `tenant_id` names the tenant the principal acts within when the token is issued, the one its admission loaded, and
-  is a non-empty string when present; issuing refuses a tenant that is not the principal's own (its `getTenant()`, by
-  identifier), since a principal acts only within its own tenant. It is transitional: the package carries it and never
-  checks it on a request, and `Auth::tenant()` stays the principal's tenant, read live.
-- Past the parse, the bearer path reads `sub`, `principal`, `sid`, `iat`, `cid` and `scope`. It does not read
-  `tenant_id`, `auth_time` or `amr`, and makes no query for them: they are for the token's readers, derived at issue,
-  and live no longer than the access token does. On a request the package exposes none of them, and a decision about
-  how fresh or how strong the authentication is asks `FreshnessPolicy`.
+- `tenant_id` is always the session's active tenant (D20): the tenant the session records (`tenant_id` on the row,
+  an opaque identifier), absent for a session that acts in none, a non-empty string when present. Issuing a session's
+  token refuses any other tenant, and none for a session in a tenant (`TokenProfile::sessionTenant()`); a token
+  without a session acts only in the principal's own tenant, so issuing one refuses any other
+  (`TokenProfile::ownTenant()`). The principal's own tenant is derived from the principal and is no claim.
+- Past the parse, the bearer path reads `sub`, `principal`, `sid`, `iat`, `tenant_id`, `cid` and `scope`. A session's
+  token must name the tenant the session records (`session_tenant_mismatch`), be the session's principal's
+  (`session_principal_mismatch`), and have been issued no earlier than the session's last context change,
+  `switched_at` (`session_switched`); the tenant must then still resolve and be active (`tenant_inactive`). It does
+  not read `auth_time` or `amr`, and makes no query for them: they are for the token's readers, derived at issue, and
+  live no longer than the access token does. On a request the package exposes neither, and a decision about how fresh
+  or how strong the authentication is asks `FreshnessPolicy`. `Auth::tenant()` is the active tenant the request was
+  admitted in.
 
 ## Success Path
 
@@ -67,8 +72,10 @@ are told apart, which claims are checked on every parse, and which the bearer pa
 
 - `src/Jwt/Enums/TokenType.php`: the header values and each type's required claims.
 - `src/Jwt/Enums/Claims.php` and `src/Jwt/Enums/SubjectType.php`.
-- `src/Jwt/TokenProfile.php`: `headerType()`, `accessFailure()`, `refreshFailure()`, `ownTenant()` (a `tenant_id` only
-  for the principal's own tenant).
+- `src/Jwt/TokenProfile.php`: `headerType()`, `accessFailure()`, `refreshFailure()`, `ownTenant()` (a token without a
+  session names only the principal's own tenant), `sessionTenant()` (a session's token names only its active tenant).
+- `src/Guards/BearerAuthentication.php`: `onSession()`, `contextRefusal()` (the tenant, principal and switched-at
+  checks), `inActiveTenant()`.
 - `src/Jwt/JwtTokenService.php`: `encode()` (the header), `issueAccess()`, `sessionClaims()`, `parse()`,
   `parseRefreshProof()`.
 - `src/Jwt/JwtTokenServiceFactory.php`: `resolveJwtRequiredString()` for `iss` and `aud`.
@@ -113,5 +120,5 @@ Update this note when any of the following change:
 - a header type, or how the header is compared or when it is trusted
 - the claims a token type requires, or the name or meaning of any claim
 - how `sub_type` is decided or checked
-- where `auth_time` and `amr` come from, or whether the bearer path reads them or `tenant_id`
-- whether `tenant_id` is checked on a request (it is transitional: an active tenant on the session would check it)
+- where `auth_time` and `amr` come from, or whether the bearer path reads them
+- what `tenant_id` names, how it is checked on a request, or in what order against the principal and `switched_at`

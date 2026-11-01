@@ -29,6 +29,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
 use SineMacula\Laravel\Authentication\Tenancy\OwnTenantOnly;
 use SineMacula\Laravel\Authentication\Tenancy\ResolveNoTenant;
 use Tests\Concerns\InteractsWithSessionRecords;
+use Tests\Unit\Stubs\PlainPrincipalFixture;
 use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubSession;
 
@@ -345,6 +346,111 @@ final class RefreshAdmissionTest extends TestCase
     }
 
     /**
+     * A session that records its principal is admitted in the tenant it acts
+     * in: its principal's own, never asked of the resolver, or another the
+     * resolver finds, each still one `TenantAccess` lets the principal act in.
+     *
+     * @return void
+     */
+    public function testTheSessionsActiveTenantIsTheOneAdmitted(): void
+    {
+        $identity   = $this->expectOwner(true, 2);
+        $own        = self::tenant(true, 'own');
+        $descendant = self::tenant(true, 'descendant');
+        $principal  = $this->expectPrincipal($identity, 'p-1', 'p-1', $own, 2);
+        $inOwn      = $this->seedSession(self::recordedPrincipal($principal));
+        $below      = $this->seedSession([...self::recordedPrincipal($principal), 'tenant_id' => 'descendant']);
+
+        $resolver = \Mockery::mock(TenantResolver::class);
+        $resolver->shouldReceive('resolve')->once()->with('descendant')->andReturn($descendant);
+
+        $access = \Mockery::mock(TenantAccess::class);
+        $access->shouldReceive('mayActIn')->once()->with($principal, $own)->andReturnTrue();
+        $access->shouldReceive('mayActIn')->once()->with($principal, $descendant)->andReturnTrue();
+
+        $this->app?->instance(TenantResolver::class, $resolver);
+        $this->app?->instance(TenantAccess::class, $access);
+
+        $owned  = $this->admission()->admit($inOwn, 'p-1');
+        $placed = $this->admission()->admit($below, 'p-1');
+
+        self::assertInstanceOf(Admitted::class, $owned);
+        self::assertSame($own, $owned->tenant);
+        self::assertSame($inOwn, $owned->session);
+        self::assertInstanceOf(Admitted::class, $placed);
+        self::assertSame($descendant, $placed->tenant);
+        self::assertSame($below, $placed->session);
+    }
+
+    /**
+     * An active tenant `TenantAccess` no longer lets the principal act in is
+     * refused as `tenant_ineligible`, and one the resolver no longer finds as
+     * `tenant_inactive`, each carrying the session and the principal's own
+     * tenant.
+     *
+     * @return void
+     */
+    public function testAnActiveTenantNoLongerAllowedOrFoundIsRefused(): void
+    {
+        $identity  = $this->expectOwner(true, 2);
+        $own       = self::tenant(true, 'own');
+        $principal = $this->expectPrincipal($identity, 'p-1', 'p-1', $own, 2);
+        $inOwn     = $this->seedSession(self::recordedPrincipal($principal));
+        $gone      = $this->seedSession([...self::recordedPrincipal($principal), 'tenant_id' => 'gone']);
+
+        $resolver = \Mockery::mock(TenantResolver::class);
+        $resolver->shouldReceive('resolve')->once()->with('gone')->andReturnNull();
+
+        $access = \Mockery::mock(TenantAccess::class);
+        $access->shouldReceive('mayActIn')->once()->with($principal, $own)->andReturnFalse();
+
+        $this->app?->instance(TenantResolver::class, $resolver);
+        $this->app?->instance(TenantAccess::class, $access);
+
+        $refused = $this->admission()->admit($inOwn, 'p-1');
+        $missing = $this->admission()->admit($gone, 'p-1');
+
+        self::assertInstanceOf(Refused::class, $refused);
+        self::assertSame(FailureReason::TENANT_INELIGIBLE, $refused->reason);
+        self::assertSame($own, $refused->tenant);
+        self::assertSame($inOwn, $refused->session);
+        self::assertInstanceOf(Refused::class, $missing);
+        self::assertSame(FailureReason::TENANT_INACTIVE, $missing->reason);
+        self::assertSame($gone, $missing->session);
+    }
+
+    /**
+     * A principal the session does not record, and any principal admitted for a
+     * switch through `admitPrincipal()`, is admitted in its own tenant,
+     * whatever tenant the session acts in, without the resolver or the tenant
+     * access being asked.
+     *
+     * @return void
+     */
+    public function testAPrincipalAdmittedOutsideTheSessionKeepsItsOwnTenant(): void
+    {
+        $identity  = $this->expectOwner(true, 2);
+        $own       = self::tenant(true, 'own');
+        $principal = $this->expectPrincipal($identity, 'p-1', 'p-1', $own, 2);
+        $other     = $this->seedSession([...self::recordedPrincipal(new PlainPrincipalFixture('p-2')), 'tenant_id' => 'elsewhere']);
+        $recorded  = $this->seedSession([...self::recordedPrincipal($principal), 'tenant_id' => 'elsewhere']);
+
+        $resolver = \Mockery::mock(TenantResolver::class);
+        $resolver->shouldNotReceive('resolve');
+
+        $access = \Mockery::mock(TenantAccess::class);
+        $access->shouldNotReceive('mayActIn');
+
+        $this->app?->instance(TenantResolver::class, $resolver);
+        $this->app?->instance(TenantAccess::class, $access);
+
+        foreach ([$this->admission()->admit($other, 'p-1'), $this->admission()->admitPrincipal($recorded, 'p-1')] as $admitted) {
+            self::assertInstanceOf(Admitted::class, $admitted);
+            self::assertSame($own, $admitted->tenant);
+        }
+    }
+
+    /**
      * Use the shipped stub session model on the in-memory database.
      *
      * @param  mixed  $app
@@ -459,15 +565,18 @@ final class RefreshAdmissionTest extends TestCase
     }
 
     /**
-     * A tenant that opts into activation and reports the given state.
+     * A tenant that opts into activation and reports the given state, with the
+     * identifier.
      *
      * @param  bool  $active
+     * @param  string  $id
      * @return \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Tenant
      */
-    private static function tenant(bool $active): MockInterface
+    private static function tenant(bool $active, string $id = 'tenant'): MockInterface
     {
         $tenant = \Mockery::mock(Tenant::class, CanBeActive::class);
         $tenant->shouldReceive('isActive')->andReturn($active);
+        $tenant->shouldReceive('getTenantIdentifier')->andReturn($id);
 
         return $tenant;
     }

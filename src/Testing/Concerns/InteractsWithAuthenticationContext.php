@@ -124,6 +124,28 @@ trait InteractsWithAuthenticationContext
     }
 
     /**
+     * Act in the tenant, as the active tenant, on the guard (the default guard
+     * when none is named), with the identity, principal and session the test
+     * already acts as there: `Auth::tenant()` returns it on every request until
+     * the acting ends or changes. An `InvalidArgumentException` says the test
+     * does not act on the guard.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  ?string  $guard
+     * @return static
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     */
+    public function actingInTenant(Tenant $tenant, ?string $guard = null): static
+    {
+        ActingContext::current()->actIn(ActingContext::guard($guard), $tenant);
+
+        return $this;
+    }
+
+    /**
      * Stop acting on the guard (the default guard when none is named): it is
      * signed out for the rest of the request, and the next request is
      * authenticated by its own credential, if any.
@@ -192,9 +214,9 @@ trait InteractsWithAuthenticationContext
     }
 
     /**
-     * Assert the tenant the principal the guard (the default guard when none is
-     * named) has bound acts within: none when `null` is expected, otherwise one
-     * of the same class with the same tenant identifier.
+     * Assert the active tenant the guard (the default guard when none is named)
+     * has bound: none when `null` is expected, otherwise one of the same class
+     * with the same tenant identifier.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $expected
      * @param  ?string  $guard

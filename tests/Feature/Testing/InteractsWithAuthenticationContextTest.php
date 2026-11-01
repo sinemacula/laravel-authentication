@@ -120,8 +120,10 @@ final class InteractsWithAuthenticationContextTest extends TestCase
 
     /**
      * Acting as an identity of a three-dimensional guard binds the principal
-     * and session given, and the tenant the principal acts within, on every
-     * request.
+     * and session given, on every request, in the tenant the session records
+     * for that principal (none here: the session acts in the tenant of the
+     * membership it was signed in as, which the shipped resolver does not find
+     * for another membership), or, with no session, in the principal's own.
      *
      * @return void
      */
@@ -140,7 +142,7 @@ final class InteractsWithAuthenticationContextTest extends TestCase
         $this->getJson('/members/me')->assertOk()->assertExactJson([
             'identity'  => $member->getKey(),
             'principal' => $other->getKey(),
-            'tenant'    => $other->tenant_id,
+            'tenant'    => null,
             'session'   => $session->getKey(),
             'scopes'    => null,
         ]);
@@ -154,6 +156,39 @@ final class InteractsWithAuthenticationContextTest extends TestCase
             'session'   => null,
             'scopes'    => null,
         ]);
+    }
+
+    /**
+     * Acting in a tenant binds it as the active tenant of the context the test
+     * acts as, on every request, until the test acts again; acting in a tenant
+     * on a guard the test does not act on is refused.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testActingInATenantBindsItAsTheActiveTenant(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
+
+        $this->actingAsPrincipal($membership, guard: 'members')->actingInTenant($descendant, 'members');
+
+        $expected = ['identity' => $member->getKey(), 'principal' => $membership->getKey(), 'tenant' => $descendant->getKey(), 'session' => null, 'scopes' => null];
+
+        $this->getJson('/members/me')->assertOk()->assertExactJson($expected);
+        $this->getJson('/members/me')->assertOk()->assertExactJson($expected);
+        $this->assertBoundTenant($descendant, 'members');
+
+        $this->actingAsPrincipal($membership, guard: 'members');
+
+        $this->getJson('/members/me')->assertOk()->assertJson(['tenant' => $tenant->getKey()]);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('The test does not act on guard [admin]');
+
+        $this->actingInTenant($descendant, 'admin');
     }
 
     /**

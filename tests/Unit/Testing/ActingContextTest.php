@@ -234,6 +234,62 @@ final class ActingContextTest extends TestCase
     }
 
     /**
+     * Acting in a tenant binds it as the active tenant of the context the guard
+     * is acted as, now and on every request after, and acting again in no
+     * tenant leaves the session's or the principal's own.
+     *
+     * @return void
+     */
+    public function testActingInATenantBindsItWithTheContext(): void
+    {
+        $guard     = $this->guard('api');
+        $identity  = new PlainIdentityFixture(1);
+        $principal = new PlainPrincipalFixture(10, $identity, new PlainTenantFixture(5));
+        $tenant    = new PlainTenantFixture(7);
+        $context   = ActingContext::current();
+
+        $context->act($guard, $identity, $principal, null);
+        $context->actIn($guard, $tenant);
+
+        self::assertSame($tenant, $guard->tenant());
+        self::assertSame($principal, $guard->principal());
+
+        $this->container->instance('request', Request::create('/me'));
+
+        self::assertSame($tenant, $guard->tenant());
+
+        $context->act($guard, $identity, $principal, null);
+
+        self::assertSame($principal->tenant, $guard->tenant());
+    }
+
+    /**
+     * A tenant cannot be acted in on a guard the test does not act on, nor on a
+     * guard created afresh under the name of one it acted on.
+     *
+     * @return void
+     */
+    public function testActingInATenantNeedsTheGuardActedOn(): void
+    {
+        $context = ActingContext::current();
+        $acted   = $this->guard('api');
+        $ada     = new PlainIdentityFixture(1);
+
+        $context->act($acted, $ada, new PlainPrincipalFixture(10, $ada), null);
+
+        foreach ([$this->guard('admin'), $this->guard('api')] as $guard) {
+
+            try {
+                $context->actIn($guard, new PlainTenantFixture(7));
+
+                self::fail('Expected acting in a tenant to be refused.');
+            } catch (\InvalidArgumentException $exception) {
+                self::assertSame(sprintf('The test does not act on guard [%s]: act as an identity, a principal or a session first.', $guard->getName()), $exception->getMessage());
+            }
+        }
+    }
+
+    /**
      * Rows of `[expected, expected identifier, actual, actual identifier,
      * matches]`.
      *

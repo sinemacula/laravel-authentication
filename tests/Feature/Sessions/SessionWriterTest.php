@@ -39,6 +39,7 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\EncryptedDescriptionSession;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
+use Tests\Unit\Stubs\PlainTenantFixture;
 
 /**
  * Feature tests for writing a session: creating a session, and replacing a
@@ -174,6 +175,32 @@ final class SessionWriterTest extends TestCase
         self::assertSame('v4', Session::query()->whereKey($session->record->getKey())->firstOrFail()->getTenantPolicyVersion());
         self::assertNull(Session::query()->whereKey($plain->record->getKey())->firstOrFail()->getTenantPolicyVersion());
         self::assertTrue(SessionProof::query()->whereKey($proof->id)->where('session_id', IdentifierCoercion::stringify($session->record->getKey()))->exists());
+    }
+
+    /**
+     * A new session records the tenant its sign-in was admitted in as its
+     * active tenant, by identifier, and the access token it is issued names it;
+     * one admitted in no tenant records none, and its token names none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testCreateRecordsTheActiveTenant(): void
+    {
+        $identity = $this->seedIdentity();
+        $origin   = new ClientContext('198.51.100.4', 'Origin/2.0');
+        $admitted = new Admitted($identity, $identity, new PlainTenantFixture(7));
+        $first    = SignInProof::unattested('password', $this->now);
+        $second   = SignInProof::unattested('password', $this->now);
+        $tenanted = $this->writer()->create($admitted, 'email', $this->context(), $this->lifetimes(), $this->now, $origin, $first);
+        $bare     = $this->writer()->create($this->admitted($identity), 'email', $this->context(), $this->lifetimes(), $this->now, $origin, $second);
+        $tokens   = Auth::manager()->jwt('api');
+
+        self::assertSame('7', Session::query()->whereKey($tenanted->record->getKey())->firstOrFail()->getTenantId());
+        self::assertSame('7', $tokens->parse($tenanted->tokens->accessToken, TokenType::ACCESS)['tenant_id'] ?? null);
+        self::assertNull(Session::query()->whereKey($bare->record->getKey())->firstOrFail()->getTenantId());
+        self::assertArrayNotHasKey('tenant_id', $tokens->parse($bare->tokens->accessToken, TokenType::ACCESS) ?? []);
     }
 
     /**

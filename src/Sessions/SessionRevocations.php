@@ -126,7 +126,7 @@ final readonly class SessionRevocations
                     $this->context->client(),
                     $identity,
                     $binding->principal(),
-                    self::boundTenant($binding),
+                    $binding->tenant(),
                     $session,
                     $session->getSignInMethod(),
                     fromSession: true,
@@ -335,12 +335,14 @@ final readonly class SessionRevocations
 
     /**
      * The tenant was deactivated: end every session acting as one of the
-     * principals listed for it (`tenant_deactivated`), since sessions record
-     * principals, not tenants. Every principal must act within the tenant, or
-     * nothing is written and an `InvalidArgumentException` is thrown; a
-     * principal listed twice counts once. All sessions, pending ones among
+     * principals listed for it, and every session acting in it whatever its
+     * principal (its active tenant), as `tenant_deactivated`. Every principal
+     * listed must belong to the tenant, or nothing is written and an
+     * `InvalidArgumentException` is thrown; a principal listed twice counts
+     * once, and so does a session both find. All sessions, pending ones among
      * them, are ended in one transaction, after each principal's cutoff moved,
-     * with one `SignedOutEverywhere` per principal.
+     * with one `SignedOutEverywhere` per principal and one `SessionRevoked` per
+     * session.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  iterable<\SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
@@ -369,7 +371,7 @@ final readonly class SessionRevocations
             $scopes[] = RevocationScope::principal($principal, $tenant);
         }
 
-        return $scopes === [] ? 0 : $this->endSessions($scopes, RevocationReason::TENANT_DEACTIVATED, null);
+        return $this->endSessions([...$scopes, RevocationScope::activeTenant($tenant)], RevocationReason::TENANT_DEACTIVATED, null);
     }
 
     /**
@@ -393,7 +395,9 @@ final readonly class SessionRevocations
 
     /**
      * End every session of the scopes, reporting each revoked session and then
-     * each scope once the revocations commit.
+     * each scope of an identity or a principal once the revocations commit; a
+     * tenant's scope signs no one out everywhere, so it reports only its
+     * sessions.
      *
      * @param  non-empty-list<\SineMacula\Laravel\Authentication\Sessions\RevocationScope>  $scopes
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -420,31 +424,15 @@ final readonly class SessionRevocations
                 $this->context->dispatch(new SessionRevoked($context, $reason));
             },
             function (RevocationScope $scope, int $revoked, ?CarbonImmutable $cutoff) use ($client, $guard, $reason, $except): void {
+                if ($scope->identity === null && $scope->principal === null) {
+                    return;
+                }
+
                 $context = new EventContext($guard, $client, $scope->identity, $scope->principal, $scope->tenant, $except);
 
                 $this->context->dispatch(new SignedOutEverywhere($context, $reason, $revoked, $cutoff));
             },
         );
-    }
-
-    /**
-     * The tenant the binding's principal acts within, or `null` when there is
-     * none or it cannot be loaded. A principal loaded without the tenant's key
-     * is a misconfiguration, and its `LogicException` propagates.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\GuardBinding  $binding
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
-     *
-     * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
-     */
-    private static function boundTenant(GuardBinding $binding): ?Tenant
-    {
-        try {
-            return $binding->tenant();
-        } catch (TenantUnavailableException) {
-            return null;
-        }
     }
 
     /**

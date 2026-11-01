@@ -13,9 +13,9 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 /**
  * Immutable result of a successful refresh-token exchange.
  *
- * Carries the resolved contextual triple, the tenant the principal's activity
- * check loaded, the sign-in method the session records, and the newly issued
- * access + refresh token pair.
+ * Carries the resolved contextual triple, the session's active tenant, the
+ * sign-in method the session records, and the newly issued access + refresh
+ * token pair.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -46,7 +46,7 @@ final readonly class ExchangedRefresh
         /** Newly issued access + refresh token pair. */
         public TokenPair $tokens,
 
-        /** Tenant the principal acts within, as its activity check loaded it, if any. */
+        /** The session's active tenant, as its admission found it, if any. */
         public ?Tenant $tenant = null,
 
         /** Name of the sign-in method the session records. */

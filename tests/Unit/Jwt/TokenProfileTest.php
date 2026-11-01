@@ -8,6 +8,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\TokenProfile;
@@ -175,6 +176,37 @@ final class TokenProfileTest extends TestCase
                 self::fail('Expected the tenant to be refused.');
             } catch (\InvalidArgumentException $exception) {
                 self::assertSame('Cannot issue a token naming a tenant the principal does not act within: pass the tenant its admission loaded.', $exception->getMessage());
+            }
+        }
+    }
+
+    /**
+     * A token of a session may name only the tenant the session records, or
+     * none for a session that records none; any other tenant, or none for a
+     * session in a tenant, is refused, so a session's tokens always name its
+     * active tenant.
+     *
+     * @return void
+     */
+    public function testSessionTenantNamesOnlyTheSessionsActiveTenant(): void
+    {
+        $inTenant = self::createStub(Session::class);
+        $inTenant->method('getTenantId')->willReturn('tenant-9');
+
+        $inNone = self::createStub(Session::class);
+        $inNone->method('getTenantId')->willReturn(null);
+
+        TokenProfile::sessionTenant($inTenant, 'tenant-9');
+        TokenProfile::sessionTenant($inNone, null);
+
+        foreach ([[$inTenant, 'tenant-8'], [$inTenant, null], [$inNone, 'tenant-9']] as [$session, $tenantId]) {
+
+            try {
+                TokenProfile::sessionTenant($session, $tenantId);
+
+                self::fail('Expected the tenant to be refused.');
+            } catch (\InvalidArgumentException $exception) {
+                self::assertStringStartsWith('Cannot issue a token for a session naming another tenant than the one the session acts in', $exception->getMessage());
             }
         }
     }

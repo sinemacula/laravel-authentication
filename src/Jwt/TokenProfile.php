@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Jwt;
 
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
@@ -54,12 +55,12 @@ final class TokenProfile
     }
 
     /**
-     * The `tenant_id` an access token for the principal may carry: the tenant
-     * identifier given, once it is known to be the one of the tenant the
-     * principal acts within (its `getTenant()`, read on the write connection).
-     * A principal acts only within its own tenant, so a token never names
-     * another. A principal whose tenant cannot be loaded throws the
-     * `TenantUnavailableException` its `getTenant()` does.
+     * The `tenant_id` an access token without a session may carry for the
+     * principal: the tenant identifier given, once it is known to be the one of
+     * the principal's own tenant (its `getTenant()`, read on the write
+     * connection). Without a session a principal acts only in its own tenant,
+     * so such a token never names another. A principal whose tenant cannot be
+     * loaded throws the `TenantUnavailableException` its `getTenant()` does.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  string  $tenantId
@@ -72,6 +73,27 @@ final class TokenProfile
     public static function ownTenant(Principal $principal, string $tenantId): string
     {
         return self::matchingTenant(WriteConnection::during($principal, static fn (): ?Tenant => $principal->getTenant()), $tenantId);
+    }
+
+    /**
+     * Refuse to issue an access token for the session naming another tenant
+     * than the one the session acts in: the identifier given must be the one
+     * the session records, or both none, so a token of a session always names
+     * its active tenant (D20).
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  ?string  $tenantId
+     * @return void
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function sessionTenant(Session $session, ?string $tenantId): void
+    {
+        $recorded = WriteConnection::during($session, static fn (): ?string => $session->getTenantId());
+
+        if ($recorded !== $tenantId) {
+            throw new \InvalidArgumentException('Cannot issue a token for a session naming another tenant than the one the session acts in: pass the tenant its admission found.');
+        }
     }
 
     /**

@@ -181,7 +181,7 @@ final class RefreshRotationStoreTest extends TestCase
         $idle     = $this->now->addDays(30);
         $absolute = $this->now->addDays(60);
 
-        self::assertTrue($this->store()->switchPrincipal($session, self::CURRENT, self::NEXT, new PlainPrincipalFixture('p-2'), true, [$idle, $absolute], $this->now));
+        self::assertTrue($this->store()->switchPrincipal($session, self::CURRENT, self::NEXT, new PlainPrincipalFixture('p-2'), null, true, [$idle, $absolute], $this->now));
 
         $row = $this->row($session);
 
@@ -213,7 +213,7 @@ final class RefreshRotationStoreTest extends TestCase
 
         $deadlines = [$this->now->addDays(30), $this->now->addDays(60)];
 
-        self::assertTrue($this->store()->switchPrincipal($session, self::CURRENT, self::NEXT, new PlainPrincipalFixture('p-2'), false, $deadlines, $this->now));
+        self::assertTrue($this->store()->switchPrincipal($session, self::CURRENT, self::NEXT, new PlainPrincipalFixture('p-2'), null, false, $deadlines, $this->now));
 
         $row = $this->row($session);
 
@@ -258,7 +258,7 @@ final class RefreshRotationStoreTest extends TestCase
 
         $deadlines = [$this->now->addDays(30), $this->now->addDays(60)];
 
-        self::assertFalse($this->store()->switchPrincipal($session, self::CURRENT, self::NEXT, new PlainPrincipalFixture('p-2'), true, $deadlines, $this->now));
+        self::assertFalse($this->store()->switchPrincipal($session, self::CURRENT, self::NEXT, new PlainPrincipalFixture('p-2'), null, true, $deadlines, $this->now));
         self::assertSame($before, $this->row($session));
         self::assertSame('p-1', $session->getAttribute('principal_id'));
         self::assertSame(RefreshTokenHasher::hash(self::CURRENT), $session->getRefreshKey());

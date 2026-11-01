@@ -12,6 +12,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
 use Tests\Unit\Stubs\PlainSessionFixture;
+use Tests\Unit\Stubs\PlainTenantFixture;
 use Tests\Unit\Stubs\StubSession;
 
 /**
@@ -31,16 +32,24 @@ final class EventContextTest extends TestCase
 {
     /**
      * For an event about the session row, a loaded row stands in for an
-     * identity or principal that was not loaded: the snapshots take the owner
-     * and principal it records, and the models stay unknown. A part that was
-     * loaded wins over the row.
+     * identity, principal or tenant that was not loaded: the snapshots take the
+     * owner, the principal and the active tenant's identifier it records (with
+     * no morph class for the tenant, which the row does not record), and the
+     * models stay unknown. A part that was loaded wins over the row.
      *
      * @return void
      */
     public function testALoadedSessionRowStandsInForAnUnloadedIdentityAndPrincipal(): void
     {
         $session = new StubSession;
-        $session->setRawAttributes(['id' => 'session-1', 'authenticatable_type' => 'user', 'authenticatable_id' => 7, 'principal_type' => 'member', 'principal_id' => 12]);
+        $session->setRawAttributes([
+            'id'                   => 'session-1',
+            'authenticatable_type' => 'user',
+            'authenticatable_id'   => 7,
+            'principal_type'       => 'member',
+            'principal_id'         => 12,
+            'tenant_id'            => 'tenant-5',
+        ]);
 
         $context = new EventContext('api', new ClientContext(null, null), session: $session, fromSession: true);
 
@@ -50,8 +59,9 @@ final class EventContextTest extends TestCase
         self::assertSame('7', $context->identityId);
         self::assertSame('member', $context->principalMorphClass);
         self::assertSame('12', $context->principalId);
+        self::assertNull($context->tenant);
         self::assertNull($context->tenantMorphClass);
-        self::assertNull($context->tenantId);
+        self::assertSame('tenant-5', $context->tenantId);
 
         $known = new EventContext('api', new ClientContext(null, null), new PlainIdentityFixture(8), new PlainPrincipalFixture('p-1'), session: $session, fromSession: true);
 
@@ -71,6 +81,11 @@ final class EventContextTest extends TestCase
         self::assertSame('8', $identityOnly->identityId);
         self::assertSame('member', $identityOnly->principalMorphClass);
         self::assertSame('12', $identityOnly->principalId);
+
+        $tenanted = new EventContext('api', new ClientContext(null, null), tenant: new PlainTenantFixture(9), session: $session, fromSession: true);
+
+        self::assertSame(PlainTenantFixture::class, $tenanted->tenantMorphClass);
+        self::assertSame('9', $tenanted->tenantId);
     }
 
     /**
@@ -85,7 +100,14 @@ final class EventContextTest extends TestCase
     public function testWithoutFromSessionTheRowStandsInForNothing(): void
     {
         $session = new StubSession;
-        $session->setRawAttributes(['id' => 'session-1', 'authenticatable_type' => 'user', 'authenticatable_id' => 7, 'principal_type' => 'member', 'principal_id' => 12]);
+        $session->setRawAttributes([
+            'id'                   => 'session-1',
+            'authenticatable_type' => 'user',
+            'authenticatable_id'   => 7,
+            'principal_type'       => 'member',
+            'principal_id'         => 12,
+            'tenant_id'            => 'tenant-5',
+        ]);
 
         $bare = new EventContext('api', new ClientContext(null, null), session: $session);
 
@@ -93,6 +115,7 @@ final class EventContextTest extends TestCase
         self::assertNull($bare->identityId);
         self::assertNull($bare->principalMorphClass);
         self::assertNull($bare->principalId);
+        self::assertNull($bare->tenantId);
         self::assertSame('session-1', $bare->sessionId);
 
         $identityOnly = new EventContext('api', new ClientContext(null, null), new PlainIdentityFixture(8), session: $session);

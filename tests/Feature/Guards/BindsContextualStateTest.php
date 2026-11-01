@@ -62,6 +62,7 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
 
         $this->principal->shouldReceive('getTenant')->andReturn($this->tenant);
         $this->tenant->shouldReceive('getTenantIdentifier')->andReturn('tenant-1');
+        $this->session->shouldReceive('getTenantId')->andReturn('tenant-1');
 
         $this->events->shouldReceive('dispatch');
     }
@@ -258,6 +259,100 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
 
         self::assertNull($this->contextsOf($events, PrincipalAssigned::class)[0]->tenant);
         self::assertSame($principal, $guard->principal());
+    }
+
+    /**
+     * A bind the guard verified holds the tenant its admission found as the
+     * active tenant, whatever tenant the principal belongs to, until the guard
+     * is bound again or forgotten.
+     *
+     * @return void
+     */
+    public function testAVerifiedBindHoldsTheTenantItWasGiven(): void
+    {
+        $other = \Mockery::mock(Tenant::class);
+        $guard = $this->makeGuard();
+
+        $guard->loginVerified($this->identity, $this->principal, $this->session, $other, 'password');
+
+        self::assertSame($other, $guard->tenant());
+
+        $guard->forgetUser();
+
+        self::assertNull($guard->tenant());
+    }
+
+    /**
+     * A trusted bind of a session acts in the tenant the session records: the
+     * principal's own when the identifiers match, none when the session acts in
+     * a tenant that no longer resolves (the shipped resolver finds none); a
+     * trusted bind without a session acts in the principal's own.
+     *
+     * @return void
+     */
+    public function testATrustedBindActsInTheTenantTheSessionRecords(): void
+    {
+        $elsewhere = $this->mockSession();
+        $elsewhere->shouldReceive('getTenantId')->andReturn('tenant-2');
+
+        $guard = $this->makeGuard();
+
+        $guard->login($this->identity, $this->principal, $this->session);
+
+        self::assertSame($this->tenant, $guard->tenant());
+
+        $guard->authenticateAs($this->identity, $this->principal, $elsewhere);
+
+        self::assertNull($guard->tenant());
+
+        $guard->authenticateAs($this->identity, $this->principal);
+
+        self::assertSame($this->tenant, $guard->tenant());
+    }
+
+    /**
+     * A tenant given to `authenticateAs()` is bound as given, as a test acting
+     * in a tenant binds it.
+     *
+     * @return void
+     */
+    public function testAuthenticateAsBindsTheTenantGiven(): void
+    {
+        $other = \Mockery::mock(Tenant::class);
+        $other->shouldReceive('getTenantIdentifier')->andReturn('tenant-2');
+
+        $events = $this->recordEvents();
+        $guard  = $this->makeGuard();
+
+        $guard->authenticateAs($this->identity, $this->principal, $this->session, tenant: $other);
+
+        self::assertSame($other, $guard->tenant());
+        self::assertSame($other, $this->contextsOf($events, PrincipalAssigned::class)[0]->tenant);
+    }
+
+    /**
+     * `setPrincipal()` and `setSession()` move the active tenant to the one the
+     * bound session records for the principal bound, or the principal's own
+     * without a session.
+     *
+     * @return void
+     */
+    public function testSetPrincipalAndSetSessionMoveTheActiveTenant(): void
+    {
+        $guard = $this->makeGuard();
+        $other = \Mockery::mock(Tenant::class);
+
+        $guard->loginVerified($this->identity, $this->principal, null, $other, 'password');
+        $guard->setPrincipal($this->principal);
+
+        self::assertSame($this->tenant, $guard->tenant());
+
+        $elsewhere = $this->mockSession();
+        $elsewhere->shouldReceive('getTenantId')->andReturn('tenant-2');
+
+        $guard->setSession($elsewhere);
+
+        self::assertNull($guard->tenant());
     }
 
     /**

@@ -158,6 +158,50 @@ final class OwnedSessionTest extends TestCase
     }
 
     /**
+     * Rows of `[tenant the session records, tenant a token names, acts in]`.
+     *
+     * @return iterable<string, array{0: ?string, 1: mixed, 2: bool}>
+     */
+    public static function provideTenants(): iterable
+    {
+        yield 'the same tenant' => ['7', '7', true];
+        yield 'another tenant' => ['7', '8', false];
+        yield 'a tenant for a session in none' => [null, '7', false];
+        yield 'none for a session in a tenant' => ['7', null, false];
+        yield 'none for a session in none' => [null, null, true];
+        yield 'an identifier that is not a string' => ['7', 7, true];
+        yield 'a malformed claim for a session in none' => [null, ['7'], false];
+    }
+
+    /**
+     * A session acts in the tenant a token names only when it records that
+     * tenant's identifier, and in none only when it records none.
+     *
+     * @param  ?string  $recorded
+     * @param  mixed  $named
+     * @param  bool  $actsIn
+     * @return void
+     */
+    #[DataProvider('provideTenants')]
+    public function testASessionActsOnlyInTheTenantItRecords(?string $recorded, mixed $named, bool $actsIn): void
+    {
+        self::assertSame($actsIn, OwnedSession::actsIn(new StubSession(['tenant_id' => $recorded]), $named));
+    }
+
+    /**
+     * A session loaded without its active tenant fails closed rather than
+     * reading as acting in none.
+     *
+     * @return void
+     */
+    public function testASessionLoadedWithoutItsTenantIsReported(): void
+    {
+        $this->expectException(\LogicException::class);
+
+        OwnedSession::actsIn(new StubSession, null);
+    }
+
+    /**
      * Rows of `[seconds from the switch to the token's issue time, or null for
      * a session that never switched, issue time is whole, accepted]`.
      *
@@ -174,9 +218,9 @@ final class OwnedSessionTest extends TestCase
     }
 
     /**
-     * A token is held to the session's last principal switch: one issued before
-     * the switch second is not, and one whose issue time is not whole cannot be
-     * placed after it.
+     * A token is held to the session's last context change: one issued before
+     * the change's second is not, and one whose issue time is not whole cannot
+     * be placed after it.
      *
      * @param  ?int  $offset
      * @param  bool  $whole
@@ -184,7 +228,7 @@ final class OwnedSessionTest extends TestCase
      * @return void
      */
     #[DataProvider('provideIssueTimes')]
-    public function testATokenIsHeldToTheLastPrincipalSwitch(?int $offset, bool $whole, bool $accepted): void
+    public function testATokenIsHeldToTheLastContextChange(?int $offset, bool $whole, bool $accepted): void
     {
         $switched = Carbon::now()->startOfSecond();
         $session  = new StubSession(['switched_at' => $offset === null ? null : $switched]);

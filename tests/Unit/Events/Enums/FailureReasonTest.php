@@ -56,6 +56,8 @@ final class FailureReasonTest extends TestCase
             'session_revoked',
             'session_expired',
             'session_principal_mismatch',
+            'session_tenant_mismatch',
+            'session_switched',
             'rotation_reuse',
             'rotation_conflict',
             'refresh_key_missing',

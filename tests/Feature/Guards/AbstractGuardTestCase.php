@@ -154,8 +154,8 @@ abstract class AbstractGuardTestCase extends TestCase
 
     /**
      * Build a Mockery mock of the Session contract whose identifier is
-     * `session-1` and that records no sign-in method, unless a test says
-     * otherwise.
+     * `session-1` and that records no sign-in method and no active tenant,
+     * unless a test says otherwise.
      *
      * @return \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Session
      */
@@ -166,6 +166,9 @@ abstract class AbstractGuardTestCase extends TestCase
             ->byDefault()
             ->andReturn('session-1');
         $session->shouldReceive('getSignInMethod')
+            ->byDefault()
+            ->andReturnNull();
+        $session->shouldReceive('getTenantId')
             ->byDefault()
             ->andReturnNull();
 
@@ -188,6 +191,7 @@ abstract class AbstractGuardTestCase extends TestCase
             'sign_in_method'      => 'password',
             'principal_type'      => PrincipalReference::type($principal),
             'principal_id'        => PrincipalReference::id($principal),
+            'tenant_id'           => null,
             'revoked_at'          => null,
             'idle_expires_at'     => Carbon::now()->addDays(90),
             'absolute_expires_at' => Carbon::now()->addDays(180),

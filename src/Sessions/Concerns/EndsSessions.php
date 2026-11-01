@@ -266,11 +266,12 @@ trait EndsSessions
 
     /**
      * The tenant was deactivated: end every session acting as one of the
-     * principals the application lists for it (`tenant_deactivated`), since
-     * sessions record principals, not tenants. Every principal must act within
-     * the tenant (the same class and identifier, read on the write connection),
-     * or nothing is written and an `InvalidArgumentException` is thrown; a
-     * principal listed twice counts once. A tenant that opts into activation
+     * principals the application lists for it, and every session whose active
+     * tenant it is, whatever principal it acts as (`tenant_deactivated`). Every
+     * principal must belong to the tenant (the same class and identifier, read
+     * on the write connection), or nothing is written and an
+     * `InvalidArgumentException` is thrown; a principal listed twice counts
+     * once, and so does a session both find. A tenant that opts into activation
      * (`CanBeActive`) and is already deleted or soft-deleted works too: a
      * principal whose `getTenant()` throws the `TenantUnavailableException`
      * naming it (its class, key name and key, as `ActsAsPrincipal` does) acts

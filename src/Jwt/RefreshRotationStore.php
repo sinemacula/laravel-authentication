@@ -10,9 +10,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Builder;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
@@ -109,7 +111,8 @@ final readonly class RefreshRotationStore
      * switch of principal, and move both deadlines (the absolute one only ever
      * lowered, or kept `null`), in one compare-and-swap UPDATE; when
      * `$switching`, also record the target as the principal the session acts
-     * as, with `$now` as the time of the switch.
+     * as, its tenant as the session's active tenant, and `$now` as the time of
+     * the switch.
      *
      * The swap applies only while the row still holds the presented id as its
      * current one, is not revoked, has both deadlines and records the principal
@@ -125,6 +128,7 @@ final readonly class RefreshRotationStore
      * @param  string  $presentedRotationId
      * @param  string  $nextRotationId
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $target
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  bool  $switching
      * @param  array{0: \Carbon\CarbonImmutable, 1: ?\Carbon\CarbonImmutable}  $deadlines
      * @param  \Carbon\CarbonImmutable  $now
@@ -141,6 +145,7 @@ final readonly class RefreshRotationStore
         #[\SensitiveParameter] string $presentedRotationId,
         #[\SensitiveParameter] string $nextRotationId,
         Principal $target,
+        ?Tenant $tenant,
         bool $switching,
         array $deadlines,
         CarbonImmutable $now,
@@ -161,6 +166,7 @@ final readonly class RefreshRotationStore
             $switched += [
                 $type                         => PrincipalReference::type($target),
                 $id                           => PrincipalReference::id($target),
+                $session->getTenantIdName()   => IdentifierCoercion::stringify($tenant?->getTenantIdentifier()),
                 $session->getSwitchedAtName() => $session->fromDateTime($now),
             ];
         }

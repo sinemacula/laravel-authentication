@@ -204,7 +204,7 @@ final readonly class PrincipalSwitch
     private function admit(EloquentSession&Model $session): Admitted|AuthenticationFailed
     {
         $admitted = (new RefreshAdmission($this->context->name(), $this->context->provider(), $this->context->resolver()))
-            ->admit($session, $this->target->getPrincipalIdentifier() ?? '');
+            ->admitPrincipal($session, $this->target->getPrincipalIdentifier() ?? '');
 
         if ($admitted instanceof Admitted) {
             $admitted = $this->admitAsTarget($admitted, $session);
@@ -360,12 +360,17 @@ final readonly class PrincipalSwitch
         $next        = RefreshTokenHasher::successor($presented[0]);
 
         // Both tokens end with the session, now at its restarted idle deadline,
-        // which is never after the absolute one when there is one.
+        // which is never after the absolute one when there is one, and name the
+        // tenant it is to act in.
         $session->setAttribute($session->getIdleExpiresAtName(), $deadlines[0]);
+
+        if ($switching) {
+            $session->setAttribute($session->getTenantIdName(), IdentifierCoercion::stringify($admitted->tenant?->getTenantIdentifier()));
+        }
 
         $tokens = $this->issue($admitted, $session, $next, $now);
 
-        if (!$this->store->switchPrincipal($session, $presented[0], $next, $admitted->principal, $switching, $deadlines, $now)) {
+        if (!$this->store->switchPrincipal($session, $presented[0], $next, $admitted->principal, $admitted->tenant, $switching, $deadlines, $now)) {
             return $this->afterLostSwitch($session, $admitted, $presented, $now);
         }
 

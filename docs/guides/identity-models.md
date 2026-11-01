@@ -143,6 +143,23 @@ principal, so bind your own to refuse some (see
 `TenantAccess`'s: by default only its own, or none for a platform principal. What a principal may do is
 authorisation's.
 
+## The active tenant
+
+A session acts in one tenant, its active tenant, or in none. By default it is the principal's own tenant (the one its
+`getTenant()` returns), or none for a platform principal. A sign-in may ask for another
+(`new SignInContext($client, tenant: TenantSelection::of($tenantId))`), and a switch may move to another, once the
+application lets the principal act there (see
+[Extending](extending.md#letting-principals-act-in-other-tenants)). The package never sees the tenant tree: it carries
+a tenant only as an opaque identifier, a string the session records in `tenant_id`, and finds a tenant other than the
+principal's own through the `TenantResolver` you bind. Every access token of the session names it in `tenant_id`, and
+`Auth::tenant()` returns it.
+
+On every request a session's token must name the tenant the session acts in (`session_tenant_mismatch`), and that
+tenant must still resolve and be active (`tenant_inactive`), as must the principal's own tenant: deactivating either
+stops the session's tokens at once. A refresh asks `TenantAccess` again, so a principal no longer allowed in its active
+tenant cannot refresh there (`tenant_ineligible`). `tenantDeactivated()` ends the sessions of the principals you list
+for the tenant and every session acting in it, whichever principal it acts as.
+
 ## Identifiers
 
 Designate the attributes people sign in with as identifiers, so each is stored and looked up in one normal form. Cast
@@ -438,8 +455,9 @@ and PHPStan reports a class that uses the trait without the interface. It reads 
 `getActiveAttributeName()` to use another column) and throws a `LogicException` when the model was loaded without that
 column, so a partial select is reported instead of being read as either active or inactive.
 
-A tenant opts in the same way. When the tenant a principal acts within implements `CanBeActive` and reports inactive,
-every principal in it is rejected on the same paths (refresh fails with `tenant_inactive`):
+A tenant opts in the same way. When a principal's own tenant, or the active tenant a session acts in, implements
+`CanBeActive` and reports inactive, every principal in it, and every session acting in it, is rejected on the same paths
+(refresh fails with `tenant_inactive`):
 
 ```php
 class AppTenant extends Model implements CanBeActive, TenantContract

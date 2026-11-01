@@ -734,6 +734,55 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
+     * `attempt()` with a pinned session acts in the tenant the session records:
+     * the principal's own is bound, while a tenant the session acts in that no
+     * longer resolves (the shipped resolver finds none) fails the attempt as
+     * `tenant_inactive`, with the session, and binds nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPinnedSessionIsAdmittedInTheTenantItRecords(): void
+    {
+        $sessionId = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f71';
+
+        $principal = $this->mockActivePrincipal();
+        $own       = $this->pinnableSession($sessionId, $principal);
+        $elsewhere = $this->pinnableSession($sessionId, $principal)->forceFill(['tenant_id' => 'tenant-2']);
+
+        $sessions = \Mockery::mock(Builder::class);
+        $sessions->shouldReceive('useWritePdo')->andReturnSelf();
+        $sessions->shouldReceive('getModel')->andReturn(new StubSession);
+        $sessions->shouldReceive('find')->with($sessionId)->andReturn($own, $elsewhere);
+
+        $identity = $this->mockIdentity(HasSessions::class);
+        $identity->shouldReceive('sessions')->andReturn($sessions);
+
+        $this->provider->shouldReceive('retrieveByCredentials')->twice()->andReturn($identity);
+        $this->provider->shouldReceive('validateCredentials')->twice()->andReturnTrue();
+
+        $this->resolver->shouldReceive('resolve')->twice()->andReturn($principal);
+
+        $guard = $this->makeGuard();
+
+        self::assertTrue($guard->attempt(['email' => 'ada@example.test', 'password' => 'secret'], null, $own));
+        self::assertNull($guard->tenant());
+
+        $events  = $this->recordEvents();
+        $refused = $this->makeGuard();
+
+        self::assertFalse($refused->attempt(['email' => 'ada@example.test', 'password' => 'secret'], null, $own));
+        self::assertFalse($refused->hasUser());
+
+        $signIn = $events[count($events) - 1];
+
+        self::assertInstanceOf(AuthenticationFailed::class, $signIn);
+        self::assertSame(FailureReason::TENANT_INACTIVE, $signIn->reason);
+        self::assertSame($elsewhere, $signIn->context->session);
+    }
+
+    /**
      * A pinned session the identity holds is bound, but the factor policy is
      * never told of it, because naming a session proves nothing about who holds
      * the client; when the policy then requires a factor, the failure still

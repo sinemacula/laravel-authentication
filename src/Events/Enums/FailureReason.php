@@ -119,6 +119,13 @@ enum FailureReason: string
     // The token was issued for a principal the session no longer acts as
     case SESSION_PRINCIPAL_MISMATCH = 'session_principal_mismatch';
 
+    // The token names another tenant than the one the session acts in
+    case SESSION_TENANT_MISMATCH = 'session_tenant_mismatch';
+
+    // The token was issued before the session's principal or active tenant last
+    // changed, or before it returned to pending or activated again
+    case SESSION_SWITCHED = 'session_switched';
+
     // A rotated refresh token was presented: neither the current rotation id
     // nor the previous one inside the grace window; the session is revoked
     case ROTATION_REUSE = 'rotation_reuse';

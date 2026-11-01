@@ -19,8 +19,8 @@ Stateless contextual authentication for Laravel. Distinguishes the authenticated
 events.
 
 Drops into Laravel's existing auth machinery - same `Auth::check()`, `Auth::user()`, `auth()->guard('api')`, same
-middleware, same events. Adds contextual accessors (`Auth::identity()`, `Auth::principal()`, `Auth::session()`) and
-ships a hardened JWT guard.
+middleware, same events. Adds contextual accessors (`Auth::identity()`, `Auth::principal()`, `Auth::tenant()`,
+`Auth::session()`) and ships a hardened JWT guard.
 
 ## Core Concept
 
@@ -29,7 +29,7 @@ ships a hardened JWT guard.
 | **Identity**    | Who logged in. The account behind the request - a person or a service account.                                                |
 | **Principal**   | Who the request is acting as. Often the same as the identity; can be a role or membership.                                    |
 | **Session**     | One sign-in, on one application, on one device: a browser, a mobile app, a CLI. Refresh and revocation live here.             |
-| **Tenant**      | The isolation boundary the principal acts within. Optional, for multi-tenant apps.                                            |
+| **Tenant**      | The isolation boundary a principal belongs to; a session acts in one, its active tenant (`Auth::tenant()`). Optional.         |
 | **Application** | The app being signed into, e.g. `admin`, `console`, `mobile`. Each application is a guard with its own methods and lifetimes. |
 
 Start **2D** (the identity is the principal) and grow into **3D** (identity → principal → tenant) without changing

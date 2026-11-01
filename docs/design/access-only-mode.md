@@ -56,6 +56,8 @@ principal auth without session tracking or refresh rotation.
   methods, `principalDeactivated()`, `revokePrincipalSessions()`) only moves the scope's "tokens valid after" cutoff and
   reports it; it reads no `authentication_sessions` row, since such an identity can hold no session, pending or active,
   so the table need not exist.
+  `tenantDeactivated()` also ends every session acting in the tenant, whatever its principal, so it reads the
+  `authentication_sessions` table, which must exist for it.
 - Guard construction still validates the configured session model: its class, and that it lives on the storage
   connection. The package tolerates a missing table on this path because bearer auth with no `sid` never tries to query
   it.

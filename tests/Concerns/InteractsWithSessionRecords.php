@@ -10,6 +10,8 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Schema;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
@@ -52,19 +54,40 @@ trait InteractsWithSessionRecords
 
     /**
      * The session columns that record the principal a session acts as, as the
-     * session service writes them at sign-in: the principal, and no switch.
+     * session service writes them at sign-in: the principal, its own tenant as
+     * the active tenant (none when it has none, or it cannot be loaded), and no
+     * switch.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @return array{principal_type: string, principal_id: ?string, switched_at: null}
+     * @return array{principal_type: string, principal_id: ?string, tenant_id: ?string, switched_at: null}
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      */
     protected static function recordedPrincipal(Principal $principal): array
     {
-        return ['principal_type' => PrincipalReference::type($principal), 'principal_id' => PrincipalReference::id($principal), 'switched_at' => null];
+        try {
+            $tenant = $principal->getTenant();
+        } catch (TenantUnavailableException) {
+            $tenant = null;
+        }
+
+        return [
+            'principal_type' => PrincipalReference::type($principal),
+            'principal_id'   => PrincipalReference::id($principal),
+            'tenant_id'      => IdentifierCoercion::stringify($tenant?->getTenantIdentifier()),
+            'switched_at'    => null,
+        ];
     }
 
     /**
-     * An active session of the guard, signed in with a password now, that ends
-     * at the given times.
+     * An active session of the guard, signed in with a password now, acting in
+     * no tenant, never switched, that ends at the given times.
      *
      * @formatter:off
      *
@@ -73,7 +96,7 @@ trait InteractsWithSessionRecords
      * @param  \Carbon\CarbonInterface  $idle
      * @param  \Carbon\CarbonInterface  $absolute
      * @param  string  $guard
-     * @return array{status: string, guard: string, sign_in_method: string, signed_in_at: \Carbon\CarbonInterface, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
+     * @return array{guard: string, sign_in_method: string, status: string, tenant_id: null, switched_at: null, signed_in_at: \Carbon\CarbonInterface, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -82,9 +105,11 @@ trait InteractsWithSessionRecords
     protected static function sessionEndingAt(CarbonInterface $idle, CarbonInterface $absolute, string $guard = 'api'): array
     {
         return [
-            'status'              => 'active',
             'guard'               => $guard,
             'sign_in_method'      => 'password',
+            'status'              => 'active',
+            'tenant_id'           => null,
+            'switched_at'         => null,
             'signed_in_at'        => Carbon::now(),
             'idle_expires_at'     => $idle,
             'absolute_expires_at' => $absolute,
