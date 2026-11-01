@@ -145,4 +145,25 @@ final class TokenProfileTest extends TestCase
         self::assertSame('JWT authentication claims malformed', TokenProfile::accessFailure($claims, 0));
         self::assertNull(TokenProfile::accessFailure($claims, 1));
     }
+
+    /**
+     * The constructor is private: the profile holds no state.
+     *
+     * @return void
+     *
+     * @SuppressWarnings("php:S3011")
+     */
+    public function testConstructorIsPrivate(): void
+    {
+        $reflection  = new \ReflectionClass(TokenProfile::class);
+        $constructor = $reflection->getConstructor();
+
+        self::assertNotNull($constructor);
+        self::assertTrue($constructor->isPrivate());
+
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $constructor->invoke($instance);
+
+        self::assertInstanceOf(TokenProfile::class, $instance);
+    }
 }
