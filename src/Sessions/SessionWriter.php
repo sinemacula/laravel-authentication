@@ -405,11 +405,13 @@ final readonly class SessionWriter
     }
 
     /**
-     * The state of a session that starts active at `$now`: a generation of its
-     * own, the client as its last use, the digest of the new rotation id with
-     * no previous one, the start itself, and both deadlines, the absolute one
-     * the earlier of the application's limit and the context's deadline, either
-     * alone, or none.
+     * The state of a session that starts active at `$now`: waiting on nothing,
+     * superseding nothing and never switched, a generation of its own, the
+     * client as its last use, the digest of the new rotation id with no
+     * previous one, the start itself, and both deadlines, the absolute one the
+     * earlier of the application's limit and the context's deadline, either
+     * alone, or none. Every state column is set, so the new session reads as a
+     * loaded row would.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  string  $rotationId
@@ -434,17 +436,23 @@ final readonly class SessionWriter
         $absolute = $lifetimes->absoluteDeadline($now, $context->notAfter);
 
         return [
-            $session->getStatusName()             => SessionStatus::ACTIVE->value,
-            $session->getGenerationName()         => Str::uuid7()->toString(),
-            $session->getLastUsedAtName()         => $session->fromDateTime($now),
-            $session->getLastUsedIpName()         => $context->client->ip,
-            $session->getLastUsedUserAgentName()  => $context->client->userAgent,
-            $session->getRefreshKeyName()         => RefreshTokenHasher::hash($rotationId),
-            $session->getPreviousRefreshKeyName() => null,
-            $session->getRefreshRotatedAtName()   => null,
-            $session->getSignedInAtName()         => $session->fromDateTime($now),
-            $session->getIdleExpiresAtName()      => $session->fromDateTime($lifetimes->idleDeadline($now, $absolute)),
-            $session->getAbsoluteExpiresAtName()  => $session->fromDateTime($absolute),
+            $session->getStatusName()               => SessionStatus::ACTIVE->value,
+            $session->getRequiresName()             => null,
+            $session->getPendingKeyName()           => null,
+            $session->getSupersedesSessionIdName()  => null,
+            $session->getSupersedesRefreshKeyName() => null,
+            $session->getAttemptWindowsName()       => null,
+            $session->getSwitchedAtName()           => null,
+            $session->getGenerationName()           => Str::uuid7()->toString(),
+            $session->getLastUsedAtName()           => $session->fromDateTime($now),
+            $session->getLastUsedIpName()           => $context->client->ip,
+            $session->getLastUsedUserAgentName()    => $context->client->userAgent,
+            $session->getRefreshKeyName()           => RefreshTokenHasher::hash($rotationId),
+            $session->getPreviousRefreshKeyName()   => null,
+            $session->getRefreshRotatedAtName()     => null,
+            $session->getSignedInAtName()           => $session->fromDateTime($now),
+            $session->getIdleExpiresAtName()        => $session->fromDateTime($lifetimes->idleDeadline($now, $absolute)),
+            $session->getAbsoluteExpiresAtName()    => $session->fromDateTime($absolute),
         ];
     }
 
@@ -452,8 +460,8 @@ final readonly class SessionWriter
      * The state of a session that starts pending at `$now`: a generation of its
      * own, the client as its last use, no refresh credential, the digest of the
      * pending credential's secret, the session the client proved and the digest
-     * it was proven against, the start itself, the absolute deadline as an
-     * active session's, and the pending credential's expiry as the idle
+     * it was proven against, no switch, the start itself, the absolute deadline
+     * as an active session's, and the pending credential's expiry as the idle
      * deadline, never past the absolute one.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
@@ -487,6 +495,7 @@ final readonly class SessionWriter
             $session->getPendingKeyName()           => RefreshTokenHasher::hash($secret),
             $session->getSupersedesSessionIdName()  => IdentifierCoercion::stringify($proven?->getSessionIdentifier()),
             $session->getSupersedesRefreshKeyName() => $proven?->getRefreshKey(),
+            $session->getSwitchedAtName()           => null,
             $session->getGenerationName()           => Str::uuid7()->toString(),
             $session->getLastUsedAtName()           => $session->fromDateTime($now),
             $session->getLastUsedIpName()           => $context->client->ip,
