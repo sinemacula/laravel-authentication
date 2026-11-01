@@ -234,6 +234,33 @@ final class SessionPruningIntegrationTest extends TestCase
     }
 
     /**
+     * A pending session whose credential expired at or before the cutoff ended
+     * then, so it is pruned with its proofs and provenance like any ended
+     * session; a pending one still waiting is kept with its own.
+     *
+     * @return void
+     */
+    public function testAnExpiredPendingSessionIsPrunedWithItsProofs(): void
+    {
+        $pending = ['status' => 'pending', 'requires' => '["mfa"]', 'pending_key' => hash('sha256', 'pending-secret')];
+        $expired = (string) Str::uuid7();
+        $waiting = (string) Str::uuid7();
+
+        DB::table('authentication_sessions')->insert([...$this->sessionRow('expired', idle: Carbon::parse(self::CUTOFF)), ...$pending, 'id' => $expired]);
+        DB::table('authentication_sessions')->insert([...$this->sessionRow('waiting', idle: Carbon::parse(self::NOW)->addMinutes(5)), ...$pending, 'id' => $waiting]);
+
+        foreach ([$expired, $waiting] as $id) {
+            $this->insertProofsOf($id);
+        }
+
+        Artisan::call('model:prune', ['--model' => [Session::class]]);
+
+        self::assertSame([$waiting], DB::table('authentication_sessions')->pluck('id')->all());
+        self::assertSame([$waiting, $waiting], DB::table('authentication_proofs')->pluck('session_id')->all());
+        self::assertSame([$waiting], DB::table('authentication_provenance')->pluck('session_id')->all());
+    }
+
+    /**
      * Chunked pruning deletes each chunk's proofs with its sessions, and the
      * running total `ModelsPruned` reports counts sessions.
      *
