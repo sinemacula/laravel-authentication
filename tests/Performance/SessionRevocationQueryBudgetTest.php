@@ -244,27 +244,44 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
+     * Rows of `[sessions, reads, writes]`: a tenant policy change over that
+     * many sessions of the tenant, each falling short, and its cost.
+     *
+     * @return iterable<string, array{0: int, 1: int, 2: int}>
+     */
+    public static function provideTenantSessions(): iterable
+    {
+        yield 'one session' => [1, 4, 1];
+        yield 'three sessions' => [3, 10, 3];
+    }
+
+    /**
      * A tenant policy change that every session falls short of reads the
      * tenant's sessions in one locked chunk, and for each its owner, its
      * principal and its provenance, and writes each revocation: linear in the
      * tenant's sessions.
      *
+     * @param  int  $count
+     * @param  int  $reads
+     * @param  int  $writes
      * @return void
      *
      * @throws \Throwable
      */
-    public function testATenantPolicyChangeIsLinearInTheTenantsSessions(): void
+    #[DataProvider('provideTenantSessions')]
+    public function testATenantPolicyChangeIsLinearInTheTenantsSessions(int $count, int $reads, int $writes): void
     {
         [, , $tenant] = $this->seedMember();
 
-        $this->memberSignIn();
-        $this->memberSignIn();
+        for ($session = 0; $session < $count; $session++) {
+            $this->memberSignIn();
+        }
 
         app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement(connections: ['conn-a'])));
 
         $sessions = $this->sessions('members');
 
-        self::assertSame(2, $this->assertQueryBudget(7, 2, static fn (): int => $sessions->tenantPolicyChanged($tenant)));
+        self::assertSame($count, $this->assertQueryBudget($reads, $writes, static fn (): int => $sessions->tenantPolicyChanged($tenant)));
     }
 
     /**

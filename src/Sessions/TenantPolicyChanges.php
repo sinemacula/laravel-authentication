@@ -28,20 +28,20 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict;
  * Applies a change of a tenant's authentication policy to the sessions active
  * in the tenant, at once and outside any request.
  *
- * Every unrevoked session whose active tenant is the tenant, on every guard,
- * pending ones included, is read on the write connection in key order, a chunk
- * at a time, each chunk with a locking read, in one transaction on the session
- * model's connection (a savepoint inside a caller's transaction there, so it
- * commits or rolls back with the caller's own work). Each session is judged
- * against the policy as it answers for that session's application, identity and
- * principal: a session recorded at the very version answered, neither `null`,
- * is skipped; an active one that falls short is revoked
- * (`tenant_policy_changed`) and one that meets it records the version; a
- * pending one is revoked only when it would need another connection, since its
- * activation judges a further factor itself. A session whose owner or principal
- * no longer loads is revoked when active. Each revocation is one conditional
- * update on the session still being active in the tenant and unrevoked, and is
- * reported with `SessionRevoked` once committed.
+ * Every live session whose active tenant is the tenant (unrevoked and before
+ * both its deadlines), on every guard, pending ones included, is read on the
+ * write connection in key order, a chunk at a time, each chunk with a locking
+ * read, in one transaction on the session model's connection (a savepoint
+ * inside a caller's transaction there, so it commits or rolls back with the
+ * caller's own work). Each session is judged against the policy as it answers
+ * for that session's application, identity and principal: a session recorded at
+ * the very version answered, neither `null`, is skipped; an active one that
+ * falls short is revoked (`tenant_policy_changed`) and one that meets it
+ * records the version; a pending one is revoked only when it would need another
+ * connection, since its activation judges a further factor itself. A session
+ * whose owner or principal no longer loads is revoked when active. Each
+ * revocation is one conditional update on the session still being active in the
+ * tenant and unrevoked, and is reported with `SessionRevoked` once committed.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -93,7 +93,7 @@ final readonly class TenantPolicyChanges
             $after   = null;
 
             do {
-                $chunk = $this->chunk($model, $tenantId, $after);
+                $chunk = $this->chunk($model, $tenantId, $after, $now);
 
                 foreach ($chunk as $session) {
                     $revoked += $this->revokeIfShort($session, $tenant, $tenantId, $now) ? 1 : 0;
@@ -106,19 +106,29 @@ final readonly class TenantPolicyChanges
     }
 
     /**
-     * The next chunk of the tenant's unrevoked sessions after the key given, in
-     * key order, read with a locking read on the write connection.
+     * The next chunk of the tenant's live sessions after the key given, in key
+     * order, read with a locking read on the write connection: unrevoked, and
+     * before both deadlines at `$now`, so a session that has already ended
+     * (waiting to be pruned) is neither judged, revoked nor counted.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $model
      * @param  string  $tenantId
      * @param  mixed  $after
+     * @param  \Carbon\CarbonImmutable  $now
      * @return list<\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession>
      */
-    private function chunk(EloquentSession&Model $model, string $tenantId, mixed $after): array
+    private function chunk(EloquentSession&Model $model, string $tenantId, mixed $after, CarbonImmutable $now): array
     {
+        $at       = $model->fromDateTime($now);
+        $absolute = $model->getAbsoluteExpiresAtName();
+
         $query = WriteConnection::query($model->newQuery())
             ->where($model->getTenantIdName(), $tenantId)
             ->whereNull($model->getRevokedAtName())
+            ->where($model->getIdleExpiresAtName(), '>', $at)
+            ->where(static function ($query) use ($absolute, $at): void {
+                $query->whereNull($absolute)->orWhere($absolute, '>', $at);
+            })
             ->when($after !== null, static fn ($query) => $query->where($model->getKeyName(), '>', $after))
             ->orderBy($model->getKeyName())
             ->limit(self::CHUNK)

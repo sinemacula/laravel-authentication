@@ -294,13 +294,13 @@ trait EndsSessions
     }
 
     /**
-     * Apply a change of the tenant's authentication policy to the sessions
-     * active in it, on every guard, at once: an active session that no longer
+     * Apply a change of the tenant's authentication policy to the live sessions
+     * acting in it, on every guard, at once: an active session that no longer
      * meets the policy is revoked (`tenant_policy_changed`) and one that meets
      * it records the version answered; a pending one is revoked only when it
      * would need another connection; a session recorded at the very version
-     * answered (neither `null`) is skipped. Returns how many sessions were
-     * revoked.
+     * answered (neither `null`) is skipped, and one that has already ended is
+     * left for pruning. Returns how many sessions were revoked.
      *
      * Call it in the transaction that publishes the change, on the storage
      * connection, so both commit or roll back together (it runs as a savepoint

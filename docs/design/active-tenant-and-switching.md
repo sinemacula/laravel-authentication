@@ -67,13 +67,13 @@ session held back by the policy waits as `pending-sessions.md` describes; the pe
 - The version answered is recorded on the session (`tenant_policy_version`) at activation, at a refresh and at a switch,
   and is part of the refresh's and the switch's compare-and-swap, so a version written by the helper in between makes
   them judge the session again.
-- `tenantPolicyChanged($tenant)` applies a change at once and outside any request: every unrevoked session acting in
-  the tenant, on every guard, pending ones included, is read in key order a chunk at a time with a locking read, in one
-  transaction on the session model's connection (a savepoint inside a caller's transaction there). A session recorded
-  at the very version answered, neither `null`, is skipped; an active one that falls short is revoked
-  (`tenant_policy_changed`) and one that meets it records the version; a pending one is revoked only when it would need
-  another connection, since its activation judges a further factor itself. Each revocation is one conditional update on
-  the session still acting in the tenant and unrevoked, reported by `SessionRevoked` once committed.
+- `tenantPolicyChanged($tenant)` applies a change at once and outside any request: every live session (unrevoked, before
+  both deadlines) acting in the tenant, on every guard, pending ones included, is read in key order a chunk at a time
+  with a locking read, in one transaction on the session model's connection (a savepoint inside a caller's transaction
+  there). A session recorded at the very version answered, neither `null`, is skipped; an active one that falls short is
+  revoked (`tenant_policy_changed`) and one that meets it records the version; a pending one is revoked only when it
+  would need another connection, since its activation judges a further factor itself. Each revocation is one conditional
+  update on the session still acting in the tenant and unrevoked, reported by `SessionRevoked` once committed.
 - `tenantDeactivated()` ends every session acting in the tenant, whatever its principal, as well as the sessions of the
   principals listed for it, each session counted once.
 
