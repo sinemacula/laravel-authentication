@@ -4,6 +4,8 @@ declare(strict_types = 1);
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Schema\Builder;
+use Illuminate\Database\Schema\ColumnDefinition;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
 use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
@@ -33,12 +35,12 @@ return new class extends Migration {
 
         (new MigrationCollisionGuard($schema))->ensureNotExists($table, 'proofs.table');
 
-        $schema->create($table, static function (Blueprint $blueprint) use ($table): void {
+        $schema->create($table, static function (Blueprint $blueprint) use ($schema, $table): void {
             $blueprint->uuid('id')->primary();
 
             // The session's key as a string, whatever the session model's key
             // type, so proofs are found and pruned by bound string values.
-            $blueprint->string('session_id');
+            self::exact($schema, $blueprint->string('session_id'));
 
             $blueprint->string('kind', 40);
             $blueprint->string('purpose', 32);
@@ -63,16 +65,16 @@ return new class extends Migration {
 
             // The proof's `amr` values as a JSON list. A bounded string rather
             // than text, so the claims query can group by it on every database.
-            $blueprint->string('methods', 1024);
+            self::exact($schema, $blueprint->string('methods', 1024));
 
-            $blueprint->string('authenticatable_type');
-            $blueprint->string('authenticatable_id');
-            $blueprint->string('guard');
+            self::exact($schema, $blueprint->string('authenticatable_type'));
+            self::exact($schema, $blueprint->string('authenticatable_id'));
+            self::exact($schema, $blueprint->string('guard'));
 
             $blueprint->dateTime('authenticated_at', 0);
 
-            // When the proof stopped counting (its factor was removed); a
-            // voided proof never counts.
+            // When the proof stopped counting, which nothing sets yet; a voided
+            // proof never counts.
             $blueprint->dateTime('voided_at', 0)->nullable();
 
             $blueprint->dateTime('created_at', 0)->nullable();
@@ -107,5 +109,23 @@ return new class extends Migration {
     public function getConnection(): ?string
     {
         return StorageConnection::name();
+    }
+
+    /**
+     * The column, compared byte for byte on MySQL and MariaDB, whose default
+     * collations ignore case and accents: two session keys, guards, owners or
+     * `amr` values that differ only in those would otherwise match, so one
+     * session would count, clear or prune another's proofs and the claims read
+     * would merge two values. PostgreSQL and SQLite already compare bytes.
+     *
+     * @param  \Illuminate\Database\Schema\Builder  $schema
+     * @param  \Illuminate\Database\Schema\ColumnDefinition  $column
+     * @return \Illuminate\Database\Schema\ColumnDefinition
+     */
+    private static function exact(Builder $schema, ColumnDefinition $column): ColumnDefinition
+    {
+        return in_array($schema->getConnection()->getDriverName(), ['mysql', 'mariadb'], true)
+            ? $column->charset('utf8mb4')->collation('utf8mb4_bin')
+            : $column;
     }
 };

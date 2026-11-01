@@ -221,6 +221,51 @@ final class ProofTablesSchemaTest extends TestCase
     }
 
     /**
+     * The session key, the guard, the owner and the `amr` values compare byte
+     * for byte on every engine, MySQL's default case-insensitive collation
+     * included: a lookup of one finds no value that differs from it only in
+     * case, a group keeps such values apart, and two provenances whose session
+     * keys differ only in case are both kept.
+     *
+     * @return void
+     */
+    public function testComparesTheBindingAndTheValuesByteForByte(): void
+    {
+        $row = static fn (string $id, string $session, string $type, string $owner, string $guard, string $methods): array => [
+            'id'                   => $id,
+            'session_id'           => $session,
+            'kind'                 => 'first_factor',
+            'purpose'              => 'sign_in',
+            'method'               => 'password',
+            'channel_kind'         => 'password',
+            'methods'              => $methods,
+            'authenticatable_type' => $type,
+            'authenticatable_id'   => $owner,
+            'guard'                => $guard,
+            'authenticated_at'     => '2026-04-06 12:00:00',
+        ];
+
+        DB::table(self::PROOFS)->insert([
+            $row('0196a3c0-0000-7000-8000-000000000001', 'abc', 'App\User', 'alice', 'api', '["urn:example:a"]'),
+            $row('0196a3c0-0000-7000-8000-000000000002', 'ABC', 'App\USER', 'Alice', 'API', '["urn:example:A"]'),
+        ]);
+
+        $columns = ['session_id' => 'abc', 'authenticatable_type' => 'App\User', 'authenticatable_id' => 'alice', 'guard' => 'api', 'methods' => '["urn:example:a"]'];
+
+        foreach ($columns as $column => $value) {
+            self::assertSame(1, DB::table(self::PROOFS)->where($column, $value)->count(), $column);
+        }
+
+        self::assertSame(1, DB::table(self::PROOFS)->whereIn('session_id', ['abc'])->count());
+        self::assertCount(2, DB::table(self::PROOFS)->select('methods')->groupBy('methods')->get());
+
+        DB::table(self::PROVENANCE)->insert([['session_id' => 'abc', 'connection_id' => 'c-1'], ['session_id' => 'ABC', 'connection_id' => 'c-2']]);
+
+        self::assertSame('c-1', DB::table(self::PROVENANCE)->where('session_id', 'abc')->value('connection_id'));
+        self::assertSame(2, DB::table(self::PROVENANCE)->count());
+    }
+
+    /**
      * Configured table names of 47 characters migrate on every engine with
      * every index under its own full name, within PostgreSQL's 63 characters.
      *

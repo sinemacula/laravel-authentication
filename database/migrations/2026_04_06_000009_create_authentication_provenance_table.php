@@ -4,6 +4,8 @@ declare(strict_types = 1);
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Schema\Builder;
+use Illuminate\Database\Schema\ColumnDefinition;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
 use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
@@ -33,11 +35,11 @@ return new class extends Migration {
 
         (new MigrationCollisionGuard($schema))->ensureNotExists($table, 'proofs.provenance_table');
 
-        $schema->create($table, static function (Blueprint $blueprint) use ($table): void {
+        $schema->create($table, static function (Blueprint $blueprint) use ($schema, $table): void {
 
             // The session's key as a string, whatever the session model's key
             // type: one provenance per session.
-            $blueprint->string('session_id')->primary();
+            self::exact($schema, $blueprint->string('session_id'))->primary();
 
             $blueprint->string('connection_id');
             $blueprint->string('tenant_id')->nullable();
@@ -81,5 +83,23 @@ return new class extends Migration {
     public function getConnection(): ?string
     {
         return StorageConnection::name();
+    }
+
+    /**
+     * The column, compared byte for byte on MySQL and MariaDB, whose default
+     * collations ignore case and accents: two session keys that differ only in
+     * those would otherwise match, so one session would clear or prune
+     * another's provenance, or could not record its own. PostgreSQL and SQLite
+     * already compare bytes.
+     *
+     * @param  \Illuminate\Database\Schema\Builder  $schema
+     * @param  \Illuminate\Database\Schema\ColumnDefinition  $column
+     * @return \Illuminate\Database\Schema\ColumnDefinition
+     */
+    private static function exact(Builder $schema, ColumnDefinition $column): ColumnDefinition
+    {
+        return in_array($schema->getConnection()->getDriverName(), ['mysql', 'mariadb'], true)
+            ? $column->charset('utf8mb4')->collation('utf8mb4_bin')
+            : $column;
     }
 };
