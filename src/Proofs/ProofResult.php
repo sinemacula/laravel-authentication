@@ -15,10 +15,12 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
  * `amr` values it stands for, when it was made, and what it was made for.
  *
  * The constructor checks only the shape: a method and a factor reference that
- * fit their columns, `amr` values that fit theirs, `mfa` excluded (see
- * `AuthenticationMethods`). Whether the proof is accepted is the operation's to
- * decide, against its kind, purpose, evaluation, time and binding. The time is
- * kept to the whole second, as every stored time is.
+ * fit their columns, and at most 8 `amr` values, each 1 to 48 printable ASCII
+ * characters other than a quote (`"`) or a backslash (`\`), `mfa` excluded,
+ * since only the evaluation reports multifactor authentication; anything else
+ * is an `InvalidArgumentException`. Whether the proof is accepted is the
+ * operation's to decide, against its kind, purpose, evaluation, time and
+ * binding. The time is kept to the whole second, as every stored time is.
  *
  * @api
  *

@@ -561,7 +561,8 @@ assertion that names the identity itself): then only the IP address is limited a
 does not apply. `identifier()` returns the identifier as the input gives it, for the limits and the failure events,
 never to look anyone up. `authenticate()` returns a `Proofs\FirstFactor` (the identity, the channel it proved itself
 over with its destination or credential reference of up to 255 characters, what was observed about the authenticator,
-`null` for anything not observed, and the RFC 8176 `amr` values the proof stands for, here `pin`), or
+`null` for anything not observed, and the RFC 8176 `amr` values the proof stands for, here `pin`: at most 8, each 1 to
+48 printable ASCII characters other than `"` and `\`, a private value namespaced like `urn:example:amr:badge`), or
 `FailureReason::INVALID_CREDENTIALS` for anything the input did not prove. The session records it as its first proof,
 and the access token's `amr` is derived from its values; `mfa` is reserved for an adapter's report of multifactor
 authentication, and a `FirstFactor` that names it throws an `InvalidArgumentException`. The package's own methods report

@@ -296,16 +296,17 @@ seam has a default that works alone.
 - Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity)` and `verifyFactor()`, which count and
   report nothing: the factor's outcome is the factor package's to limit and report. `verifyFactor()` answers a
   `PasskeyFactorResult` (see [Using passkeys](signing-in.md#using-passkeys)), never `null`.
-- A factor package's credentials and enrolments are its own; the proofs of a session are this package's (see
-  [Proofs and provenance](sessions.md#proofs-and-provenance)). The adapter hands each factor it verified to the session
-  service as a `Proofs\ProofResult`: its kind (`additional_factor`, or `recovery_code` for the fallback, kept apart),
-  method, channel, factor, what it observed (`null` for anything it did not), its `Evaluation` (accepted, and
-  multifactor as it judged it: `amr` carries `mfa` only from there, never counted from the values, and a proof's own
-  values may not name `mfa`), its `amr` values, its time and its `ProofBinding` (identity, application, session or
-  pending sign-in, purpose). Complete a pending sign-in with `complete($token, $proof)`, bound to `PendingFactor::$id`
-  for `sign_in` (see [Additional factors](signing-in.md#additional-factors)). Nothing a factor package keeps about a
-  session survives a sign-in: every sign-in starts a new session with a new id and its own proofs, and the session the
-  client proved (`AdditionalFactorContext::$provenSession`) is revoked with its proofs left on it.
+- A factor package's credentials and enrolments are its own; the proofs of a session are this package's (see [Proofs and
+  provenance](sessions.md#proofs-and-provenance)). The adapter hands each factor it verified to the session service as a
+  `Proofs\ProofResult`: its kind (`additional_factor`, or `recovery_code` for the fallback, kept apart), method,
+  channel, factor, what it observed (`null` for anything it did not), its `Evaluation` (accepted, and multifactor as it
+  judged it: `amr` carries `mfa` only from there, never counted from the values, and a proof's own values may not name
+  `mfa`), its `amr` values (at most 8, each 1 to 48 printable ASCII characters other than `"` and `\`; anything else is
+  an `InvalidArgumentException`), its time and its `ProofBinding` (identity, application, session or pending sign-in,
+  purpose). Complete a pending sign-in with `complete($token, $proof)`, bound to `PendingFactor::$id` for `sign_in` (see
+  [Additional factors](signing-in.md#additional-factors)). Nothing a factor package keeps about a session survives a
+  sign-in: every sign-in starts a new session with a new id and its own proofs, and the session the client proved
+  (`AdditionalFactorContext::$provenSession`) is revoked with its proofs left on it.
 - Step a signed-in session up with a factor the factor package has just verified: `Auth::sessions()->stepUp($proof)`,
   with the `ProofResult` bound to the session's key for `step_up`. The session keeps its refresh token and deadlines,
   and every access token issued for it from then on carries the factor in `auth_time` and `amr`; the session then

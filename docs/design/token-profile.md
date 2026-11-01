@@ -66,7 +66,8 @@ are told apart, which claims are checked on every parse, and which the bearer pa
 
 - `src/Jwt/Enums/TokenType.php`: the header values and each type's required claims.
 - `src/Jwt/Enums/Claims.php` and `src/Jwt/Enums/SubjectType.php`.
-- `src/Jwt/TokenProfile.php`: `headerType()`, `accessFailure()`, `refreshFailure()`.
+- `src/Jwt/TokenProfile.php`: `headerType()`, `accessFailure()`, `refreshFailure()`, `ownTenant()` (a `tenant_id` only
+  for the principal's own tenant).
 - `src/Jwt/JwtTokenService.php`: `encode()` (the header), `issueAccess()`, `sessionClaims()`, `parse()`,
   `parseRefreshProof()`.
 - `src/Jwt/JwtTokenServiceFactory.php`: `resolveJwtRequiredString()` for `iss` and `aud`.
@@ -78,8 +79,18 @@ are told apart, which claims are checked on every parse, and which the bearer pa
 
 - `tests/Feature/Jwt/TokenProfileTest.php`
   `testASignInsTokensKeepTheProfile`, `testATokenNeverCarriesAnAuthenticationAfterItsIssueTime`,
-  `testATenantPrincipalsTokenCarriesTheTenant`, `testARequestRejectsATokenThatBreaksTheProfile`,
-  `testARequestAcceptsTheMediaTypeOfTheHeaderType`, `testAnExpiredRefreshTokenOfferedAsProofKeepsItsChecks`
+  `testATenantPrincipalsTokenCarriesTheTenant`, `testATokenNeverNamesATenantThePrincipalIsNotIn`,
+  `testARequestRejectsATokenThatBreaksTheProfile`, `testARequestAcceptsTheMediaTypeOfTheHeaderType`,
+  `testAnExpiredRefreshTokenOfferedAsProofKeepsItsChecks`
+- `tests/Unit/Jwt/JwtTokenServiceIssueTest.php`
+  `testIssueAccessTokenRefusesATenantThePrincipalIsNotIn`, `testIssuingLetsATenantThatCannotBeLoadedPropagate`
+- `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
+  `testIssuanceFindsThePrincipalsTenantOnTheWriteConnection`
+- `tests/Performance/AccessTokenIssueQueryBudgetTest.php`: the tenant check's read, none for a tenant loaded through the
+  principal.
+- `tests/Feature/Sessions/StepUpTest.php` `testARefreshAndASwitchKeepTheStepUpsAuthentication`, and
+  `tests/Feature/Proofs/SignInProofsTest.php` `testStartWithAProvenanceRecordsTheProvidersFirstFactorAndProvenance`:
+  `auth_time` is the authentication's time, never the token's issue time.
 - `tests/Unit/Jwt/TokenProfileTest.php`
   `testHeaderTypeNamesItsTokenType`, `testAccessFailureNamesTheRuleTheClaimsBreak`,
   `testAccessFailureAppliesTheGivenLeeway`

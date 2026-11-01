@@ -282,8 +282,9 @@ final class SessionLifetimeIntegrationTest extends TestCase
      * A session row that records no first factor (one an application wrote
      * itself, not through the session service) is never issued for: a refresh
      * fails with a `LogicException` rather than mint an access token that
-     * cannot say when or how it authenticated, and its rotation is rolled back
-     * with it, so its refresh token still names the session as it was.
+     * cannot say when or how it authenticated, and nothing of its rotation is
+     * written, since the token is issued before the rotation is stored, so its
+     * refresh token still names the session as it was.
      *
      * @return void
      *

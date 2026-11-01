@@ -100,7 +100,9 @@ enum FailureReason: string
     // The session is marked revoked
     case SESSION_REVOKED = 'session_revoked';
 
-    // The session's idle or absolute deadline is reached, or missing
+    // The session's idle or absolute deadline is reached, or missing, or the
+    // deadline a sign-in supplied had passed by the sign-in, its completion or
+    // its choice of principal
     case SESSION_EXPIRED = 'session_expired';
 
     // The token was issued for a principal the session no longer acts as

@@ -13,8 +13,11 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
  *
  * The session service records it as the session's first-factor proof, timed
  * when the method returned it, and derives the access token's `amr` from its
- * values; the method decides acceptance, so this carries no evaluation. `mfa`
- * is reserved (see `AuthenticationMethods`) and refused here.
+ * values; the method decides acceptance, so this carries no evaluation. The
+ * values are at most 8, each 1 to 48 printable ASCII characters other than a
+ * quote (`"`) or a backslash (`\`), and never `mfa`, which only an adapter's
+ * evaluation of a further factor can add; anything else is refused here with an
+ * `InvalidArgumentException`.
  *
  * @api
  *

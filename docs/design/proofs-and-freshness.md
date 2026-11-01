@@ -118,6 +118,11 @@ the token's claims and every freshness answer are worked out from them, never st
 - `tests/Unit/Freshness/*`, `tests/Feature/Freshness/ConfiguredFreshnessTest.php`: requirements, the stricter rule,
   configuration and its failures, the newest meeting proof.
 - `tests/Feature/IdentifierChanges/RecentAuthenticationTest.php`: the identifier change's freshness.
+- `tests/Feature/IdentifierChanges/ReboundFreshnessPolicyTest.php`: a policy the application binds is the one asked,
+  and the locked row is judged live whatever it answers.
+- `tests/Integration/Sessions/ConcurrentSwitchAndRevocationTest.php`: a step-up and a revocation racing on the session's
+  row lock.
+- `tests/Integration/Sessions/ReusedSessionKeyTest.php`: a key the database issues again inherits no proofs.
 - `tests/Integration/Proofs/ReplicaProofsTest.php`, `tests/Integration/Migration/ProofTablesSchemaTest.php`,
   `tests/Performance/ProofQueryBudgetTest.php`, `benchmarks/Proofs/ProofHistoryBench.php`.
 
