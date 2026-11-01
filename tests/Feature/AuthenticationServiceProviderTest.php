@@ -37,6 +37,7 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
+use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
@@ -46,6 +47,7 @@ use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
+use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
@@ -562,6 +564,23 @@ final class AuthenticationServiceProviderTest extends TestCase
         self::assertTrue($app->isShared(ScopeRegistry::class));
         self::assertInstanceOf(AcceptAnyScope::class, app(ScopeRegistry::class));
         self::assertSame(app(ScopeRegistry::class), app(ScopeRegistry::class));
+    }
+
+    /**
+     * The configured freshness policy is the default, bound as a singleton so
+     * the application can bind its own.
+     *
+     * @return void
+     */
+    public function testRegistersTheConfiguredFreshnessPolicy(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        self::assertTrue($app->isShared(FreshnessPolicy::class));
+        self::assertInstanceOf(ConfiguredFreshness::class, app(FreshnessPolicy::class));
+        self::assertSame(app(FreshnessPolicy::class), app(FreshnessPolicy::class));
     }
 
     /**

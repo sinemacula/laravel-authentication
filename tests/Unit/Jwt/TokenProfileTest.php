@@ -7,6 +7,8 @@ namespace Tests\Unit\Jwt;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\TokenProfile;
 
@@ -144,6 +146,37 @@ final class TokenProfileTest extends TestCase
 
         self::assertSame('JWT authentication claims malformed', TokenProfile::accessFailure($claims, 0));
         self::assertNull(TokenProfile::accessFailure($claims, 1));
+    }
+
+    /**
+     * A tenant is named only for a principal that acts within it: a principal
+     * acting within none is refused one, as one within another tenant is, and
+     * one within it gets the identifier given back.
+     *
+     * @return void
+     */
+    public function testOwnTenantNamesOnlyThePrincipalsTenant(): void
+    {
+        $tenant = self::createStub(Tenant::class);
+        $tenant->method('getTenantIdentifier')->willReturn(7);
+
+        $within = self::createStub(Principal::class);
+        $within->method('getTenant')->willReturn($tenant);
+
+        $none = self::createStub(Principal::class);
+        $none->method('getTenant')->willReturn(null);
+
+        self::assertSame('7', TokenProfile::ownTenant($within, '7'));
+
+        foreach ([[$within, '8'], [$none, '7']] as [$principal, $tenantId]) {
+            try {
+                TokenProfile::ownTenant($principal, $tenantId);
+
+                self::fail('Expected the tenant to be refused.');
+            } catch (\InvalidArgumentException $exception) {
+                self::assertSame('Cannot issue a token naming a tenant the principal does not act within: pass the tenant its admission loaded.', $exception->getMessage());
+            }
+        }
     }
 
     /**

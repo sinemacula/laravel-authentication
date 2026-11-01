@@ -174,25 +174,6 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A service cannot be built without an issuer or an audience to write into
-     * every token and check on every parse.
-     *
-     * @return void
-     */
-    public function testConstructorRejectsAnEmptyIssuerOrAudience(): void
-    {
-        foreach ([['', self::AUDIENCE], [self::ISSUER, '']] as [$issuer, $audience]) {
-            try {
-                $this->makeServiceWith($issuer, $audience);
-
-                self::fail('Expected the service to need an issuer and an audience.');
-            } catch (\InvalidArgumentException $exception) {
-                self::assertSame('JWT token service requires a non-empty issuer and audience.', $exception->getMessage());
-            }
-        }
-    }
-
-    /**
      * Clock-skew leeway lets a token that is at most `leewaySeconds` past its
      * `exp` still decode cleanly.
      *

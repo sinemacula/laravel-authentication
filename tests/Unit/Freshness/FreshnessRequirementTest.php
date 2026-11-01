@@ -9,6 +9,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Freshness\Operations;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 
 /**
@@ -58,6 +59,7 @@ final class FreshnessRequirementTest extends TestCase
             'no kinds'        => [900, [], $kinds],
             'a kind twice'    => [900, [ProofKind::FIRST_FACTOR, ProofKind::FIRST_FACTOR], $kinds],
             'a kind by value' => [900, ['first_factor'], $kinds],
+            'another enum'    => [900, [ProofKind::FIRST_FACTOR, ChannelKind::PASSWORD], $kinds],
             'a map of kinds'  => [900, ['first' => ProofKind::FIRST_FACTOR], $kinds],
         ];
     }

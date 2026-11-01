@@ -296,6 +296,50 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
+     * A header type mismatch with no type expected is rejected without raising
+     * a PHP warning: inside a Laravel application a warning becomes an
+     * exception, which would turn a rejected token into an error.
+     *
+     * @return void
+     */
+    public function testParseWithNoExpectedTypeRejectsAHeaderTypeMismatchQuietly(): void
+    {
+        $service = $this->makeService();
+        $token   = JWT::encode($this->completeClaims(TokenType::ACCESS), self::SECRET, self::ALGORITHM, self::KID);
+
+        set_error_handler(static function (int $level, string $message): never {
+            throw new \ErrorException($message, 0, $level);
+        });
+
+        try {
+            self::assertNull($service->parse($token));
+        } finally {
+            restore_error_handler();
+        }
+    }
+
+    /**
+     * A token that lacks a claim its type requires is reported as missing it,
+     * before the profile's shape is judged, so a token without `sub_type` is
+     * logged as missing the claim rather than as a subject type mismatch.
+     *
+     * @return void
+     */
+    public function testParseReportsAMissingClaimBeforeAMisshapenOne(): void
+    {
+        $logger = \Mockery::mock(LoggerInterface::class);
+        $logger->shouldReceive('debug')
+            ->once()
+            ->with('JWT required claim missing', ['claim' => 'sub_type', 'typ' => 'at+jwt']);
+
+        $claims = $this->completeClaims(TokenType::ACCESS);
+
+        unset($claims[Claims::SUBJECT_TYPE->value]);
+
+        self::assertNull($this->makeServiceWithLogger($logger)->parse($this->encode($claims), TokenType::ACCESS));
+    }
+
+    /**
      * A token in the profile the package used before (a `typ` claim, `pid`,
      * `did` and `grd`, and php-jwt's default header type) is rejected: no
      * compatibility path exists.
@@ -523,6 +567,25 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $this->expectExceptionMessage('JWT token service requires a non-empty guard name.');
 
         $this->makeServiceFor('');
+    }
+
+    /**
+     * A service cannot be built without an issuer or an audience to write into
+     * every token and check on every parse: either one empty is refused.
+     *
+     * @return void
+     */
+    public function testConstructorRejectsAnEmptyIssuerOrAudience(): void
+    {
+        foreach ([['', self::AUDIENCE], [self::ISSUER, '']] as [$issuer, $audience]) {
+            try {
+                new JwtTokenService($this->makeKeyring(), self::GUARD, new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30), 30, $issuer, $audience);
+
+                self::fail('Expected the service to need an issuer and an audience.');
+            } catch (\InvalidArgumentException $exception) {
+                self::assertSame('JWT token service requires a non-empty issuer and audience.', $exception->getMessage());
+            }
+        }
     }
 
     /**
