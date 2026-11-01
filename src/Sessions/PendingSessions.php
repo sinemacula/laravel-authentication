@@ -97,9 +97,13 @@ final readonly class PendingSessions
     /**
      * The live pending session the credential names, or `null`; with an action,
      * also `null` when its first outstanding requirement does not allow the
-     * action now. The principals to choose from are listed only while the
-     * choice is that requirement. Reads only, on the write connection, with no
-     * lock.
+     * action now. Also `null` when the gate would refuse its identity (a
+     * machine identity, an inactive one, or one the application no longer
+     * admits with the identifier type the sign-in used) or its method is no
+     * longer allowed: such a session can never activate, so nothing (a code
+     * sent, an enrolment begun) is done for it. The principals to choose from
+     * are listed only while the choice is that requirement. Reads only, on the
+     * write connection, with no lock.
      *
      * @param  string  $credential
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction  $action
@@ -124,6 +128,13 @@ final readonly class PendingSessions
         $requires = $session->getRequires();
 
         if ($action !== null && !in_array($action, $requires[0]->actions(), true)) {
+            return null;
+        }
+
+        $refused = $this->evaluation->identityRefusal($identity, $session->getSignInIdentifierType()) !== null
+            || !$this->evaluation->allowsMethod((string) $session->getSignInMethod());
+
+        if ($refused) {
             return null;
         }
 

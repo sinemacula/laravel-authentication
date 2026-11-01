@@ -63,8 +63,11 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * admits are found (with none left the sign-in is refused, after the credential
  * is verified); the one named, or the only one, is selected, or a choice is
  * left outstanding; the identity-level factor policy is asked, before any
- * principal is chosen; and a selected principal's active tenant is admitted.
- * With nothing outstanding the session starts active; otherwise it is pending
+ * principal is chosen; a selected principal's active tenant is admitted; and
+ * that tenant's authentication policy is asked: one requiring sign-in through a
+ * connection the sign-in did not come through refuses it (`sso_required`), and
+ * a further factor it requires is outstanding as the identity's own is. With
+ * nothing outstanding the session starts active; otherwise it is pending
  * (`SignInResult::pending()`), waiting on the further factor, then the choice,
  * and holding no token. `pending()` reads a pending session for an action,
  * `satisfy()` hands it the proof of a further factor, `choose()` makes the
@@ -199,10 +202,15 @@ final readonly class SessionService
      * `principal_unresolved`); a password is rehashed when its hash is
      * outdated; the client's refresh token, if any, is checked as proof of an
      * existing session; the identity-level factor policy is asked; a selected
-     * principal's tenant (the context's, or its own) is admitted. With nothing
-     * outstanding the session starts and the sign-in gives back the attempt's
-     * slots and those the method took on the accounts it checked; otherwise the
-     * session is pending and keeps them all until it first activates.
+     * principal's tenant (the context's, or its own) is admitted; and that
+     * tenant's authentication policy is asked, judged against the sign-in's own
+     * proof and provenance: one requiring sign-in through a connection the
+     * sign-in did not come through fails it as `sso_required`, writing nothing,
+     * and a further factor it requires is outstanding as the identity's own is.
+     * With nothing outstanding the session starts and the sign-in gives back
+     * the attempt's slots and those the method took on the accounts it
+     * checked; otherwise the session is pending and keeps them all until it
+     * first activates.
      *
      * @param  string  $method
      * @param  array<array-key, mixed>  $input
@@ -286,11 +294,14 @@ final readonly class SessionService
     /**
      * The live pending session of this guard the pending credential names, or
      * `null`; with an action, also `null` when the session does not allow the
-     * action now (only its first outstanding requirement's actions are). The
-     * seam an adapter checks before each action it takes for a pending session
-     * (listing or verifying factors, enrolling one), and the source of the
-     * principals a choice screen lists. A read: it dispatches nothing and
-     * writes nothing.
+     * action now (only its first outstanding requirement's actions are). Also
+     * `null` when the session can no longer activate because its identity or
+     * its method would be refused (a machine or inactive identity, an
+     * identifier type the application no longer admits, a method no longer
+     * allowed). The seam an adapter checks before each action it takes for a
+     * pending session (listing or verifying factors, enrolling one), and the
+     * source of the principals a choice screen lists. A read: it dispatches
+     * nothing and writes nothing.
      *
      * @param  string  $credential
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction  $action
@@ -316,12 +327,15 @@ final readonly class SessionService
      * session's id (`PendingSession::$id`; `proof_binding_mismatch`). The
      * session is checked again (the identity, the method, the principal and
      * tenant it records), the proof is stored with the session's other proofs,
-     * and what it still waits on is judged again: it activates (the guard is
-     * bound, the pair issued, the pending credential consumed), stays pending,
-     * or moves on to the choice of principal. A refusal leaves the session
-     * pending and the proof unstored; a credential that names no live pending
-     * session of this guard fails as `pending_invalid`. Every refusal is
-     * reported with Laravel's `Failed` and `AuthenticationFailed`.
+     * the authentication policy of the tenant it records is asked (one
+     * requiring a connection the session was not established through refuses as
+     * `sso_required`, the proof unstored), and what it still waits on is judged
+     * again: it activates (the guard is bound, the pair issued, the pending
+     * credential consumed), stays pending, or moves on to the choice of
+     * principal. A refusal leaves the session pending and the proof unstored; a
+     * credential that names no live pending session of this guard fails as
+     * `pending_invalid`. Every refusal is reported with Laravel's `Failed` and
+     * `AuthenticationFailed`.
      *
      * @param  string  $credential
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof
@@ -344,11 +358,15 @@ final readonly class SessionService
      * resolved through the hinted path as the very one named
      * (`principal_mismatch`), and admitted by the application; the tenant must
      * be one it may act in, and active; and the identity and method are checked
-     * again. Then the identity-level factor policy is asked again: a further
-     * factor it now asks for records the principal and tenant and leaves the
-     * session waiting for it; otherwise the session activates. A refusal leaves
-     * the session pending for another choice; a credential that names no live
-     * pending session of this guard fails as `pending_invalid`.
+     * again. Then the tenant's authentication policy is asked: one requiring
+     * sign-in through a connection the session was not established through
+     * refuses this principal (`sso_required`), recording nothing. Then the
+     * identity-level factor policy is asked again: a further factor it now asks
+     * for, or one the tenant's policy requires that the session's proofs do not
+     * meet, records the principal and tenant and leaves the session waiting for
+     * it; otherwise the session activates. A refusal leaves the session pending
+     * for another choice; a credential that names no live pending session of
+     * this guard fails as `pending_invalid`.
      *
      * @param  string  $credential
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal

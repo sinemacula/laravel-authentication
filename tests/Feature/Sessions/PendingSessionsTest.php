@@ -16,6 +16,13 @@ use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
+use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
@@ -29,20 +36,30 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingEvaluation;
 use SineMacula\Laravel\Authentication\Sessions\PendingSessions;
+use SineMacula\Laravel\Authentication\Sessions\RefreshResult;
 use SineMacula\Laravel\Authentication\Sessions\SessionActivation;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SessionSummary;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
+use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Tenancy\DescendantTenants;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
+use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
+use Tests\Integration\Fixtures\ActivatableTenantMember;
+use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\ChoosingMember;
 use Tests\Integration\Fixtures\ChoosingMembership;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -753,6 +770,335 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
+     * A satisfied factor that leaves the session waiting on a choice with no
+     * principal left to choose from is refused for the reason the last was
+     * refused, after the proof was stored, and the refusal rolls everything
+     * back: the session still waits on the factor and the choice, and the proof
+     * is gone.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFactorThatLeavesNoPrincipalToChooseIsRefusedAndStoresNothing(): void
+    {
+        [$member] = $this->seedChooser();
+
+        [$credential, $pending] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
+
+        ActivatableTenant::query()->update(['is_active' => false]);
+
+        $proofs = SessionProof::query()->count();
+
+        $this->recordEvents([AuthenticationFailed::class, SessionCreated::class]);
+
+        $refused = $this->sessions(self::CHOOSERS)->satisfy($credential, self::adapterProof($member, self::CHOOSERS, $pending->id, Purpose::SIGN_IN));
+
+        self::assertTrue($refused->isFailed());
+        self::assertSame(FailureReason::TENANT_INACTIVE, $refused->reason);
+        self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame($proofs, SessionProof::query()->count());
+
+        $row = Session::query()->sole();
+
+        self::assertSame(SessionStatus::PENDING, $row->getStatus());
+        self::assertSame([PendingRequirement::MFA, PendingRequirement::PRINCIPAL], $row->getRequires());
+    }
+
+    /**
+     * A satisfied factor whose recorded tenant now requires a connection the
+     * session was not established through is refused as `sso_required` after
+     * the proof was stored, and the refusal rolls the proof back with
+     * everything else.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFactorWhoseTenantNowRequiresAConnectionIsRefusedAndStoresNothing(): void
+    {
+        [$member] = $this->seedMember();
+
+        [$credential, $pending] = $this->pendingSignIn('members', 'member@example.test');
+
+        $proofs = SessionProof::query()->count();
+
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', connections: ['conn-a'])));
+
+        $refused = $this->sessions('members')->satisfy($credential, self::adapterProof($member, 'members', $pending->id, Purpose::SIGN_IN));
+
+        self::assertSame(FailureReason::SSO_REQUIRED, $refused->reason);
+        self::assertSame($proofs, SessionProof::query()->count());
+        self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
+        self::assertNotNull($this->sessions('members')->pending($credential));
+    }
+
+    /**
+     * The pre-action seam answers nothing for a session the gate would refuse,
+     * so no code is sent and no enrolment begun for one that can never
+     * activate: its identity deactivated, or its method no longer allowed. Once
+     * neither holds, it answers again.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testThePreActionSeamAnswersNothingForASessionTheGateWouldRefuse(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$credential] = $this->pendingSignIn();
+
+        self::assertNotNull($this->sessions()->pending($credential, PendingAction::SEND_CODE));
+
+        IntegrationIdentity::query()->whereKey($identity->getKey())->update(['is_active' => false]);
+
+        self::assertNull($this->sessions()->pending($credential, PendingAction::SEND_CODE));
+        self::assertNull($this->sessions()->pending($credential));
+
+        IntegrationIdentity::query()->whereKey($identity->getKey())->update(['is_active' => true]);
+        config()->set('auth.guards.api.application.methods', ['sso']);
+
+        self::assertNull($this->sessions()->pending($credential, PendingAction::START_BOOTSTRAP_ENROLLMENT));
+
+        config()->set('auth.guards.api.application.methods', ['password']);
+
+        self::assertNotNull($this->sessions()->pending($credential, PendingAction::SEND_CODE));
+    }
+
+    /**
+     * Rows of `[change]` that leave a pending credential naming nothing.
+     *
+     * @return iterable<string, array{0: \Closure(\Tests\Integration\Fixtures\ActivatableTenantMember, \Tests\Integration\Fixtures\ActivatableTenantMembership): void}>
+     */
+    public static function provideChangesThatEndTheCredential(): iterable
+    {
+        yield 'the owner is gone' => [static function (ActivatableTenantMember $member): void {
+            DB::table('activatable_tenant_members')->where('id', $member->getKey())->delete();
+        }];
+
+        yield 'the principal is gone' => [static function (ActivatableTenantMember $member, ActivatableTenantMembership $membership): void {
+            DB::table('activatable_tenant_memberships')->where('id', $membership->getKey())->delete();
+        }];
+
+        yield 'the principal resolves as another' => [static function (ActivatableTenantMember $member, ActivatableTenantMembership $membership): void {
+            $other = ActivatableTenantMember::query()->create(['email' => 'other@example.test', 'password' => 'unused']);
+
+            ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $membership->tenant_id]);
+
+            DB::table('activatable_tenant_memberships')->where('id', $membership->getKey())->update(['identity_id' => $other->getKey()]);
+        }];
+
+        yield 'the principal belongs to another identity' => [static function (ActivatableTenantMember $member, ActivatableTenantMembership $membership): void {
+            $other = ActivatableTenantMember::query()->create(['email' => 'other@example.test', 'password' => 'unused']);
+
+            DB::table('activatable_tenant_memberships')->where('id', $membership->getKey())->update(['identity_id' => $other->getKey()]);
+
+            app()->instance(PrincipalResolver::class, new class implements PrincipalResolver {
+                /**
+                 * Resolve the hinted membership by its key, whoever owns it.
+                 *
+                 * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+                 * @param  mixed  $hint
+                 * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+                 */
+                #[\Override]
+                public function resolve(Identity $identity, mixed $hint = null): ?Principal
+                {
+                    $principal = ActivatableTenantMembership::query()->find($hint);
+
+                    return $principal instanceof Principal ? $principal : null;
+                }
+            });
+        }];
+
+        yield 'the row waits on nothing' => [static function (): void {
+            DB::table('authentication_sessions')->update(['requires' => null]);
+        }];
+    }
+
+    /**
+     * A credential names nothing once the session's owner no longer loads
+     * through the guard's provider, once the principal it records no longer
+     * resolves or belongs to another identity, or once the pending row waits on
+     * nothing: `pending()` answers `null`, and `satisfy()` and `choose()` fail
+     * as `pending_invalid`.
+     *
+     * @param  \Closure(\Tests\Integration\Fixtures\ActivatableTenantMember, \Tests\Integration\Fixtures\ActivatableTenantMembership): void  $change
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideChangesThatEndTheCredential')]
+    public function testACredentialNamesNothingOnceItsSessionNoLongerHolds(\Closure $change): void
+    {
+        [$member, $membership] = $this->seedMember();
+
+        [$credential, $pending] = $this->pendingSignIn('members', 'member@example.test');
+
+        $change($member, $membership);
+
+        self::assertNull($this->sessions('members')->pending($credential));
+        $proof = self::adapterProof($member, 'members', $pending->id, Purpose::SIGN_IN);
+
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions('members')->satisfy($credential, $proof)->reason);
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions('members')->choose($credential, $membership)->reason);
+        self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
+    }
+
+    /**
+     * A pending session that records a principal names the tenant it records as
+     * the one it is to be active in.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingSessionNamesTheTenantItRecords(): void
+    {
+        [, $membership, $tenant] = $this->seedMember();
+
+        [$credential] = $this->pendingSignIn('members', 'member@example.test');
+
+        $found = $this->sessions('members')->pending($credential);
+
+        self::assertNotNull($found);
+        self::assertTrue($membership->is($found->principal));
+        self::assertInstanceOf(ActivatableTenant::class, $found->tenant);
+        self::assertTrue($tenant->is($found->tenant));
+    }
+
+    /**
+     * A choice may name the tenant the principal is to be active in: with an
+     * application tree that lets the principal act in a tenant below its own,
+     * the session activates there, records it, and every request it
+     * authenticates acts in it; with the defaults the same choice is refused as
+     * `tenant_ineligible` and the session keeps waiting.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChoiceMayNameATenantTheApplicationLetsThePrincipalActIn(): void
+    {
+        $this->factorRequired = false;
+
+        [, $first] = $this->seedChooser();
+
+        $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
+
+        [$refusedCredential] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
+
+        $refused = $this->sessions(self::CHOOSERS)->choose($refusedCredential, $first, TenantSelection::of($descendant->getKey()));
+
+        self::assertSame(FailureReason::TENANT_INELIGIBLE, $refused->reason);
+        self::assertNotNull($this->sessions(self::CHOOSERS)->pending($refusedCredential, PendingAction::CHOOSE_PRINCIPAL));
+
+        $tree = (new DescendantTenants)->place($descendant->getKey(), $first->tenant_id);
+
+        app()->instance(TenantAccess::class, $tree);
+        app()->instance(TenantResolver::class, $tree);
+
+        [$credential] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
+
+        $chosen = $this->sessions(self::CHOOSERS)->choose($credential, $first, TenantSelection::of($descendant->getKey()));
+
+        self::assertTrue($chosen->isSignedIn());
+        self::assertNotNull($chosen->session);
+        self::assertTrue($first->is($chosen->session->principal));
+        self::assertSame(IdentifierCoercion::stringify($descendant->getKey()), Session::query()->whereKey($chosen->session->record->getKey())->sole()->getTenantId());
+
+        Route::middleware('auth:' . self::CHOOSERS)->get('/choosers/tenant', static fn (): array => ['tenant' => Auth::tenant()?->getTenantIdentifier()]);
+
+        Auth::forgetGuards();
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $chosen->session->tokens->accessToken])
+            ->getJson('/choosers/tenant')
+            ->assertOk()
+            ->assertExactJson(['tenant' => $descendant->getKey()]);
+    }
+
+    /**
+     * A session that returned to pending waits from the return: a further
+     * factor proved after its sign-in but before the return is refused as
+     * `proof_invalid`, and one proved since activates it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReturnedSessionRefusesAProofFromBeforeItsReturn(): void
+    {
+        $this->factorRequired = false;
+
+        [$member] = $this->seedMember();
+
+        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+
+        self::assertNotNull($signedIn);
+
+        $signedInAt = $this->now;
+
+        $this->clockAt($this->now->addSeconds(5));
+
+        $returned = $this->returnToPending($signedIn->tokens->refreshToken);
+
+        $early = self::adapterProof($member, 'members', $returned->pending?->id, Purpose::SIGN_IN, at: $signedInAt->addSeconds(2));
+
+        self::assertSame(FailureReason::PROOF_INVALID, $this->sessions('members')->satisfy((string) $returned->credential, $early)->reason);
+
+        $since = self::adapterProof($member, 'members', $returned->pending?->id, Purpose::SIGN_IN, at: $this->now);
+
+        self::assertTrue($this->sessions('members')->satisfy((string) $returned->credential, $since)->isSignedIn());
+    }
+
+    /**
+     * A session that returns to pending and activates again within one second
+     * refuses every token issued before the return, and those its activation
+     * issued, until that second has passed: a refresh then gives it a pair that
+     * authenticates.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReturnAndAnActivationWithinOneSecondReviveNoEarlierToken(): void
+    {
+        $this->factorRequired = false;
+
+        [$member] = $this->seedMember();
+
+        Route::middleware('auth:members')->get('/members/me', static fn (): array => ['ok' => true]);
+
+        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+
+        self::assertNotNull($signedIn);
+
+        $returned = $this->returnToPending($signedIn->tokens->refreshToken);
+        $active   = $this->sessions('members')->satisfy((string) $returned->credential, self::adapterProof($member, 'members', $returned->pending?->id, Purpose::SIGN_IN));
+
+        self::assertTrue($active->isSignedIn());
+        self::assertNotNull($active->session);
+        self::assertSame($this->now->addSecond()->getTimestamp(), Session::query()->sole()->getSwitchedAt()?->getTimestamp());
+
+        foreach ([$signedIn->tokens->accessToken, $active->session->tokens->accessToken] as $token) {
+            Auth::forgetGuards();
+
+            $this->withHeaders(['Authorization' => 'Bearer ' . $token])->getJson('/members/me')->assertUnauthorized();
+        }
+
+        $this->clockAt($this->now->addSecond());
+
+        $refreshed = $this->sessions('members')->refresh($active->session->tokens->refreshToken)->session;
+
+        self::assertNotNull($refreshed);
+
+        Auth::forgetGuards();
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $refreshed->tokens->accessToken])->getJson('/members/me')->assertOk();
+    }
+
+    /**
      * Configure the session guards and the guard over choosing members.
      *
      * @param  mixed  $app
@@ -792,6 +1138,29 @@ final class PendingSessionsTest extends TestCase
         self::assertNotNull($result->credential);
 
         return [$result->credential, $result->pending];
+    }
+
+    /**
+     * Refresh the session with the refresh token under a tenant policy that now
+     * asks for a further factor, which returns it to pending, and bind a check
+     * that meets that factor once the session holds one.
+     *
+     * @param  string  $refreshToken
+     * @return \SineMacula\Laravel\Authentication\Sessions\RefreshResult
+     *
+     * @throws \Throwable
+     */
+    private function returnToPending(#[\SensitiveParameter] string $refreshToken): RefreshResult
+    {
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', new Requirement(new RequirementPart))));
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        $returned = $this->sessions('members')->refresh($refreshToken);
+
+        self::assertTrue($returned->isPending());
+        self::assertNotNull($returned->credential);
+
+        return $returned;
     }
 
     /**
