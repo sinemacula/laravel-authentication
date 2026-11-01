@@ -926,6 +926,42 @@ final class PrincipalSwitchTest extends TestCase
     }
 
     /**
+     * A session the guard's shortened absolute lifetime has ended fails as
+     * `session_expired` from the second of that deadline, although the deadline
+     * it stored when it started under the longer lifetime is still ahead, and
+     * the session is left as it was.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionPastTheGuardsShortenedLifetimeFailsAsExpired(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $policy = \Mockery::mock(ApplicationPolicy::class);
+        $policy->shouldReceive('allowsMethod')->andReturnTrue();
+        $policy->shouldReceive('admitIdentifier')->andReturnNull();
+        $policy->shouldReceive('admit')->andReturnNull();
+        $policy->shouldReceive('lifetimes')
+            ->with(self::GUARD)
+            ->andReturn(app(JwtTokenServiceFactory::class)->forGuard(self::GUARD)->lifetimes(), new TokenLifetimes(5, 60, 10, 30));
+
+        app()->instance(ApplicationPolicy::class, $policy);
+
+        $session = $this->signIn();
+        $before  = (array) DB::table('authentication_sessions')->first();
+
+        $this->advance(600);
+
+        self::assertGreaterThan($this->now->toDateTimeString(), $this->storedTime('absolute_expires_at'));
+
+        $this->assertSwitchFails(FailureReason::SESSION_EXPIRED, $session, $second);
+
+        self::assertSame($before, (array) DB::table('authentication_sessions')->first());
+    }
+
+    /**
      * A switch whose session or client has no attempts left fails as
      * `rate_limited` with the wait, without looking the session up; a failed
      * switch counts against the refresh limits of the token's session and the

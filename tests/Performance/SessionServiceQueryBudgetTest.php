@@ -12,6 +12,7 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\PendingFactor;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -167,6 +168,38 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $sessions = $this->sessions();
 
         self::assertTrue($this->assertQueryBudget(2, 5, static fn (): SignInResult => $sessions->complete($pending->token))->isSignedIn());
+    }
+
+    /**
+     * Completing a pending sign-in that proved a session reads it and its
+     * identity, reads the proven session again on the write connection, deletes
+     * the pending sign-in, revokes the proven session with one
+     * compare-and-swap, inserts the new session and gives the three slots back.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testCompletingAPendingSignInThatProvedASessionReplacesIt(): void
+    {
+        $this->seedIdentity();
+
+        $first = $this->sessions()->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($first);
+
+        self::requireAFurtherFactor();
+
+        $context = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken);
+        $pending = $this->sessions()->signIn('password', self::credentials(), $context)->pending;
+
+        self::assertNotNull($pending);
+
+        $sessions = $this->sessions();
+        $result   = $this->assertQueryBudget(3, 6, static fn (): SignInResult => $sessions->complete($pending->token));
+
+        self::assertNotSame($first->record->getKey(), $result->session?->record->getKey());
+        self::assertSame('superseded', Session::query()->whereKey($first->record->getKey())->value('revoked_reason'));
     }
 
     /**

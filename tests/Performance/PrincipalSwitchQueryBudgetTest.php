@@ -11,9 +11,12 @@ use Illuminate\Http\Request;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalChoice;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
 use Tests\Concerns\InteractsWithSessions;
@@ -160,6 +163,36 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
         $result   = $this->assertQueryBudget(5, 5, static fn (): SignInResult => $sessions->choose($token, $chosen));
 
         self::assertTrue($result->isSignedIn());
+    }
+
+    /**
+     * Choosing the principal of the session the sign-in proved reads what a
+     * choice reads and the proven session again on the write connection, uses
+     * the choice up, revokes the proven session with one compare-and-swap,
+     * inserts the new session, and gives the three slots back.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testChoosingThePrincipalOfAProvenSessionReplacesIt(): void
+    {
+        $token  = $this->offerChoice();
+        $chosen = ChoosingMembership::query()->firstOrFail();
+        $first  = $this->sessions('choosers')->choose($token, $chosen)->session;
+
+        self::assertNotNull($first);
+
+        $context = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken);
+        $choice  = $this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'), $context)->choice;
+
+        self::assertNotNull($choice);
+
+        $sessions = $this->sessions('choosers');
+        $result   = $this->assertQueryBudget(6, 6, static fn (): SignInResult => $sessions->choose($choice->token, $chosen));
+
+        self::assertNotSame($first->record->getKey(), $result->session?->record->getKey());
+        self::assertSame('superseded', Session::query()->whereKey($first->record->getKey())->value('revoked_reason'));
     }
 
     /**
