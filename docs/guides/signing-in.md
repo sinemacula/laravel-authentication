@@ -210,15 +210,15 @@ revokes the previous session as `superseded` in the same transaction that create
 is how an application opts in: without it nothing is revoked, however alike the IP address, user agent, client name or
 platform are, and the previous session lives on until it expires or is revoked. The token counts only when it is the
 session's current refresh token, validly signed for this guard, for a session the identity owns, of this guard, for the
-same principal, and not revoked; anything else proves nothing and revokes nothing. The previous session's access tokens
-stop working at once and its refresh token is refused as `session_revoked`; the new session keeps the client name and
-platform the previous one recorded when the sign-in gives none. Once committed, `SessionRevoked` (`superseded`) is
-dispatched for the previous session before the new session's `SessionCreated` and `SignedIn`. If the session changes
-before it can be revoked (a parallel refresh, say), the sign-in is reconsidered without it and revokes nothing: it
-starts on a new session, or leaves it pending when the additional-factor policy now asks for a further factor without
-the session's trust. A pending session supersedes the proven session only when it first activates. The
-additional-factor policy is told of the session the client proved; the new session has a new id, so nothing a factor
-package kept about the previous session carries over to it.
+same principal, active (not returned to pending) and not revoked; anything else proves nothing and revokes nothing. The
+previous session's access tokens stop working at once and its refresh token is refused as `session_revoked`; the new
+session keeps the client name and platform the previous one recorded when the sign-in gives none. Once committed,
+`SessionRevoked` (`superseded`) is dispatched for the previous session before the new session's `SessionCreated` and
+`SignedIn`. If the session changes before it can be revoked (a parallel refresh, say), the sign-in is reconsidered
+without it and revokes nothing: it starts on a new session, or leaves it pending when the additional-factor policy now
+asks for a further factor without the session's trust. A pending session supersedes the proven session only when it
+first activates. The additional-factor policy is told of the session the client proved; the new session has a new id, so
+nothing a factor package kept about the previous session carries over to it.
 
 ### A sign-in's own deadline
 
@@ -771,11 +771,13 @@ they are sessions like any other.
 ### The session it activates
 
 The session that activates is the pending one: same id, the first factor's proof and the provenance it was written with,
-and the further factor `satisfy()` stored. On a sign-in's first activation the session the client proved it holds
-(with its refresh token in the context) is revoked as `superseded`, reported before `SessionCreated`, but only while it
-still holds the refresh token it was proven with, records the same owner, guard and principal, and is not revoked; a
-changed one is simply not superseded. A pending session is never listed, and no access or refresh token of it is
-accepted (`session_pending`) until it activates.
+and the further factor `satisfy()` stored. On a sign-in's first activation the session the client proved it holds (with
+its refresh token in the context) is revoked as `superseded`, reported before `SessionCreated`, but only while it still
+holds the refresh token it was proven with, records the same owner, guard and principal, and is active and not revoked.
+When it changed, the session is judged again without it, the additional-factor policy included: it activates and
+supersedes nothing, or stays pending on a further factor the policy now asks for without the proven session's trust. A
+pending session is never listed, and no access or refresh token of it is accepted (`session_pending`) until it
+activates.
 
 ## Additional factors
 

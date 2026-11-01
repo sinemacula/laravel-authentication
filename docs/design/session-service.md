@@ -99,13 +99,14 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   one a client holds; no other key material exists. Passing it in `SignInContext::$refreshToken` is the application's
   opt-in (D21).
 - Replacing a proven session (`SessionWriter::replace()`) revokes it with one compare-and-swap on the row exactly as it
-  was proven (digest, owner, principal, guard, not revoked), writing `revoked_at`, the reason `superseded` and null
+  was proven (digest, owner, principal, guard, active, not revoked), writing `revoked_at`, the reason `superseded` and null
   digests as any revocation does, then inserts the new session as `create()` does, except that a client name or platform
   the sign-in does not give is the proven session's. The proven row keeps everything else. A swap that misses
   reconsiders the sign-in without the session, factor policy included: it creates a session and revokes nothing, or
   writes it pending when the factor policy now asks for a factor; it never retries. A pending session supersedes only at
-  its first activation, with the same compare-and-swap on the digest it recorded; a miss there activates the session
-  and revokes nothing.
+  its first activation, with the same compare-and-swap on the digest it recorded; a miss there writes nothing and
+  judges the session again without the proven one, factor policy included: it activates and revokes nothing, or stays
+  pending when the factor policy now asks for a factor.
 - After the session's transaction, `SessionRevoked` (`superseded`, for a replaced session), `SessionCreated` and
   `SignedIn` are scheduled, in that order and in one callback, on the commit of the session's connection, with a first
   activation's slot give-back, and only then is the guard bound, with the usual immediate bind events: a bind listener

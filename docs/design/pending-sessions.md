@@ -76,9 +76,11 @@ checked before it gets here is in `session-service.md`; the choice of principal 
   pending` and the digest: `status = active`, `requires` and `pending_key` cleared, the principal and `tenant_id`, a new
   rotation id, a fresh idle deadline, the last use and the policy version answered, and only then issues the pair, for
   the tenant the row now records. The first activation (no refresh digest yet) supersedes the proven session with a
-  compare-and-swap on the digest it recorded (a miss supersedes nothing), clears the kept slots' windows, gives the slots
-  back after the commit and schedules `SessionRevoked` (`superseded`), `SessionCreated` and `SignedIn`; a later one,
-  of a session that returned to pending, moves `switched_at` (`SwitchFloor::after()`) and schedules `SessionActivated`.
+  compare-and-swap on the digest it recorded and `status = active` (a miss writes nothing, and `settle()` judges the
+  session again without the proven session, since the factor policy may have waived the factor for it), clears the kept
+  slots' windows, gives the slots back after the commit and schedules `SessionRevoked` (`superseded`), `SessionCreated`
+  and `SignedIn`; a later one, of a session that returned to pending, moves `switched_at` (`SwitchFloor::after()`) and
+  schedules `SessionActivated`.
   The session keeps its key throughout, so the proofs and provenance written while it waited carry over unchanged.
 - `PendingTransitions::returnToPending()` takes an active session back to pending, recording the destination its caller
   admitted, when a refresh or a switch finds the tenant's policy asking for a factor the session lacks: one

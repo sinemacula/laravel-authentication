@@ -15,6 +15,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
+use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
@@ -26,11 +27,13 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * validly signed for the guard; it may have expired, since the usual case is a
  * client signing in again after its session ended. The session it names counts
  * only when, read from the write connection, it belongs to the identity signing
- * in, is of this guard for the same principal, and is not revoked: revocation
- * is final, whatever the reason. A previous or older rotation id proves
- * nothing. Anything short of that is simply no proof: the sign-in creates a
- * session, and nothing fails, is revoked, or is reported. The IP address, user
- * agent, client name and platform never count.
+ * in, is of this guard for the same principal, is not revoked (revocation is
+ * final, whatever the reason) and is active: a session that returned to pending
+ * keeps its refresh digest, but proves nothing until it activates again. A
+ * previous or older rotation id proves nothing. Anything short of that is
+ * simply no proof: the sign-in creates a session, and nothing fails, is
+ * revoked, or is reported. The IP address, user agent, client name and platform
+ * never count.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -96,10 +99,10 @@ final readonly class ProvenSessions
     }
 
     /**
-     * Whether the session is the identity's live session of the guard, for the
-     * principal when one is given, and holds the rotation id as its current
-     * one. The session's state is read inside `WriteConnection::during()` for
-     * the session.
+     * Whether the session is the identity's live, active session of the guard,
+     * for the principal when one is given, and holds the rotation id as its
+     * current one. The session's state is read inside
+     * `WriteConnection::during()` for the session.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  string  $guard
@@ -118,6 +121,7 @@ final readonly class ProvenSessions
 
         return WriteConnection::during($session, static fn (): bool => $session->getGuard() === $guard
             && $session->getRevokedAt()                                                     === null
+            && $session->getStatus()                                                        === SessionStatus::ACTIVE
             && RefreshTokenHasher::verify($rotationId, $session->getRefreshKey() ?? ''));
     }
 }

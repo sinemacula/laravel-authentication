@@ -157,13 +157,13 @@ final readonly class SessionWriter
      * (the client proved it is the same one). The proven session is revoked
      * first, with the reason `superseded` and both of its digests forgotten, by
      * one compare-and-swap that applies only while the row still holds the
-     * digest the client proved, is not revoked, and records the owner,
-     * principal and guard it was proven for; any concurrent refresh, revocation
-     * or change makes it affect no row, and then nothing is written. The
-     * revocation, the new session and its pair are one transaction, so a
-     * cancelled insert or a failure while issuing leaves the proven session as
-     * it was. The new session records only its own sign-in's proofs: the
-     * replaced session's stay with it.
+     * digest the client proved, is active and not revoked, and records the
+     * owner, principal and guard it was proven for; any concurrent refresh,
+     * revocation, return to pending or change makes it affect no row, and then
+     * nothing is written. The revocation, the new session and its pair are one
+     * transaction, so a cancelled insert or a failure while issuing leaves the
+     * proven session as it was. The new session records only its own sign-in's
+     * proofs: the replaced session's stay with it.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  ?string  $identifierType
@@ -528,9 +528,9 @@ final readonly class SessionWriter
     /**
      * Apply the values to the proven session with one compare-and-swap on its
      * own connection: only while the row still holds the digest, owner,
-     * principal and guard it was loaded with, exactly as stored, and is not
-     * revoked. The values are mirrored on the in-memory session as persisted
-     * state when the swap changed the row. Returns whether it did.
+     * principal and guard it was loaded with, exactly as stored, is active and
+     * is not revoked. The values are mirrored on the in-memory session as
+     * persisted state when the swap changed the row. Returns whether it did.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  array<string, mixed>  $values
@@ -554,6 +554,7 @@ final readonly class SessionWriter
             ->table($session->getTable())
             ->where($session->getKeyName(), $session->getKey())
             ->where($proven)
+            ->where($session->getStatusName(), SessionStatus::ACTIVE->value)
             ->whereNull($session->getRevokedAtName())
             ->update($values);
 

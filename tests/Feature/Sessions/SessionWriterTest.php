@@ -583,6 +583,7 @@ final class SessionWriterTest extends TestCase
             'another principal'      => [['principal_id' => '999']],
             'another principal type' => [['principal_type' => 'Other']],
             'another guard'          => [['guard' => 'admin']],
+            'returned to pending'    => [['status' => 'pending']],
         ];
     }
 

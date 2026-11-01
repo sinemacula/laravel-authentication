@@ -44,15 +44,16 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * The first activation of a sign-in's session is that sign-in's: it supersedes
  * the session the sign-in's client proved it holds, by one compare-and-swap
  * that applies only while that session still holds the refresh digest it was
- * proven against, records the same owner, principal and guard, and is not
- * revoked (a changed one is simply not superseded); it forgets the
- * attempt-limit slots it held; and it is reported as a sign-in
- * (`SessionRevoked` for the session superseded, then `SessionCreated` and
- * `SignedIn`), with the slots given back once committed. The activation of a
- * session that returned to pending moves the floor for its access tokens' issue
- * time (`SwitchFloor`), so no token from before its return is accepted, and is
- * reported as `SessionActivated`. Every report waits for the commit on the
- * session's connection.
+ * proven against, records the same owner, principal and guard, and is active
+ * and not revoked (when it changed, nothing is written, and the caller judges
+ * the session again without it, since a factor policy may have waived the
+ * factor for it); it forgets the attempt-limit slots it held; and it is
+ * reported as a sign-in (`SessionRevoked` for the session superseded, then
+ * `SessionCreated` and `SignedIn`), with the slots given back once committed.
+ * The activation of a session that returned to pending moves the floor for its
+ * access tokens' issue time (`SwitchFloor`), so no token from before its return
+ * is accepted, and is reported as `SessionActivated`. Every report waits for
+ * the commit on the session's connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -89,7 +90,8 @@ final readonly class SessionActivation
      * tenant, recording the tenant policy version it was checked against, for
      * the client acting on it, and issue its pair at `$now`, superseding on a
      * first activation the session its sign-in's client proved it holds, as the
-     * caller found it still is.
+     * caller found it still is. `null`, with nothing written, when that session
+     * changed since.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
@@ -97,7 +99,7 @@ final readonly class SessionActivation
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  \Carbon\CarbonImmutable  $now
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $proven
-     * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
+     * @return ?\SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
@@ -112,13 +114,19 @@ final readonly class SessionActivation
         ClientContext $client,
         CarbonImmutable $now,
         (EloquentSession&Model)|null $proven = null,
-    ): SignedInSession {
+    ): ?SignedInSession {
         [$identity, $principal, $tenant] = [$destination->identity, $destination->principal, $destination->tenant];
 
-        $first        = $session->getRefreshKey() === null;
+        $first      = $session->getRefreshKey() === null;
+        $supersedes = $first && $proven !== null;
+        $superseded = $supersedes ? $this->supersede($session, $proven, $principal, $now) : null;
+
+        if ($supersedes && $superseded === null) {
+            return null;
+        }
+
         $rotationId   = RefreshTokenHasher::generate();
         $reservations = $first ? self::reservations($session) : [];
-        $superseded   = $first && $proven !== null ? $this->supersede($session, $proven, $principal, $now) : null;
 
         $this->write($session, [
             ...self::activeState($session, $principal, $tenant, $rotationId, $first, $client, $now, $this->idleDeadline($session, $now)),
@@ -249,8 +257,8 @@ final readonly class SessionActivation
      * Revoke the session the sign-in's client proved it holds as `superseded`,
      * by one compare-and-swap that applies only while it still holds the
      * refresh digest it was proven against, records the same owner and guard
-     * and the principal the session activates as, and is not revoked; return it
-     * when it was, `null` when it changed.
+     * and the principal the session activates as, and is active and not
+     * revoked; return it when it was, `null` when it changed.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $proven
@@ -270,6 +278,7 @@ final readonly class SessionActivation
             ->table($proven->getTable())
             ->where($proven->getKeyName(), $proven->getKey())
             ->where([
+                $proven->getStatusName()     => SessionStatus::ACTIVE->value,
                 $proven->getRefreshKeyName() => $session->getAttribute($session->getSupersedesRefreshKeyName()),
                 $proven->getGuardName()      => $this->context->name(),
                 $their->getMorphType()       => $session->getAttribute($owner->getMorphType()),

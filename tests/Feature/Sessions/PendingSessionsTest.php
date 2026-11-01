@@ -9,11 +9,15 @@ use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
@@ -38,6 +42,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
@@ -50,13 +55,16 @@ use SineMacula\Laravel\Authentication\Sessions\SessionActivation;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SessionSummary;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
+use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithProofs;
+use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Sessions\RefusingApplicationAccess;
+use Tests\Fixtures\Sessions\TwoSecretSignIn;
 use Tests\Fixtures\Tenancy\DescendantTenants;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
@@ -66,6 +74,7 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\ChoosingMember;
 use Tests\Integration\Fixtures\ChoosingMembership;
 use Tests\Integration\Fixtures\IntegrationIdentity;
+use Tests\Integration\Fixtures\VerifiableChoosingMember;
 use Tests\TestCase;
 
 /**
@@ -85,16 +94,25 @@ use Tests\TestCase;
 #[CoversClass(SessionActivation::class)]
 final class PendingSessionsTest extends TestCase
 {
-    use InteractsWithProofs, InteractsWithSessions;
+    use InteractsWithProofs, InteractsWithRateLimits, InteractsWithSessions;
 
     /** @var string Guard over `ChoosingMember`, whose sign-ins wait for a choice of principal. */
     private const string CHOOSERS = 'choosers';
+
+    /** @var string Guard over `VerifiableChoosingMember`, which requires a verified identifier. */
+    private const string VERIFIED = 'verified';
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
 
     /** @var bool Whether the bound factor policy asks for a further factor. */
     private bool $factorRequired = true;
+
+    /** @var ?\Closure(\SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext): bool Answers the factor policy in place of the switch, when set. */
+    private ?\Closure $factorAnswer = null;
+
+    /** @var list<\SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext> Every context the factor policy was asked with, in order. */
+    private array $factorContexts = [];
 
     /**
      * Freeze the clocks, create the tables, bind a factor policy the test
@@ -126,7 +144,7 @@ final class PendingSessionsTest extends TestCase
             ) {}
 
             /**
-             * Answer with the test's switch.
+             * Answer as the test does.
              *
              * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
              * @return bool
@@ -134,7 +152,7 @@ final class PendingSessionsTest extends TestCase
             #[\Override]
             public function requiresAdditionalFactor(AdditionalFactorContext $context): bool
             {
-                return $this->test->isFactorRequired();
+                return $this->test->isFactorRequiredFor($context);
             }
         });
 
@@ -160,13 +178,17 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * Whether the factor policy asks for a further factor now.
+     * Record the context the factor policy is asked with, and answer with the
+     * test's closure when it set one, else with its switch.
      *
+     * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
      * @return bool
      */
-    public function isFactorRequired(): bool
+    public function isFactorRequiredFor(AdditionalFactorContext $context): bool
     {
-        return $this->factorRequired;
+        $this->factorContexts[] = $context;
+
+        return $this->factorAnswer === null ? $this->factorRequired : ($this->factorAnswer)($context);
     }
 
     /**
@@ -699,6 +721,315 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
+     * Rows of `[change, still proven]`: a change to the proven session while
+     * the sign-in waits, and whether the factor policy is still told of it.
+     *
+     * @return iterable<string, array{0: array<string, mixed>, 1: bool}>
+     */
+    public static function provideChangesToTheProvenSession(): iterable
+    {
+        yield 'unchanged' => [[], true];
+        yield 'revoked' => [['revoked_at' => '2026-04-06 11:00:00', 'revoked_reason' => 'revoked'], false];
+        yield 'rotated' => [['refresh_key' => hash('sha256', 'rotated')], false];
+        yield 'another guard' => [['guard' => 'members'], false];
+        yield 'another owner' => [['authenticatable_id' => '999999'], false];
+        yield 'returned to pending' => [['status' => 'pending', 'requires' => '["mfa"]'], false];
+    }
+
+    /**
+     * At activation the factor policy is told of the session the sign-in's
+     * client proved it holds only while that session is as it was proven: of
+     * this guard and owner, active, unrevoked and holding the digest it was
+     * proven against. Only then is it superseded.
+     *
+     * @param  array<string, mixed>  $change
+     * @param  bool  $proven
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideChangesToTheProvenSession')]
+    public function testTheFactorPolicyIsToldOfTheProvenSessionOnlyWhileItIsAsProven(array $change, bool $proven): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->factorRequired = false;
+
+        $first = $this->sessions()->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($first);
+
+        $this->factorRequired = true;
+
+        $context = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken);
+        $result  = $this->sessions()->signIn('password', self::credentials(), $context);
+
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
+
+        if ($change !== []) {
+            DB::table('authentication_sessions')->where('id', $first->record->getKey())->update($change);
+        }
+
+        $asked = count($this->factorContexts);
+
+        self::assertTrue($this->sessions()->satisfy($result->credential, self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN))->isSignedIn());
+        self::assertCount($asked + 1, $this->factorContexts);
+        self::assertSame($proven ? $first->record->getKey() : null, $this->factorContexts[$asked]->provenSession?->getSessionIdentifier());
+
+        $reason = DB::table('authentication_sessions')->where('id', $first->record->getKey())->value('revoked_reason');
+
+        self::assertSame($proven ? 'superseded' : $change['revoked_reason'] ?? null, $reason);
+    }
+
+    /**
+     * At activation the factor policy is asked as the sign-in was: about the
+     * method, the client the sign-in came from and the name and platform it
+     * gave, as the session recorded them, never about the client acting on the
+     * pending session, whose address only becomes the session's last use.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheFactorPolicyIsAskedAtActivationAsTheSignInWas(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $origin = new SignInContext(new ClientContext('192.0.2.10', 'Origin/1.0'), 'Work laptop', 'macOS');
+        $result = $this->sessions()->signIn('password', self::credentials(), $origin);
+
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
+
+        app()->instance('request', Request::create('/satisfy', 'POST', server: ['REMOTE_ADDR' => '198.51.100.99', 'HTTP_USER_AGENT' => 'Completer/2.0']));
+
+        Auth::forgetGuards();
+
+        $before = count($this->factorContexts);
+
+        self::assertTrue(Auth::sessions('api')->satisfy($result->credential, self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN))->isSignedIn());
+        self::assertCount($before + 1, $this->factorContexts);
+
+        $asked = $this->factorContexts[$before];
+
+        self::assertSame('api', $asked->guard);
+        self::assertTrue($identity->is($asked->identity));
+        self::assertSame('password', $asked->method);
+        self::assertSame('192.0.2.10', $asked->client->ip);
+        self::assertSame('Origin/1.0', $asked->client->userAgent);
+        self::assertSame('Work laptop', $asked->clientName);
+        self::assertSame('macOS', $asked->platform);
+        self::assertNull($asked->provenSession);
+        self::assertSame('198.51.100.99', Session::query()->sole()->getRawOriginal('last_used_ip'));
+    }
+
+    /**
+     * Rows of `[factor required without the proven session, activates]`.
+     *
+     * @return iterable<string, array{0: bool, 1: bool}>
+     */
+    public static function provideAnswersWithoutTheProvenSession(): iterable
+    {
+        yield 'a factor is owed without it' => [true, false];
+        yield 'no factor is owed either way' => [false, true];
+    }
+
+    /**
+     * A choice whose proven session changes after the factor policy waived the
+     * factor for it, and before the activation could supersede it, is judged
+     * again without it, the factor policy asked again: the session waits on the
+     * factor, the chosen principal and tenant recorded, when the policy now
+     * asks for one, and otherwise activates superseding nothing. The changed
+     * session stays as its change left it either way.
+     *
+     * @param  bool  $required
+     * @param  bool  $activates
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideAnswersWithoutTheProvenSession')]
+    public function testAChoiceWhoseProvenSessionChangesBeforeItIsSupersededIsJudgedAgain(bool $required, bool $activates): void
+    {
+        [, $first] = $this->seedChooser();
+
+        $this->factorRequired = false;
+
+        $client = new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT);
+        $active = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'), new SignInContext($client, principal: $first))->session;
+
+        self::assertNotNull($active);
+
+        $context = new SignInContext($client, refreshToken: $active->tokens->refreshToken);
+        $result  = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'), $context);
+
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
+        self::assertSame([PendingRequirement::PRINCIPAL], $result->pending->requires);
+
+        $proven  = $active->record->getKey();
+        $rotated = hash('sha256', 'rotated');
+
+        $before             = count($this->factorContexts);
+        $this->factorAnswer = static function (AdditionalFactorContext $context) use ($proven, $rotated, $required): bool {
+
+            if ($context->provenSession === null) {
+                return $required;
+            }
+
+            DB::table('authentication_sessions')->where('id', $proven)->update(['refresh_key' => $rotated]);
+
+            return false;
+        };
+
+        $this->recordEvents([SessionRevoked::class, SessionCreated::class, SignedIn::class]);
+
+        $chosen = $this->sessions(self::CHOOSERS)->choose($result->credential, $first);
+
+        $told = array_map(static fn (AdditionalFactorContext $asked): mixed => $asked->provenSession?->getSessionIdentifier(), array_slice($this->factorContexts, $before));
+
+        self::assertSame([$proven, null], $told);
+        self::assertSame($activates, $chosen->isSignedIn());
+        self::assertSame($activates ? [SessionCreated::class, SignedIn::class] : [], $this->recordedClasses());
+
+        $row = Session::query()->whereKey($result->pending->id)->firstOrFail();
+
+        self::assertSame($activates ? SessionStatus::ACTIVE : SessionStatus::PENDING, $row->getStatus());
+        self::assertSame($activates ? [] : [PendingRequirement::MFA], $row->getRequires());
+        self::assertSame(IdentifierCoercion::stringify($first->getKey()), $row->principal_id);
+        self::assertSame(IdentifierCoercion::stringify($first->tenant_id), $row->getTenantId());
+        self::assertNull(DB::table('authentication_sessions')->where('id', $proven)->value('revoked_at'));
+        self::assertSame($rotated, DB::table('authentication_sessions')->where('id', $proven)->value('refresh_key'));
+    }
+
+    /**
+     * A method that checks two secrets counts two checks against the account,
+     * and its pending session gives both slots back once it activates, as a
+     * sign-in that starts its session at once does: satisfying further factors
+     * never uses up the account's limit.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnActivationGivesBackEverySlotItsMethodTookOnTheAccount(): void
+    {
+        $identity = $this->seedIdentity();
+        $input    = [...self::credentials(), 'pin' => TwoSecretSignIn::PIN];
+
+        app(SignInMethodManager::class)->extend('two_secrets', fn (): TwoSecretSignIn => new TwoSecretSignIn);
+        config()->set('auth.guards.api.application.methods', ['two_secrets']);
+
+        $hits = static fn (): array => [
+            self::counterHits('api', 'sign_in', 'per_identifier', 'ada@example.test'),
+            self::counterHits('sign_in', 'per_account', AccountAttempts::account($identity)),
+        ];
+
+        for ($signIn = 1; $signIn <= 6; $signIn++) {
+
+            $result = $this->sessions()->signIn('two_secrets', $input);
+
+            self::assertNotNull($result->pending, 'Expected a pending session; got ' . self::describe($result));
+            self::assertNotNull($result->credential);
+            self::assertSame([1, 2], $hits());
+            self::assertTrue($this->sessions()->satisfy($result->credential, self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN))->isSignedIn());
+            self::assertSame([0, 0], $hits());
+        }
+    }
+
+    /**
+     * Under Eloquent strict mode, which prevents lazy loading on models read
+     * together, a pending session is looked up with its principals listed, the
+     * choice is made and recorded, the session recording that principal and its
+     * tenant is looked up again, and its factor activates it: each principal's
+     * tenant is read as stored.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingSessionIsActedOnUnderEloquentStrictMode(): void
+    {
+        $this->factorRequired = false;
+
+        [$member, $first] = $this->seedChooser();
+
+        [$credential, $pending] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
+
+        Model::preventLazyLoading();
+
+        try {
+            self::assertCount(2, $this->sessions(self::CHOOSERS)->pending($credential)->principals ?? []);
+
+            $this->factorRequired = true;
+
+            self::assertTrue($this->sessions(self::CHOOSERS)->choose($credential, $first)->isPending());
+
+            $recorded = $this->sessions(self::CHOOSERS)->pending($credential, PendingAction::SEND_CODE);
+
+            self::assertNotNull($recorded);
+            self::assertTrue($first->is($recorded->principal));
+            self::assertSame(IdentifierCoercion::stringify($first->tenant_id), IdentifierCoercion::stringify($recorded->tenant?->getTenantIdentifier()));
+
+            $active = $this->sessions(self::CHOOSERS)->satisfy($credential, self::adapterProof($member, self::CHOOSERS, $pending->id, Purpose::SIGN_IN));
+        } finally {
+            Model::preventLazyLoading(false);
+        }
+
+        self::assertTrue($active->isSignedIn());
+        self::assertTrue($first->is($active->session?->principal));
+    }
+
+    /**
+     * A guard that requires a verified identifier offers no choice to an
+     * identity whose identifier is unverified: the sign-in fails as
+     * `identifier_unverified` with nothing written. Once it is verified the
+     * choice is offered; an identifier unverified again while the session waits
+     * names nothing to act on, and the choice is refused for it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnUnverifiedIdentifierIsOfferedNoChoice(): void
+    {
+        $this->factorRequired = false;
+
+        Schema::table('activatable_tenant_members', static function (Blueprint $blueprint): void {
+            $blueprint->boolean('email_verified')->default(false);
+        });
+
+        $member = VerifiableChoosingMember::query()->create(['email' => 'chooser@example.test', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
+
+        foreach (['First', 'Second'] as $name) {
+
+            $tenant = ActivatableTenant::query()->create(['name' => $name, 'is_active' => true]);
+
+            ChoosingMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
+        }
+
+        $refused = $this->sessions(self::VERIFIED)->signIn('password', self::credentials('chooser@example.test'));
+
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $refused->reason);
+        self::assertSame(0, Session::query()->count());
+
+        $member->markIdentifierAsVerified('email', $member->email);
+
+        [$credential] = $this->pendingSignIn(self::VERIFIED, 'chooser@example.test');
+
+        self::assertCount(2, $this->sessions(self::VERIFIED)->pending($credential)->principals ?? []);
+
+        $member->forceFill(['email_verified' => false])->save();
+
+        $chosen = ChoosingMembership::query()->where('identity_id', $member->getKey())->firstOrFail();
+
+        self::assertNull($this->sessions(self::VERIFIED)->pending($credential));
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->sessions(self::VERIFIED)->choose($credential, $chosen)->reason);
+        self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
+    }
+
+    /**
      * Discarding a pending session revokes it as `signed_out`, reported once,
      * so its credential names nothing afterwards; a credential that names no
      * live pending session discards nothing and reports nothing.
@@ -1218,6 +1549,12 @@ final class PendingSessionsTest extends TestCase
 
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
         $config->set('auth.guards.' . self::CHOOSERS, ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password', 'sso']]]);
+        $config->set('auth.providers.verifiable_choosers', ['driver' => 'model', 'model' => VerifiableChoosingMember::class]);
+        $config->set('auth.guards.' . self::VERIFIED, [
+            'driver'      => 'jwt',
+            'provider'    => 'verifiable_choosers',
+            'application' => ['methods' => ['password'], 'require_verified_identifier' => true],
+        ]);
     }
 
     /**

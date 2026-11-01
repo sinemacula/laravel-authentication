@@ -189,7 +189,7 @@ final readonly class PendingSessions
 
             ProofWriter::record($session, $this->context->name(), NewProof::fromResult($proof));
 
-            return $this->settle($session, $identity, $principal, $admitted, $now);
+            return $this->settle($session, $identity, $principal, $admitted, $now, $this->proven($session));
         });
     }
 
@@ -235,7 +235,7 @@ final readonly class PendingSessions
 
             [$principal, $tenant] = $chosenAs;
 
-            return $this->settle($session, $identity, $principal, $tenant, $now);
+            return $this->settle($session, $identity, $principal, $tenant, $now, $this->proven($session));
         });
     }
 
@@ -380,13 +380,18 @@ final readonly class PendingSessions
      * on (and the principal and tenant it records) when that changed, and
      * listing the principals to choose from when the choice is now first. A
      * session left with the choice and no principal to choose from is refused
-     * with the reason the last was refused, or `principal_unresolved`.
+     * with the reason the last was refused, or `principal_unresolved`. The
+     * factor policy is told of the session the sign-in's client proved it
+     * holds, as the caller found it still is; when that session changed before
+     * the activation could supersede it, the session is judged again without
+     * it, factor policy included.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $proven
      * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -397,9 +402,14 @@ final readonly class PendingSessions
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    private function settle(EloquentSession&Model $session, Identity $identity, ?Principal $principal, ?Tenant $tenant, CarbonImmutable $now): Refused|SignInResult
-    {
-        $proven = $this->proven($session);
+    private function settle(
+        EloquentSession&Model $session,
+        Identity $identity,
+        ?Principal $principal,
+        ?Tenant $tenant,
+        CarbonImmutable $now,
+        (EloquentSession&Model)|null $proven,
+    ): Refused|SignInResult {
         $policy = $this->evaluation->tenantPolicy($identity, $principal, $tenant, $session, $now);
 
         if ($policy->standing === TenantPolicyStanding::SSO_REQUIRED) {
@@ -411,8 +421,11 @@ final readonly class PendingSessions
 
         if ($principal !== null && $requires === []) {
             $destination = new Admitted($identity, $principal, $tenant);
+            $activated   = $this->activation->activate($session, $destination, $policy->version, $this->context->client(), $now, $proven);
 
-            return SignInResult::signedIn($this->activation->activate($session, $destination, $policy->version, $this->context->client(), $now, $proven));
+            return $activated === null
+                ? $this->settle($session, $identity, $principal, $tenant, $now, null)
+                : SignInResult::signedIn($activated);
         }
 
         [$principals, $refusal] = $requires[0] === PendingRequirement::PRINCIPAL ? $this->evaluation->principals($identity, $session->getSignInIdentifierType()) : [[], null];
@@ -607,8 +620,9 @@ final readonly class PendingSessions
 
     /**
      * The session the sign-in's client proved it holds, when it still is that
-     * session as proven: of this guard and owner, unrevoked, and holding the
-     * refresh digest it was proven against; else `null`.
+     * session as proven: of this guard and owner, active, unrevoked, and
+     * holding the refresh digest it was proven against; else `null`. One that
+     * returned to pending keeps that digest, so its status is checked too.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null
@@ -628,7 +642,7 @@ final readonly class PendingSessions
         $guard = $this->context->name();
         $still = WriteConnection::during($proven, static function () use ($proven, $session, $digest, $guard): bool {
 
-            $unchanged = $proven->getRevokedAt() === null && $proven->getRefreshKey() === $digest;
+            $unchanged = $proven->getStatus() === SessionStatus::ACTIVE && $proven->getRevokedAt() === null && $proven->getRefreshKey() === $digest;
 
             return $unchanged && $proven->getGuard() === $guard && SessionOwnership::ownerKey($proven) === SessionOwnership::ownerKey($session);
         });

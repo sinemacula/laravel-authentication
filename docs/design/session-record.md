@@ -61,8 +61,8 @@ new session, so "the device" and "the record" are no longer one thing.
 - A configured table name longer than 47 characters makes an index name longer than PostgreSQL allows, and PostgreSQL
   cuts it short without an error, so the index is not under its documented name; past 48 MySQL refuses it when the
   migration runs. The migration does not check the name itself, as no package migration does.
-- A refresh token that proves nothing (another identity's, another guard's or principal's, a revoked session's, a
-  previous rotation id) replaces nothing: the sign-in creates a session and revokes none, and nothing is reported.
+- A refresh token that proves nothing (another identity's, another guard's or principal's, a revoked or pending
+  session's, a previous rotation id) replaces nothing: the sign-in creates a session and revokes none, and nothing is reported.
 - A proven session that changed before the replacement's compare-and-swap is not revoked; the sign-in is reconsidered
   without it (see `session-service.md`).
 

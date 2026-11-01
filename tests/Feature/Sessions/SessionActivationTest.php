@@ -10,12 +10,14 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SessionActivated;
@@ -157,6 +159,7 @@ final class SessionActivationTest extends TestCase
 
         $activated = $this->activation()->activate($pending, new Admitted($member, $membership, $tenant), 'v1', $client, $this->now);
 
+        self::assertNotNull($activated);
         self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertTrue($membership->is($activated->principal));
 
@@ -225,11 +228,13 @@ final class SessionActivationTest extends TestCase
         yield 'another owner' => [static fn (): array => ['authenticatable_id' => '999999']];
         yield 'another principal type' => [static fn (): array => ['principal_type' => 'another-type']];
         yield 'another principal' => [static fn (): array => ['principal_id' => '999999']];
+        yield 'returned to pending' => [static fn (): array => ['status' => 'pending']];
     }
 
     /**
-     * A proven session that is no longer as it was proven is not superseded:
-     * the activation still starts the session and reports the sign-in alone.
+     * A proven session that is no longer as it was proven is not superseded,
+     * and the activation writes, issues and reports nothing, so its caller can
+     * judge the session again without it: both rows stay as they were.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Models\Session): array<string, mixed>  $change
      * @return void
@@ -245,14 +250,50 @@ final class SessionActivationTest extends TestCase
 
         DB::table('authentication_sessions')->where('id', $proven->getKey())->update($change($proven));
 
-        $row = (array) DB::table('authentication_sessions')->where('id', $proven->getKey())->sole();
+        $row     = (array) DB::table('authentication_sessions')->where('id', $proven->getKey())->sole();
+        $waiting = (array) DB::table('authentication_sessions')->where('id', $pending->getKey())->sole();
 
         $this->recordEvents([SessionRevoked::class, SessionCreated::class, SignedIn::class]);
 
-        $this->activation()->activate($pending, new Admitted($member, $membership, $tenant), null, self::client(), $this->now, $proven);
-
-        self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertNull($this->activation()->activate($pending, new Admitted($member, $membership, $tenant), null, self::client(), $this->now, $proven));
+        self::assertSame([], $this->recordedClasses());
         self::assertEquals($row, (array) DB::table('authentication_sessions')->where('id', $proven->getKey())->sole());
+        self::assertEquals($waiting, (array) DB::table('authentication_sessions')->where('id', $pending->getKey())->sole());
+        self::assertSame(SessionStatus::PENDING, $pending->getStatus());
+    }
+
+    /**
+     * A first activation whose limiter cannot give the slots back reports the
+     * failure instead of throwing it, and stops giving back at the failure: the
+     * session stands active, and the sign-in was reported before it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAGiveBackThatFailsIsReportedAndTheSessionStands(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $pending = $this->pendingSession();
+
+        DB::table('authentication_sessions')->where('id', $pending->getKey())->update(['attempt_windows' => json_encode([['ip' => '1:60'], ['identifier' => '1:60']])]);
+
+        $pending    = Session::query()->whereKey($pending->getKey())->firstOrFail();
+        $failure    = new \RuntimeException('The counters are unreachable.');
+        $exceptions = Exceptions::fake([\RuntimeException::class]);
+        $limiter    = \Mockery::mock(AttemptLimiter::class);
+
+        $limiter->shouldReceive('release')->once()->andThrow($failure);
+
+        app()->instance(AttemptLimiter::class, $limiter);
+
+        $this->recordEvents([SessionCreated::class, SignedIn::class]);
+
+        self::assertNotNull($this->activation()->activate($pending, new Admitted($member, $membership, $tenant), null, self::client(), $this->now));
+        self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame([$failure], $exceptions->reported());
+        self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
     }
 
     /**
