@@ -256,6 +256,7 @@ final class RevokeSessionsOnDeactivationTest extends TestCase
 
         DB::table('authentication_sessions')->insert([
             'id'                   => (string) Str::uuid7(),
+            'generation'           => (string) Str::uuid7(),
             'authenticatable_type' => $member->getMorphClass(),
             'authenticatable_id'   => (string) $member->id,
             'principal_type'       => $principal->getMorphClass(),

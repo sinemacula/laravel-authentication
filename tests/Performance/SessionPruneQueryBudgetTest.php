@@ -68,6 +68,7 @@ final class SessionPruneQueryBudgetTest extends PerformanceContractTestCase
     {
         return [
             'id'                   => (string) Str::uuid7(),
+            'generation'           => (string) Str::uuid7(),
             'authenticatable_type' => 'users',
             'authenticatable_id'   => (string) $index,
             'idle_expires_at'      => $this->now->copy()->addDays(30),

@@ -44,7 +44,8 @@ interface FreshnessPolicy
     /**
      * The newest of the session's proofs that meets that requirement now, or
      * `null` when none does. The session is read again by its key on the write
-     * connection and must still record the same owner and be live for its own
+     * connection and must still record the same generation and owner (be the
+     * session given, not another put under its key) and be live for its own
      * application. That read takes no lock, and a transaction may serve it from
      * a snapshot taken before the caller's lock (MySQL's REPEATABLE READ), so a
      * caller that acts on the answer atomically locks the session first and

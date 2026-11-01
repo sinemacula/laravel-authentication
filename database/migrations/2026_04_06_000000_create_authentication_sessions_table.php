@@ -35,6 +35,12 @@ return new class extends Migration {
         $schema->create($table, static function (Blueprint $blueprint) use ($table): void {
             $blueprint->uuid('id')->primary();
 
+            // A random UUID written when the row is inserted and never changed:
+            // a session a model that reissues keys puts under the same key, of
+            // the same owner and even in the same second, has another, so it is
+            // never taken for the session a caller holds.
+            $blueprint->uuid('generation');
+
             // Plain string polymorphic columns so the table works against
             // integer, UUID, or ULID keys. `morphs()` would pin the id to
             // unsignedBigInteger and break non-integer keys.

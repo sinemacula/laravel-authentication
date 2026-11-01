@@ -9,6 +9,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Concerns\ScopesActiveSessions;
@@ -226,6 +227,7 @@ final class SessionListingIntegrationTest extends TestCase
 
         DB::table('authentication_sessions')->insert([
             'id'                   => self::key($number),
+            'generation'           => (string) Str::uuid7(),
             'authenticatable_type' => IntegrationIdentity::class,
             'authenticatable_id'   => (string) $identity->id,
             'principal_type'       => IntegrationIdentity::class,

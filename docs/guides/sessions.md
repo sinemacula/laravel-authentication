@@ -108,14 +108,16 @@ code](signing-in.md#signing-in-with-a-one-time-code)), then pass the identifier 
 passkeys](signing-in.md#using-passkeys)). Whichever the method, the identity it verifies must be the session's owner.
 
 The method must be one the guard's application allows (`method_not_allowed`, nothing counted) and not a machine
-credential's (an `InvalidArgumentException`). The session must be one of the guard's live sessions of a person, as for a
-step-up. The attempt counts against the guard's `sign_in` limits, on the identifier and the IP address, before any
-transaction opens (`rate_limited`, with the wait), and the method verifies the input in the guard's credential timebox,
-its account checks counted as a sign-in's are. The identity it verifies must be the session's owner: another identity's
-correct credential is `invalid_credentials`, as a wrong one is, and never says whose it was. A concealed reason
-(`account_rate_limited`, an expired or exhausted code, a passkey's sign counter that did not advance) is answered as
-`invalid_credentials`, with no wait. The session is then locked, checked again and admitted again, as for a step-up, the
-proof is recorded as `first_factor_reauthentication`, and the slots are given back.
+credential's (an `InvalidArgumentException`). The session must still be the one given, as stored (a session put under
+its key since, of the same owner or not, records another generation and is `session_unknown`), and one of the guard's
+live sessions of a person, as for a step-up. The attempt counts against the guard's `sign_in` limits, on the identifier
+and the IP address, before any transaction opens (`rate_limited`, with the wait), and the method verifies the input in
+the guard's credential timebox, its account checks counted as a sign-in's are. The identity it verifies must be the
+session's owner: another identity's correct credential is `invalid_credentials`, as a wrong one is, and never says whose
+it was. A concealed reason (`account_rate_limited`, an expired or exhausted code, a passkey's sign counter that did not
+advance) is answered as `invalid_credentials`, with no wait. The session is then locked, checked again (still the
+owner's, and of the generation verified) and admitted again, as for a step-up, the proof is recorded as
+`first_factor_reauthentication`, and the slots are given back.
 
 A reauthentication renews the session's authentication time and nothing else: the new access token's `auth_time` is now,
 its `amr` is the session's as it was, and a further factor the session holds keeps its own time, so an operation that
@@ -158,11 +160,12 @@ evaluation and time), or `null`. The requirement is configured per operation in 
 it must have reported multifactor authentication or been observed to resist phishing. An operation with no configured
 requirement and none of the caller's is never fresh, nor is one whose two requirements take no kind in common. A proof
 marked void never counts (nothing marks one yet). The session is never trusted as the caller holds it: it is read again
-on the write connection and must still record the same owner and be live for its guard before its proofs are read, two
-queries in all, and none when the operation has no requirement. That read takes no lock, and inside a transaction it may
-be served from a snapshot taken before the caller's lock (MySQL's REPEATABLE READ), so a caller that acts on the answer
-atomically locks the session in its transaction, checks the locked row is still live itself, and asks inside it, as an
-identifier change does (see [Changing identifiers](identifier-changes.md)).
+on the write connection and must still record the same generation and owner (a retained instance of a session whose key
+now holds another, a later one of the same identity included, is never fresh) and be live for its guard before its
+proofs are read, two queries in all, and none when the operation has no requirement. That read takes no lock, and inside
+a transaction it may be served from a snapshot taken before the caller's lock (MySQL's REPEATABLE READ), so a caller
+that acts on the answer atomically locks the session in its transaction, checks the locked row is still live itself, and
+asks inside it, as an identifier change does (see [Changing identifiers](identifier-changes.md)).
 
 The package binds `Freshness\ConfiguredFreshness`. Rebind the contract for a requirement the stored proofs cannot show,
 such as a minimum assurance level or an additional verification of your own; an implementation keeps no state between

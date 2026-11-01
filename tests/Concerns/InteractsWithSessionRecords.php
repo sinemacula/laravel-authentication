@@ -135,6 +135,7 @@ trait InteractsWithSessionRecords
                 $blueprint->uuid($key)->primary();
             }
 
+            $blueprint->uuid('generation')->nullable();
             $blueprint->string('authenticatable_type')->nullable();
             $blueprint->string('authenticatable_id')->nullable();
             $blueprint->string('principal_type')->nullable();

@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
+use SineMacula\Laravel\Authentication\Contracts\Session as Contract;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -253,6 +255,45 @@ final class RecentAuthenticationTest extends TestCase
 
         self::assertSame($refused, $check->refusal($identity, Reauthentication::session($gone), null));
         self::assertSame($refused, $check->refusal($identity, Reauthentication::session(new Session), null));
+    }
+
+    /**
+     * A session the caller still holds proves nothing once its key holds a
+     * later session of the same identity, even one started in the same second
+     * with a fresh first factor of its own, while the replacement's own
+     * instance does, before the change and under its lock; a session that is
+     * not an Eloquent session records no generation and proves nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARetainedSessionIsNotProvedByItsReplacement(): void
+    {
+        $identity = self::seedChangeable();
+        $retained = self::seedSession($identity);
+        $row      = (array) DB::table('authentication_sessions')->where('id', $retained->getKey())->first();
+        $check    = $this->check();
+
+        $retained->delete();
+
+        $replacement = new Session;
+        $replacement->forceFill(array_diff_key($row, array_flip(['generation', 'created_at', 'updated_at'])))->save();
+
+        $locked = ChangeableIdentity::query()->sole();
+
+        self::assertNull($check->refusal($identity, Reauthentication::session($replacement), null));
+        self::assertTrue($check->stands($locked, $locked, Reauthentication::session($replacement)));
+        self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $check->refusal($identity, Reauthentication::session($retained), null));
+        self::assertFalse($check->stands($locked, $locked, Reauthentication::session($retained)));
+
+        foreach ([Contract::class, EloquentSession::class] as $contract) {
+            $session = \Mockery::mock($contract);
+            $session->shouldReceive('getSessionIdentifier')->andReturn($replacement->getKey());
+
+            self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $check->refusal($identity, Reauthentication::session($session), null), $contract);
+            self::assertFalse($check->stands($locked, $locked, Reauthentication::session($session)), $contract);
+        }
     }
 
     /**

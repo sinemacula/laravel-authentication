@@ -86,6 +86,16 @@ interface EloquentSession extends EloquentSessionOrigin, Session
     public function getRefreshRotatedAtName(): string;
 
     /**
+     * Column name holding the session's generation: a random identifier the
+     * session service writes when it inserts the session and nothing changes,
+     * which tells the session apart from any other a model that reissues keys
+     * later puts under its key.
+     *
+     * @return string
+     */
+    public function getGenerationName(): string;
+
+    /**
      * Column name holding when the session started.
      *
      * @return string

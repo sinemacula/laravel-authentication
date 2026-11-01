@@ -346,6 +346,50 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
+     * Rows of `[how long after the retained session the replacement started]`:
+     * later, or in the same second, which only the generation tells apart.
+     *
+     * @return iterable<string, array{int}>
+     */
+    public static function replacementStarts(): iterable
+    {
+        yield 'a minute later' => [60];
+
+        yield 'in the same second' => [0];
+    }
+
+    /**
+     * A session the caller still holds after it was deleted and its key given
+     * to a later session of the same identity, on the same guard, is not fresh
+     * for the replacement's further factor: the retained session never stepped
+     * up, and only the replacement's own instance is answered with the proof.
+     *
+     * @param  int  $after
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('replacementStarts')]
+    public function testARetainedSessionIsNotFreshForItsReplacementsProof(int $after): void
+    {
+        $retained = $this->signedIn();
+        $row      = (array) DB::table('authentication_sessions')->where('id', $retained->getKey())->first();
+        $started  = $this->now->addSeconds($after);
+
+        $retained->delete();
+
+        $this->clockAt($started);
+
+        $replacement = new Session;
+        $replacement->forceFill([...array_diff_key($row, array_flip(['generation', 'created_at', 'updated_at'])), 'signed_in_at' => $started])->save();
+
+        self::recordProof($replacement, ProofKind::ADDITIONAL_FACTOR, $started, ['otp'], new Evaluation(true, true));
+
+        self::assertSame(ProofKind::ADDITIONAL_FACTOR, self::policy()->freshProof($replacement, Operations::FACTOR_CHANGE)?->kind);
+        self::assertNull(self::policy()->freshProof($retained, Operations::FACTOR_CHANGE));
+    }
+
+    /**
      * A session that is not an Eloquent session records no owner, so it is
      * never fresh, even under the key and guard of a live session that is.
      *

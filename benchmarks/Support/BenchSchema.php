@@ -7,6 +7,7 @@ namespace Benchmarks\Support;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Str;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
@@ -121,6 +122,7 @@ final class BenchSchema
     public static function defineSessionColumns(Blueprint $blueprint): void
     {
         $blueprint->uuid('id')->primary();
+        $blueprint->uuid('generation');
         $blueprint->string('authenticatable_type')->nullable();
         $blueprint->string('authenticatable_id')->nullable();
         $blueprint->string('principal_type')->nullable();
@@ -307,14 +309,16 @@ final class BenchSchema
     }
 
     /**
-     * The start and deadlines of a session that starts now, with the package's
-     * default lifetimes.
+     * The generation, start and deadlines of a session that starts now, with
+     * the package's default lifetimes: a new generation on every call, as the
+     * session service writes one for every session it inserts.
      *
-     * @return array{signed_in_at: \Carbon\CarbonInterface, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
+     * @return array{generation: string, signed_in_at: \Carbon\CarbonInterface, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
      */
     public static function liveSession(): array
     {
         return [
+            'generation'          => Str::uuid7()->toString(),
             'signed_in_at'        => Carbon::now(),
             'idle_expires_at'     => Carbon::now()->addDays(90),
             'absolute_expires_at' => Carbon::now()->addDays(180),
@@ -324,10 +328,18 @@ final class BenchSchema
     /**
      * A session the guard's password sign-in started now: the guard and method
      * a session records, which refresh and the bearer path check, with the
-     * deadlines of `liveSession()`.
+     * generation, start and deadlines of `liveSession()`.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  string  $guard
-     * @return array{idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface, guard: string, sign_in_method: string}
+     * @return array{generation: string, signed_in_at: \Carbon\CarbonInterface, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface, guard: string, sign_in_method: string}
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      */
     public static function signedIn(string $guard): array
     {

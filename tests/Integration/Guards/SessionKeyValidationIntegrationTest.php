@@ -72,6 +72,7 @@ final class SessionKeyValidationIntegrationTest extends TestCase
 
         Schema::create('prefixed_key_sessions', static function (Blueprint $blueprint): void {
             $blueprint->string('id')->primary();
+            $blueprint->uuid('generation');
             $blueprint->string('authenticatable_type');
             $blueprint->string('authenticatable_id');
             $blueprint->string('principal_type')->nullable();

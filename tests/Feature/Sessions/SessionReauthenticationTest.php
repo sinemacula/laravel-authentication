@@ -17,7 +17,10 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
+use SineMacula\Laravel\Authentication\Contracts\Session as Contract;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
@@ -27,6 +30,8 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
+use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
@@ -613,23 +618,104 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * A later session of the same identity put under the verified session's key
-     * while the credential was checked is not the session verified either: the
-     * reauthentication is `session_unknown`, and nothing is recorded or issued.
+     * Rows of `[how long after the verified session the replacement started]`:
+     * later, or in the same second, which only the generation tells apart.
+     *
+     * @return iterable<string, array{int}>
+     */
+    public static function provideReplacementStarts(): iterable
+    {
+        yield 'an hour later' => [3600];
+
+        yield 'in the same second' => [0];
+    }
+
+    /**
+     * A session of the same identity put under the verified session's key while
+     * the credential was checked, as a session model that reissues keys could,
+     * is not the session verified, even one started in the same second that
+     * holds a stronger proof than the password: the reauthentication is
+     * `session_unknown`, reported for the session verified, no token carries
+     * the replacement's `mfa` to the caller, and the replacement keeps only its
+     * own proofs.
+     *
+     * @param  int  $after
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideReplacementStarts')]
+    public function testASessionOfTheSameIdentityPutUnderTheKeyIsNotTheSessionVerified(int $after): void
+    {
+        $signedIn = $this->signedIn();
+        $started  = $this->now->addSeconds($after);
+
+        $this->clockAt($started);
+
+        $replacement = null;
+        $result      = $this->changedDuringTheCheck($signedIn, function () use ($signedIn, $started, &$replacement): void {
+            $replacement = $this->replaceUnderTheKey($signedIn, $started);
+        });
+
+        $this->assertNotTheSessionVerified($signedIn, $result);
+
+        self::assertInstanceOf(Session::class, $replacement);
+        self::assertSame(
+            [ProofKind::ADDITIONAL_FACTOR->value, ProofKind::FIRST_FACTOR->value],
+            array_map(static fn (SessionProof $proof): string => $proof->kind, self::proofsOf($replacement)),
+        );
+    }
+
+    /**
+     * A session the caller still holds whose key was given to another session
+     * of the same identity before the call, in the same second, is unknown: it
+     * is refused before anything is counted or verified, reported with no
+     * session, and nothing is recorded on the replacement or issued.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testALaterSessionUnderTheKeyIsNotTheSessionVerified(): void
+    public function testASessionReplacedBeforeTheCallIsUnknown(): void
+    {
+        $signedIn    = $this->signedIn();
+        $replacement = $this->replaceUnderTheKey($signedIn, $this->now);
+
+        $this->recordEvents([Reauthenticated::class, AuthenticationFailed::class]);
+
+        $result = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials());
+
+        self::assertSame([FailureReason::SESSION_UNKNOWN, null, null], [$result->reason, $result->accessToken, $result->session]);
+        self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
+        $context = $this->recordedEvent(AuthenticationFailed::class)->context;
+
+        self::assertSame([null, null], [$context->identityId, $context->sessionId]);
+        self::assertSame(0, self::counterHits('sign_in', 'per_account', AccountAttempts::account($signedIn->identity)));
+        self::assertCount(2, self::proofsOf($replacement));
+
+        self::assertTrue($this->sessions()->reauthenticate($replacement, 'password', self::credentials())->isIssued());
+    }
+
+    /**
+     * A session that is not an Eloquent session records no generation, so it is
+     * never the session stored under its key: it is unknown.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionThatRecordsNoGenerationIsUnknown(): void
     {
         $signedIn = $this->signedIn();
 
-        $this->clockAt($this->now->addHour());
+        foreach ([Contract::class, EloquentSession::class] as $contract) {
+            $session = \Mockery::mock($contract);
+            $session->shouldReceive('getSessionIdentifier')->andReturn($signedIn->record->getKey());
 
-        $result = $this->changedDuringTheCheck($signedIn, fn (Builder $row): int => $row->update(['signed_in_at' => $this->now->addHour()]));
+            self::assertSame(FailureReason::SESSION_UNKNOWN, $this->sessions()->reauthenticate($session, 'password', self::credentials())->reason, $contract);
+        }
 
-        $this->assertNotTheSessionVerified($signedIn, $result);
+        self::assertSame(0, SessionProof::query()->where('kind', 'first_factor_reauthentication')->count());
     }
 
     /**
@@ -685,12 +771,39 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
+     * Put another session of the same identity under the session's key, as a
+     * session model that reissues keys could: the session's row and proofs are
+     * deleted, and a session started at the time given is written under the key
+     * with a generation of its own, its first factor, and an accepted further
+     * factor that reported multifactor authentication.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $signedIn
+     * @param  \Carbon\CarbonImmutable  $started
+     * @return \SineMacula\Laravel\Authentication\Models\Session
+     */
+    private function replaceUnderTheKey(SignedInSession $signedIn, CarbonImmutable $started): Session
+    {
+        $key = $signedIn->record->getKey();
+        $row = (array) DB::table('authentication_sessions')->where('id', $key)->first();
+
+        DB::table('authentication_proofs')->where('session_id', $key)->delete();
+        DB::table('authentication_sessions')->where('id', $key)->delete();
+
+        $replacement = new Session;
+        $replacement->forceFill([...array_diff_key($row, array_flip(['generation', 'created_at', 'updated_at'])), 'signed_in_at' => $started])->save();
+
+        self::recordProof($replacement, ProofKind::ADDITIONAL_FACTOR, $started, ['otp'], new Evaluation(true, true));
+
+        return $replacement;
+    }
+
+    /**
      * Reauthenticate the session with its owner's password, changing its row as
      * given once the credential is being checked, as if another session had
      * been put under its key or the session deleted.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $signedIn
-     * @param  \Closure(\Illuminate\Database\Query\Builder): int  $change
+     * @param  \Closure(\Illuminate\Database\Query\Builder): mixed  $change
      * @return \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult
      *
      * @throws \Throwable

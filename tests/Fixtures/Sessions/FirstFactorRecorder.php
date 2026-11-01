@@ -95,6 +95,23 @@ final class FirstFactorRecorder
     }
 
     /**
+     * Whether the session writer is inserting the session being created: it
+     * records the sign-in's own proofs.
+     *
+     * @return bool
+     */
+    public static function isWrittenBySessionWriter(): bool
+    {
+        foreach ((new \LogicException)->getTrace() as $frame) {
+            if (($frame['class'] ?? null) === SessionWriter::class) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * The first factor the row's sign-in would have recorded, or `null` for a
      * row that records no sign-in time or owner, or whose owner type names no
      * class. The owner's columns are named by a blank instance's relation, so
@@ -136,22 +153,5 @@ final class FirstFactorRecorder
         $at = CarbonImmutable::instance($signedIn);
 
         return new NewProof(ProofKind::FIRST_FACTOR, Purpose::SIGN_IN, $name, new Channel($kind), null, new ObservedProperties, null, $values, $at);
-    }
-
-    /**
-     * Whether the session writer is inserting the session being created: it
-     * records the sign-in's own proofs.
-     *
-     * @return bool
-     */
-    private static function isWrittenBySessionWriter(): bool
-    {
-        foreach ((new \LogicException)->getTrace() as $frame) {
-            if (($frame['class'] ?? null) === SessionWriter::class) {
-                return true;
-            }
-        }
-
-        return false;
     }
 }

@@ -15,6 +15,11 @@ the token's claims and every freshness answer are worked out from them, never st
   counts as true), evaluation, `amr` values, time and binding (identity, application, session, purpose). A proof is
   never changed once recorded; a voided one never counts, and a further factor or recovery code counts only when its
   adapter accepted it.
+- Every session the package writes records a generation, a random UUID written when the row is inserted and never
+  changed (`EloquentSession::getGenerationName()`, `SessionRecords\SessionGeneration`): it tells a session apart from
+  any other a model that reissues keys puts under its key, of the same owner and in the same second included, which
+  neither the key, the owner nor the whole-second start can. A row that records none is never the session a caller
+  holds.
 - Every session the package writes records a counting first factor in the transaction that writes the session; an
   external provider's session also records its provenance, once. Proofs and provenance carry unchanged from a pending
   sign-in to its session and across every refresh and switch of principal; a sign-in that replaces a session starts a
@@ -53,23 +58,27 @@ the token's claims and every freshness answer are worked out from them, never st
   no earlier than the session started (`proof_invalid`), bound to the session's owner, this guard and the session's key
   (`proof_binding_mismatch`). A reauthentication runs an allowed, non-machine sign-in method under the `sign_in` limits
   and the credential timebox, and the identity it verifies must be the session's owner (`invalid_credentials`
-  otherwise); its proof is `first_factor_reauthentication`, made now. Its check on the locked row is that the row is
-  still the session verified, the same owner's and started at the same second, since a session model that reissues a
-  key could have put another session under it meanwhile (`session_unknown`, reported for the session verified). A
-  session of the same owner started in that same second is not told apart, and takes the proof and the token its
-  owner's credential earned; telling it apart would take a further read before the check and another under the lock.
-- Freshness is `Contracts\FreshnessPolicy`'s: a requirement per operation and application (proof kinds, maximum age of
-  1 to 86400 seconds, multifactor, phishing resistance), the stricter of the configured one and the caller's, and the
+  otherwise); its proof is `first_factor_reauthentication`, made now. Before the check, the session as stored must still
+  record the generation of the session given (`session_unknown` otherwise, reported with no session); its check on the
+  locked row is that the row is still the session verified, the same owner's and of the same generation, since a
+  session model that reissues a key could have put another session under it meanwhile (`session_unknown`, reported for
+  the session verified). The generation tells apart even a session of the same owner started in that same second,
+  whose token would otherwise carry its own further factors, `mfa` included, to a caller who proved only a password;
+  both comparisons read columns already loaded, with no query.
+- Freshness is `Contracts\FreshnessPolicy`'s: a requirement per operation and application (proof kinds, maximum age of 1
+  to 86400 seconds, multifactor, phishing resistance), the stricter of the configured one and the caller's, and the
   newest proof meeting it. The default, `Freshness\ConfiguredFreshness`, reads `authentication.freshness` and a guard's
   `freshness` block (an entry wins whole; `null` removes it) on every call, keeps no state, and reads the session again
-  by key on the write connection, requiring it to record the caller's owner (a session model that reissues keys may have
-  put another identity's session under it) and be live for its guard, before reading its proofs; it reads nothing when
-  the operation has no requirement. An operation with no requirement, or two requirements with no kind in common, is
-  never fresh. The latest `auth_time` never stands in for the proof that meets a requirement.
-- An identifier change proves a recent authentication with the `identifier_change` operation: a session proof must be
-  one of the identity's live sessions of the guard, as stored, and the policy must find a proof for it; inside the
-  change's transaction both are checked again on the session's locked row, which the change judges itself, since the
-  policy's own read takes no lock; a password proof is a first-factor
+  by key on the write connection, requiring it to record the caller's generation and owner (a session model that
+  reissues keys may have put another session under it, another identity's or a later one of the same identity, which a
+  retained instance of the earlier session would otherwise be answered with) and be live for its guard, before reading
+  its proofs; it reads nothing when the operation has no requirement. An operation with no requirement, or two
+  requirements with no kind in common, is never fresh. The latest `auth_time` never stands in for the proof that meets a
+  requirement.
+- An identifier change proves a recent authentication with the `identifier_change` operation: a session proof must still
+  be the session given (of its generation) and one of the identity's live sessions of the guard, as stored, and the
+  policy must find a proof for it; inside the change's transaction both are checked again on the session's locked row,
+  which the change judges itself, since the policy's own read takes no lock; a password proof is a first-factor
   reauthentication made now and is taken only when the requirement takes `first_factor_reauthentication` and asks for
   neither multifactor authentication nor phishing resistance.
 

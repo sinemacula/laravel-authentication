@@ -311,6 +311,7 @@ final class RevocationWriterTest extends TestCase
     {
         return [
             'id'                   => (string) Str::uuid7(),
+            'generation'           => (string) Str::uuid7(),
             'authenticatable_type' => $identity::class,
             'authenticatable_id'   => (string) $identity->id,
             'principal_type'       => $identity::class,

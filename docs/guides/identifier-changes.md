@@ -57,11 +57,12 @@ recently enough: the `identifier_change` operation's freshness decides how recen
 and any proof kind, by default; see [Freshness](configuration.md#freshness), where a guard may set its own).
 
 - `Reauthentication::session($session)`: the session the change is made from. Read again on the write connection, it
-  must be one of the identity's own live sessions of the guard (not revoked, deadlines not passed) holding a proof that
-  meets the requirement: its sign-in, a reauthentication, a step-up or a recovery code, of a kind the requirement takes,
-  made within its age (see [Freshness](sessions.md#freshness)). A refresh or a principal switch records no proof, so
-  neither renews it; a reauthentication or a step-up does. A fresh sign-in starts a new session, and a session it
-  replaced is revoked, so it no longer proves anything.
+  must still be that session (of its generation, so a later session a model put under its key proves nothing for it) and
+  one of the identity's own live sessions of the guard (not revoked, deadlines not passed) holding a proof that meets
+  the requirement: its sign-in, a reauthentication, a step-up or a recovery code, of a kind the requirement takes, made
+  within its age (see [Freshness](sessions.md#freshness)). A refresh or a principal switch records no proof, so neither
+  renews it; a reauthentication or a step-up does. A fresh sign-in starts a new session, and a session it replaced is
+  revoked, so it no longer proves anything.
 - `Reauthentication::password($password)`: the identity's current password, a first-factor reauthentication made now,
   checked in the guard's credential timebox against the identity read again through the guard's provider. It counts
   against the identity's account and the IP address under the `sign_in` limits, and a correct one is given back. It is

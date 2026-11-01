@@ -381,6 +381,7 @@ A session is one sign-in, on one application, on one device. The shipped migrati
 | Column                                                 | Holds                                                                  |
 |--------------------------------------------------------|------------------------------------------------------------------------|
 | `id`                                                   | UUID v7 primary key, carried in every token as `sid`                   |
+| `generation`                                           | A random UUID written at insert and never changed (required)           |
 | `authenticatable_type`, `authenticatable_id`           | The owning identity (required)                                         |
 | `principal_type`, `principal_id`                       | The principal the session acts as (any key type)                       |
 | `principal_switched_at`                                | When the session last switched its principal                           |

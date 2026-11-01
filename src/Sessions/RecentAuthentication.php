@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
+use SineMacula\Laravel\Authentication\SessionRecords\SessionGeneration;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
@@ -34,11 +35,12 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * which proofs.
  *
  * A session proof is read again by its key on the write connection, so the
- * instance the caller holds cannot stand in for the stored row; it must be the
- * identity's own (its recorded owner), of the guard, not revoked and not ended,
- * and the freshness policy must find one of its proofs that meets the
- * operation's requirement (see `FreshnessPolicy`: a proof of a kind the
- * requirement takes, made within its age). A password proof is a
+ * instance the caller holds cannot stand in for the stored row; it must still
+ * be that session (of its generation, so another session a model put under the
+ * key is not), the identity's own (its recorded owner), of the guard, not
+ * revoked and not ended, and the freshness policy must find one of its proofs
+ * that meets the operation's requirement (see `FreshnessPolicy`: a proof of a
+ * kind the requirement takes, made within its age). A password proof is a
  * reauthentication with the first factor made now, so it is accepted only when
  * that requirement takes `first_factor_reauthentication` and asks for neither
  * multifactor authentication nor phishing resistance, which a password never
@@ -103,7 +105,7 @@ final readonly class RecentAuthentication
     public function refusal(Identity $identity, Reauthentication $proof, ?string $ip): FailureReason|int|null
     {
         $proven = $proof->apply(
-            fn (Session $session): bool => $this->isFreshSession($identity, SessionLookup::find($session->getSessionIdentifier())),
+            fn (Session $session): bool => $this->isFreshSession($identity, $session, SessionLookup::find($session->getSessionIdentifier())),
             fn (#[\SensitiveParameter] string $password): bool|int => $this->isCurrentPassword($identity, $password, $ip),
         );
 
@@ -135,14 +137,17 @@ final readonly class RecentAuthentication
     public function stands(Identity $before, Identity $locked, Reauthentication $proof): bool
     {
         return $proof->apply(
-            fn (Session $session): bool => $this->isFreshSession($locked, SessionLookup::lock($session->getSessionIdentifier())),
+            fn (Session $session): bool => $this->isFreshSession($locked, $session, SessionLookup::lock($session->getSessionIdentifier())),
             static fn (): bool => hash_equals(self::hashOf($before), self::hashOf($locked)),
         );
     }
 
     /**
-     * Whether the session, as stored, is one of the identity's live sessions of
-     * this guard and has a proof fresh enough for an identifier change.
+     * Whether the session, as stored, is still the session given (of its
+     * generation: a session model that reissues keys may have put another
+     * session under its key, the identity's own included), one of the
+     * identity's live sessions of this guard, and has a proof fresh enough for
+     * an identifier change.
      *
      * The row given is judged here, not only by the freshness policy, which
      * reads the session again with no lock of its own: in `stands()` it is the
@@ -151,15 +156,16 @@ final readonly class RecentAuthentication
      * REPEATABLE READ), and a rebound policy is never trusted to check it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $stored
      * @return bool
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \LogicException
      */
-    private function isFreshSession(Identity $identity, (EloquentSession&Model)|null $stored): bool
+    private function isFreshSession(Identity $identity, Session $session, (EloquentSession&Model)|null $stored): bool
     {
-        return $stored !== null
+        return SessionGeneration::isHeld($session, $stored)
             && SessionOwnership::isOwner($stored, $identity)
             && OwnedSession::refusal($stored, $this->context->name(), CarbonImmutable::now()->startOfSecond()) === null
             && $this->container->make(FreshnessPolicy::class)->freshProof($stored, Operations::IDENTIFIER_CHANGE) !== null;

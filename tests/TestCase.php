@@ -14,6 +14,7 @@ use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Models\Session;
 use Tests\Fixtures\Sessions\FirstFactorRecorder;
+use Tests\Fixtures\Sessions\SessionGenerations;
 
 /**
  * Shared base test case for the package's integration tests.
@@ -25,10 +26,11 @@ use Tests\Fixtures\Sessions\FirstFactorRecorder;
  * per-test config and `defineDatabaseMigrations` (or use `setUp`) to create
  * additional tables.
  *
- * A session row a test inserts itself is given the first-factor proof the
- * session service records with every session it writes (see
- * `FirstFactorRecorder`), so tokens issued for it carry `auth_time` and `amr`
- * as a real sign-in's would; a test of a session without proofs turns that off
+ * A session row a test inserts itself is given the generation and the
+ * first-factor proof the session service writes with every session it inserts
+ * (see `SessionGenerations` and `FirstFactorRecorder`), so it is the session
+ * its instance holds and tokens issued for it carry `auth_time` and `amr` as a
+ * real sign-in's would; a test of a session without proofs turns the proof off
  * with `$recordsSessionProofs`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -139,7 +141,7 @@ abstract class TestCase extends OrchestraTestCase
         $config->set('authentication.jwt.access_ttl_minutes', 15);
         $config->set('authentication.jwt.refresh_idle_ttl_minutes', 60 * 24 * 30);
 
-        $this->recordFirstFactorsOfSessionRows($app);
+        $this->completeSessionRows($app);
     }
 
     /**
@@ -229,16 +231,18 @@ abstract class TestCase extends OrchestraTestCase
     }
 
     /**
-     * Give each session row the test inserts itself the first-factor proof a
-     * sign-in records, unless the test turned that off.
+     * Give each session row the test inserts itself a generation and the
+     * first-factor proof a sign-in records, unless the test turned the proof
+     * off.
      *
      * @param  mixed  $app
      * @return void
      */
-    private function recordFirstFactorsOfSessionRows(mixed $app): void
+    private function completeSessionRows(mixed $app): void
     {
         assert($app instanceof Application);
 
+        SessionGenerations::listen($app->make(Dispatcher::class));
         FirstFactorRecorder::listen($app->make(Dispatcher::class), fn (): bool => $this->recordsSessionProofs);
     }
 

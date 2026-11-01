@@ -40,6 +40,7 @@ final class SessionsTableSchemaTest extends TestCase
     /** @var array<string, bool> Every column of the table and whether it is nullable. */
     private const array COLUMNS = [
         'id'                      => false,
+        'generation'              => false,
         'authenticatable_type'    => false,
         'authenticatable_id'      => false,
         'principal_type'          => true,
@@ -120,10 +121,10 @@ final class SessionsTableSchemaTest extends TestCase
     }
 
     /**
-     * The table has exactly these columns, each with its nullability: the owner
-     * and the idle deadline are required, the absolute deadline is optional (a
-     * session may have none), and everything a later feature or the client
-     * supplies is optional.
+     * The table has exactly these columns, each with its nullability: the
+     * generation, the owner and the idle deadline are required, the absolute
+     * deadline is optional (a session may have none), and everything a later
+     * feature or the client supplies is optional.
      *
      * @return void
      */
@@ -274,6 +275,7 @@ final class SessionsTableSchemaTest extends TestCase
 
         DB::table(self::TABLE)->insert([
             'id'                   => $id,
+            'generation'           => (string) Str::uuid7(),
             'authenticatable_type' => 'App\Models\User',
             'authenticatable_id'   => '1',
             ...$times,

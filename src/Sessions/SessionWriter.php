@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -72,16 +73,16 @@ final readonly class SessionWriter
      * Create a session of the configured model for the admitted sign-in and
      * issue its first pair.
      *
-     * The session records its owner (the identity, which must be an Eloquent
-     * model), the principal, the guard, the sign-in method (the proof's) and
-     * the type of identifier it used, the client's name and platform, the IP
-     * address and user agent of the client the sign-in came from (`$origin`) as
-     * its creation, the context's client and the sign-in as its last use (so
-     * recording the use when the guard binds it writes nothing more), the
-     * digest of a new rotation id, and both deadlines: the absolute one capped
-     * at the context's deadline, if it gives one, and `null` when neither it
-     * nor the application sets one; then the sign-in's proofs and provenance
-     * (`$proof`). A context whose deadline has already passed is an
+     * The session records a new generation, its owner (the identity, which must
+     * be an Eloquent model), the principal, the guard, the sign-in method (the
+     * proof's) and the type of identifier it used, the client's name and
+     * platform, the IP address and user agent of the client the sign-in came
+     * from (`$origin`) as its creation, the context's client and the sign-in as
+     * its last use (so recording the use when the guard binds it writes nothing
+     * more), the digest of a new rotation id, and both deadlines: the absolute
+     * one capped at the context's deadline, if it gives one, and `null` when
+     * neither it nor the application sets one; then the sign-in's proofs and
+     * provenance (`$proof`). A context whose deadline has already passed is an
      * `InvalidArgumentException`: establishment refuses such a sign-in first.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
@@ -306,10 +307,11 @@ final readonly class SessionWriter
     }
 
     /**
-     * The state of a session that starts at `$now`: the client as its last use,
-     * the digest of the new rotation id with no previous one, the start itself,
-     * and both deadlines, the absolute one the earlier of the application's
-     * limit and the context's deadline, either alone, or none.
+     * The state of a session that starts at `$now`: a generation of its own,
+     * the client as its last use, the digest of the new rotation id with no
+     * previous one, the start itself, and both deadlines, the absolute one the
+     * earlier of the application's limit and the context's deadline, either
+     * alone, or none.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  string  $rotationId
@@ -334,6 +336,7 @@ final readonly class SessionWriter
         $absolute = $lifetimes->absoluteDeadline($now, $context->notAfter);
 
         return [
+            $session->getGenerationName()         => Str::uuid7()->toString(),
             $session->getLastUsedAtName()         => $session->fromDateTime($now),
             $session->getLastUsedIpName()         => $context->client->ip,
             $session->getLastUsedUserAgentName()  => $context->client->userAgent,
