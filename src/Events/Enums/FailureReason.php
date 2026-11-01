@@ -69,19 +69,22 @@ enum FailureReason: string
     // The pinned session is not one of the identity's live sessions
     case SESSION_MISMATCH = 'session_mismatch';
 
-    // A further factor is required, which only signIn() can ask for
+    // A further factor is required, which an access-only sign-in (attempt())
+    // cannot wait for
     case ADDITIONAL_FACTOR_REQUIRED = 'additional_factor_required';
 
-    // The further factor of a pending sign-in was not verified, and the pending
-    // sign-in was discarded
-    case ADDITIONAL_FACTOR_FAILED = 'additional_factor_failed';
-
-    // A pending choice of principal was discarded without a choice
-    case PRINCIPAL_CHOICE_ABANDONED = 'principal_choice_abandoned';
-
-    // The pending sign-in is unknown, expired, already used, or not for this
-    // guard
+    // The pending credential names no live pending session of this guard: it is
+    // unknown, expired, revoked, already activated, or another guard's
     case PENDING_INVALID = 'pending_invalid';
+
+    // The pending session's first outstanding requirement does not allow what
+    // was asked of it (a factor while a principal is to be chosen, or a choice
+    // while a factor is outstanding)
+    case PENDING_ACTION_NOT_ALLOWED = 'pending_action_not_allowed';
+
+    // The session waits on requirements, so none of its tokens is accepted
+    // until it activates
+    case SESSION_PENDING = 'session_pending';
 
     // The token does not decode, has expired, lacks a claim its type needs, or
     // is of another type, guard, issuer or audience
@@ -101,8 +104,7 @@ enum FailureReason: string
     case SESSION_REVOKED = 'session_revoked';
 
     // The session's idle or absolute deadline is reached, or missing, or the
-    // deadline a sign-in supplied had passed by the sign-in, its completion or
-    // its choice of principal
+    // deadline a sign-in supplied had passed by the sign-in
     case SESSION_EXPIRED = 'session_expired';
 
     // The token was issued for a principal the session no longer acts as
@@ -178,13 +180,13 @@ enum FailureReason: string
     // expired
     case LINK_EXPIRED = 'link_expired';
 
-    // A proof handed to a completion or a step-up is of a kind or purpose the
-    // operation does not take, was not accepted by its adapter, or is timed
+    // A proof handed to a pending session or a step-up is of a kind or purpose
+    // the operation does not take, was not accepted by its adapter, or is timed
     // after now or before what it adds to
     case PROOF_INVALID = 'proof_invalid';
 
-    // A proof handed to a completion or a step-up was made by another identity,
-    // on another application, or for another session or pending sign-in
+    // A proof handed to a pending session or a step-up was made by another
+    // identity, on another application, or for another session
     case PROOF_BINDING_MISMATCH = 'proof_binding_mismatch';
 
     /**

@@ -27,9 +27,9 @@ use Tests\TestCase;
 /**
  * End-to-end tests of revocation in access-only mode, against a database that
  * has none of the package's tables: an identity without `HasSessions`, and a
- * principal owned by one, can hold neither a session nor a pending sign-in, so
- * revoking their sessions only moves their "tokens valid after" cutoff, which
- * is how their session-less tokens end.
+ * principal owned by one, can hold no session, pending or active, so revoking
+ * their sessions only moves their "tokens valid after" cutoff, which is how
+ * their session-less tokens end.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -107,8 +107,7 @@ final class RevocationScopeTest extends TestCase
 
     /**
      * Every security change of an access-only identity moves its cutoff and
-     * reports it, without touching the session or pending sign-in tables, which
-     * do not exist.
+     * reports it, without touching the session table, which does not exist.
      *
      * @return void
      *
@@ -117,7 +116,6 @@ final class RevocationScopeTest extends TestCase
     public function testAnAccessOnlyIdentitysRevocationsOnlyMoveItsCutoff(): void
     {
         self::assertFalse(Schema::hasTable('authentication_sessions'));
-        self::assertFalse(Schema::hasTable('pending_sign_ins'));
 
         $identity = AccessOnlyCutoffIdentity::query()->create(['email' => 'ada@example.test', 'password' => 'unused']);
         $sessions = Auth::sessions('api');

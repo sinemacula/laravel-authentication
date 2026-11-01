@@ -11,6 +11,9 @@ use Illuminate\Support\Str;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -21,27 +24,30 @@ use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
+use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * Writes a session the session service starts: always a new session, which
- * replaces the existing session a client proved it holds, if any, its first
- * proofs and provenance, and the first token pair.
+ * Writes a session the session service starts: always a new session, active
+ * with its first token pair (replacing the existing session a client proved it
+ * holds, if any), or pending with its pending credential (recording the session
+ * the client proved, which its first activation supersedes), and its first
+ * proof and provenance.
  *
  * Each runs in one transaction on the session's connection. The session is
  * written first (after the revocation of the session it replaces), then the
- * sign-in's proofs (the first factor, and the further factor a completion was
- * given), then its provenance when an external provider established it, each
- * after deleting what an earlier session holding the same key left, and the
- * tokens are issued after them, inside the transaction, so a cancelled insert
- * or any failure while issuing (signing, randomness, an identifier that cannot
- * be read) rolls every write back: no session is left without a client that
- * holds its refresh token, or without the proof its tokens are derived from,
- * and no session is revoked for a replacement that was not written. Only the
- * digest of the new rotation id is stored. Every session time is the one `$now`
- * of the sign-in, formatted with the session model's own date format; each
- * proof keeps its own time.
+ * sign-in's first-factor proof, then its provenance when an external provider
+ * established it, each after deleting what an earlier session holding the same
+ * key left, and the tokens are issued after them, inside the transaction, so a
+ * cancelled insert or any failure while issuing (signing, randomness, an
+ * identifier that cannot be read) rolls every write back: no session is left
+ * without a client that holds its refresh token or pending credential, or
+ * without the proof its tokens are derived from, and no session is revoked for
+ * a replacement that was not written. Only the digest of the new rotation id,
+ * or of the pending credential's secret, is stored. Every session time is the
+ * one `$now` of the sign-in, formatted with the session model's own date
+ * format; each proof keeps its own time.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -73,16 +79,17 @@ final readonly class SessionWriter
      * Create a session of the configured model for the admitted sign-in and
      * issue its first pair.
      *
-     * The session records a new generation, its owner (the identity, which must
-     * be an Eloquent model), the principal, the guard, the sign-in method (the
-     * proof's) and the type of identifier it used, the client's name and
-     * platform, the IP address and user agent of the client the sign-in came
-     * from (`$origin`) as its creation, the context's client and the sign-in as
-     * its last use (so recording the use when the guard binds it writes nothing
-     * more), the digest of a new rotation id, and both deadlines: the absolute
-     * one capped at the context's deadline, if it gives one, and `null` when
-     * neither it nor the application sets one; then the sign-in's proofs and
-     * provenance (`$proof`). A context whose deadline has already passed is an
+     * The session records that it is active, a new generation, its owner (the
+     * identity, which must be an Eloquent model), the principal and the active
+     * tenant, the guard, the sign-in method (the proof's) and the type of
+     * identifier it used, the client's name and platform, the IP address and
+     * user agent of the client the sign-in came from (`$origin`) as its
+     * creation, the context's client and the sign-in as its last use (so
+     * recording the use when the guard binds it writes nothing more), the
+     * digest of a new rotation id, and both deadlines: the absolute one capped
+     * at the context's deadline, if it gives one, and `null` when neither it
+     * nor the application sets one; then the sign-in's proofs and provenance
+     * (`$proof`). A context whose deadline has already passed is an
      * `InvalidArgumentException`: establishment refuses such a sign-in first.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
@@ -108,7 +115,7 @@ final readonly class SessionWriter
         SignInProof $proof,
     ): SignedInSession {
         $rotationId = RefreshTokenHasher::generate();
-        $session    = $this->newSession($admitted, $proof->method, $identifierType, $context, $origin);
+        $session    = $this->newSession($admitted->identity, $admitted->principal, $admitted->tenant, $proof->method, $identifierType, $context, $origin);
 
         $session->forceFill(self::sessionState($session, $rotationId, $context, $lifetimes, $now));
 
@@ -172,7 +179,7 @@ final readonly class SessionWriter
             $context->platform   ?? self::recorded($previous, $previous->getPlatformName()),
             notAfter: $context->notAfter,
         );
-        $session = $this->newSession($admitted, $proof->method, $identifierType, $described, $origin);
+        $session = $this->newSession($admitted->identity, $admitted->principal, $admitted->tenant, $proof->method, $identifierType, $described, $origin);
 
         $session->forceFill(self::sessionState($session, $rotationId, $described, $lifetimes, $now));
 
@@ -193,11 +200,79 @@ final readonly class SessionWriter
     }
 
     /**
-     * A new, unsaved session of the configured model for the admitted sign-in,
-     * created from the origin's client, with the context's client name and
-     * platform, and none of the state it starts with (`sessionState()`) yet.
+     * Create a pending session of the configured model for a sign-in that still
+     * waits on requirements, and return it with its pending credential.
      *
-     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
+     * The session is written as `create()` writes one (its owner, the principal
+     * and active tenant when one is selected, the guard, method, identifier
+     * type and client, a new generation, the start and both deadlines), except
+     * that it is pending: it records what it waits on, in order, the digest of
+     * a new secret, no refresh credential, the session the client proved it
+     * holds and the digest it was proven against (its first activation
+     * supersedes that session only while it is unchanged), and the windows of
+     * the attempt-limit slots the sign-in holds until then. Its idle deadline
+     * is the pending credential's expiry: `$ttlSeconds` from `$now`, never past
+     * its absolute deadline, so an expired pending session has ended as any
+     * session ends. The first factor's proof and provenance are recorded with
+     * it, so they carry to the active session unchanged.
+     *
+     * The credential is `<session key>.<secret>`; only the secret's digest is
+     * stored, and the credential is never written anywhere else.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\PendingSessionDraft  $draft
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
+     * @param  \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  $lifetimes
+     * @param  \Carbon\CarbonImmutable  $now
+     * @param  int  $ttlSeconds
+     * @return array{0: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 1: string}
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     *
+     * @throws \InvalidArgumentException
+     * @throws \JsonException
+     * @throws \LogicException
+     * @throws \Throwable
+     */
+    public function createPending(PendingSessionDraft $draft, SignInContext $context, TokenLifetimes $lifetimes, CarbonImmutable $now, int $ttlSeconds): array
+    {
+        $secret  = RefreshTokenHasher::generate();
+        $proof   = $draft->proof;
+        $windows = $draft->attemptWindows;
+        $session = $this->newSession($draft->identity, $draft->principal, $draft->tenant, $proof->method, $draft->identifierType, $context, $context->client);
+
+        $session->forceFill(self::pendingState($session, $secret, $context, $lifetimes, $now, $draft->proven, $ttlSeconds));
+
+        PendingState::fill($session, [
+            $session->getRequiresName()       => PendingState::requires($draft->requires),
+            $session->getAttemptWindowsName() => $windows === null ? null : json_encode($windows, JSON_THROW_ON_ERROR),
+        ]);
+
+        return $session->getConnection()->transaction(function () use ($session, $proof, $secret): array {
+
+            self::insert($session);
+
+            $this->record($session, $proof);
+
+            return [$session, IdentifierCoercion::stringify($session->getSessionIdentifier()) . '.' . $secret];
+        });
+    }
+
+    /**
+     * A new, unsaved session of the configured model for the sign-in, created
+     * from the origin's client, with the context's client name and platform,
+     * the principal (`null` while a choice is outstanding) and the active
+     * tenant's id (`null` for none), and none of the state it starts with
+     * (`sessionState()`, `pendingState()`) yet.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  string  $method
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
@@ -207,26 +282,33 @@ final readonly class SessionWriter
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    private function newSession(Admitted $admitted, string $method, ?string $identifierType, SignInContext $context, ClientContext $origin): EloquentSession&Model
-    {
-        $session  = SessionLookup::model();
-        $identity = self::eloquentIdentity($admitted);
-        $owner    = $session->authenticatable();
+    private function newSession(
+        Identity $identity,
+        ?Principal $principal,
+        ?Tenant $tenant,
+        string $method,
+        ?string $identifierType,
+        SignInContext $context,
+        ClientContext $origin,
+    ): EloquentSession&Model {
+        $session = SessionLookup::model();
+        $owner   = self::eloquentIdentity($identity);
 
         [$principalType, $principalId] = PrincipalReference::columns($session);
 
         return $session->forceFill([
-            $owner->getMorphType()                  => $identity->getMorphClass(),
-            $owner->getForeignKeyName()             => IdentifierCoercion::stringify($identity->getKey()),
-            $principalType                          => PrincipalReference::type($admitted->principal),
-            $principalId                            => PrincipalReference::id($admitted->principal),
-            $session->getGuardName()                => $this->guard,
-            $session->getSignInMethodName()         => $method,
-            $session->getSignInIdentifierTypeName() => $identifierType,
-            $session->getClientNameName()           => $context->clientName,
-            $session->getPlatformName()             => $context->platform,
-            $session->getCreatedIpName()            => $origin->ip,
-            $session->getCreatedUserAgentName()     => $origin->userAgent,
+            $session->authenticatable()->getMorphType()      => $owner->getMorphClass(),
+            $session->authenticatable()->getForeignKeyName() => IdentifierCoercion::stringify($owner->getKey()),
+            $principalType                                   => $principal === null ? null : PrincipalReference::type($principal),
+            $principalId                                     => $principal === null ? null : PrincipalReference::id($principal),
+            $session->getTenantIdName()                      => IdentifierCoercion::stringify($tenant?->getTenantIdentifier()),
+            $session->getGuardName()                         => $this->guard,
+            $session->getSignInMethodName()                  => $method,
+            $session->getSignInIdentifierTypeName()          => $identifierType,
+            $session->getClientNameName()                    => $context->clientName,
+            $session->getPlatformName()                      => $context->platform,
+            $session->getCreatedIpName()                     => $origin->ip,
+            $session->getCreatedUserAgentName()              => $origin->userAgent,
         ]);
     }
 
@@ -288,17 +370,15 @@ final readonly class SessionWriter
     }
 
     /**
-     * The admitted identity, which must be an Eloquent model to own a session.
+     * The identity, which must be an Eloquent model to own a session.
      *
-     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity
      *
      * @throws \LogicException
      */
-    private static function eloquentIdentity(Admitted $admitted): Identity&Model
+    private static function eloquentIdentity(Identity $identity): Identity&Model
     {
-        $identity = $admitted->identity;
-
         if (!$identity instanceof Model) {
             throw new \LogicException(sprintf('The session service can only create a session for an Eloquent identity; %s is not a model.', $identity::class));
         }
@@ -307,10 +387,10 @@ final readonly class SessionWriter
     }
 
     /**
-     * The state of a session that starts at `$now`: a generation of its own,
-     * the client as its last use, the digest of the new rotation id with no
-     * previous one, the start itself, and both deadlines, the absolute one the
-     * earlier of the application's limit and the context's deadline, either
+     * The state of a session that starts active at `$now`: a generation of its
+     * own, the client as its last use, the digest of the new rotation id with
+     * no previous one, the start itself, and both deadlines, the absolute one
+     * the earlier of the application's limit and the context's deadline, either
      * alone, or none.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
@@ -336,6 +416,7 @@ final readonly class SessionWriter
         $absolute = $lifetimes->absoluteDeadline($now, $context->notAfter);
 
         return [
+            $session->getStatusName()             => SessionStatus::ACTIVE->value,
             $session->getGenerationName()         => Str::uuid7()->toString(),
             $session->getLastUsedAtName()         => $session->fromDateTime($now),
             $session->getLastUsedIpName()         => $context->client->ip,
@@ -350,11 +431,62 @@ final readonly class SessionWriter
     }
 
     /**
-     * Record the sign-in's proofs on the new session: its first factor, the
-     * further factor a completion was given, if any, and the provenance of a
-     * session an external provider established. Whatever an earlier session
-     * whose key the new one reuses left under it is deleted first, so the new
-     * session counts only its own sign-in's proofs.
+     * The state of a session that starts pending at `$now`: a generation of its
+     * own, the client as its last use, no refresh credential, the digest of the
+     * pending credential's secret, the session the client proved and the digest
+     * it was proven against, the start itself, the absolute deadline as an
+     * active session's, and the pending credential's expiry as the idle
+     * deadline, never past the absolute one.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  string  $secret
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
+     * @param  \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  $lifetimes
+     * @param  \Carbon\CarbonImmutable  $now
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $proven
+     * @param  int  $ttlSeconds
+     * @return array<string, mixed>
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function pendingState(
+        EloquentSession&Model $session,
+        #[\SensitiveParameter] string $secret,
+        SignInContext $context,
+        TokenLifetimes $lifetimes,
+        CarbonImmutable $now,
+        ?Session $proven,
+        int $ttlSeconds,
+    ): array {
+        if ($context->hasPassedDeadline($now)) {
+            throw new \InvalidArgumentException('Cannot start a session whose deadline is not after its start.');
+        }
+
+        $absolute = $lifetimes->absoluteDeadline($now, $context->notAfter);
+
+        return [
+            $session->getStatusName()               => SessionStatus::PENDING->value,
+            $session->getPendingKeyName()           => RefreshTokenHasher::hash($secret),
+            $session->getSupersedesSessionIdName()  => IdentifierCoercion::stringify($proven?->getSessionIdentifier()),
+            $session->getSupersedesRefreshKeyName() => $proven?->getRefreshKey(),
+            $session->getGenerationName()           => Str::uuid7()->toString(),
+            $session->getLastUsedAtName()           => $session->fromDateTime($now),
+            $session->getLastUsedIpName()           => $context->client->ip,
+            $session->getLastUsedUserAgentName()    => $context->client->userAgent,
+            $session->getRefreshKeyName()           => null,
+            $session->getPreviousRefreshKeyName()   => null,
+            $session->getRefreshRotatedAtName()     => null,
+            $session->getSignedInAtName()           => $session->fromDateTime($now),
+            $session->getIdleExpiresAtName()        => $session->fromDateTime(PendingState::expiry($now, $ttlSeconds, $absolute)),
+            $session->getAbsoluteExpiresAtName()    => $session->fromDateTime($absolute),
+        ];
+    }
+
+    /**
+     * Record the sign-in's proofs on the new session: its first factor, and the
+     * provenance of a session an external provider established. Whatever an
+     * earlier session whose key the new one reuses left under it is deleted
+     * first, so the new session counts only its own sign-in's proofs.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
@@ -367,10 +499,6 @@ final readonly class SessionWriter
     {
         ProofWriter::clear($session);
         ProofWriter::record($session, $this->guard, $proof->firstFactor());
-
-        if ($proof->additional !== null) {
-            ProofWriter::record($session, $this->guard, $proof->additional);
-        }
 
         if ($proof->provenance === null) {
             return;

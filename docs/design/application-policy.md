@@ -55,9 +55,9 @@ normalisers meet that policy, since a sign-in passes through all three.
   `authentication.sign_in.password_identifier` (default `email`), whatever the credentials look like, so a query closure
   in `attempt()` cannot skip it. The identity must then implement `HasVerifiableIdentifiers` (otherwise a
   `LogicException`: a misconfiguration) and report that identifier verified, read on the write connection; otherwise
-  `identifier_unverified`. `start()`, `complete()` without a stored type, and refresh carry no identifier type and are
-  never gated: an external verifier or an existing session vouches for them. A switch of principal is admitted with the
-  type the session's sign-in used (recorded on the session), as that sign-in was.
+  `identifier_unverified`. `start()`, a pending session's re-checks without a stored type, and refresh carry no
+  identifier type and are never gated: an external verifier or an existing session vouches for them. A switch of
+  principal is admitted with the type the session's sign-in used (recorded on the session), as that sign-in was.
 - The gate depends on the identity alone, so it is the contract's `admitIdentifier($guard, $identity,
   $identifierType)`, which every sign-in (`attempt()` included) asks of whatever policy is bound after the identity's
   activity check and before resolving any principal: an unverified identifier is refused alike whether the identity
@@ -66,7 +66,7 @@ normalisers meet that policy, since a sign-in passes through all three.
   policy with no identity-level rule returns `null`.
 - `admit()` is asked only after the identity, the principal and its tenant have passed their activity checks.
 - Every `admitIdentifier()` runs inside `WriteConnection::during()` for the identity, and every `admit()` for the
-  identity and the principal (`Admission\ApplicationAdmission`), on every path: sign-in, `start()`, `complete()`,
+  identity and the principal (`Admission\ApplicationAdmission`), on every path: sign-in, `start()`, `satisfy()`,
   `choose()` and the choice list, refresh, switch, API keys and their issue, client credentials and password resets. A
   policy of the application's own decides from rows of its own (a grant, a membership), and a replica that lags behind
   their withdrawal must not admit the principal, as the package's activity and tenant checks never do. Model reads and
@@ -85,9 +85,10 @@ normalisers meet that policy, since a sign-in passes through all three.
   $identity, $identifierType)`, the principal, then `admit($guard, $identity, $principal, $identifierType)`; the
   session takes its deadlines from `lifetimes($guard)`.
 - `start()`: `allowsMethod()` and `admit()` with no identifier type; no limiter, no timebox.
-- `complete()` and `choose()`: the pending row is consumed first, then `allowsMethod()` for the stored method, and
-  `admitIdentifier()` and `admit()` with the stored identifier type, rechecked when the pending sign-in is used, so a
-  policy change while a factor is verified or a principal chosen still applies.
+- `satisfy()` and `choose()`: under the pending session's row lock, `allowsMethod()` for the stored method, and
+  `admitIdentifier()` and the principal's admission with the stored identifier type, rechecked each time the pending
+  session is acted on, so a policy change while a factor is verified or a principal chosen still applies; a refusal
+  leaves the session pending.
 - Refresh: right after the session lookup, the session must record this guard (`session_guard_mismatch`); after the
   owner and principal are reloaded, the recorded method must still be allowed (`method_not_allowed`, also when the
   session records none) and `admit()` must pass with no identifier type (`principal_ineligible`, whatever reason the
@@ -97,11 +98,11 @@ normalisers meet that policy, since a sign-in passes through all three.
 ## Failure / Edge Cases
 
 - Attempt limits: a sign-in reserves a slot on its identifier's and its IP address's counters before the method runs
-  (`rate_limited` with the wait, the method never asked); a success gives its own slots back, a pending sign-in only
-  when it completes, and failures keep theirs until the window ends. A refresh counts only its failures, against the
-  session and the IP address, and is refused as `rate_limited`, with the wait, once either is full. Counters are kept
-  per guard, flow and scope as HMAC-SHA256 digests keyed from `app.key` (an enumerable IP address or identifier cannot
-  be recovered from the table alone), on `rate_limits.connection`. They are written outside the session's own
+  (`rate_limited` with the wait, the method never asked); a success gives its own slots back, a pending session only
+  when it first activates, and failures keep theirs until the window ends. A refresh counts only its failures, against
+  the session and the IP address, and is refused as `rate_limited`, with the wait, once either is full. Counters are
+  kept per guard, flow and scope as HMAC-SHA256 digests keyed from `app.key` (an enumerable IP address or identifier
+  cannot be recovered from the table alone), on `rate_limits.connection`. They are written outside the session's own
   transaction, but a caller transaction on the same connection holds them: with the default (`null`, the storage
   connection) a sign-in its caller rolls back takes its counts with it and is not counted. Counters on a connection of
   their own still count it.
@@ -159,8 +160,7 @@ normalisers meet that policy, since a sign-in passes through all three.
 - `tests/Feature/Applications/GuardApplicationPolicyTest.php`,
   `tests/Integration/Guards/ApplicationPolicyIntegrationTest.php`
 - `tests/Integration/Applications/EmptyApplicationIntegrationTest.php` (the shipped empty default, end to end), with
-  `testAPendingSignInWhoseMethodIsRemovedIsSpentAndRefused` in `SignInPolicyEndToEndTest` and
-  `testAChoiceWhoseMethodIsRemovedIsSpentAndRefused` in `tests/Integration/Sessions/PrincipalChoiceEndToEndTest.php`
+  `testAPendingSessionWhoseMethodIsRemovedIsRefused` in `SignInPolicyEndToEndTest`
 - `tests/Feature/Console/CheckConfigurationCommandTest.php` (the application checks and the warning)
 - `tests/Performance/AccessTokenIssueQueryBudgetTest.php`
 - `tests/Integration/Guards/RefreshApplicationIntegrationTest.php`

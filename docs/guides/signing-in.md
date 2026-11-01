@@ -58,7 +58,7 @@ lookup, so request input passed straight through cannot reach accounts the ident
 [Rate limits](configuration.md#rate-limits)). After the password, the identity, the principal and its tenant must be
 active, the pins must hold, the application policy must admit the identity as that principal, the password is rehashed
 when its stored hash no longer matches the hasher's algorithm or cost (unless Laravel's `hashing.rehash_on_login` is
-off), and the additional-factor policy must not ask for a further factor: `attempt()` cannot hand out a pending sign-in,
+off), and the additional-factor policy must not ask for a further factor: `attempt()` cannot leave a session pending,
 so a guard whose policy requires a factor fails it with `additional_factor_required`. A successful attempt gives its
 slots back; a failed one keeps them. Every failure fires Laravel's `Failed` and then `AuthenticationFailed` with a
 reason (see [Events](events.md#events)). `validate()` checks only the credentials and never rehashes, as with Laravel's
@@ -124,16 +124,14 @@ if ($result->isFailed()) {
     abort(401);
 }
 
-if ($result->requiresFactor()) {
-    // No session yet: hand the client the pending token to complete it with.
-    return ['pending_token' => $result->pending->token];
-}
-
-if ($result->requiresPrincipal()) {
-    // No principal named and none by default: the identity chooses one.
+if ($result->isPending()) {
+    // No token yet: the session waits on a further factor, a choice of
+    // principal, or both (see Pending sessions).
     return [
-        'choice_token' => $result->choice->token,
-        'principals'   => array_map(fn ($principal) => $principal->getPrincipalIdentifier(), $result->choice->principals),
+        'status'             => 'pending',
+        'id'                 => $result->pending->id,
+        'requires'           => array_map(fn ($requirement) => $requirement->value, $result->pending->requires),
+        'pending_credential' => $result->credential,
     ];
 }
 
@@ -146,19 +144,19 @@ return [
 `signIn()` runs, in order: Laravel's `Attempting` (with only the identifier the method names, never the input); the
 application policy must allow the method (`method_not_allowed`, nothing counted); the identifier and the client's IP
 address must have attempts left (`rate_limited`, with the wait); then, inside the credential timebox, the method must
-verify the input, the identity, the principal (the one the context names, verified like an `attempt()` pin, or the
-resolver's default) and its tenant must be active, and the application policy must admit the identity as that principal;
-a password is rehashed when its hash is outdated; and the additional-factor policy is asked whether a further factor is
-required (see [Additional factors](#additional-factors)). Failures are results, not exceptions: Laravel's `Failed` and
-then `AuthenticationFailed` report them, with the reason. A method name that is not registered (exactly: `Password` is
-not `password`), a method that refuses with any reason but `invalid_credentials`, a misconfigured model and database
-errors still throw. A successful sign-in gives its attempt slots back.
+verify the input and the identity must be admitted; a password is rehashed when its hash is outdated; and the sign-in
+follows the order [Pending sessions](#pending-sessions) sets out: the principals, the one selected or a choice, the
+identity-level factor policy, and the selected principal's active tenant. Failures are results, not exceptions:
+Laravel's `Failed` and then `AuthenticationFailed` report them, with the reason. A method name that is not registered
+(exactly: `Password` is not `password`), a method that refuses with any reason but `invalid_credentials`, a
+misconfigured model and database errors still throw. A sign-in whose session starts active gives its attempt slots
+back.
 
 `start($identity, $principal, $method, $context, $provenance)` begins a session for an identity something else verified,
 such as an external identity provider. The identity is reloaded through the guard's provider (`identity_unknown` when
-that does not return the very same identity), the method must be allowed, the identity, principal and tenant are checked
-and admitted, and the additional-factor policy is asked, so a sign-in from outside cannot skip a required factor. No
-attempt limit or timebox applies. The principal is given as the argument or on the context, not both.
+that does not return the very same identity), the method must be allowed, and the sign-in then follows the same order,
+so a sign-in from outside cannot skip a required factor or the choice of principal. No attempt limit or timebox applies.
+The principal is given as the argument or on the context, not both.
 
 When an external provider verified the identity, pass what your server-side code checked as a `Proofs\Provenance`: the
 connection (the configured provider) and its tenant, when the provider authenticated the identity, its deadline for its
@@ -210,9 +208,10 @@ stop working at once and its refresh token is refused as `session_revoked`; the 
 platform the previous one recorded when the sign-in gives none. Once committed, `SessionRevoked` (`superseded`) is
 dispatched for the previous session before the new session's `SessionCreated` and `SignedIn`. If the session changes
 before it can be revoked (a parallel refresh, say), the sign-in is reconsidered without it and revokes nothing: it
-starts on a new session, or hands out a pending sign-in when the additional-factor policy now asks for a further factor
-without the session's trust. The additional-factor policy is told of the session the client proved; the new session has
-a new id, so nothing a factor package kept about the previous session carries over to it.
+starts on a new session, or leaves it pending when the additional-factor policy now asks for a further factor without
+the session's trust. A pending sign-in supersedes the proven session only when it first activates. The
+additional-factor policy is told of the session the client proved; the new session has a new id, so nothing a factor
+package kept about the previous session carries over to it.
 
 ### A sign-in's own deadline
 
@@ -231,13 +230,13 @@ lifetimes](configuration.md#token-and-session-lifetimes)), and its idle deadline
 principal, a step-up and a reauthentication never move it. `withNotAfter()` keeps the earlier of the context's deadline
 and the one given, so a deadline is only ever lowered, and `null` changes nothing. A sign-in whose deadline is this
 second or earlier is refused as `session_expired` (reported as any failed sign-in) before the additional-factor policy
-is asked, a choice is offered or anything is written. A sign-in held for a further factor or a choice of principal keeps
-its deadline, and its completion or choice is refused as `session_expired` once the deadline has passed while it waited.
+is asked, a choice is offered or anything is written. A pending session keeps its deadline, and its credential expires
+no later than it.
 `fromRequest()` never sets a deadline: it is the application's, or a trusted adapter's, to supply, never the client's.
 
 `attempt()` and `login()` remain for code that binds the guard itself; neither creates a session. A session is a stored
 row, so the session service signs in only identities that implement `HasSessions`: for any other identity `signIn()`,
-`start()` and `complete()` throw a `LogicException` naming its class, since the access token it would issue names a
+`start()` throw a `LogicException` naming its class, since the access token it would issue names a
 session the guard could never find again. Access-only guards (identities without `HasSessions`) sign in with `attempt()`
 and issue access tokens with `Auth::jwt('api')->issueAccessToken()`.
 
@@ -622,142 +621,150 @@ $this->callAfterResolving(SignInMethodManager::class, static function (SignInMet
 $result = Auth::sessions('kiosk')->signIn('badge', $request->only('badge_number', 'pin'));
 ```
 
+## Pending sessions
+
+A sign-in that still has requirements left issues no token. Its session is written pending, with `status: pending`
+and the requirements it waits on in `requires`, in the order they must be met: `mfa` (a further factor), then
+`principal` (a choice of principal). The result `isPending()`; its `pending` is a `Sessions\PendingSession` (the
+session's `id`, the guard, the identity, the principal and active tenant once one is selected, `requires`, the method,
+`expiresAt`, the session record, and the `principals` to choose from while the choice comes first), and its
+`credential` is the pending credential. Hand the client the id, `requires` and the credential in the response body,
+never in a URL or a cookie:
+
+```php
+if ($result->isPending()) {
+    return [
+        'status'             => 'pending',
+        'id'                 => $result->pending->id,
+        'requires'           => array_map(fn ($requirement) => $requirement->value, $result->pending->requires),
+        'pending_credential' => $result->credential,
+    ];
+}
+```
+
+The session keeps its id from pending to active, and the id grants nothing. The credential, `<id>.<secret>`, is its
+only key: only the digest of its secret is stored, it is not a JWT (so it authenticates no request and refreshes
+nothing, and no token is ever accepted as one), it works only for this guard, and it expires
+`session.pending_ttl_seconds` after it is issued (five minutes by default, never past the session's absolute deadline),
+when the pending session has simply ended. It is a plain string here, as the token pair is.
+
+### In order
+
+A sign-in follows one order whichever way it starts:
+
+1. the credential is verified, and the identity checked (not a machine identity, active, and admitted with the
+   identifier type the sign-in used);
+2. the principals the identity may use the application as are found: its `principals()`, read on the write connection
+   (the resolver's default for an identity that is its own principal), each active, in an active tenant and allowed to
+   use the application. With none left the sign-in fails, after the credential was verified, with the reason the last
+   one was left out for, or `principal_unresolved`: answer it 403;
+3. the principal the context names, when it is among them (`principal_mismatch` otherwise), or the only one, is
+   selected; with several and none named, a choice is outstanding;
+4. the identity-level factor policy is asked, before any principal is chosen (see [Additional
+   factors](#additional-factors));
+5. a selected principal's active tenant is admitted: `SignInContext::$tenant`, or the principal's own.
+
+With nothing outstanding the session starts active, as above. Otherwise it is written pending, with the first-factor
+proof and the provenance the active session will carry, and `SessionPending` reports it once committed, with what it
+waits on and its expiry, never the credential. The sign-in's attempt slots, the account's included, stay taken until the
+session first activates, and are given back then; a pending session that is discarded or expires leaves them counted, so
+each guess at a further factor costs a sign-in attempt. With the password method the guesses are bounded by the
+account's own count, whichever spelling of the identifier and whichever guard each sign-in used, held to the most
+permissive `per_identifier` limit among the guards that check the account (see [Rate
+limits](configuration.md#rate-limits)). A sign-in that `start()` began took no slots, since nothing was guessed.
+
+### Actions
+
+A pending credential allows only the actions of the session's first outstanding requirement, by stable names
+(`Sessions\Enums\PendingAction`):
+
+| Requirement | Actions                                                                                                                 |
+|-------------|-------------------------------------------------------------------------------------------------------------------------|
+| `mfa`       | `mfa.list_factors`, `mfa.send_code`, `mfa.verify`, `mfa.start_bootstrap_enrollment`, `mfa.confirm_bootstrap_enrollment` |
+| `principal` | `list_principals`, `choose_principal`                                                                                   |
+
+So no principal is listed or chosen while a factor is outstanding, and nothing is allowed because of a route. The
+`mfa.*` names are the factor package's own: listing factors and enrolling one are its calls, which check the credential
+here first with `pending()`:
+
+```php
+$pending = Auth::sessions('api')->pending($credential, PendingAction::VERIFY);
+
+if ($pending === null) {
+    abort(401); // unknown, expired, discarded, activated, another guard's, or not allowed now
+}
+```
+
+`pending($credential, $action)` reads only, dispatching nothing; it answers `null` for a credential that names no live
+pending session of this guard, or whose session does not allow the action now (none given: any). Whether a bootstrap
+enrolment applies (a factor is required and the identity has none) is the factor package's to judge.
+
+### Satisfying a further factor
+
+The factor package verifies the factor for `$pending->identity` and hands its proof to `satisfy()`:
+
+```php
+$result = Auth::sessions('api')->satisfy($credential, $proof);
+```
+
+`$proof` is the `Proofs\ProofResult` the adapter verified: its kind (`additional_factor`, or `recovery_code` for the
+fallback), method, channel and factor, what was observed, the adapter's `Evaluation` (accepted, and whether it amounts
+to multifactor authentication), its `amr` values, when it was made, and its `ProofBinding` (the identity, the guard,
+`$pending->id` as the session, and `Purpose::SIGN_IN`, or `Purpose::ENROLLMENT` for the factor that confirms a
+bootstrap enrolment). It is refused as `proof_invalid` when it is any other kind (a reauthentication, external or not,
+never counts), made for another purpose, not accepted, or made after now or before the session began waiting, and as
+`proof_binding_mismatch` when it names another identity, guard or session; `pending_action_not_allowed` when the factor
+is not the first requirement.
+
+Under the session's row lock, the session is checked again (the identity, the method still allowed, and the principal
+and tenant it records, if any), the proof is stored with its other proofs, and what it waits on is judged again: with
+nothing left it activates in place (the guard is bound, the pair issued, the credential consumed, `SessionCreated` and
+`SignedIn` reported, the slots given back), with the choice left it moves on to it (the result is pending again, with no
+new credential and the principals listed), and otherwise it stays pending. The access token's `amr` carries the proof's
+values, and `mfa` when its evaluation reports multifactor authentication. A refusal stores nothing and never revokes the
+session, which waits until its credential expires; every refusal reports `Failed` and `AuthenticationFailed`, and a
+credential that names nothing is `pending_invalid`.
+
+### Choosing a principal
+
+```php
+$result = Auth::sessions('api')->choose($credential, $principal, TenantSelection::principalDefault());
+```
+
+`choose()` takes one of `$pending->principals` (also listed by `Auth::sessions('api')->principals($identity,
+$identifierType)`), and the tenant it is to be active in (the principal's own unless one is given). Under the row lock
+the identity and method are checked again, the principal must be the identity's, resolved through the hinted path as
+the very one named (`principal_mismatch`), and allowed to use the application, and the tenant one it may act in and
+active. The identity-level factor policy is then asked again: a further factor it now asks for records the principal and
+tenant and leaves the session waiting for it, with the same credential; otherwise the session activates as the
+principal. A refused choice leaves the session pending for another; `pending_action_not_allowed` while a factor is
+outstanding.
+
+### Discarding
+
+`discard($credential)` ends a pending session (a factor that failed, a choice abandoned): it is revoked as `signed_out`
+and `SessionRevoked` reports it, so its credential works no more. It returns whether the credential named a live pending
+session of this guard. Revoking an identity's sessions, signing out everywhere and pruning reach pending sessions too:
+they are sessions like any other.
+
+### The session it activates
+
+The session that activates is the pending one: same id, the first factor's proof and the provenance it was written with,
+and the further factor `satisfy()` stored. On a sign-in's first activation the session the client proved it holds
+(with its refresh token in the context) is revoked as `superseded`, reported before `SessionCreated`, but only while it
+still holds the refresh token it was proven with, records the same owner, guard and principal, and is not revoked; a
+changed one is simply not superseded. A pending session is never listed, and no access or refresh token of it is
+accepted (`session_pending`) until it activates.
+
 ## Additional factors
 
 The additional-factor policy (`Contracts\AdditionalFactorPolicy`, by default one that never asks for a factor; an MFA
-package or the application binds its own) is asked about every admitted sign-in, from `signIn()` and from `start()`,
-with the guard, identity, principal, tenant, method, client, and the session the client proved it holds, if any. When it
-requires a further factor, no session starts: the result's `pending` is a `PendingFactor` whose `token` completes the
-sign-in once, for this guard, within `sign_in.pending_ttl_seconds` (five minutes by default). The token is opaque (not a
-JWT), so it authenticates no request and refreshes nothing; only the digest of its secret is stored, in
-`pending_sign_ins`. The sign-in's attempt slots stay taken while it waits, the one its password check took on the
-account included, and are given back only when it completes: a pending sign-in that is discarded or expires leaves them
-counted, so each guess at a further factor costs a sign-in attempt. With the password method the guesses are therefore
-bounded by the account's own count, whichever spelling of the identifier and whichever guard each sign-in used, held to
-the most permissive `per_identifier` limit among the guards that check the account (see
-[Rate limits](configuration.md#rate-limits)), so a further factor can be guessed no more often than the password. A
-method that does not count the account it checks (see [Writing a sign-in method](#writing-a-sign-in-method)) bounds them
-by its identifier's and the IP address's limits only. A sign-in that `start()` holds for a factor took no slots, since
-nothing was guessed: the external verifier that proved the identity bounds how often it can be repeated.
-
-The code that verifies the factor looks the pending sign-in up, verifies the factor for its identity and principal, and
-only then completes it. Possessing the token proves nothing about the factor: `complete()` is a trusted entry point,
-like `start()`.
-
-```php
-['pending_token' => $token, 'code' => $code] = $request->validate([
-    'pending_token' => ['required', 'string'],
-    'code'          => ['required', 'string'],
-]);
-
-$sessions = Auth::sessions('api');
-$pending  = $sessions->pending($token);
-
-if ($pending === null) {
-    abort(401);
-}
-
-// The adapter answers with the proof it verified, bound to this pending
-// sign-in (`$pending->id`), or null.
-$proof = $factors->verify($pending, $code);
-
-if ($proof === null) {
-    // One guess per pending sign-in; another needs a new sign-in, which counts
-    // against the sign-in limits.
-    $sessions->discard($token);
-
-    abort(401);
-}
-
-$result = $sessions->complete($token, $proof);
-```
-
-`$proof` is the `Proofs\ProofResult` your factor's adapter verified: its kind (`additional_factor`, or `recovery_code`
-for the fallback), method, channel and factor, what was observed, the adapter's `Evaluation` (accepted, and whether it
-amounts to multifactor authentication), its `amr` values, when it was made, and its `ProofBinding` (the identity, the
-guard, `$pending->id` as the session and `Purpose::SIGN_IN`). The session records it beside its first factor, so the
-access token's `amr` carries its values, and `mfa` when its evaluation reports multifactor authentication. It is refused
-as `proof_invalid` when it is any other kind (a reauthentication, external or not, never counts as a further factor),
-made for another purpose, not accepted, made after now or before the pending sign-in's first factor, and as
-`proof_binding_mismatch` when it names another identity, guard or pending sign-in; either way the pending sign-in is
-used up, as any refused completion is. A completion without a proof stays a trusted assertion that the caller verified
-the factor, as before: the session then records only its first factor, so its `amr` and freshness never claim the
-factor. Satisfying a pending session's requirement with a proof replaces both forms when pending sessions arrive.
-
-Holding a sign-in for a factor is its outcome, so it is reported: `AdditionalFactorRequired` carries the guard,
-identity, principal, tenant, the session the client proved (if any), the method, the client and the expiry, never the
-token, and is dispatched once the pending sign-in is committed (after your transaction, and never if you roll it back).
-
-`discard()` uses a pending sign-in up without starting a session, whatever has changed about its identity since; call it
-when the factor fails, so each pending sign-in allows one guess. It returns whether the token named a live pending
-sign-in of this guard and, when it did, reports the failure of the sign-in that waited: Laravel's `Failed` and then
-`AuthenticationFailed` with `additional_factor_failed`, the method, the discarding request's client and the identity
-(when the guard's provider still returns it; no principal). A token that discards nothing reports nothing.
-
-`pending()` never uses the pending sign-in up, and returns `null` for any token that does not name a live one of this
-guard whose identity and principal still resolve as it recorded them. `complete()` uses it up whatever the outcome, with
-a delete only one completion can make, checks it again in the same transaction (the method still allowed, the identity,
-principal and tenant active, and the application policy admitting them with the identifier type the sign-in used; the
-factor policy is not asked again), and starts a new session, revoking the session the client proved it holds
-(`superseded`) when that is unchanged; the new session records the client the sign-in came from as its creation and the
-completing request's client as its last use. The events of a completion, `AuthenticationFailed` included, carry the
-completing request's client. A token that completes nothing fails as `pending_invalid`, without saying why.
-
-Pending sign-ins that were never completed expire; schedule their pruning with the rate limit counters' (see
-[Rate limits](configuration.md#rate-limits)).
-
-## Choosing a principal
-
-A sign-in (`signIn()` or `start()`) that names no principal, for an identity whose resolver has no default principal,
-waits for the identity to choose one when it may sign in as any: the result `requiresPrincipal()`, and its `choice` is a
-`PrincipalChoice` with a single-use `token`, the guard, the identity, the method, the expiry
-(`sign_in.pending_ttl_seconds`, as for a factor) and the `principals` it may choose from. Those are the identity's
-`principals()`, read on the write connection, that are active, act within an active tenant (or none), and are admitted
-by the application policy (for an identity that is its own principal, the resolver's default).
-`Auth::sessions('api')->principals($identity, $identifierType)` lists them the same way; a switch screen passes the
-type of identifier its session's sign-in used, `Auth::guard('api')->session()?->getSignInIdentifierType()`, so it lists
-only the targets the application policy lets that session switch to (without a type, the list ignores the identifier and
-may hold targets a switch refuses). An identity with none fails as
-`principal_unresolved`, as before. The choice itself, and every later look-up of it, is admitted with the identifier
-type the sign-in used, as a sign-in naming a principal would be, so a principal your application policy refuses to that
-identifier is neither offered nor listed, and a guard with `require_verified_identifier` offers no choice, and lists no
-principal, to an identity whose identifier is unverified: the sign-in fails as `identifier_unverified` with nothing
-stored or reported. `attempt()` never waits for a choice.
-
-The choice is stored like a pending factor, in `pending_sign_ins` with `purpose = principal_choice` and no principal,
-with the session the client proved it holds (whatever principal that session records) and the sign-in's attempt slots,
-which stay taken until a session starts. `PrincipalChoiceRequired` reports it once committed, with the identity, method,
-client and that session, never the token or the list.
-
-```php
-['choice_token' => $token, 'principal' => $id] = $request->validate([
-    'choice_token' => ['required', 'string'],
-    'principal'    => ['required', 'string'],
-]);
-
-$sessions = Auth::sessions('api');
-$choice   = $sessions->choice($token); // null: unknown, expired, used, or not this guard's
-
-$principal = collect($choice?->principals ?? [])
-    ->first(fn ($principal) => (string) $principal->getPrincipalIdentifier() === $id);
-
-if ($principal === null) {
-    abort(401);
-}
-
-$result = $sessions->choose($token, $principal);
-```
-
-`choice()` never uses the choice up. `choose()` uses it up whatever the outcome, with a delete only one call can make,
-then admits the chosen principal as any sign-in would: the method still allowed, the principal resolved through the
-resolver's hinted path as the very one named and the identity's own (`principal_mismatch`), active, in an active tenant,
-and admitted by the application policy with the identifier type the sign-in used. The additional-factor policy is then
-asked: a required factor turns the choice into a pending factor for the chosen principal, carrying the same attempt
-slots (complete it as above). Otherwise a new session starts, revoking the session the client proved (`superseded`) when
-that session records the chosen principal and is unchanged, and the slots are given back once committed. A token that
-continues no live choice of this guard fails as `pending_invalid`; `pending()` and `complete()` refuse choice tokens,
-and `choice()` and `choose()` refuse factor tokens. `discard()` takes either: a discarded choice reports
-`AuthenticationFailed` with `principal_choice_abandoned`.
+package or the application binds its own) is asked about the identity, after its first factor is verified and before
+any principal is chosen, with the guard, the identity, the method, the client and the session the client proved it
+holds, if any; it names no principal or tenant (a tenant that asks more does so through its tenant authentication
+policy). When it requires a further factor, the session is pending with `mfa` outstanding. It is asked again each time
+the pending session is acted on, and a stored accepted further factor or recovery code meets it. `attempt()`, which
+cannot wait, refuses such a sign-in as `additional_factor_required`.
 
 ## Enumeration resistance
 

@@ -30,12 +30,12 @@ final class RecordsSessionMilestonesTest extends TestCase
      */
     public function testReadsTheRecordedTimes(): void
     {
-        $session = (new StubUncastSession)->forceFill(['signed_in_at' => '2026-04-06 12:00:00', 'principal_switched_at' => '2026-04-06 12:05:00']);
-        $never   = (new StubUncastSession)->forceFill(['signed_in_at' => '2026-04-06 12:00:00', 'principal_switched_at' => null]);
+        $session = (new StubUncastSession)->forceFill(['signed_in_at' => '2026-04-06 12:00:00', 'switched_at' => '2026-04-06 12:05:00']);
+        $never   = (new StubUncastSession)->forceFill(['signed_in_at' => '2026-04-06 12:00:00', 'switched_at' => null]);
 
         self::assertSame('2026-04-06 12:00:00', $session->getSignedInAt()?->format('Y-m-d H:i:s'));
-        self::assertSame('2026-04-06 12:05:00', $session->getPrincipalSwitchedAt()?->format('Y-m-d H:i:s'));
-        self::assertNull($never->getPrincipalSwitchedAt());
+        self::assertSame('2026-04-06 12:05:00', $session->getSwitchedAt()?->format('Y-m-d H:i:s'));
+        self::assertNull($never->getSwitchedAt());
     }
 
     /**
@@ -61,9 +61,9 @@ final class RecordsSessionMilestonesTest extends TestCase
     public function testASwitchTimeThatWasNotLoadedIsReported(): void
     {
         $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage('getPrincipalSwitchedAtName()');
+        $this->expectExceptionMessage('getSwitchedAtName()');
 
-        (new StubSession)->getPrincipalSwitchedAt();
+        (new StubSession)->getSwitchedAt();
     }
 
     /**
@@ -77,6 +77,6 @@ final class RecordsSessionMilestonesTest extends TestCase
 
         self::assertSame('generation', $session->getGenerationName());
         self::assertSame('signed_in_at', $session->getSignedInAtName());
-        self::assertSame('principal_switched_at', $session->getPrincipalSwitchedAtName());
+        self::assertSame('switched_at', $session->getSwitchedAtName());
     }
 }

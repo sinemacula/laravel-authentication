@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Sessions;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Application;
@@ -19,10 +20,20 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Proofs\Channel;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Proofs\Evaluation;
+use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
+use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
+use SineMacula\Laravel\Authentication\Proofs\ProofResult;
+use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
+use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
+use SineMacula\Laravel\Authentication\Sessions\PendingSession;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
@@ -33,7 +44,7 @@ use Tests\TestCase;
 /**
  * Feature tests of the documented sign-in and further-factor routes, registered
  * as an application would and driven over HTTP: `Auth::sessions('api')` signs
- * in, a pending sign-in is looked up, discarded on a wrong code and completed
+ * in, a pending session is looked up, discarded on a wrong code and satisfied
  * on the right one, and the access tokens the routes return authenticate
  * through `auth:api`, against the shipped application policy and attempt
  * limiter.
@@ -67,7 +78,7 @@ final class SessionRoutesTest extends TestCase
         $this->createSessionTables();
 
         Route::post('/sign-in', self::signIn(...));
-        Route::post('/factor', self::completeWithAFactor(...));
+        Route::post('/factor', self::satisfyWithAFactor(...));
 
         Route::middleware('auth:api')->get('/me', static function (): array {
 
@@ -122,8 +133,8 @@ final class SessionRoutesTest extends TestCase
             'sign-in without a password'   => ['/sign-in', ['email' => 'ada@example.test'], 'password'],
             'sign-in with a list of email' => ['/sign-in', ['email' => ['ada@example.test'], 'password' => self::PASSWORD], 'email'],
             'sign-in with a list name'     => ['/sign-in', ['client_name' => ['Phone']] + self::credentials(), 'client_name'],
-            'factor without a token'       => ['/factor', ['code' => self::CODE], 'pending_token'],
-            'factor with a list of codes'  => ['/factor', ['pending_token' => 'x.y', 'code' => [self::CODE]], 'code'],
+            'factor without a credential'  => ['/factor', ['code' => self::CODE], 'pending_credential'],
+            'factor with a list of codes'  => ['/factor', ['pending_credential' => 'x.y', 'code' => [self::CODE]], 'code'],
         ];
     }
 
@@ -168,14 +179,16 @@ final class SessionRoutesTest extends TestCase
     }
 
     /**
-     * A sign-in that needs a further factor returns a pending token, which
-     * authenticates nothing; a wrong code discards it, so the right code on it
-     * then completes nothing; a new sign-in with the right code completes, and
-     * its access token authenticates.
+     * A sign-in that needs a further factor answers with its pending session's
+     * id, what it waits on and its pending credential, in the body, which
+     * authenticates nothing; a wrong code discards the session, so the right
+     * code on it then satisfies nothing; a new sign-in with the right code
+     * activates, keeping its id, and its access token authenticates; the
+     * consumed credential is spent.
      *
      * @return void
      */
-    public function testAFurtherFactorIsCompletedOrDiscardedThroughTheRoutes(): void
+    public function testAFurtherFactorIsSatisfiedOrDiscardedThroughTheRoutes(): void
     {
         $this->seedIdentity();
 
@@ -184,38 +197,46 @@ final class SessionRoutesTest extends TestCase
 
         app()->instance(AdditionalFactorPolicy::class, $factors);
 
-        $guessed = $this->send('/sign-in', self::credentials())->assertOk()->json('pending_token');
+        $first = $this->send('/sign-in', self::credentials())->assertOk()->assertJsonPath('status', 'pending')->assertJsonPath('requires', ['mfa']);
+
+        $guessed = $first->json('pending_credential');
+        $id      = $first->json('id');
 
         self::assertIsString($guessed);
+        self::assertIsString($id);
+        self::assertStringStartsWith($id . '.', $guessed);
 
         $this->bearer($guessed)->assertUnauthorized();
-        $this->send('/factor', ['pending_token' => $guessed, 'code' => '000000'])->assertUnauthorized();
+        $this->send('/factor', ['pending_credential' => $guessed, 'code' => '000000'])->assertUnauthorized();
 
-        self::assertSame(0, PendingSignIn::query()->count());
+        self::assertSame('signed_out', Session::query()->sole()->getRevokedReason());
 
-        $this->send('/factor', ['pending_token' => $guessed, 'code' => self::CODE])->assertUnauthorized();
+        $this->send('/factor', ['pending_credential' => $guessed, 'code' => self::CODE])->assertUnauthorized();
 
-        $pending = $this->send('/sign-in', self::credentials())->assertOk()->json('pending_token');
+        $second  = $this->send('/sign-in', self::credentials())->assertOk();
+        $pending = $second->json('pending_credential');
 
         self::assertIsString($pending);
 
-        $access = $this->send('/factor', ['pending_token' => $pending, 'code' => self::CODE])->assertOk()->json('access_token');
+        $active = $this->send('/factor', ['pending_credential' => $pending, 'code' => self::CODE])->assertOk();
+        $access = $active->json('access_token');
 
         self::assertIsString($access);
+        self::assertSame($second->json('id'), $active->json('id'));
 
         $this->bearer($access)->assertOk()->assertExactJson(['email' => 'ada@example.test']);
-        $this->send('/factor', ['pending_token' => $pending, 'code' => self::CODE])->assertUnauthorized();
+        $this->send('/factor', ['pending_credential' => $pending, 'code' => self::CODE])->assertUnauthorized();
     }
 
     /**
-     * A further factor completed while its slots cannot be given back still
+     * A further factor satisfied while its slots cannot be given back still
      * answers with a token pair whose access token authenticates: the counters'
      * error is reported, not thrown, since the session already stands, and the
      * slots stay counted.
      *
      * @return void
      */
-    public function testACompletionWhoseSlotsCannotBeGivenBackStillAnswersWithItsTokens(): void
+    public function testAnActivationWhoseSlotsCannotBeGivenBackStillAnswersWithItsTokens(): void
     {
         $this->seedIdentity();
 
@@ -224,7 +245,7 @@ final class SessionRoutesTest extends TestCase
 
         app()->instance(AdditionalFactorPolicy::class, $factors);
 
-        $pending = $this->send('/sign-in', self::credentials())->assertOk()->json('pending_token');
+        $pending = $this->send('/sign-in', self::credentials())->assertOk()->json('pending_credential');
 
         self::assertIsString($pending);
 
@@ -233,7 +254,7 @@ final class SessionRoutesTest extends TestCase
         Schema::rename('rate_limits', 'unreachable_rate_limits');
 
         try {
-            $access = $this->send('/factor', ['pending_token' => $pending, 'code' => self::CODE])->assertOk()->json('access_token');
+            $access = $this->send('/factor', ['pending_credential' => $pending, 'code' => self::CODE])->assertOk()->json('access_token');
         } finally {
             Schema::rename('unreachable_rate_limits', 'rate_limits');
         }
@@ -267,10 +288,11 @@ final class SessionRoutesTest extends TestCase
     /**
      * The documented sign-in route: validate, sign in through the session
      * service, answer a throttled sign-in 429 with the wait and any other
-     * failure 401, and hand out the pending token or the token pair.
+     * failure 401, and hand out the pending session's id, what it waits on and
+     * its pending credential, in the body, or the token pair.
      *
      * @param  \Illuminate\Http\Request  $request
-     * @return array<string, ?string>
+     * @return array<string, mixed>
      *
      * @throws \Illuminate\Http\Exceptions\ThrottleRequestsException
      */
@@ -304,8 +326,8 @@ final class SessionRoutesTest extends TestCase
             abort(401);
         }
 
-        if ($result->requiresFactor()) {
-            return ['pending_token' => $result->pending?->token];
+        if ($result->pending !== null) {
+            return self::pendingBody($result->pending, $result->credential);
         }
 
         return [
@@ -315,42 +337,74 @@ final class SessionRoutesTest extends TestCase
     }
 
     /**
-     * The documented further-factor route: validate, look the pending sign-in
-     * up, verify the code for its identity and principal, discard it on a wrong
-     * code, and complete it on the right one.
+     * The body a pending sign-in answers with: the session's id, what it waits
+     * on, and its pending credential.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\PendingSession  $pending
+     * @param  ?string  $credential
+     * @return array<string, mixed>
+     */
+    private static function pendingBody(PendingSession $pending, #[\SensitiveParameter] ?string $credential): array
+    {
+        return [
+            'status'             => 'pending',
+            'id'                 => $pending->id,
+            'requires'           => array_map(static fn (PendingRequirement $requirement): string => $requirement->value, $pending->requires),
+            'pending_credential' => $credential,
+        ];
+    }
+
+    /**
+     * The documented further-factor route, as an adapter for the factor package
+     * runs it: validate, check the pending credential allows verifying a
+     * factor, verify the code for the session's identity, discard the session
+     * on a wrong code, and on the right one hand the verification's proof,
+     * bound to the session, to `satisfy()`.
      *
      * @param  \Illuminate\Http\Request  $request
-     * @return array<string, ?string>
+     * @return array<string, mixed>
      *
      * @throws \Throwable
      */
-    private static function completeWithAFactor(Request $request): array
+    private static function satisfyWithAFactor(Request $request): array
     {
-        ['pending_token' => $token, 'code' => $code] = $request->validate([ // @phpstan-ignore staticMethod.dynamicCall
-            'pending_token' => ['required', 'string'],
-            'code'          => ['required', 'string'],
+        ['pending_credential' => $credential, 'code' => $code] = $request->validate([ // @phpstan-ignore staticMethod.dynamicCall
+            'pending_credential' => ['required', 'string'],
+            'code'               => ['required', 'string'],
         ]);
 
-        $verify   = static fn (Identity $identity, Principal $principal, string $code): bool => $code === self::CODE;
+        $verify   = static fn (Identity $identity, string $code): bool => $code === self::CODE;
         $sessions = Auth::sessions('api');
-        $pending  = $sessions->pending($token);
+        $pending  = $sessions->pending($credential, PendingAction::VERIFY);
 
         if ($pending === null) {
             abort(401);
         }
 
-        if (!$verify($pending->identity, $pending->principal, $code)) {
+        if (!$verify($pending->identity, $code)) {
 
-            $sessions->discard($token);
+            $sessions->discard($credential);
 
             abort(401);
         }
 
-        $result = $sessions->complete($token);
+        $proof = new ProofResult(
+            ProofKind::ADDITIONAL_FACTOR,
+            'totp',
+            new Channel(ChannelKind::AUTHENTICATOR_APP),
+            null,
+            new ObservedProperties,
+            new Evaluation(true, true),
+            ['otp'],
+            CarbonImmutable::now(),
+            new ProofBinding($pending->identity, 'api', $pending->id, Purpose::SIGN_IN),
+        );
 
-        abort_if($result->isFailed(), 401);
+        $result = $sessions->satisfy($credential, $proof);
 
-        return ['access_token' => $result->session?->tokens->accessToken];
+        abort_if(!$result->isSignedIn(), 401);
+
+        return ['id' => $result->session?->record->getSessionIdentifier(), 'access_token' => $result->session?->tokens->accessToken];
     }
 
     /**

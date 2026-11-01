@@ -66,7 +66,7 @@ final readonly class SignInRequest
      * limit among those guards, bounds the guesses at its secret. Call it
      * before each secret checked: a method that checks two takes two slots.
      * Every slot is the sign-in's: given back when it starts a session, kept by
-     * a pending sign-in until that completes, and left counted when it fails. A
+     * a pending session until it activates, and left counted when it fails. A
      * limit configured wrongly throws its `InvalidArgumentException` from here.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity

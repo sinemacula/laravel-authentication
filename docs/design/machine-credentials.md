@@ -10,7 +10,7 @@ authorisation package decides what they allow.
 
 - A non-human identity implements `MachineIdentity`. It has no password, no interactive sign-in, no session and no
   refresh: `PasswordSignIn` refuses it as `invalid_credentials` before any hash or account count; `SignInAdmission`
-  refuses it first, as `machine_identity`, for every method and for `start()`, `complete()` and `choose()`;
+  refuses it first, as `machine_identity`, for every method and for `start()`, `satisfy()` and `choose()`;
   `RefreshAdmission` refuses a session it owns (refresh and switch of principal); `BearerAuthentication` refuses a
   session token naming it; `JwtTokenService` issues it no session token (`LogicException`). It is never sent a one-time
   code, `Auth::codes()->sendVerification()` and `verify()` refuse it, and it can own no passkey

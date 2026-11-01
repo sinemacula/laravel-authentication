@@ -15,12 +15,9 @@ enum SignInStatus: string
     // A session started: the result carries the session and the token pair
     case SIGNED_IN = 'signed_in';
 
-    // A further factor is required: the result carries the pending sign-in
-    case FACTOR_REQUIRED = 'factor_required';
-
-    // The identity must choose the principal to act as: the result carries the
-    // choice
-    case PRINCIPAL_REQUIRED = 'principal_required';
+    // The session waits on requirements: the result carries the pending
+    // session, and its credential when the call issued one
+    case PENDING = 'pending';
 
     // The sign-in failed: the result carries the reason
     case FAILED = 'failed';

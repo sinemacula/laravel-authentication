@@ -190,7 +190,6 @@ final class MachineIdentitySignInTest extends TestCase
         self::assertSame(AuthenticationFlow::SIGN_IN, $failure->flow);
         self::assertTrue($machine->is($failure->context->identity));
         self::assertSame(0, DB::table('authentication_sessions')->count());
-        self::assertSame(0, DB::table('pending_sign_ins')->count());
     }
 
     /**

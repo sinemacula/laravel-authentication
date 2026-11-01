@@ -13,7 +13,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Session;
-use SineMacula\Laravel\Authentication\Sessions\PrincipalChoice;
+use SineMacula\Laravel\Authentication\Sessions\PendingSession;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
@@ -105,8 +105,10 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A sign-in held for a choice between two memberships reads the identity,
-     * its memberships and each one's tenant, and writes the six attempt-counter
-     * statements a password sign-in makes and the pending choice.
+     * its memberships and each one's tenant, and what an earlier session left
+     * under the pending session's key (two reads, which find nothing), and
+     * writes the six attempt-counter statements a password sign-in makes, the
+     * pending session and its first proof.
      *
      * @return void
      *
@@ -123,14 +125,14 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
         }
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(4, 7, static fn (): SignInResult => $sessions->signIn('password', self::credentials('chooser@example.test')));
+        $result   = $this->assertQueryBudget(6, 8, static fn (): SignInResult => $sessions->signIn('password', self::credentials('chooser@example.test')));
 
-        self::assertTrue($result->requiresPrincipal());
+        self::assertTrue($result->isPending());
     }
 
     /**
-     * Reading a choice reads the pending choice, its identity, the memberships
-     * and each one's tenant, and writes nothing.
+     * Reading a pending session waiting on a choice reads the session, its
+     * identity, the memberships and each one's tenant, and writes nothing.
      *
      * @return void
      *
@@ -141,17 +143,17 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
         $token = $this->offerChoice();
 
         $sessions = $this->sessions('choosers');
-        $choice   = $this->assertQueryBudget(5, 0, static fn (): ?PrincipalChoice => $sessions->choice($token));
+        $choice   = $this->assertQueryBudget(5, 0, static fn (): ?PendingSession => $sessions->pending($token));
 
         self::assertCount(2, $choice->principals ?? []);
     }
 
     /**
-     * Choosing reads the pending choice, its identity, the chosen membership,
-     * its owner and its tenant, uses the choice up, writes the session, reads
-     * the proofs and the provenance left under its key (none, so nothing is
-     * deleted), writes its first proof, reads the session's proofs, and gives
-     * each of the choice's three attempt slots back.
+     * Choosing locks and reads the pending session and its identity, reads the
+     * chosen membership, its owner and its tenant, activates the session with
+     * one update, reads its proofs, and gives each of the sign-in's three
+     * attempt slots back: the session and its first proof were written when the
+     * sign-in left it pending.
      *
      * @return void
      *
@@ -163,18 +165,16 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
         $chosen = ChoosingMembership::query()->firstOrFail();
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(8, 6, static fn (): SignInResult => $sessions->choose($token, $chosen));
+        $result   = $this->assertQueryBudget(7, 4, static fn (): SignInResult => $sessions->choose($token, $chosen));
 
         self::assertTrue($result->isSignedIn());
     }
 
     /**
      * Choosing the principal of the session the sign-in proved reads what a
-     * choice reads and the proven session again on the write connection, uses
-     * the choice up, revokes the proven session with one compare-and-swap,
-     * inserts the new session, reads what was left under its key (two reads,
-     * which find nothing), inserts its first proof, reads its proofs, and gives
-     * the three slots back.
+     * choice reads and the proven session again on the write connection, and
+     * revokes the proven session with one compare-and-swap before the
+     * activation's update.
      *
      * @return void
      *
@@ -189,12 +189,12 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
         self::assertNotNull($first);
 
         $context = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken);
-        $choice  = $this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'), $context)->choice;
+        $choice  = $this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'), $context)->credential;
 
         self::assertNotNull($choice);
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(9, 7, static fn (): SignInResult => $sessions->choose($choice->token, $chosen));
+        $result   = $this->assertQueryBudget(8, 5, static fn (): SignInResult => $sessions->choose($choice, $chosen));
 
         self::assertNotSame($first->record->getKey(), $result->session?->record->getKey());
         self::assertSame('superseded', Session::query()->whereKey($first->record->getKey())->value('revoked_reason'));
@@ -363,7 +363,7 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * Persist a chooser with two memberships, each in its own active tenant,
-     * sign it in, and return the choice token it is offered.
+     * sign it in, and return the pending credential its choice waits on.
      *
      * @return string
      *
@@ -379,11 +379,11 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
             ChoosingMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
         }
 
-        $choice = $this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'))->choice;
+        $choice = $this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'))->credential;
 
         self::assertNotNull($choice);
 
-        return $choice->token;
+        return $choice;
     }
 
     /**

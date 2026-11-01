@@ -6,6 +6,7 @@ namespace Tests\Unit\Stubs;
 
 use Carbon\CarbonInterface;
 use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 
 /**
  * Plain-object `Session` fixture used by the event serialisation round-trip
@@ -105,12 +106,67 @@ final readonly class PlainSessionFixture implements Session
     }
 
     /**
-     * Return when the session last switched its principal; it never did.
+     * Return whether the session is active or pending; it is active.
+     *
+     * @return \SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus
+     */
+    #[\Override]
+    public function getStatus(): SessionStatus
+    {
+        return SessionStatus::ACTIVE;
+    }
+
+    /**
+     * Return what the session waits on; nothing.
+     *
+     * @return list<\SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement>
+     */
+    #[\Override]
+    public function getRequires(): array
+    {
+        return [];
+    }
+
+    /**
+     * Return the pending credential digest; it holds none.
+     *
+     * @return ?string
+     */
+    #[\Override]
+    public function getPendingKey(): ?string
+    {
+        return null;
+    }
+
+    /**
+     * Return the active tenant id; it acts in none.
+     *
+     * @return ?string
+     */
+    #[\Override]
+    public function getTenantId(): ?string
+    {
+        return null;
+    }
+
+    /**
+     * Return the tenant policy version; none was checked.
+     *
+     * @return ?string
+     */
+    #[\Override]
+    public function getTenantPolicyVersion(): ?string
+    {
+        return null;
+    }
+
+    /**
+     * Return the floor its context changes set; it never changed.
      *
      * @return ?\Carbon\CarbonInterface
      */
     #[\Override]
-    public function getPrincipalSwitchedAt(): ?CarbonInterface
+    public function getSwitchedAt(): ?CarbonInterface
     {
         return null;
     }

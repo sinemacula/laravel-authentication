@@ -121,7 +121,7 @@ final class PrincipalSwitchTest extends TestCase
         $row = DB::table('authentication_sessions')->sole();
 
         self::assertSame((string) $first->getKey(), (string) $row->principal_id); // @phpstan-ignore cast.string
-        self::assertNull($row->principal_switched_at);
+        self::assertNull($row->switched_at);
         self::assertNull($row->revoked_at);
     }
 
@@ -147,7 +147,7 @@ final class PrincipalSwitchTest extends TestCase
 
         self::assertSame(FailureReason::SESSION_REVOKED, $this->switch($session, $second)->reason);
         self::assertSame('revoked', DB::table('authentication_sessions')->value('revoked_reason'));
-        self::assertNull(DB::table('authentication_sessions')->value('principal_switched_at'));
+        self::assertNull(DB::table('authentication_sessions')->value('switched_at'));
     }
 
     /**
@@ -479,7 +479,7 @@ final class PrincipalSwitchTest extends TestCase
         self::assertNotNull($row->revoked_at);
         self::assertNull($row->refresh_key);
         self::assertNull($row->previous_refresh_key);
-        self::assertNull($row->principal_switched_at);
+        self::assertNull($row->switched_at);
 
         $tokens = array_map(static function (?TokenPair $tokens): TokenPair {
 

@@ -28,6 +28,9 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
+use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
+use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
+use SineMacula\Laravel\Authentication\Sessions\PendingSessionDraft;
 use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -47,6 +50,7 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(SessionWriter::class)]
+#[CoversClass(PendingSessionDraft::class)]
 final class SessionWriterTest extends TestCase
 {
     use InteractsWithSessions;
@@ -277,7 +281,7 @@ final class SessionWriterTest extends TestCase
         self::assertSame('Writer/1.0', $record->last_used_user_agent);
         self::assertSame($later->getTimestamp(), $record->getSignedInAt()?->getTimestamp());
         self::assertSame($later->getTimestamp(), $record->getLastUsedAt()?->getTimestamp());
-        self::assertNull($record->getPrincipalSwitchedAt());
+        self::assertNull($record->getSwitchedAt());
         self::assertNull($record->getPreviousRefreshKey());
         self::assertSame($later->addMinutes(60)->getTimestamp(), $record->getIdleExpiresAt()?->getTimestamp());
         self::assertSame($later->addMinutes(120)->getTimestamp(), $record->getAbsoluteExpiresAt()?->getTimestamp());
@@ -832,6 +836,158 @@ final class SessionWriterTest extends TestCase
         }
 
         self::assertSame(0, Session::query()->count());
+    }
+
+    /**
+     * A pending session records what it waits on, the digest of its
+     * credential's secret and no refresh credential, the session the client
+     * proved and the digest it was proven against, and the slots its sign-in
+     * holds, as created and last used by the sign-in's client; its idle
+     * deadline is the credential's expiry; its first factor is recorded with
+     * it; and its credential is its key and the secret, which only the digest
+     * verifies.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testCreatePendingWritesAWaitingSessionAndItsCredential(): void
+    {
+        $identity = $this->seedIdentity();
+        $proven   = $this->writer()->create(
+            $this->admitted($identity),
+            'email',
+            $this->context(),
+            $this->lifetimes(),
+            $this->now,
+            $this->context()->client,
+            SignInProof::unattested('password', $this->now),
+        );
+        $windows = [['ip' => 'window'], ['identifier' => 'window']];
+
+        [$record, $credential] = $this->writer()->createPending(
+            new PendingSessionDraft($identity, $identity, null, [PendingRequirement::MFA], 'email', SignInProof::unattested('password', $this->now), $proven->record, $windows),
+            $this->context('Laptop', 'macOS'),
+            $this->lifetimes(),
+            $this->now,
+            300,
+        );
+
+        [$key, $secret] = explode('.', $credential, 2);
+
+        self::assertSame(IdentifierCoercion::stringify($record->getKey()), $key);
+
+        $row = Session::query()->whereKey($record->getKey())->firstOrFail();
+
+        self::assertSame(SessionStatus::PENDING, $row->getStatus());
+        self::assertSame([PendingRequirement::MFA], $row->getRequires());
+        self::assertTrue(RefreshTokenHasher::verify($secret, (string) $row->getPendingKey()));
+        self::assertNull($row->getRefreshKey());
+        self::assertNull($row->getPreviousRefreshKey());
+        self::assertSame($proven->record->getKey(), $row->supersedes_session_id);
+        self::assertSame($proven->record->getRefreshKey(), $row->supersedes_refresh_key);
+        self::assertSame($windows, $row->attempt_windows);
+        self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $row->principal_id);
+        self::assertNull($row->getTenantId());
+        self::assertSame('Laptop', $row->client_name);
+        self::assertSame('192.0.2.1', $row->created_ip);
+        self::assertSame('192.0.2.1', $row->last_used_ip);
+        self::assertSame($this->now->getTimestamp(), $row->getSignedInAt()?->getTimestamp());
+        self::assertSame($this->now->addMinutes(5)->getTimestamp(), $row->getIdleExpiresAt()?->getTimestamp());
+        self::assertSame($this->now->addMinutes(120)->getTimestamp(), $row->getAbsoluteExpiresAt()?->getTimestamp());
+        self::assertSame(1, DB::table('authentication_proofs')->where('session_id', $key)->count());
+    }
+
+    /**
+     * A pending session waiting on a choice records no principal, and one whose
+     * absolute deadline comes before its credential's expiry idles out at the
+     * absolute deadline; a sign-in that proved nothing and holds no slots
+     * records none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testCreatePendingNeverOutlivesTheAbsoluteDeadline(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$record] = $this->writer()->createPending(
+            new PendingSessionDraft($identity, null, null, [PendingRequirement::PRINCIPAL], null, SignInProof::unattested('sso', $this->now), null, null),
+            $this->context()->withNotAfter($this->now->addMinute()),
+            $this->lifetimes(),
+            $this->now,
+            300,
+        );
+
+        $row = Session::query()->whereKey($record->getKey())->firstOrFail();
+
+        self::assertNull($row->principal_type);
+        self::assertNull($row->principal_id);
+        self::assertSame([PendingRequirement::PRINCIPAL], $row->getRequires());
+        self::assertNull($row->supersedes_session_id);
+        self::assertNull($row->supersedes_refresh_key);
+        self::assertNull($row->attempt_windows);
+        self::assertSame($this->now->addMinute()->getTimestamp(), $row->getAbsoluteExpiresAt()?->getTimestamp());
+        self::assertSame($this->now->addMinute()->getTimestamp(), $row->getIdleExpiresAt()?->getTimestamp());
+    }
+
+    /**
+     * A pending session is refused a deadline that is not after its start, as
+     * an active one is, and nothing is written.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testCreatePendingRefusesADeadlineThatIsNotAfterTheStart(): void
+    {
+        $identity = $this->seedIdentity();
+        $context  = $this->context()->withNotAfter($this->now);
+
+        try {
+            $this->writer()->createPending(
+                new PendingSessionDraft($identity, $identity, null, [PendingRequirement::MFA], 'email', SignInProof::unattested('password', $this->now), null, null),
+                $context,
+                $this->lifetimes(),
+                $this->now,
+                300,
+            );
+
+            self::fail('Expected the writer to refuse the deadline.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertSame('Cannot start a session whose deadline is not after its start.', $exception->getMessage());
+        }
+
+        self::assertSame(0, Session::query()->count());
+    }
+
+    /**
+     * Every active session the writer creates records that it is active and
+     * waits on nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testCreateRecordsAnActiveSession(): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->writer()->create(
+            $this->admitted($identity),
+            'email',
+            $this->context(),
+            $this->lifetimes(),
+            $this->now,
+            $this->context()->client,
+            SignInProof::unattested('password', $this->now),
+        );
+        $row = Session::query()->whereKey($session->record->getKey())->firstOrFail();
+
+        self::assertSame(SessionStatus::ACTIVE, $row->getStatus());
+        self::assertSame([], $row->getRequires());
+        self::assertNull($row->getPendingKey());
+        self::assertNull($row->getTenantId());
     }
 
     /**

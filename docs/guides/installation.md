@@ -4,7 +4,7 @@
 composer require sinemacula/laravel-authentication
 ```
 
-Publish the config and the migrations (the `authentication_sessions`, `pending_sign_ins`, `rate_limits`,
+Publish the config and the migrations (the `authentication_sessions`, `rate_limits`,
 `one_time_codes`, `passkeys`, `passkey_challenges`, `api_keys` and `identifier_changes` tables, created on the storage
 connection: the default connection unless `authentication.storage.connection` names another, see
 [Storage](configuration.md#storage)), then migrate:
@@ -17,7 +17,7 @@ php artisan migrate
 
 Each migration refuses to run over an existing table of the same name, before changing anything, with a
 `TableAlreadyExistsException` that names the configuration key renaming its table (`session.table`,
-`sign_in.pending_table`, `rate_limits.table`, `codes.table`, `passkeys.table`, `passkeys.challenges_table`,
+`rate_limits.table`, `codes.table`, `passkeys.table`, `passkeys.challenges_table`,
 `api_keys.table`, `identifier_changes.table`).
 
 Generate a random JWT signing key into `.env`:
@@ -154,5 +154,5 @@ seconds, so a token issued in the cutoff's own second is rejected too. Tokens th
 Bearer requests need none of the package's tables. A guard that signs in with `attempt()` lists `password` in its
 `application.methods` (see [Applications](configuration.md#applications)) and counts its attempts in the `rate_limits`
 table (see [Rate limits](configuration.md#rate-limits)), so publish and run the migrations for it, or set the guard's
-`rate_limits.sign_in` to `null`; the `authentication_sessions` and `pending_sign_ins` tables then stay empty. See
+`rate_limits.sign_in` to `null`; the `authentication_sessions` table then stays empty. See
 `docs/design/access-only-mode.md`.

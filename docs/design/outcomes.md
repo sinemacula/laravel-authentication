@@ -15,7 +15,7 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
   invalid argument from application code (`InvalidArgumentException`, `LogicException`, such as a machine identity given
   to a passkey ceremony or an unknown sign-in method) or a server error, which propagates.
 - **`null` never means success and never means a refusal.** A nullable return means there is nothing to act on: a lookup
-  that found nothing (`sessions()->pending()`, `choice()`, `apiKeys()->find()`, `identifierChanges()->pending()`),
+  that found nothing (`sessions()->pending()`, `apiKeys()->find()`, `identifierChanges()->pending()`),
   `apiKeys()->rotate()` when the principal has no rotatable key by that id (unknown, revoked, expired or already
   rotated, so nothing changed), or a call that reads a credential from the request when the request carries none
   (`refreshFromRequest()`, `switchPrincipalFromRequest()`), in which case nothing was dispatched.

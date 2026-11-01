@@ -20,8 +20,11 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Models\SessionProof;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use Tests\Concerns\InteractsWithPasskeys;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Concerns\InteractsWithSessions;
@@ -33,9 +36,9 @@ use Tests\TestCase;
  * End-to-end tests of the package on a storage connection other than the
  * default, with the counters on a connection of their own and the identities on
  * the default one: a session, its refresh, a passkey, a one-time code and a
- * pending sign-in are read and written where the shipped migrations created
- * their tables; a failure while a pending sign-in starts its session rolls the
- * whole completion back there; a rollback there leaves the counters counted;
+ * pending session are read and written where the shipped migrations created
+ * their tables; a failure while a pending session activates rolls the whole
+ * activation back there; a rollback there leaves the counters counted;
  * and a session loads an owner that names its connection from that connection.
  *
  * Each connection is a second connection to the test database with a table
@@ -50,7 +53,7 @@ use Tests\TestCase;
 #[CoversClass(StorageConnection::class)]
 final class StorageConnectionSessionsTest extends TestCase
 {
-    use InteractsWithPasskeys, InteractsWithRateLimits, InteractsWithSessionRecords, InteractsWithSessions;
+    use InteractsWithPasskeys, InteractsWithProofs, InteractsWithRateLimits, InteractsWithSessionRecords, InteractsWithSessions;
 
     /** @var string The connection the package's tables live on. */
     private const string STORAGE = 'package_store';
@@ -156,44 +159,48 @@ final class StorageConnectionSessionsTest extends TestCase
     }
 
     /**
-     * A pending sign-in waits on the storage connection; a failure while its
-     * completion writes the session rolls the completion back there, so the
-     * pending sign-in can still be completed, once.
+     * A pending session waits on the storage connection; a failure while
+     * `satisfy()` writes there rolls it back, the proof with it, so the session
+     * stays pending and can still be satisfied, once.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAFailedSessionWriteKeepsThePendingSignIn(): void
+    public function testAFailedWriteKeepsTheSessionPending(): void
     {
-        $this->seedIdentity();
+        $identity = $this->seedIdentity();
+
         $this->requireAFurtherFactor();
 
-        $pending = $this->sessions()->signIn('password', self::credentials())->pending;
+        $result = $this->sessions()->signIn('password', self::credentials());
 
-        self::assertNotNull($pending);
-        self::assertSame(1, DB::connection(self::STORAGE)->table('pending_sign_ins')->count());
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
+        self::assertSame(1, $this->records()->where('status', 'pending')->count());
 
-        Session::creating(static function (): never {
-            throw new \RuntimeException('The session could not be written.');
+        $proof = self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN);
+
+        SessionProof::creating(static function (): never {
+            throw new \RuntimeException('The proof could not be written.');
         });
 
         try {
-            $this->sessions()->complete($pending->token);
+            $this->sessions()->satisfy($result->credential, $proof);
 
-            self::fail('Expected the session write to fail.');
+            self::fail('Expected the proof write to fail.');
         } catch (\RuntimeException $exception) {
-            self::assertSame('The session could not be written.', $exception->getMessage());
+            self::assertSame('The proof could not be written.', $exception->getMessage());
         }
 
-        self::assertSame(1, DB::connection(self::STORAGE)->table('pending_sign_ins')->count());
-        self::assertSame(0, $this->records()->count());
+        self::assertSame(1, $this->records()->where('status', 'pending')->count());
+        self::assertSame(1, DB::connection(self::STORAGE)->table('authentication_proofs')->count());
 
-        Session::flushEventListeners();
+        SessionProof::flushEventListeners();
 
-        self::assertTrue($this->sessions()->complete($pending->token)->isSignedIn());
-        self::assertSame(0, DB::connection(self::STORAGE)->table('pending_sign_ins')->count());
-        self::assertSame(1, $this->records()->count());
+        self::assertTrue($this->sessions()->satisfy($result->credential, $proof)->isSignedIn());
+        self::assertSame(1, $this->records()->where('status', 'active')->count());
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($result->credential, $proof)->reason);
     }
 
     /**

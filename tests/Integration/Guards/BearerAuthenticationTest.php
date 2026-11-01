@@ -257,7 +257,7 @@ final class BearerAuthenticationTest extends TestCase
             return null;
         }, FailureReason::SESSION_REVOKED];
         yield 'a principal switch after the token was issued' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
-            Session::query()->whereKey($session->record->getKey())->update(['principal_switched_at' => Carbon::now()->addSecond()]);
+            Session::query()->whereKey($session->record->getKey())->update(['switched_at' => Carbon::now()->addSecond()]);
 
             return null;
         }, FailureReason::SESSION_PRINCIPAL_MISMATCH];
@@ -359,13 +359,13 @@ final class BearerAuthenticationTest extends TestCase
 
         $this->moveClocksTo(Carbon::now()->addMinute());
 
-        Session::query()->whereKey($sessionId)->update(['principal_type' => 'membership', 'principal_id' => 'another-principal', 'principal_switched_at' => Carbon::now()]);
+        Session::query()->whereKey($sessionId)->update(['principal_type' => 'membership', 'principal_id' => 'another-principal', 'switched_at' => Carbon::now()]);
 
         $this->bearer($earlier)->assertUnauthorized();
 
         $this->moveClocksTo(Carbon::now()->addMinute());
 
-        Session::query()->whereKey($sessionId)->update([...$recorded, 'principal_switched_at' => Carbon::now()]);
+        Session::query()->whereKey($sessionId)->update([...$recorded, 'switched_at' => Carbon::now()]);
 
         $this->recordEvents([AuthenticationFailed::class]);
 

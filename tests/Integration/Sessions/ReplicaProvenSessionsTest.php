@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -17,12 +18,15 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Sessions\PendingSessions;
 use SineMacula\Laravel\Authentication\Sessions\ProvenSessions;
+use SineMacula\Laravel\Authentication\Sessions\SessionActivation;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Concerns\InteractsWithLaggingReplica;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Integration\Fixtures\RevocationLogIdentity;
 use Tests\Integration\Fixtures\RevocationLogSession;
 use Tests\TestCase;
@@ -40,10 +44,11 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(ProvenSessions::class)]
-#[CoversClass(PendingSignIns::class)]
+#[CoversClass(PendingSessions::class)]
+#[CoversClass(SessionActivation::class)]
 final class ReplicaProvenSessionsTest extends TestCase
 {
-    use InteractsWithLaggingReplica;
+    use InteractsWithLaggingReplica, InteractsWithProofs;
 
     /** @var string Guard the sessions are signed in on. */
     private const string GUARD = 'revocation_log';
@@ -139,7 +144,8 @@ final class ReplicaProvenSessionsTest extends TestCase
     /**
      * A sign-in held for a further factor while its proven session was live
      * does not replace that session once the primary has recorded it as
-     * revoked: completing it starts a new session.
+     * revoked: satisfying it activates the new session, which supersedes
+     * nothing.
      *
      * @return void
      *
@@ -163,14 +169,17 @@ final class ReplicaProvenSessionsTest extends TestCase
             }
         });
 
-        $pending = $this->signIn($first->tokens->refreshToken)->pending;
+        $waiting = $this->signIn($first->tokens->refreshToken);
+        $pending = $waiting->pending;
 
         self::assertNotNull($pending);
-        self::assertSame($first->record->getSessionIdentifier(), $pending->provenSession?->getSessionIdentifier());
+        self::assertNotNull($waiting->credential);
+        self::assertSame($first->record->getSessionIdentifier(), $pending->session instanceof Model ? $pending->session->getAttribute('supersedes_session_id') : null);
 
         $this->revokeOnThePrimary($first);
 
-        $completed = $this->signedIn(Auth::sessions($this->guard()->getName())->complete($pending->token));
+        $proof     = self::adapterProof($first->identity, $this->guard()->getName(), $pending->id, Purpose::SIGN_IN);
+        $completed = $this->signedIn(Auth::sessions($this->guard()->getName())->satisfy($waiting->credential, $proof));
 
         self::assertNotSame($first->record->getSessionIdentifier(), $completed->record->getSessionIdentifier());
         self::assertNull(DB::connection(self::PRIMARY_CONNECTION)->table('authentication_sessions')->where('id', $first->record->getSessionIdentifier())->value('revoked_reason'));

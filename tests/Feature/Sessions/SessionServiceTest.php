@@ -25,7 +25,6 @@ use Illuminate\Support\Timebox;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
-use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
@@ -33,12 +32,12 @@ use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
-use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Events\SessionCreated;
+use SineMacula\Laravel\Authentication\Events\SessionPending;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
@@ -46,19 +45,19 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
-use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
-use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
+use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
-use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
-use SineMacula\Laravel\Authentication\Sessions\PrincipalChoices;
+use SineMacula\Laravel\Authentication\Sessions\PendingSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -67,6 +66,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
 use Tests\Fixtures\Sessions\RefusalIgnoringSignIn;
@@ -89,11 +89,11 @@ use Tests\TestCase;
  */
 #[CoversClass(SessionService::class)]
 #[CoversClass(SessionEstablishment::class)]
-#[CoversClass(PrincipalChoices::class)]
+#[CoversClass(PendingSessions::class)]
 #[CoversClass(SignInResult::class)]
 final class SessionServiceTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithProofs, InteractsWithSessions;
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -292,9 +292,10 @@ final class SessionServiceTest extends TestCase
 
     /**
      * The credential timebox is cut short only for a sign-in whose method
-     * verified the input and that was admitted: a wrong password waits it out.
-     * What follows admission (here a required factor) runs after the timebox,
-     * once the input is known to be right.
+     * verified the input and whose identity was admitted: a wrong password
+     * waits it out. What follows the identity's admission (here a required
+     * factor, which leaves the session pending) runs after the timebox, once
+     * the input is known to be right.
      *
      * @return void
      *
@@ -343,7 +344,7 @@ final class SessionServiceTest extends TestCase
         $factors = $this->bindMock(AdditionalFactorPolicy::class);
         $factors->shouldReceive('requiresAdditionalFactor')->andReturnTrue();
 
-        self::assertTrue($this->sessions()->signIn('password', self::credentials())->requiresFactor());
+        self::assertTrue($this->sessions()->signIn('password', self::credentials())->isPending());
         self::assertSame([true, false, true], $early->getArrayCopy());
     }
 
@@ -509,8 +510,10 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A membership acting within an inactive tenant fails, and the failure
-     * reports the membership it resolved.
+     * A member whose only membership acts within an inactive tenant has no
+     * principal left once its password is verified: the sign-in fails with the
+     * reason that membership was left out for, naming the member and no
+     * principal, since none was selected.
      *
      * @return void
      *
@@ -520,45 +523,14 @@ final class SessionServiceTest extends TestCase
     {
         $tenant = ActivatableTenant::query()->create(['name' => 'Closed', 'is_active' => false]);
 
-        [, $membership] = $this->seedMember(tenant: $tenant);
+        [$member] = $this->seedMember(tenant: $tenant);
 
         $this->recordEvents([AuthenticationFailed::class]);
 
         $this->assertSignInFails(FailureReason::TENANT_INACTIVE, $this->sessions('members')->signIn('password', self::credentials('member@example.test')));
-        self::assertSameModel($membership, $this->recordedEvent(AuthenticationFailed::class)->context->principal);
-    }
-
-    /**
-     * The application policy admits the identity as the principal for the
-     * method's identifier type; its refusal fails the sign-in with its reason
-     * and the whole context, tenant included.
-     *
-     * @return void
-     *
-     * @throws \Throwable
-     */
-    public function testTheApplicationPolicysRefusalFailsTheSignIn(): void
-    {
-        [$member, $membership, $tenant] = $this->seedMember();
-
-        $policy = $this->policy();
-        $policy->shouldReceive('admit')
-            ->once()
-            ->with('members', \Mockery::on(static fn (Identity $identity): bool => $identity->getAuthIdentifier() === $member->getKey()), \Mockery::any(), 'email')
-            ->andReturn(FailureReason::PRINCIPAL_INELIGIBLE);
-
-        $this->recordEvents([Failed::class, AuthenticationFailed::class]);
-
-        $this->assertSignInFails(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions('members')->signIn('password', self::credentials('member@example.test')));
-
-        $failed = $this->recordedEvent(AuthenticationFailed::class);
-
-        self::assertSameModel($member, $failed->context->identity);
-        self::assertSameModel($membership, $failed->context->principal);
-        self::assertSameModel($tenant, $failed->context->tenant);
-        self::assertSame('password', $failed->context->method);
-        self::assertSame('member@example.test', $failed->identifier);
-        self::assertSame($failed->context->identity, $this->recordedEvent(Failed::class)->user);
+        self::assertSameModel($member, $this->recordedEvent(AuthenticationFailed::class)->context->identity);
+        self::assertNull($this->recordedEvent(AuthenticationFailed::class)->context->principal);
+        self::assertSame(0, Session::query()->count());
     }
 
     /**
@@ -622,7 +594,7 @@ final class SessionServiceTest extends TestCase
         $manager->forgetDrivers();
         $manager->extend('trusted', fn (): SignInMethod => new RefusalIgnoringSignIn);
 
-        $this->recordEvents([AuthenticationFailed::class, SignedIn::class, AdditionalFactorRequired::class]);
+        $this->recordEvents([AuthenticationFailed::class, SignedIn::class, SessionPending::class]);
 
         $result = $this->sessions()->signIn('trusted', self::credentials());
 
@@ -630,15 +602,17 @@ final class SessionServiceTest extends TestCase
         self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
         self::assertSame(FailureReason::ACCOUNT_RATE_LIMITED, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertSame(90, $this->recordedEvent(AuthenticationFailed::class)->retryAfter);
-        self::assertSame(0, PendingSignIn::query()->count());
+        self::assertSame(0, Session::query()->count());
     }
 
     /**
-     * The additional-factor policy is asked about every admitted sign-in, with
-     * the client's description and no proven session; a sign-in it asks a
-     * factor of starts no session: it hands out a pending sign-in for the
-     * identity and principal, which does not fail the sign-in and keeps every
-     * slot the sign-in took, the account's included, recording their windows.
+     * The additional-factor policy is asked about every admitted sign-in, about
+     * the identity alone (no principal or tenant), with the client's
+     * description and no proven session; a sign-in it asks a factor of issues
+     * no token: its session is pending, waiting on `mfa`, for the identity and
+     * its principal, which does not fail the sign-in and keeps every slot the
+     * sign-in took, the account's included, recording their windows on the
+     * session.
      *
      * @return void
      *
@@ -670,26 +644,30 @@ final class SessionServiceTest extends TestCase
         $context = SignInContext::fromRequest(app('request'), 'Phone', 'iOS');
         $result  = self::sessionsOf($guard)->signIn('password', self::credentials(), $context);
 
-        self::assertTrue($result->requiresFactor());
+        self::assertTrue($result->isPending());
         self::assertFalse($result->isSignedIn());
         self::assertFalse($result->isFailed());
-        self::assertSame(SignInStatus::FACTOR_REQUIRED, $result->status);
+        self::assertSame(SignInStatus::PENDING, $result->status);
         self::assertNull($result->session);
         self::assertNull($result->reason);
         self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
         self::assertSameModel($identity, $result->pending->identity);
+        self::assertSameModel($identity, $result->pending->principal);
+        self::assertSame([PendingRequirement::MFA], $result->pending->requires);
         self::assertSame('password', $result->pending->method);
         self::assertSame('api', $result->pending->guard);
-        self::assertSame([['sign-in' => '2026-04-06 12:05:00'], ['account' => '2026-04-06 12:05:00']], PendingSignIn::query()->sole()->attempt_windows);
-        self::assertSame(0, Session::query()->count());
+
+        $pending = Session::query()->sole();
+
+        self::assertSame(SessionStatus::PENDING, $pending->getStatus());
+        self::assertSame([['sign-in' => '2026-04-06 12:05:00'], ['account' => '2026-04-06 12:05:00']], $pending->attempt_windows);
         self::assertSame([], $this->recordedClasses());
         self::assertFalse($guard->hasUser());
 
         self::assertInstanceOf(AdditionalFactorContext::class, $asked);
         self::assertSame('api', $asked->guard);
         self::assertSameModel($identity, $asked->identity);
-        self::assertSame($asked->identity, $asked->principal);
-        self::assertNull($asked->tenant);
         self::assertSame('password', $asked->method);
         self::assertSame($context->client, $asked->client);
         self::assertSame('Phone', $asked->clientName);
@@ -698,11 +676,11 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A sign-in acting within a tenant carries that tenant on: the factor
-     * policy is told of it, and so are `SessionCreated` and `SignedIn` when the
-     * session starts (the first sign-in), and the pending sign-in and
-     * `AdditionalFactorRequired` when a further factor is required (the
-     * second).
+     * A sign-in acting within a tenant carries that tenant on, though the
+     * identity-level factor policy is not told of it: `SessionCreated` and
+     * `SignedIn` carry it when the session starts (the first sign-in), and the
+     * pending session, its record and `SessionPending` when a further factor is
+     * required (the second).
      *
      * @return void
      *
@@ -716,12 +694,12 @@ final class SessionServiceTest extends TestCase
 
         $factors = $this->bindMock(AdditionalFactorPolicy::class);
         $factors->shouldReceive('requiresAdditionalFactor')->twice()->andReturnUsing(static function (AdditionalFactorContext $context) use (&$asked): bool {
-            $asked[] = $context->tenant;
+            $asked[] = $context->identity;
 
             return count($asked) === 2;
         });
 
-        $this->recordEvents([SessionCreated::class, SignedIn::class, AdditionalFactorRequired::class]);
+        $this->recordEvents([SessionCreated::class, SignedIn::class, SessionPending::class]);
 
         $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
 
@@ -734,10 +712,9 @@ final class SessionServiceTest extends TestCase
 
         self::assertNotNull($pending);
         self::assertSameModel($tenant, $pending->tenant);
-        self::assertSameModel($tenant, $this->recordedEvent(AdditionalFactorRequired::class)->context->tenant);
+        self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $pending->session->getTenantId());
+        self::assertSameModel($tenant, $this->recordedEvent(SessionPending::class)->context->tenant);
         self::assertCount(2, $asked);
-        self::assertSameModel($tenant, $asked[0]);
-        self::assertSameModel($tenant, $asked[1]);
     }
 
     /**
@@ -873,7 +850,7 @@ final class SessionServiceTest extends TestCase
     /**
      * `start()` refuses an identity the guard's provider does not return as
      * that very identity and a method the guard does not allow, and hands out a
-     * pending sign-in when the factor policy asks a factor of it, so a sign-in
+     * pending session when the factor policy asks a factor of it, so a sign-in
      * verified elsewhere cannot skip the factor.
      *
      * @return void
@@ -903,9 +880,9 @@ final class SessionServiceTest extends TestCase
 
         $pending = $this->sessions()->start($identity, null, 'otp');
 
-        self::assertTrue($pending->requiresFactor());
+        self::assertTrue($pending->isPending());
         self::assertSame('otp', $pending->pending?->method);
-        self::assertSame(0, Session::query()->count());
+        self::assertSame(0, Session::query()->where('status', 'active')->count());
     }
 
     /**
@@ -1031,67 +1008,28 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Completing a pending sign-in of an identity that does not own sessions
-     * fails the same way before anything is written, so the pending sign-in is
-     * not used up.
+     * Whatever limiter is bound, one that throws when a pending session's first
+     * activation gives its sign-in's slots back has its error reported, not
+     * thrown: `satisfy()` returns the activated session, the guard is bound,
+     * and the slots after the one that failed are not given back either.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testCompleteRefusesAnIdentityWithoutSessionsAndKeepsThePendingSignIn(): void
-    {
-        $identity = $this->seedIdentityWithoutSessions();
-        $pending  = (new PendingSignIns(app(ConfigRepository::class)))->issue(
-            'plain',
-            new Admitted($identity, $identity, null),
-            'password',
-            'email',
-            new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT)),
-            SignInProof::unattested('password', CarbonImmutable::now()->startOfSecond()),
-            CarbonImmutable::now()->startOfSecond(),
-        );
-
-        $this->expectRefusalOfIdentitiesWithoutSessions();
-
-        try {
-            $this->sessions('plain')->complete($pending->token);
-        } finally {
-            self::assertSame(1, PendingSignIn::query()->count());
-            self::assertSame(0, Session::query()->count());
-        }
-    }
-
-    /**
-     * Whatever limiter is bound, one that throws when a completed sign-in gives
-     * its slots back has its error reported, not thrown: the completion returns
-     * its session, the guard is bound, and the slots after the one that failed
-     * are not given back either.
-     *
-     * @return void
-     *
-     * @throws \Throwable
-     */
-    public function testCompleteReportsALimiterThatCannotGiveTheSlotsBack(): void
+    public function testAnActivationReportsALimiterThatCannotGiveTheSlotsBack(): void
     {
         $identity = $this->seedIdentity();
-        $pending  = (new PendingSignIns(app(ConfigRepository::class)))->issue(
-            'api',
-            new Admitted($identity, $identity, null),
-            'password',
-            'email',
-            new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT)),
-            SignInProof::unattested('password', CarbonImmutable::now()->startOfSecond()),
-            CarbonImmutable::now()->startOfSecond(),
-            [['identifier' => 'window'], ['account' => 'window']],
-        );
 
         $failure    = new \RuntimeException('The counters are unreachable.');
         $exceptions = Exceptions::fake([\RuntimeException::class]);
         $limiter    = $this->bindMock(AttemptLimiter::class);
+        $limiter->shouldReceive('acquire')->andReturnUsing(static fn (AttemptSubject $subject): AttemptReservation => new AttemptReservation($subject, null, ['slot' => 'window']));
         $limiter->shouldReceive('release')->once()->andThrow($failure);
 
-        $result = Auth::sessions('api')->complete($pending->token);
+        [$credential, $proof] = $this->pendingWithProof($identity);
+
+        $result = Auth::sessions('api')->satisfy($credential, $proof);
 
         self::assertTrue($result->isSignedIn());
         self::assertSame($identity->getKey(), Auth::guard('api')->id());
@@ -1165,29 +1103,21 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A completion whose bind listener throws is reported, and still gives the
+     * An activation whose bind listener throws is reported, and still gives the
      * slots its sign-in took back: both were scheduled before the bind.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testACompletionWhoseBindListenerThrowsIsStillReportedAndGivesItsSlotsBack(): void
+    public function testAnActivationWhoseBindListenerThrowsIsStillReportedAndGivesItsSlotsBack(): void
     {
         $identity = $this->seedIdentity();
-        $pending  = (new PendingSignIns(app(ConfigRepository::class)))->issue(
-            'api',
-            new Admitted($identity, $identity, null),
-            'password',
-            'email',
-            new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT)),
-            SignInProof::unattested('password', CarbonImmutable::now()->startOfSecond()),
-            CarbonImmutable::now()->startOfSecond(),
-            [['identifier' => 'window'], ['account' => 'window']],
-        );
+        $limiter  = new RecordingAttemptLimiter;
 
-        $limiter = $this->bindMock(AttemptLimiter::class);
-        $limiter->shouldReceive('release')->twice();
+        app()->instance(AttemptLimiter::class, $limiter);
+
+        [$credential, $proof] = $this->pendingWithProof($identity);
 
         $this->recordEvents([SessionCreated::class, SignedIn::class]);
 
@@ -1195,39 +1125,31 @@ final class SessionServiceTest extends TestCase
             throw new \RuntimeException('listener failed');
         });
 
-        self::assertSame('listener failed', self::failureOf(fn (): SignInResult => $this->sessions()->complete($pending->token)));
+        self::assertSame('listener failed', self::failureOf(fn (): SignInResult => $this->sessions()->satisfy($credential, $proof)));
         self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
-        self::assertSame(0, PendingSignIn::query()->count());
+        self::assertCount(count($limiter->reservations), $limiter->released);
+        self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
     }
 
     /**
-     * Inside a caller's transaction, a completion whose bind listener throws
+     * Inside a caller's transaction, an activation whose bind listener throws
      * reports the session and gives its sign-in's slots back only once the
-     * caller commits. A rollback withdraws both with the session and restores
-     * the pending sign-in, which can then be completed again; the slots are
-     * given back once, for the completion that committed.
+     * caller commits. A rollback withdraws both with the activation and leaves
+     * the session pending, so its credential can satisfy it again; the slots
+     * are given back once, for the activation that committed.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testACompletionWhoseBindListenerThrowsFollowsTheCallersTransaction(): void
+    public function testAnActivationWhoseBindListenerThrowsFollowsTheCallersTransaction(): void
     {
         $identity = $this->seedIdentity();
-        $pending  = (new PendingSignIns(app(ConfigRepository::class)))->issue(
-            'api',
-            new Admitted($identity, $identity, null),
-            'password',
-            'email',
-            new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT)),
-            SignInProof::unattested('password', CarbonImmutable::now()->startOfSecond()),
-            CarbonImmutable::now()->startOfSecond(),
-            [['identifier' => 'window'], ['account' => 'window']],
-        );
-
-        $limiter = new RecordingAttemptLimiter;
+        $limiter  = new RecordingAttemptLimiter;
 
         app()->instance(AttemptLimiter::class, $limiter);
+
+        [$credential, $proof] = $this->pendingWithProof($identity);
 
         $this->recordEvents([SessionCreated::class, SignedIn::class]);
 
@@ -1235,31 +1157,29 @@ final class SessionServiceTest extends TestCase
             throw new \RuntimeException('listener failed');
         });
 
-        $complete = fn (): SignInResult => $this->sessions()->complete($pending->token);
+        $satisfy = fn (): SignInResult => $this->sessions()->satisfy($credential, $proof);
 
         DB::beginTransaction();
 
-        self::assertSame('listener failed', self::failureOf($complete));
+        self::assertSame('listener failed', self::failureOf($satisfy));
 
         DB::rollBack();
 
         self::assertSame([], $this->recordedClasses());
         self::assertCount(0, $limiter->released);
-        self::assertSame(0, Session::query()->count());
-        self::assertSame(1, PendingSignIn::query()->count());
+        self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
 
         DB::beginTransaction();
 
-        self::assertSame('listener failed', self::failureOf($complete));
+        self::assertSame('listener failed', self::failureOf($satisfy));
         self::assertSame([], $this->recordedClasses());
         self::assertCount(0, $limiter->released);
 
         DB::commit();
 
         self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
-        self::assertCount(2, $limiter->released);
-        self::assertSame(1, Session::query()->count());
-        self::assertSame(0, PendingSignIn::query()->count());
+        self::assertCount(count($limiter->reservations), $limiter->released);
+        self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
     }
 
     /**
@@ -1290,29 +1210,42 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * A password sign-in or a started session for an identity whose resolver
-     * has no default, with principals to choose from, waits for the identity to
-     * choose one, and binds nothing.
+     * A password sign-in or a started session for an identity the application
+     * admits as several principals waits for the identity to choose one, with
+     * the principals listed, and binds nothing; with only one, that one is
+     * selected and the session starts, whatever the resolver's default.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testASignInOrAStartWithoutADefaultPrincipalWaitsForAChoice(): void
+    public function testASignInOrAStartWithSeveralPrincipalsWaitsForAChoice(): void
     {
         $member = ChoosingMember::query()->create(['email' => 'chooser@example.test', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
         $tenant = ActivatableTenant::query()->create(['name' => 'Tenant', 'is_active' => true]);
         $first  = ChoosingMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
 
+        self::assertTrue($this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'))->isSignedIn());
+
+        $second = ChoosingMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
+
+        Auth::forgetGuards();
+
         $signedIn = $this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'));
         $started  = $this->sessions('choosers')->start($member, null, 'sso');
 
         foreach ([$signedIn, $started] as $result) {
-            self::assertTrue($result->requiresPrincipal());
-            self::assertSame([$first->getKey()], array_map(static fn (Principal $principal): mixed => $principal->getPrincipalIdentifier(), $result->choice->principals ?? []));
+            self::assertTrue($result->isPending());
+            self::assertNotNull($result->pending);
+            self::assertSame([PendingRequirement::PRINCIPAL], $result->pending->requires);
+            self::assertNull($result->pending->principal);
+            self::assertSame(
+                [$first->getKey(), $second->getKey()],
+                array_map(static fn (Principal $principal): mixed => $principal->getPrincipalIdentifier(), $result->pending->principals),
+            );
         }
 
-        self::assertSame(2, DB::table('pending_sign_ins')->count());
+        self::assertSame(2, Session::query()->where('status', 'pending')->count());
         self::assertTrue(app('auth')->guard('choosers')->guest());
     }
 
@@ -1340,6 +1273,30 @@ final class SessionServiceTest extends TestCase
         $config->set('auth.guards.plain', ['driver' => 'jwt', 'provider' => 'plain', 'application' => ['methods' => ['password']]]);
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
         $config->set('auth.guards.choosers', ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password', 'sso']]]);
+    }
+
+    /**
+     * Sign in with a further factor required of every sign-in, and return the
+     * pending session's credential with an accepted further factor's proof
+     * bound to it.
+     *
+     * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
+     * @return array{0: string, 1: \SineMacula\Laravel\Authentication\Proofs\ProofResult}
+     *
+     * @throws \Throwable
+     */
+    private function pendingWithProof(IntegrationIdentity $identity): array
+    {
+        $factors = $this->bindMock(AdditionalFactorPolicy::class);
+        $factors->shouldReceive('requiresAdditionalFactor')->andReturnTrue();
+
+        $result = $this->sessions()->signIn('password', self::credentials());
+
+        self::assertTrue($result->isPending());
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
+
+        return [$result->credential, self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN)];
     }
 
     /**
@@ -1431,7 +1388,6 @@ final class SessionServiceTest extends TestCase
         $policy = $this->bindMock(ApplicationPolicy::class);
         $policy->shouldReceive('allowsMethod')->byDefault()->andReturnTrue();
         $policy->shouldReceive('admitIdentifier')->byDefault()->andReturnNull();
-        $policy->shouldReceive('admit')->byDefault()->andReturnNull();
         $policy->shouldReceive('lifetimes')
             ->byDefault()
             ->andReturnUsing(static fn (string $guard): TokenLifetimes => app(JwtTokenServiceFactory::class)->forGuard($guard)->lifetimes());

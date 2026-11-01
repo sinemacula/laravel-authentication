@@ -119,7 +119,7 @@ only duplicate them.
      invalidate, since a reset of it would fail the same way, but an `InvalidArgumentException` (a normaliser that
      cannot be built) fails the write closed.
    - `CHANGE`: `SessionRevocations::passwordChanged($identity, $except)`; `RESET`: `passwordReset($identity)` (every
-     guard's sessions, the identity's "tokens valid after" cutoff moved, pending sign-ins ended and, for a
+     guard's sessions, the identity's "tokens valid after" cutoff moved, pending sessions ended with the rest and, for a
      `HasChangeableIdentifiers` identity, its pending identifier changes deleted by key, for every type with a
      registered normaliser, their events after their commit; see the identifier changes note); `REGISTRATION`: nothing.
    - `PasswordSet($context, $flow)` queued on the identity connection's commit; the context names the guard, the client,

@@ -15,9 +15,9 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
+use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
-use SineMacula\Laravel\Authentication\Sessions\PendingFactor;
-use SineMacula\Laravel\Authentication\Sessions\PrincipalChoice;
+use SineMacula\Laravel\Authentication\Sessions\PendingSession;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 
@@ -31,7 +31,6 @@ use SineMacula\Laravel\Authentication\Sessions\SignInResult;
  */
 #[CoversClass(SignInResult::class)]
 #[CoversClass(SignedInSession::class)]
-#[CoversClass(PrincipalChoice::class)]
 final class SignInResultTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
@@ -55,8 +54,9 @@ final class SignInResultTest extends TestCase
         self::assertTrue($result->isSignedIn());
         self::assertFalse($result->isFailed());
         self::assertSame($session, $result->session);
-        self::assertFalse($result->requiresFactor());
+        self::assertFalse($result->isPending());
         self::assertNull($result->pending);
+        self::assertNull($result->credential);
         self::assertNull($result->reason);
         self::assertNull($result->retryAfter);
 
@@ -85,72 +85,63 @@ final class SignInResultTest extends TestCase
     }
 
     /**
-     * A sign-in that needs a further factor carries the pending sign-in, and
-     * neither a session nor a reason.
+     * A sign-in whose session waits on requirements is pending: it carries the
+     * pending session and the credential the call issued, and neither a session
+     * nor a reason; an action on a pending session that leaves it pending
+     * carries no credential, the client keeping the one it holds.
      *
      * @return void
      */
-    public function testAPendingFactorResultCarriesThePendingSignIn(): void
+    public function testAPendingResultCarriesThePendingSessionAndItsCredential(): void
     {
-        $pending = new PendingFactor(
-            'token',
+        $identity = \Mockery::mock(Identity::class);
+        $record   = \Mockery::mock(Model::class, EloquentSession::class);
+        $pending  = new PendingSession(
+            'session-1',
             'api',
-            \Mockery::mock(Identity::class),
-            \Mockery::mock(Principal::class),
+            $identity,
             null,
+            null,
+            [PendingRequirement::MFA, PendingRequirement::PRINCIPAL],
             'password',
             CarbonImmutable::now(),
-            null,
-            'pending-id',
+            $record,
         );
-        $result = SignInResult::pendingFactor($pending);
+        $issued = SignInResult::pending($pending, 'session-1.secret');
+        $kept   = SignInResult::pending($pending);
 
-        self::assertSame(SignInStatus::FACTOR_REQUIRED, $result->status);
-        self::assertTrue($result->requiresFactor());
-        self::assertFalse($result->isSignedIn());
-        self::assertFalse($result->isFailed());
-        self::assertSame($pending, $result->pending);
-        self::assertNull($result->session);
-        self::assertNull($result->reason);
-        self::assertNull($result->retryAfter);
-        self::assertFalse(SignInResult::failed(FailureReason::INVALID_CREDENTIALS)->requiresFactor());
+        self::assertSame(SignInStatus::PENDING, $issued->status);
+        self::assertTrue($issued->isPending());
+        self::assertFalse($issued->isSignedIn());
+        self::assertFalse($issued->isFailed());
+        self::assertSame($pending, $issued->pending);
+        self::assertSame('session-1.secret', $issued->credential);
+        self::assertNull($issued->session);
+        self::assertNull($issued->reason);
+        self::assertNull($issued->retryAfter);
+
+        self::assertSame($pending, $kept->pending);
+        self::assertNull($kept->credential);
+
+        self::assertFalse(SignInResult::failed(FailureReason::INVALID_CREDENTIALS)->isPending());
+        self::assertNull(SignInResult::failed(FailureReason::INVALID_CREDENTIALS)->pending);
+        self::assertNull(SignInResult::failed(FailureReason::INVALID_CREDENTIALS)->credential);
     }
 
     /**
-     * A sign-in that waits for a choice of principal carries the choice, and
-     * neither a session, a pending factor nor a reason; no other result
-     * requires a principal.
+     * The credential is a sensitive parameter of the result, so it never shows
+     * in a stack trace.
      *
      * @return void
      */
-    public function testAPrincipalRequiredResultCarriesTheChoice(): void
+    public function testTheCredentialIsSensitive(): void
     {
-        $identity   = \Mockery::mock(Identity::class);
-        $principals = [\Mockery::mock(Principal::class)];
-        $expiresAt  = CarbonImmutable::now();
-        $choice     = new PrincipalChoice('token', 'api', $identity, $principals, 'password', $expiresAt);
-        $result     = SignInResult::principalRequired($choice);
+        $constructor = new \ReflectionMethod(SignInResult::class, '__construct');
+        $credential  = array_values(array_filter($constructor->getParameters(), static fn (\ReflectionParameter $parameter): bool => $parameter->getName() === 'credential'))[0];
+        $factory     = (new \ReflectionMethod(SignInResult::class, 'pending'))->getParameters()[1];
 
-        self::assertSame(SignInStatus::PRINCIPAL_REQUIRED, $result->status);
-        self::assertTrue($result->requiresPrincipal());
-        self::assertFalse($result->requiresFactor());
-        self::assertFalse($result->isSignedIn());
-        self::assertFalse($result->isFailed());
-        self::assertSame($choice, $result->choice);
-        self::assertNull($result->session);
-        self::assertNull($result->pending);
-        self::assertNull($result->reason);
-        self::assertNull($result->retryAfter);
-
-        self::assertSame('token', $choice->token);
-        self::assertSame('api', $choice->guard);
-        self::assertSame($identity, $choice->identity);
-        self::assertSame($principals, $choice->principals);
-        self::assertSame('password', $choice->method);
-        self::assertSame($expiresAt, $choice->expiresAt);
-
-        self::assertFalse(SignInResult::failed(FailureReason::INVALID_CREDENTIALS)->requiresPrincipal());
-        self::assertNull(SignInResult::failed(FailureReason::INVALID_CREDENTIALS)->choice);
+        self::assertNotSame([], $credential->getAttributes(\SensitiveParameter::class));
+        self::assertNotSame([], $factory->getAttributes(\SensitiveParameter::class));
     }
 
     /**
@@ -235,6 +226,6 @@ final class SignInResultTest extends TestCase
     {
         $values = array_map(static fn (SignInStatus $status): string => $status->value, SignInStatus::cases());
 
-        self::assertSame(['signed_in', 'factor_required', 'principal_required', 'failed'], $values);
+        self::assertSame(['signed_in', 'pending', 'failed'], $values);
     }
 }

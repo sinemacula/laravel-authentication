@@ -155,6 +155,24 @@ final class RefreshJudgmentTest extends TestCase
     }
 
     /**
+     * A pending session refuses every id, a replayed one included, as
+     * `session_pending` rather than as a replay, so a refresh token it held
+     * before it returned to pending never revokes it.
+     *
+     * @return void
+     */
+    public function testAPendingSessionIsNeverJudgedAReplay(): void
+    {
+        $session = $this->rotatedSession(10);
+
+        $session->forceFill(['status' => 'pending']);
+
+        foreach (['unknown-rotation-id', self::PREVIOUS, RefreshTokenHasher::successor(self::PREVIOUS)] as $presented) {
+            self::assertSame(FailureReason::SESSION_PENDING, $this->judge($session, $presented));
+        }
+    }
+
+    /**
      * Rows of `[session changes, failure]` for a session that is not live.
      *
      * @return iterable<string, array{0: array<string, mixed>, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
@@ -162,20 +180,24 @@ final class RefreshJudgmentTest extends TestCase
     public static function provideEndedSessions(): iterable
     {
         yield from [
-            'revoked'                   => [['revoked_at' => '-1 second'], FailureReason::SESSION_REVOKED],
-            'revoked and ended'         => [['revoked_at' => '-1 second', 'idle_expires_at' => '-1 second'], FailureReason::SESSION_REVOKED],
-            'idle deadline reached'     => [['idle_expires_at' => '+0 seconds'], FailureReason::SESSION_EXPIRED],
-            'absolute deadline reached' => [['absolute_expires_at' => '+0 seconds'], FailureReason::SESSION_EXPIRED],
-            'no idle deadline'          => [['idle_expires_at' => null], FailureReason::SESSION_EXPIRED],
-            'no absolute, idle reached' => [['absolute_expires_at' => null, 'idle_expires_at' => '+0 seconds'], FailureReason::SESSION_EXPIRED],
-            'ended with no credential'  => [['idle_expires_at' => '-1 second', 'refresh_key' => null], FailureReason::SESSION_EXPIRED],
-            'no credential'             => [['refresh_key' => null], FailureReason::REFRESH_KEY_MISSING],
+            'revoked'                    => [['revoked_at' => '-1 second'], FailureReason::SESSION_REVOKED],
+            'revoked and ended'          => [['revoked_at' => '-1 second', 'idle_expires_at' => '-1 second'], FailureReason::SESSION_REVOKED],
+            'revoked and pending'        => [['revoked_at' => '-1 second', 'status' => 'pending'], FailureReason::SESSION_REVOKED],
+            'pending'                    => [['status' => 'pending'], FailureReason::SESSION_PENDING],
+            'pending and ended'          => [['status' => 'pending', 'idle_expires_at' => '-1 second'], FailureReason::SESSION_PENDING],
+            'pending with no credential' => [['status' => 'pending', 'refresh_key' => null], FailureReason::SESSION_PENDING],
+            'idle deadline reached'      => [['idle_expires_at' => '+0 seconds'], FailureReason::SESSION_EXPIRED],
+            'absolute deadline reached'  => [['absolute_expires_at' => '+0 seconds'], FailureReason::SESSION_EXPIRED],
+            'no idle deadline'           => [['idle_expires_at' => null], FailureReason::SESSION_EXPIRED],
+            'no absolute, idle reached'  => [['absolute_expires_at' => null, 'idle_expires_at' => '+0 seconds'], FailureReason::SESSION_EXPIRED],
+            'ended with no credential'   => [['idle_expires_at' => '-1 second', 'refresh_key' => null], FailureReason::SESSION_EXPIRED],
+            'no credential'              => [['refresh_key' => null], FailureReason::REFRESH_KEY_MISSING],
         ];
     }
 
     /**
-     * A revoked session, an ended session and a session with no credential fail
-     * for that reason before the id is compared.
+     * A revoked session, a pending session, an ended session and a session with
+     * no credential fail for that reason before the id is compared.
      *
      * @param  array<string, mixed>  $changes
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason

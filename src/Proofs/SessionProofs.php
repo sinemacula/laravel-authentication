@@ -70,6 +70,23 @@ final class SessionProofs
     }
 
     /**
+     * Whether the session holds a counting further factor or recovery code: one
+     * its adapter accepted, not voided, bound to the session as it is now. One
+     * `EXISTS` on the session's proofs.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @return bool
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function hasAcceptedAdditional(Session $session): bool
+    {
+        $additional = [ProofKind::ADDITIONAL_FACTOR->value, ProofKind::RECOVERY_CODE->value];
+
+        return WriteConnection::during(new SessionProof, static fn (): bool => self::counting($session)->whereIn('kind', $additional)->exists());
+    }
+
+    /**
      * The newest of the session's counting proofs that meets the requirement at
      * the time given: of a kind it takes, made within its maximum age (from the
      * proof's own second until, and not including, the second the age after it,

@@ -13,12 +13,14 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  * column-name accessors behind each persisted session attribute, which the
  * package's session creation, refresh rotation, revocation, and last-use
  * persistence paths rely on. The columns that record what the session started
- * with are named through `EloquentSessionOrigin`.
+ * with are named through `EloquentSessionOrigin`, and those that record where
+ * it stands (pending or active, and its active tenant) through
+ * `EloquentSessionStanding`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-interface EloquentSession extends EloquentSessionOrigin, Session
+interface EloquentSession extends EloquentSessionOrigin, EloquentSessionStanding, Session
 {
     /**
      * Polymorphic relation to the owning authenticatable identity.
@@ -103,11 +105,12 @@ interface EloquentSession extends EloquentSessionOrigin, Session
     public function getSignedInAtName(): string;
 
     /**
-     * Column name holding when the session last switched its principal.
+     * Column name holding the floor for the issue time of the session's access
+     * tokens.
      *
      * @return string
      */
-    public function getPrincipalSwitchedAtName(): string;
+    public function getSwitchedAtName(): string;
 
     /**
      * Column name holding the idle deadline.

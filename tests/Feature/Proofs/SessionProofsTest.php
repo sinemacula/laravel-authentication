@@ -183,6 +183,43 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
+     * A session holds an accepted further factor only once a counting further
+     * factor or recovery code is recorded on it: not with its first factor or a
+     * reauthentication alone, not with one its adapter refused, a voided one,
+     * or one bound to another guard; a recovery code its adapter accepted is
+     * one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionHoldsAnAcceptedFurtherFactorOnlyOnceOneCounts(): void
+    {
+        $record = $this->signedIn()->record;
+
+        self::recordProof($record, ProofKind::FIRST_FACTOR_REAUTHENTICATION, $this->now->addMinute(), ['pwd']);
+        self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now->addMinutes(2), ['otp'], new Evaluation(false, true));
+
+        self::assertFalse(SessionProofs::hasAcceptedAdditional($record));
+
+        self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now->addMinutes(3), ['otp'], new Evaluation(true, true));
+
+        DB::table('authentication_proofs')->where('kind', 'additional_factor')->where('accepted', true)->update(['voided_at' => $this->now]);
+
+        self::assertFalse(SessionProofs::hasAcceptedAdditional($record));
+
+        self::recordProof($record, ProofKind::RECOVERY_CODE, $this->now->addMinutes(4), ['kba'], new Evaluation(true, false));
+
+        DB::table('authentication_proofs')->where('kind', 'recovery_code')->update(['guard' => 'admin']);
+
+        self::assertFalse(SessionProofs::hasAcceptedAdditional($record));
+
+        DB::table('authentication_proofs')->where('kind', 'recovery_code')->update(['guard' => 'api']);
+
+        self::assertTrue(SessionProofs::hasAcceptedAdditional($record));
+    }
+
+    /**
      * A session with no counting first factor gets no claims: issuing for it
      * fails closed, whatever else it holds.
      *

@@ -843,7 +843,6 @@ final class AuthenticationServiceProviderTest extends TestCase
         $expected   = [];
         $migrations = [
             '2026_04_06_000000_create_authentication_sessions_table.php',
-            '2026_04_06_000001_create_pending_sign_ins_table.php',
             '2026_04_06_000002_create_rate_limits_table.php',
             '2026_04_06_000003_create_one_time_codes_table.php',
             '2026_04_06_000004_create_passkeys_table.php',

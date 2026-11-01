@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSessionOrigin;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSessionStanding;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
@@ -84,8 +85,10 @@ final class ContractDeclarationTest extends TestCase
      * `Session` declares exactly the read surface the guards, the refresh
      * exchange, the session service, and the package events depend on: the
      * identifier, last use, both refresh digests and the rotation time, both
-     * deadlines, the revocation, and the guard and sign-in method that started
-     * the session.
+     * deadlines, the revocation, the guard and sign-in method that started the
+     * session, its status and requirements, the pending credential's digest,
+     * the active tenant and policy version, and the floor its context changes
+     * set.
      *
      * @return void
      */
@@ -96,16 +99,21 @@ final class ContractDeclarationTest extends TestCase
             'getGuard',
             'getIdleExpiresAt',
             'getLastUsedAt',
+            'getPendingKey',
             'getPreviousRefreshKey',
-            'getPrincipalSwitchedAt',
             'getRefreshKey',
             'getRefreshRotatedAt',
+            'getRequires',
             'getRevokedAt',
             'getRevokedReason',
             'getSessionIdentifier',
             'getSignInIdentifierType',
             'getSignInMethod',
             'getSignedInAt',
+            'getStatus',
+            'getSwitchedAt',
+            'getTenantId',
+            'getTenantPolicyVersion',
         ], self::declaredMethods(Session::class));
     }
 
@@ -125,13 +133,18 @@ final class ContractDeclarationTest extends TestCase
             EloquentSessionOrigin::class,
             (new \ReflectionClass(EloquentSession::class))->getInterfaceNames(),
         );
+        self::assertContains(
+            EloquentSessionStanding::class,
+            (new \ReflectionClass(EloquentSession::class))->getInterfaceNames(),
+        );
     }
 
     /**
      * `EloquentSession` adds exactly the owner and principal relations and the
-     * column names the session creation, refresh, revocation, and last-use
-     * writes need, and the generation's, besides those of the session's origin.
-     * The identifier has no column name: it is always the primary key.
+     * column names the session creation, activation, refresh, revocation, and
+     * last-use writes need, and the generation's, besides those of the
+     * session's origin and standing. The identifier has no column name: it is
+     * always the primary key.
      *
      * @return void
      */
@@ -146,12 +159,12 @@ final class ContractDeclarationTest extends TestCase
             'getLastUsedIpName',
             'getLastUsedUserAgentName',
             'getPreviousRefreshKeyName',
-            'getPrincipalSwitchedAtName',
             'getRefreshKeyName',
             'getRefreshRotatedAtName',
             'getRevokedAtName',
             'getRevokedReasonName',
             'getSignedInAtName',
+            'getSwitchedAtName',
             'principal',
         ], self::declaredMethods(EloquentSession::class));
     }
@@ -176,9 +189,30 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
+     * `EloquentSessionStanding` declares exactly the column names of where a
+     * session stands: its status, what it waits on, its pending credential, the
+     * session it supersedes, the slots it keeps, and its active tenant.
+     *
+     * @return void
+     */
+    public function testEloquentSessionStandingDeclaresExactlyTheStandingColumns(): void
+    {
+        self::assertSame([
+            'getAttemptWindowsName',
+            'getPendingKeyName',
+            'getRequiresName',
+            'getStatusName',
+            'getSupersedesRefreshKeyName',
+            'getSupersedesSessionIdName',
+            'getTenantIdName',
+            'getTenantPolicyVersionName',
+        ], self::declaredMethods(EloquentSessionStanding::class));
+    }
+
+    /**
      * `EloquentSession::authenticatable()` and `principal()` must return
      * MorphTo relations, and the persistence column-name accessors, its
-     * origin's included, must return strings.
+     * origin's and standing's included, must return strings.
      *
      * @return void
      */
@@ -191,7 +225,7 @@ final class ContractDeclarationTest extends TestCase
         }
 
         $persistence         = array_diff(self::declaredMethods(EloquentSession::class), ['authenticatable', 'principal']);
-        $columnNameAccessors = [...$persistence, ...self::declaredMethods(EloquentSessionOrigin::class)];
+        $columnNameAccessors = [...$persistence, ...self::declaredMethods(EloquentSessionOrigin::class), ...self::declaredMethods(EloquentSessionStanding::class)];
 
         foreach ($columnNameAccessors as $method) {
             $returnType = (new \ReflectionMethod(EloquentSession::class, $method))->getReturnType();

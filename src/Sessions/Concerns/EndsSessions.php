@@ -129,11 +129,11 @@ trait EndsSessions
 
     /**
      * Revoke every session of the identity, of every guard, except the given
-     * one, end its pending sign-ins, and cancel its pending identifier changes
-     * (a change link needs no session); when the identity records a "tokens
-     * valid after" cutoff, move it to now first, so its access tokens issued
-     * without a session stop as well. Returns how many sessions this call
-     * revoked.
+     * one (its pending sessions among them), and cancel its pending identifier
+     * changes (a change link needs no session); when the identity records a
+     * "tokens valid after" cutoff, move it to now first, so its access tokens
+     * issued without a session stop as well. Returns how many sessions this
+     * call revoked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -152,9 +152,9 @@ trait EndsSessions
 
     /**
      * Revoke every session that acts as the principal, except the given one,
-     * and end the pending sign-ins that would act as it; when the principal
-     * records a "tokens valid after" cutoff, move it to now first. Returns how
-     * many sessions this call revoked.
+     * pending sessions that record it among them; when the principal records a
+     * "tokens valid after" cutoff, move it to now first. Returns how many
+     * sessions this call revoked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -268,8 +268,8 @@ trait EndsSessions
      * principal whose `getTenant()` throws the `TenantUnavailableException`
      * naming it (its class, key name and key, as `ActsAsPrincipal` does) acts
      * within it. A tenant that does not opt in reads as no tenant once it
-     * cannot be loaded, so call this before deleting it. All sessions and
-     * pending sign-ins are ended in one transaction, after each principal's
+     * cannot be loaded, so call this before deleting it. All sessions, pending
+     * ones among them, are ended in one transaction, after each principal's
      * cutoff moved, with one `SignedOutEverywhere` per principal.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant

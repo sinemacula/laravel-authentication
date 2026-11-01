@@ -8,9 +8,9 @@ use Carbon\CarbonInterface;
 
 /**
  * Default Eloquent-backed accessors for the generation a session started with,
- * when it started and when it last switched the principal it acts as, using
- * conventional attribute names. Override the `*Name()` methods to remap
- * columns.
+ * when it started and the floor its context changes set for its access tokens'
+ * issue time, using conventional attribute names. Override the `*Name()`
+ * methods to remap columns.
  *
  * The times are session state: a session loaded without either column throws a
  * `LogicException` rather than reading the missing value as `null`. The
@@ -55,24 +55,26 @@ trait RecordsSessionMilestones
     }
 
     /**
-     * Return when the session last switched its principal, or `null`.
+     * Return the floor for the issue time of the session's access tokens, or
+     * `null` when its context never changed.
      *
      * @return ?\Carbon\CarbonInterface
      *
      * @throws \LogicException
      */
-    public function getPrincipalSwitchedAt(): ?CarbonInterface
+    public function getSwitchedAt(): ?CarbonInterface
     {
-        return $this->toSessionTimestamp($this->loadedSessionAttribute($this->getPrincipalSwitchedAtName(), 'getPrincipalSwitchedAtName'));
+        return $this->toSessionTimestamp($this->loadedSessionAttribute($this->getSwitchedAtName(), 'getSwitchedAtName'));
     }
 
     /**
-     * Column name holding when the session last switched its principal.
+     * Column name holding the floor for the issue time of the session's access
+     * tokens.
      *
      * @return string
      */
-    public function getPrincipalSwitchedAtName(): string
+    public function getSwitchedAtName(): string
     {
-        return 'principal_switched_at';
+        return 'switched_at';
     }
 }

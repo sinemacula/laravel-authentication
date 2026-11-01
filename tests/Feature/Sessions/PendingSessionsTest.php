@@ -1,0 +1,843 @@
+<?php
+
+declare(strict_types = 1);
+
+namespace Tests\Feature\Sessions;
+
+use Carbon\CarbonImmutable;
+use Firebase\JWT\JWT;
+use Illuminate\Auth\Events\Login;
+use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Foundation\Application;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Route;
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
+use SineMacula\Laravel\Authentication\Events\SessionCreated;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
+use SineMacula\Laravel\Authentication\Events\SignedIn;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
+use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Models\SessionProof;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
+use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
+use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
+use SineMacula\Laravel\Authentication\Sessions\PendingEvaluation;
+use SineMacula\Laravel\Authentication\Sessions\PendingSessions;
+use SineMacula\Laravel\Authentication\Sessions\SessionActivation;
+use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Sessions\SessionSummary;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
+use SineMacula\Laravel\Authentication\Sessions\SignInResult;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithProofs;
+use Tests\Concerns\InteractsWithSessions;
+use Tests\Integration\Fixtures\ActivatableTenant;
+use Tests\Integration\Fixtures\ChoosingMember;
+use Tests\Integration\Fixtures\ChoosingMembership;
+use Tests\Integration\Fixtures\IntegrationIdentity;
+use Tests\TestCase;
+
+/**
+ * Tests of pending sessions through the session service: the actions a pending
+ * credential allows, satisfying a further factor with a proof, choosing a
+ * principal, discarding, and what a pending session refuses everywhere else,
+ * against a real database through Laravel's guards and routes.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited
+ *
+ * @internal
+ */
+#[CoversClass(SessionService::class)]
+#[CoversClass(PendingSessions::class)]
+#[CoversClass(PendingEvaluation::class)]
+#[CoversClass(SessionActivation::class)]
+final class PendingSessionsTest extends TestCase
+{
+    use InteractsWithProofs, InteractsWithSessions;
+
+    /** @var string Guard over `ChoosingMember`, whose sign-ins wait for a choice of principal. */
+    private const string CHOOSERS = 'choosers';
+
+    /** @var \Carbon\CarbonImmutable Frozen clock reference. */
+    private CarbonImmutable $now;
+
+    /** @var bool Whether the bound factor policy asks for a further factor. */
+    private bool $factorRequired = true;
+
+    /**
+     * Freeze the clocks, create the tables, bind a factor policy the test
+     * switches, and add a route behind the `auth` middleware.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->clockAt(CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0));
+
+        $this->createSessionTables();
+
+        $test = $this;
+
+        app()->instance(AdditionalFactorPolicy::class, new readonly class ($test) implements AdditionalFactorPolicy {
+            /**
+             * Constructor.
+             *
+             * @param  \Tests\Feature\Sessions\PendingSessionsTest  $test
+             */
+            public function __construct(
+
+                /** The test whose switch the policy answers with. */
+                private PendingSessionsTest $test,
+            ) {}
+
+            /**
+             * Answer with the test's switch.
+             *
+             * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
+             * @return bool
+             */
+            #[\Override]
+            public function requiresAdditionalFactor(AdditionalFactorContext $context): bool
+            {
+                return $this->test->isFactorRequired();
+            }
+        });
+
+        Route::middleware('auth:api')->get('/me', static fn (): array => ['session' => Auth::session()?->getSessionIdentifier()]);
+    }
+
+    /**
+     * Release the clocks and drop the tables.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function tearDown(): void
+    {
+        $this->dropSessionTables();
+
+        Carbon::setTestNow();
+        CarbonImmutable::setTestNow();
+
+        JWT::$timestamp = null;
+
+        parent::tearDown();
+    }
+
+    /**
+     * Whether the factor policy asks for a further factor now.
+     *
+     * @return bool
+     */
+    public function isFactorRequired(): bool
+    {
+        return $this->factorRequired;
+    }
+
+    /**
+     * A credential waiting on a further factor allows exactly the five factor
+     * actions and lists no principal; one waiting on a choice allows listing
+     * and choosing principals, and lists the eligible ones; one waiting on a
+     * factor and then a choice allows the factor actions only, and lists none
+     * until the factor is met.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACredentialAllowsOnlyItsFirstRequirementsActions(): void
+    {
+        $this->seedIdentity();
+
+        [$factor] = $this->pendingSignIn();
+
+        $this->factorRequired = false;
+
+        [$member, $first, $second] = $this->seedChooser();
+        [$choice]                  = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
+
+        $this->factorRequired = true;
+
+        [$both] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
+
+        foreach (PendingAction::cases() as $action) {
+            self::assertSame(in_array($action, PendingRequirement::MFA->actions(), true), $this->sessions()->pending($factor, $action) !== null, $action->value);
+            self::assertSame(
+                in_array($action, PendingRequirement::PRINCIPAL->actions(), true),
+                $this->sessions(self::CHOOSERS)->pending($choice, $action) !== null,
+                $action->value,
+            );
+            self::assertSame(in_array($action, PendingRequirement::MFA->actions(), true), $this->sessions(self::CHOOSERS)->pending($both, $action) !== null, $action->value);
+        }
+
+        $listed = $this->sessions(self::CHOOSERS)->pending($choice);
+
+        self::assertNotNull($listed);
+        self::assertTrue($member->is($listed->identity));
+        self::assertNull($listed->principal);
+        self::assertNull($listed->tenant);
+        self::assertSame([PendingRequirement::PRINCIPAL], $listed->requires);
+        self::assertSame([$first->getKey(), $second->getKey()], array_map(static fn (ChoosingMembership $membership): mixed => $membership->getKey(), $listed->principals));
+        self::assertSame([], $this->sessions(self::CHOOSERS)->pending($both)?->principals);
+        self::assertSame([], $this->sessions()->pending($factor)?->principals);
+    }
+
+    /**
+     * Looking a pending session up reads it, with its owner, principal, method
+     * and expiry, and changes nothing: it dispatches nothing and the credential
+     * still works.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testLookingAPendingSessionUpChangesNothing(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$credential, $pending] = $this->pendingSignIn();
+
+        $this->recordEvents([AuthenticationFailed::class, SessionRevoked::class]);
+
+        $found = $this->sessions()->pending($credential);
+
+        self::assertNotNull($found);
+        self::assertSame($pending->id, $found->id);
+        self::assertSame('api', $found->guard);
+        self::assertTrue($identity->is($found->identity));
+        self::assertTrue($identity->is($found->principal));
+        self::assertSame('password', $found->method);
+        self::assertSame($this->now->addMinutes(5)->getTimestamp(), $found->expiresAt->getTimestamp());
+        self::assertSame([], $this->recordedClasses());
+        self::assertNotNull($this->sessions()->pending($credential));
+    }
+
+    /**
+     * Rows of `[credential]` that cannot name a pending session, so are
+     * rejected before any query: none, no secret, no key, or a key no session
+     * can have.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideMalformedCredentials(): iterable
+    {
+        yield 'empty' => [''];
+        yield 'no separator' => ['0190e1a4-0000-7000-8000-000000000001'];
+        yield 'no secret' => ['0190e1a4-0000-7000-8000-000000000001.'];
+        yield 'no key' => ['.secret'];
+        yield 'a key too long' => [str_repeat('k', 256) . '.secret'];
+        yield 'a key of another shape' => ['not-a-key.secret'];
+    }
+
+    /**
+     * A malformed credential names nothing, for a look-up and for every action,
+     * each refusal of which is `pending_invalid`.
+     *
+     * @param  string  $credential
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideMalformedCredentials')]
+    public function testAMalformedCredentialNamesNothing(string $credential): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->pendingSignIn();
+
+        $proof = self::adapterProof($identity, 'api', '0190e1a4-0000-7000-8000-000000000001', Purpose::SIGN_IN);
+
+        self::assertNull($this->sessions()->pending($credential));
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($credential, $proof)->reason);
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->choose($credential, $identity)->reason);
+        self::assertFalse($this->sessions()->discard($credential));
+        self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
+    }
+
+    /**
+     * A credential whose secret does not match, presented on another guard,
+     * expired with its session, or whose session was revoked, activated or is
+     * not pending, names no live pending session.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testOnlyTheLiveCredentialOfTheGuardNamesThePendingSession(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$credential, $pending] = $this->pendingSignIn();
+        [$key, $secret]         = explode('.', $credential, 2);
+
+        self::assertNull($this->sessions()->pending($key . '.' . strrev($secret)));
+        self::assertNull($this->sessions('admin')->pending($credential));
+
+        $this->clockAt($this->now->addMinutes(5));
+
+        self::assertNull($this->sessions()->pending($credential));
+
+        $this->clockAt($this->now->subSecond());
+
+        self::assertNotNull($this->sessions()->pending($credential));
+
+        DB::table('authentication_sessions')->update(['status' => 'active']);
+
+        self::assertNull($this->sessions()->pending($credential));
+
+        DB::table('authentication_sessions')->update(['status' => 'pending', 'revoked_at' => $this->now]);
+
+        self::assertNull($this->sessions()->pending($credential));
+
+        DB::table('authentication_sessions')->update(['revoked_at' => null]);
+
+        self::assertTrue($this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN))->isSignedIn());
+        self::assertNull($this->sessions()->pending($credential));
+    }
+
+    /**
+     * A credential is no token, and no token is a credential: an access or
+     * refresh token names no pending session, and the pending credential is
+     * refused as a bearer token and as a refresh token, so one kind is never
+     * accepted as another.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACredentialAndATokenAreNeverTakenForEachOther(): void
+    {
+        $this->seedIdentity();
+
+        $this->factorRequired = false;
+
+        $session = $this->sessions()->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($session);
+
+        $this->factorRequired = true;
+
+        [$credential] = $this->pendingSignIn();
+
+        self::assertNull($this->sessions()->pending($session->tokens->accessToken));
+        self::assertNull($this->sessions()->pending($session->tokens->refreshToken));
+        self::assertFalse($this->sessions()->discard($session->tokens->refreshToken));
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $credential])->getJson('/me')->assertUnauthorized();
+
+        self::assertSame(FailureReason::TOKEN_INVALID, $this->sessions()->refresh($credential)->reason);
+    }
+
+    /**
+     * Satisfying the further factor activates the pending session in place: the
+     * same id, now active, waiting on nothing and holding no pending digest or
+     * slots, with a pair whose access token authenticates and names the further
+     * factor in `amr` and its time as `auth_time`, and whose refresh token
+     * refreshes; the guard is bound, `SessionCreated` and `SignedIn` report the
+     * sign-in, and the credential is consumed.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSatisfyingTheFactorActivatesTheSessionInPlace(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$credential, $pending] = $this->pendingSignIn();
+
+        $this->clockAt($this->now->addMinute());
+        $this->recordEvents([SessionCreated::class, SignedIn::class, Login::class]);
+
+        $guard  = $this->freshGuard();
+        $result = self::sessionsOf($guard)->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN));
+
+        self::assertTrue($result->isSignedIn());
+        self::assertNull($result->credential);
+
+        $session = $result->session;
+
+        self::assertNotNull($session);
+        self::assertSame($pending->id, $session->record->getKey());
+        self::assertSame([SessionCreated::class, SignedIn::class, Login::class], $this->recordedClasses());
+        self::assertSame($session->record, $guard->session());
+
+        $row = Session::query()->sole();
+
+        self::assertSame(SessionStatus::ACTIVE, $row->getStatus());
+        self::assertSame([], $row->getRequires());
+        self::assertNull($row->getPendingKey());
+        self::assertNull($row->attempt_windows);
+        self::assertNotNull($row->getRefreshKey());
+        self::assertSame($this->now->addDays(30)->getTimestamp(), $row->getIdleExpiresAt()?->getTimestamp());
+        self::assertSame(2, SessionProof::query()->count());
+
+        $claims = Auth::manager()->jwt('api')->parse($session->tokens->accessToken, TokenType::ACCESS);
+
+        self::assertIsArray($claims);
+        self::assertContains('otp', $claims['amr']);
+        self::assertSame($this->now->getTimestamp(), $claims['auth_time']);
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken])->getJson('/me')->assertOk()->assertJson(['session' => $pending->id]);
+
+        self::assertTrue($this->sessions()->refresh($session->tokens->refreshToken)->isRefreshed());
+        self::assertNull($this->sessions()->pending($credential));
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN))->reason);
+    }
+
+    /**
+     * A session waiting on a factor and then a choice moves on to the choice
+     * once the factor is satisfied: still pending, with the same credential,
+     * which now lists the principals and allows the choice, and no token; the
+     * choice then activates it as the principal, in its own tenant.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSatisfyingTheFactorMovesOnToTheChoice(): void
+    {
+        [$member, $first] = $this->seedChooser();
+
+        [$credential, $pending] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
+
+        self::assertSame([PendingRequirement::MFA, PendingRequirement::PRINCIPAL], $pending->requires);
+
+        $moved = $this->sessions(self::CHOOSERS)->satisfy($credential, self::adapterProof($member, self::CHOOSERS, $pending->id, Purpose::SIGN_IN));
+
+        self::assertTrue($moved->isPending());
+        self::assertNull($moved->credential);
+        self::assertNull($moved->session);
+        self::assertNotNull($moved->pending);
+        self::assertSame([PendingRequirement::PRINCIPAL], $moved->pending->requires);
+        self::assertCount(2, $moved->pending->principals);
+        self::assertSame([PendingRequirement::PRINCIPAL], Session::query()->sole()->getRequires());
+        self::assertNotNull($this->sessions(self::CHOOSERS)->pending($credential, PendingAction::CHOOSE_PRINCIPAL));
+
+        $chosen = $this->sessions(self::CHOOSERS)->choose($credential, $first);
+
+        self::assertTrue($chosen->isSignedIn());
+        self::assertTrue($first->is($chosen->session?->principal));
+
+        $row = Session::query()->sole();
+
+        self::assertSame(IdentifierCoercion::stringify($first->getKey()), $row->principal_id);
+        self::assertSame(IdentifierCoercion::stringify($first->tenant_id), $row->getTenantId());
+    }
+
+    /**
+     * A further factor is not taken while only the choice is outstanding, and a
+     * choice is not taken while a factor is: each is refused as
+     * `pending_action_not_allowed`, reported, and leaves the session pending.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnActionTheFirstRequirementDoesNotAllowIsRefused(): void
+    {
+        [$member, $first] = $this->seedChooser();
+
+        [$both, $waiting] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
+
+        $this->factorRequired = false;
+
+        [$choice, $choosing] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        self::assertSame(FailureReason::PENDING_ACTION_NOT_ALLOWED, $this->sessions(self::CHOOSERS)->choose($both, $first)->reason);
+        self::assertSame(
+            FailureReason::PENDING_ACTION_NOT_ALLOWED,
+            $this->sessions(self::CHOOSERS)->satisfy($choice, self::adapterProof($member, self::CHOOSERS, $choosing->id, Purpose::SIGN_IN))->reason,
+        );
+        self::assertSame(
+            [FailureReason::PENDING_ACTION_NOT_ALLOWED, FailureReason::PENDING_ACTION_NOT_ALLOWED],
+            array_map(static fn (object $event): ?FailureReason => $event instanceof AuthenticationFailed ? $event->reason : null, $this->recorded),
+        );
+        self::assertSame(2, Session::query()->where('status', 'pending')->count());
+        self::assertSame(2, SessionProof::query()->count());
+        $still = $this->sessions(self::CHOOSERS)->pending($both);
+
+        self::assertNotNull($still);
+        self::assertSame([PendingRequirement::MFA, PendingRequirement::PRINCIPAL], $still->requires);
+        self::assertSame($waiting->id, $still->id);
+    }
+
+    /**
+     * A principal that is not one of the identity's, resolved through the
+     * hinted path as that very one, is refused as `principal_mismatch`, and the
+     * session stays pending for another choice.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testChoosingAPrincipalThatIsNotTheIdentitysIsRefused(): void
+    {
+        $this->factorRequired = false;
+
+        [, $first] = $this->seedChooser();
+
+        $other  = ChoosingMember::query()->create(['email' => 'other@example.test', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
+        $theirs = ChoosingMembership::query()->create(['identity_id' => $other->getKey(), 'tenant_id' => $first->tenant_id]);
+
+        [$credential] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
+
+        self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $this->sessions(self::CHOOSERS)->choose($credential, $theirs)->reason);
+        self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
+        self::assertTrue($this->sessions(self::CHOOSERS)->choose($credential, $first)->isSignedIn());
+    }
+
+    /**
+     * A principal whose tenant was deactivated while the session waited is
+     * refused when chosen, with the session left pending for another choice.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testChoosingAPrincipalWhoseTenantIsInactiveIsRefused(): void
+    {
+        $this->factorRequired = false;
+
+        [, $first, $second] = $this->seedChooser();
+
+        [$credential] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
+
+        ActivatableTenant::query()->whereKey($first->tenant_id)->update(['is_active' => false]);
+
+        self::assertSame(FailureReason::TENANT_INACTIVE, $this->sessions(self::CHOOSERS)->choose($credential, $first)->reason);
+        self::assertTrue($this->sessions(self::CHOOSERS)->choose($credential, $second)->isSignedIn());
+    }
+
+    /**
+     * A choice after which the identity's factor policy now asks for a further
+     * factor records the principal and its tenant and waits for the factor with
+     * the same credential; satisfying it then activates the session as that
+     * principal.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChoiceWaitsForAFactorTheIdentityNowOwes(): void
+    {
+        $this->factorRequired = false;
+
+        [$member, $first] = $this->seedChooser();
+
+        [$credential, $pending] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
+
+        $this->factorRequired = true;
+
+        $waiting = $this->sessions(self::CHOOSERS)->choose($credential, $first);
+
+        self::assertTrue($waiting->isPending());
+        self::assertSame([PendingRequirement::MFA], $waiting->pending?->requires);
+        self::assertTrue($first->is($waiting->pending->principal));
+
+        $row = Session::query()->sole();
+
+        self::assertSame([PendingRequirement::MFA], $row->getRequires());
+        self::assertSame(IdentifierCoercion::stringify($first->getKey()), $row->principal_id);
+        self::assertSame(IdentifierCoercion::stringify($first->tenant_id), $row->getTenantId());
+
+        $active = $this->sessions(self::CHOOSERS)->satisfy($credential, self::adapterProof($member, self::CHOOSERS, $pending->id, Purpose::SIGN_IN));
+
+        self::assertTrue($active->isSignedIn());
+        self::assertTrue($first->is($active->session?->principal));
+    }
+
+    /**
+     * Each check a sign-in made is made again when the pending session is acted
+     * on, so what changed while it waited refuses the action and leaves the
+     * session pending: an identity deactivated, a method the application no
+     * longer allows, a recorded principal whose tenant was deactivated.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheGateRefusesWhatChangedWhileTheSessionWaited(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$credential, $pending] = $this->pendingSignIn();
+
+        $proof = self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN);
+
+        IntegrationIdentity::query()->whereKey($identity->getKey())->update(['is_active' => false]);
+
+        self::assertSame(FailureReason::IDENTITY_INACTIVE, $this->sessions()->satisfy($credential, $proof)->reason);
+
+        IntegrationIdentity::query()->whereKey($identity->getKey())->update(['is_active' => true]);
+        config()->set('auth.guards.api.application.methods', ['sso']);
+
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->satisfy($credential, $proof)->reason);
+
+        config()->set('auth.guards.api.application.methods', ['password']);
+
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        [$memberCredential, $memberPending] = $this->pendingSignIn('members', 'member@example.test');
+
+        $tenant->forceFill(['is_active' => false])->save();
+
+        self::assertSame(
+            FailureReason::TENANT_INACTIVE,
+            $this->sessions('members')->satisfy($memberCredential, self::adapterProof($member, 'members', $memberPending->id, Purpose::SIGN_IN))->reason,
+        );
+        self::assertTrue($membership->is($memberPending->principal));
+        self::assertSame(2, Session::query()->where('status', 'pending')->count());
+        self::assertSame(2, SessionProof::query()->count());
+        self::assertTrue($this->sessions()->satisfy($credential, $proof)->isSignedIn());
+    }
+
+    /**
+     * A sign-in that proved the session its client holds supersedes it only
+     * when it first activates: the proven session stays live while the new one
+     * waits, and is revoked as `superseded`, reported before the sign-in's
+     * events, when it activates.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheProvenSessionIsSupersededOnlyOnActivation(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->factorRequired = false;
+
+        $first = $this->sessions()->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($first);
+
+        $this->factorRequired = true;
+
+        $context = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken);
+        $result  = $this->sessions()->signIn('password', self::credentials(), $context);
+
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
+        self::assertNull(DB::table('authentication_sessions')->where('id', $first->record->getKey())->value('revoked_at'));
+        self::assertSame($first->record->getKey(), DB::table('authentication_sessions')->where('id', $result->pending->id)->value('supersedes_session_id'));
+
+        $this->recordEvents([SessionRevoked::class, SessionCreated::class, SignedIn::class]);
+
+        self::assertTrue($this->sessions()->satisfy($result->credential, self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN))->isSignedIn());
+        self::assertSame([SessionRevoked::class, SessionCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame(RevocationReason::SUPERSEDED, $this->recordedEvent(SessionRevoked::class)->reason);
+        self::assertSame('superseded', DB::table('authentication_sessions')->where('id', $first->record->getKey())->value('revoked_reason'));
+        self::assertNull(DB::table('authentication_sessions')->where('id', $result->pending->id)->value('supersedes_session_id'));
+    }
+
+    /**
+     * A proven session that rotated while the new one waited is not superseded:
+     * the new one still activates, and the proven one stays live.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAProvenSessionThatChangedIsNotSuperseded(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->factorRequired = false;
+
+        $first = $this->sessions()->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($first);
+
+        $this->factorRequired = true;
+
+        $context = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken);
+        $result  = $this->sessions()->signIn('password', self::credentials(), $context);
+
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
+        self::assertTrue($this->sessions()->refresh($first->tokens->refreshToken)->isRefreshed());
+        self::assertTrue($this->sessions()->satisfy($result->credential, self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN))->isSignedIn());
+        self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
+    }
+
+    /**
+     * Discarding a pending session revokes it as `signed_out`, reported once,
+     * so its credential names nothing afterwards; a credential that names no
+     * live pending session discards nothing and reports nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testDiscardingRevokesThePendingSession(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$credential, $pending] = $this->pendingSignIn();
+
+        $this->recordEvents([SessionRevoked::class, AuthenticationFailed::class]);
+
+        self::assertTrue($this->sessions()->discard($credential));
+        self::assertFalse($this->sessions()->discard($credential));
+        self::assertSame([SessionRevoked::class], $this->recordedClasses());
+        self::assertSame(RevocationReason::SIGNED_OUT, $this->recordedEvent(SessionRevoked::class)->reason);
+        self::assertSame(IdentifierCoercion::stringify($pending->id), $this->recordedEvent(SessionRevoked::class)->context->sessionId);
+        self::assertSame('signed_out', Session::query()->sole()->getRevokedReason());
+        self::assertNull($this->sessions()->pending($credential));
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN))->reason);
+    }
+
+    /**
+     * A pending session is no active session: the list of the identity's
+     * sessions leaves it out, and a session that is made pending refuses its
+     * access token on every request (`session_pending`, a 401) and its refresh
+     * token as `session_pending`, not as a replay, so the session is not
+     * revoked.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingSessionIsListedNowhereAndAuthenticatesNothing(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->factorRequired = false;
+
+        $session = $this->sessions()->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($session);
+
+        $this->factorRequired = true;
+
+        $this->pendingSignIn();
+
+        self::assertSame(
+            [IdentifierCoercion::stringify($session->record->getKey())],
+            array_map(static fn (SessionSummary $summary): string => $summary->id, $this->sessions()->sessions($identity)->items()),
+        );
+
+        DB::table('authentication_sessions')->where('id', $session->record->getKey())->update(['status' => 'pending', 'requires' => '["mfa"]']);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        Auth::forgetGuards();
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken])->getJson('/me')->assertUnauthorized();
+
+        self::assertSame(FailureReason::SESSION_PENDING, $this->recordedEvent(AuthenticationFailed::class)->reason);
+
+        $refused = $this->sessions()->refresh($session->tokens->refreshToken);
+
+        self::assertSame(FailureReason::SESSION_PENDING, $refused->reason);
+        self::assertNull(DB::table('authentication_sessions')->where('id', $session->record->getKey())->value('revoked_at'));
+        self::assertSame([], $this->sessions()->sessions($identity)->items());
+    }
+
+    /**
+     * Configure the session guards and the guard over choosing members.
+     *
+     * @param  mixed  $app
+     * @return void
+     */
+    #[\Override]
+    protected function defineEnvironment(mixed $app): void
+    {
+        parent::defineEnvironment($app);
+
+        assert($app instanceof Application);
+
+        $config = $app->make(ConfigRepository::class);
+
+        self::configureSessionGuards($config);
+
+        $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
+        $config->set('auth.guards.' . self::CHOOSERS, ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password', 'sso']]]);
+    }
+
+    /**
+     * Sign the identity with the email in on the guard, expecting a pending
+     * session, and return its credential and the pending session.
+     *
+     * @param  string  $guard
+     * @param  string  $email
+     * @return array{0: string, 1: \SineMacula\Laravel\Authentication\Sessions\PendingSession}
+     *
+     * @throws \Throwable
+     */
+    private function pendingSignIn(string $guard = 'api', string $email = 'ada@example.test'): array
+    {
+        $result = $this->sessions($guard)->signIn('password', self::credentials($email));
+
+        self::assertTrue($result->isPending(), 'Expected a pending session; got ' . self::describe($result));
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
+
+        return [$result->credential, $result->pending];
+    }
+
+    /**
+     * Persist a member with two memberships, each in an active tenant of its
+     * own, so a sign-in that names no principal waits for a choice.
+     *
+     * @return array{0: \Tests\Integration\Fixtures\ChoosingMember, 1: \Tests\Integration\Fixtures\ChoosingMembership, 2: \Tests\Integration\Fixtures\ChoosingMembership}
+     */
+    private function seedChooser(): array
+    {
+        $member      = ChoosingMember::query()->create(['email' => 'chooser@example.test', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
+        $memberships = [];
+
+        foreach (['First', 'Second'] as $name) {
+            $tenant = ActivatableTenant::query()->create(['name' => $name, 'is_active' => true]);
+
+            $memberships[] = ChoosingMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
+        }
+
+        return [$member, ...$memberships];
+    }
+
+    /**
+     * A result as its status and reason.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInResult  $result
+     * @return string
+     */
+    private static function describe(SignInResult $result): string
+    {
+        return $result->status->value . ' ' . ($result->reason->value ?? '');
+    }
+
+    /**
+     * Move the clocks to the time.
+     *
+     * @param  \Carbon\CarbonImmutable  $at
+     * @return void
+     */
+    private function clockAt(CarbonImmutable $at): void
+    {
+        $this->now = $at;
+
+        Carbon::setTestNow($at);
+        CarbonImmutable::setTestNow($at);
+
+        JWT::$timestamp = $at->getTimestamp();
+    }
+}

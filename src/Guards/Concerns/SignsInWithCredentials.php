@@ -205,8 +205,6 @@ trait SignsInWithCredentials
         $required = self::signInCollaborator(AdditionalFactorPolicy::class)->requiresAdditionalFactor(new AdditionalFactorContext(
             $this->context->name(),
             $admitted->identity,
-            $admitted->principal,
-            $admitted->tenant,
             PasswordSignIn::NAME,
             $client,
             null,

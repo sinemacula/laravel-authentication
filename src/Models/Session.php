@@ -29,10 +29,11 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * which must then be the storage connection too.
  *
  * Only the client-described metadata is mass assignable. Ownership, the
- * request-derived columns, and the session state (generation, digests, rotation
- * time, start, principal switch, deadlines, revocation, last use) are not: the
- * package writes the columns it owns with query-builder updates, and code that
- * creates a session sets the rest with `forceFill()`.
+ * request-derived columns, and the session state (generation, status and
+ * requirements, digests, rotation time, start, context changes, active tenant
+ * and policy version, deadlines, revocation, last use) are not: the package
+ * writes the columns it owns with query-builder updates, and code that creates
+ * a session sets the rest with `forceFill()`.
  *
  * `model:prune --model` with this class deletes sessions that ended (revoked,
  * or past either deadline) more than `authentication.session.prune_after_days`
@@ -47,7 +48,15 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * @property string $authenticatable_id
  * @property ?string $principal_type
  * @property ?string $principal_id
- * @property ?\Carbon\CarbonInterface $principal_switched_at
+ * @property string $status
+ * @property ?list<string> $requires
+ * @property ?string $pending_key
+ * @property ?string $supersedes_session_id
+ * @property ?string $supersedes_refresh_key
+ * @property ?list<array<string, string>> $attempt_windows
+ * @property ?string $tenant_id
+ * @property ?string $tenant_policy_version
+ * @property ?\Carbon\CarbonInterface $switched_at
  * @property ?string $guard
  * @property ?string $sign_in_method
  * @property ?string $sign_in_identifier_type
@@ -77,6 +86,11 @@ class Session extends Model implements EloquentSession
     protected $fillable = [
         'client_name',
         'platform',
+    ];
+
+    /** @var array<string, mixed> The column defaults a new session reads before it is saved, as the migration's. */
+    protected $attributes = [
+        'status' => 'active',
     ];
 
     /**
@@ -155,7 +169,15 @@ class Session extends Model implements EloquentSession
             'authenticatable_id'      => 'string',
             'principal_type'          => 'string',
             'principal_id'            => 'string',
-            'principal_switched_at'   => 'datetime',
+            'status'                  => 'string',
+            'requires'                => 'array',
+            'pending_key'             => 'string',
+            'supersedes_session_id'   => 'string',
+            'supersedes_refresh_key'  => 'string',
+            'attempt_windows'         => 'array',
+            'tenant_id'               => 'string',
+            'tenant_policy_version'   => 'string',
+            'switched_at'             => 'datetime',
             'guard'                   => 'string',
             'sign_in_method'          => 'string',
             'sign_in_identifier_type' => 'string',

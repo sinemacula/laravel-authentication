@@ -10,7 +10,6 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
@@ -21,7 +20,6 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
-use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Models\SessionProvenance;
@@ -35,12 +33,14 @@ use SineMacula\Laravel\Authentication\Proofs\ProofAcceptance;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
-use SineMacula\Laravel\Authentication\Sessions\PendingFactor;
-use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
+use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
+use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
+use SineMacula\Laravel\Authentication\Sessions\PendingSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
+use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
@@ -67,8 +67,7 @@ use Tests\TestCase;
 #[CoversClass(SessionService::class)]
 #[CoversClass(SessionEstablishment::class)]
 #[CoversClass(SessionWriter::class)]
-#[CoversClass(PendingSignIns::class)]
-#[CoversClass(PendingFactor::class)]
+#[CoversClass(PendingSessions::class)]
 #[CoversClass(ProofWriter::class)]
 #[CoversClass(ProofAcceptance::class)]
 #[CoversClass(SignInProof::class)]
@@ -362,7 +361,6 @@ final class SignInProofsTest extends TestCase
         self::assertSame(0, Session::query()->count());
         self::assertSame(0, SessionProof::query()->count());
         self::assertSame(0, SessionProvenance::query()->count());
-        self::assertSame(0, PendingSignIn::query()->count());
     }
 
     /**
@@ -380,8 +378,8 @@ final class SignInProofsTest extends TestCase
 
     /**
      * A provider's deadline given in a time zone other than the application's
-     * is kept to the same instant while a sign-in waits for a further factor,
-     * so the session its completion starts ends exactly then.
+     * is kept to the same instant while the session waits for a further factor,
+     * so the session ends exactly then once it activates.
      *
      * @param  string  $zone
      * @return void
@@ -396,14 +394,13 @@ final class SignInProofsTest extends TestCase
 
         self::requireAFurtherFactor();
 
-        $pending = $this->sessions()->start($identity, null, 'sso', null, new Provenance('connection-7', sessionNotAfter: $deadline))->pending;
+        [$pending, $credential] = self::pendingOf($this->sessions()->start($identity, null, 'sso', null, new Provenance('connection-7', sessionNotAfter: $deadline)));
 
-        self::assertNotNull($pending);
-        self::assertSame($deadline->getTimestamp(), PendingSignIn::query()->sole()->not_after?->getTimestamp());
+        self::assertSame($deadline->getTimestamp(), Session::query()->sole()->getAbsoluteExpiresAt()?->getTimestamp());
 
         $this->clockAt($this->now->addMinutes(2));
 
-        $session = $this->sessions()->complete($pending->token)->session;
+        $session = $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN))->session;
 
         self::assertNotNull($session);
         self::assertSame($deadline->getTimestamp(), $session->record->getAbsoluteExpiresAt()?->getTimestamp());
@@ -411,8 +408,8 @@ final class SignInProofsTest extends TestCase
 
     /**
      * A provider's deadline given in a time zone other than the application's
-     * is kept to the same instant while a sign-in waits for a choice of
-     * principal, so the session the choice starts ends exactly then.
+     * is kept to the same instant while the session waits for a choice of
+     * principal, so the session the choice activates ends exactly then.
      *
      * @param  string  $zone
      * @return void
@@ -425,13 +422,12 @@ final class SignInProofsTest extends TestCase
         [$member, $membership] = $this->seedChooser();
 
         $deadline = $this->now->addHours(8)->setTimezone($zone);
-        $choice   = $this->sessions(self::CHOOSERS)->start($member, null, 'sso', null, new Provenance('connection-7', sessionNotAfter: $deadline))->choice;
 
-        self::assertNotNull($choice);
+        [, $credential] = self::pendingOf($this->sessions(self::CHOOSERS)->start($member, null, 'sso', null, new Provenance('connection-7', sessionNotAfter: $deadline)));
 
         $this->clockAt($this->now->addMinutes(2));
 
-        $session = $this->sessions(self::CHOOSERS)->choose($choice->token, $membership)->session;
+        $session = $this->sessions(self::CHOOSERS)->choose($credential, $membership)->session;
 
         self::assertNotNull($session);
         self::assertSame($deadline->getTimestamp(), $session->record->getAbsoluteExpiresAt()?->getTimestamp());
@@ -560,45 +556,44 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * A pending sign-in completed without a proof records only its first
-     * factor, timed when the credentials were verified rather than when it
-     * completed, and the pending sign-in keeps the first factor hidden.
+     * A pending session records its first factor when it is written, timed when
+     * the credentials were verified, and keeps it, unchanged, when the session
+     * activates later; the credential's digest is never shown.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testACompletionWithoutAProofRecordsOnlyTheFirstFactorAtItsOwnTime(): void
+    public function testAPendingSessionRecordsItsFirstFactorAtItsOwnTime(): void
     {
-        $this->seedIdentity();
+        $identity = $this->seedIdentity();
 
         self::requireAFurtherFactor();
 
-        $pending = $this->sessions()->signIn('password', self::credentials())->pending;
+        [$pending, $credential] = self::pendingOf($this->sessions()->signIn('password', self::credentials()));
 
-        self::assertNotNull($pending);
+        $row = Session::query()->sole();
 
-        $row = PendingSignIn::query()->sole();
-
-        self::assertSame($pending->id, $row->id);
-        self::assertArrayNotHasKey('first_factor', $row->toArray());
-        self::assertArrayNotHasKey('provenance', $row->toArray());
+        self::assertSame($pending->id, $row->getKey());
+        self::assertArrayNotHasKey('pending_key', $row->toArray());
+        self::assertArrayNotHasKey('attempt_windows', $row->toArray());
+        self::assertCount(1, self::proofsOf($row));
 
         $this->clockAt($this->now->addMinutes(3));
 
-        $session = $this->sessions()->complete($pending->token)->session;
+        $session = $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN))->session;
 
         self::assertNotNull($session);
 
         $proofs = self::proofsOf($session->record);
 
-        self::assertCount(1, $proofs);
+        self::assertCount(2, $proofs);
         self::assertSame([ProofKind::FIRST_FACTOR->value, ChannelKind::PASSWORD->value, ['pwd']], [$proofs[0]->kind, $proofs[0]->channel_kind, $proofs[0]->methods]);
         self::assertSame($this->now->getTimestamp(), $proofs[0]->authenticated_at->getTimestamp());
     }
 
     /**
-     * A pending sign-in completed with the further factor its adapter verified
+     * A pending session satisfied with the further factor its adapter verified
      * records it beside the first factor, with its kind, method, channel,
      * factor, evaluation, `amr` values and time.
      *
@@ -606,20 +601,18 @@ final class SignInProofsTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testACompletionWithAProofRecordsTheFurtherFactor(): void
+    public function testSatisfyingRecordsTheFurtherFactor(): void
     {
         $identity = $this->seedIdentity();
 
         self::requireAFurtherFactor();
 
-        $pending = $this->sessions()->signIn('password', self::credentials())->pending;
-
-        self::assertNotNull($pending);
+        [$pending, $credential] = self::pendingOf($this->sessions()->signIn('password', self::credentials()));
 
         $this->clockAt($this->now->addMinute());
 
         $proof   = self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN, ProofKind::RECOVERY_CODE, evaluation: new Evaluation(true, false), methods: ['otp', 'kba']);
-        $session = $this->sessions()->complete($pending->token, $proof)->session;
+        $session = $this->sessions()->satisfy($credential, $proof)->session;
 
         self::assertNotNull($session);
 
@@ -639,41 +632,68 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * Rows of `[changes, reason]`: every further factor a completion refuses,
-     * as what differs from one it takes (made now by the pending sign-in's
+     * The further factor that confirms a factor enrolled while the session
+     * waited (purpose `enrollment`) satisfies it as any further factor does,
+     * and is recorded with that purpose.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testABootstrapEnrollmentsConfirmingFactorSatisfiesTheSession(): void
+    {
+        $identity = $this->seedIdentity();
+
+        self::requireAFurtherFactor();
+
+        [$pending, $credential] = self::pendingOf($this->sessions()->signIn('password', self::credentials()));
+
+        $session = $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::ENROLLMENT))->session;
+
+        self::assertNotNull($session);
+        self::assertSame(
+            [ProofKind::ADDITIONAL_FACTOR->value, Purpose::ENROLLMENT->value],
+            [self::proofsOf($session->record)[1]->kind, self::proofsOf($session->record)[1]->purpose],
+        );
+    }
+
+    /**
+     * Rows of `[changes, reason]`: every further factor a pending session
+     * refuses, as what differs from one it takes (made now by the session's
      * identity, on its guard, for its id and `sign_in`, accepted): the kind,
      * the purpose, the evaluation, the seconds from now it was made at, and
-     * whether it names another identity, application or pending sign-in.
+     * whether it names another identity, application or session.
      *
      * @return iterable<string, array{0: array<string, mixed>, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
      */
-    public static function provideRefusedCompletionProofs(): iterable
+    public static function provideRefusedProofs(): iterable
     {
         $invalid = FailureReason::PROOF_INVALID;
         $binding = FailureReason::PROOF_BINDING_MISMATCH;
 
         yield from [
-            'a first factor'                  => [['kind' => ProofKind::FIRST_FACTOR], $invalid],
-            'a first-factor reauthentication' => [['kind' => ProofKind::FIRST_FACTOR_REAUTHENTICATION], $invalid],
-            'an external reauthentication'    => [['kind' => ProofKind::EXTERNAL_REAUTHENTICATION], $invalid],
-            'a step-up purpose'               => [['purpose' => Purpose::STEP_UP], $invalid],
-            'a reauthentication purpose'      => [['purpose' => Purpose::REAUTHENTICATE], $invalid],
-            'an evaluation not accepted'      => [['evaluation' => new Evaluation(false, true)], $invalid],
-            'a time after now'                => [['offset' => 1], $invalid],
-            'a time before the first factor'  => [['offset' => -61], $invalid],
-            'another identity'                => [['identity' => 'other'], $binding],
-            'an identity that is not a model' => [['identity' => 'plain'], $binding],
-            'another model with the same key' => [['identity' => 'same key'], $binding],
-            'another application'             => [['application' => 'admin'], $binding],
-            'another pending sign-in'         => [['pending' => '0190e1a4-0000-7000-8000-000000000001'], $binding],
-            'no pending sign-in'              => [['pending' => null], $binding],
+            'a first factor'                    => [['kind' => ProofKind::FIRST_FACTOR], $invalid],
+            'a first-factor reauthentication'   => [['kind' => ProofKind::FIRST_FACTOR_REAUTHENTICATION], $invalid],
+            'an external reauthentication'      => [['kind' => ProofKind::EXTERNAL_REAUTHENTICATION], $invalid],
+            'a step-up purpose'                 => [['purpose' => Purpose::STEP_UP], $invalid],
+            'a reauthentication purpose'        => [['purpose' => Purpose::REAUTHENTICATE], $invalid],
+            'a recovery code for an enrollment' => [['purpose' => Purpose::ENROLLMENT, 'kind' => ProofKind::RECOVERY_CODE], $invalid],
+            'an evaluation not accepted'        => [['evaluation' => new Evaluation(false, true)], $invalid],
+            'a time after now'                  => [['offset' => 1], $invalid],
+            'a time before the session waited'  => [['offset' => -61], $invalid],
+            'another identity'                  => [['identity' => 'other'], $binding],
+            'an identity that is not a model'   => [['identity' => 'plain'], $binding],
+            'another model with the same key'   => [['identity' => 'same key'], $binding],
+            'another application'               => [['application' => 'admin'], $binding],
+            'another session'                   => [['pending' => '0190e1a4-0000-7000-8000-000000000001'], $binding],
+            'no session'                        => [['pending' => null], $binding],
         ];
     }
 
     /**
-     * A completion whose further factor is refused fails with the reason,
-     * reported by `AuthenticationFailed`, records no session or proof, and uses
-     * the pending sign-in up, as any refused completion does.
+     * A further factor the pending session refuses fails `satisfy()` with the
+     * reason, reported by `AuthenticationFailed`; it is not stored, and the
+     * session stays pending, so a proof it takes still activates it.
      *
      * @param  array<string, mixed>  $changes
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -681,16 +701,14 @@ final class SignInProofsTest extends TestCase
      *
      * @throws \Throwable
      */
-    #[DataProvider('provideRefusedCompletionProofs')]
-    public function testACompletionRefusesAProofItDoesNotTake(array $changes, FailureReason $reason): void
+    #[DataProvider('provideRefusedProofs')]
+    public function testSatisfyingRefusesAProofItDoesNotTake(array $changes, FailureReason $reason): void
     {
         $identity = $this->seedIdentity();
 
         self::requireAFurtherFactor();
 
-        $pending = $this->sessions()->signIn('password', self::credentials())->pending;
-
-        self::assertNotNull($pending);
+        [$pending, $credential] = self::pendingOf($this->sessions()->signIn('password', self::credentials()));
 
         $now = $this->now->addMinute();
 
@@ -714,73 +732,70 @@ final class SignInProofsTest extends TestCase
         self::assertIsString($application);
 
         $proof  = self::adapterProof($made, $application, $bound, $purpose, $kind, $now->addSeconds($offset), $evaluation);
-        $result = $this->sessions()->complete($pending->token, $proof);
+        $result = $this->sessions()->satisfy($credential, $proof);
 
         self::assertTrue($result->isFailed());
         self::assertSame($reason, $result->reason);
         self::assertSame($reason, $this->recordedEvent(AuthenticationFailed::class)->reason);
-        self::assertSame(0, Session::query()->count());
-        self::assertSame(0, SessionProof::query()->count());
-        self::assertSame(0, PendingSignIn::query()->count());
-        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->complete($pending->token)->reason);
+        self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
+        self::assertSame(1, SessionProof::query()->count());
+        self::assertTrue($this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN, at: $now))->isSignedIn());
     }
 
     /**
-     * A proof made in the very second the first factor was verified, or the
-     * second the completion is made, completes the sign-in.
+     * A proof made in the very second the session began waiting, or the second
+     * it is handed over, satisfies the session.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAProofAtEitherEdgeOfItsWindowCompletes(): void
+    public function testAProofAtEitherEdgeOfItsWindowSatisfies(): void
     {
         $identity = $this->seedIdentity();
 
         self::requireAFurtherFactor();
 
-        $early = $this->sessions()->signIn('password', self::credentials())->pending;
-        $late  = $this->sessions()->signIn('password', self::credentials())->pending;
-
-        self::assertNotNull($early);
-        self::assertNotNull($late);
+        [$early, $earlyCredential] = self::pendingOf($this->sessions()->signIn('password', self::credentials()));
+        [$late, $lateCredential]   = self::pendingOf($this->sessions()->signIn('password', self::credentials()));
 
         $this->clockAt($this->now->addMinute());
 
-        self::assertTrue($this->sessions()->complete($early->token, self::adapterProof($identity, 'api', $early->id, Purpose::SIGN_IN, at: $this->now))->isSignedIn());
-        self::assertTrue($this->sessions()->complete($late->token, self::adapterProof($identity, 'api', $late->id, Purpose::SIGN_IN, at: $this->now->addMinute()))->isSignedIn());
+        self::assertTrue($this->sessions()->satisfy($earlyCredential, self::adapterProof($identity, 'api', $early->id, Purpose::SIGN_IN, at: $this->now))->isSignedIn());
+        self::assertTrue($this->sessions()->satisfy($lateCredential, self::adapterProof($identity, 'api', $late->id, Purpose::SIGN_IN, at: $this->now->addMinute()))->isSignedIn());
     }
 
     /**
      * A sign-in started through an external provider that waits for a further
-     * factor keeps its first factor and provenance until it completes, and its
-     * session records both as they were.
+     * factor records its first factor and provenance with the pending session,
+     * and they are the active session's, as they were, once it activates.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAPendingSignInKeepsTheProvenance(): void
+    public function testAPendingSessionKeepsTheProvenance(): void
     {
         $identity = $this->seedIdentity();
 
         self::requireAFurtherFactor();
 
         $provenance = new Provenance('connection-7', 'tenant-3', $this->now->subMinute(), $this->now->addHours(8), 'enforcement-12');
-        $pending    = $this->sessions()->start($identity, null, 'sso', null, $provenance)->pending;
 
-        self::assertNotNull($pending);
+        [$pending, $credential] = self::pendingOf($this->sessions()->start($identity, null, 'sso', null, $provenance));
+
+        self::assertNotNull(self::provenanceOf(Session::query()->sole()));
 
         $this->clockAt($this->now->addMinutes(2));
 
-        $session = $this->sessions()->complete($pending->token)->session;
+        $session = $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN, at: $this->now->addMinutes(2)))->session;
 
         self::assertNotNull($session);
 
         $proofs = self::proofsOf($session->record);
         $stored = self::provenanceOf($session->record);
 
-        self::assertCount(1, $proofs);
+        self::assertCount(2, $proofs);
         self::assertSame(
             [ChannelKind::EXTERNAL_PROVIDER->value, 'connection-7', [FirstFactor::EXTERNAL_PROVIDER_METHOD]],
             [$proofs[0]->channel_kind, $proofs[0]->channel_reference, $proofs[0]->methods],
@@ -792,9 +807,9 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * A sign-in that waits for its identity to choose a principal keeps its
+     * A session that waits for its identity to choose a principal keeps its
      * first factor, with the time it was verified, and its provenance, and the
-     * session the choice starts records them as they were.
+     * session the choice activates holds them as they were.
      *
      * @return void
      *
@@ -805,13 +820,12 @@ final class SignInProofsTest extends TestCase
         [$member, $membership] = $this->seedChooser();
 
         $provenance = new Provenance('connection-7', 'tenant-3', $this->now->subMinute());
-        $choice     = $this->sessions(self::CHOOSERS)->start($member, null, 'sso', null, $provenance)->choice;
 
-        self::assertNotNull($choice);
+        [, $credential] = self::pendingOf($this->sessions(self::CHOOSERS)->start($member, null, 'sso', null, $provenance));
 
         $this->clockAt($this->now->addMinutes(2));
 
-        $session = $this->sessions(self::CHOOSERS)->choose($choice->token, $membership)->session;
+        $session = $this->sessions(self::CHOOSERS)->choose($credential, $membership)->session;
 
         self::assertNotNull($session);
 
@@ -824,9 +838,10 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * A choice that turns into a pending further factor copies the first factor
-     * across, so the session its completion starts records the time the
-     * password was verified.
+     * A choice after which the identity's factor policy asks for a further
+     * factor records the principal and waits for it with the same credential,
+     * so the session it activates records the time the password was verified
+     * and then the further factor.
      *
      * @return void
      *
@@ -836,22 +851,22 @@ final class SignInProofsTest extends TestCase
     {
         [$member, $membership] = $this->seedChooser();
 
-        $choice = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'))->choice;
-
-        self::assertNotNull($choice);
+        [, $credential] = self::pendingOf($this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test')));
 
         self::requireAFurtherFactor();
 
         $this->clockAt($this->now->addMinute());
 
-        $pending = $this->sessions(self::CHOOSERS)->choose($choice->token, $membership)->pending;
+        $pending = $this->sessions(self::CHOOSERS)->choose($credential, $membership)->pending;
 
         self::assertNotNull($pending);
+        self::assertSame([PendingRequirement::MFA], $pending->requires);
+        self::assertTrue($membership->is($pending->principal));
 
         $this->clockAt($this->now->addMinutes(2));
 
         $proof   = self::adapterProof($member, self::CHOOSERS, $pending->id, Purpose::SIGN_IN);
-        $session = $this->sessions(self::CHOOSERS)->complete($pending->token, $proof)->session;
+        $session = $this->sessions(self::CHOOSERS)->satisfy($credential, $proof)->session;
 
         self::assertNotNull($session);
 
@@ -876,62 +891,6 @@ final class SignInProofsTest extends TestCase
         $this->expectExceptionMessage('A proof can only be recorded on a session that has a key.');
 
         self::recordProof(new Session, ProofKind::FIRST_FACTOR, $this->now);
-    }
-
-    /**
-     * A pending sign-in whose kept first factor cannot be read is a
-     * misconfiguration, never a sign-in without one.
-     *
-     * @return void
-     *
-     * @throws \Throwable
-     */
-    public function testAnUnreadableFirstFactorFailsClosed(): void
-    {
-        $this->seedIdentity();
-
-        self::requireAFurtherFactor();
-
-        $pending = $this->sessions()->signIn('password', self::credentials())->pending;
-
-        self::assertNotNull($pending);
-
-        DB::table('pending_sign_ins')->update(['first_factor' => '{"channel_kind":"carrier_pigeon"}']);
-
-        $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage('A pending sign-in keeps a first factor or provenance the package cannot read.');
-
-        $this->sessions()->complete($pending->token);
-    }
-
-    /**
-     * A choice whose kept first factor cannot be read fails closed the same
-     * way: no session and no proof are written, and the choice, used up before
-     * it is read as every choice is whatever its outcome, is gone.
-     *
-     * @return void
-     *
-     * @throws \Throwable
-     */
-    public function testAChoiceWithAnUnreadableFirstFactorFailsClosed(): void
-    {
-        [, $membership] = $this->seedChooser();
-
-        $choice = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'))->choice;
-
-        self::assertNotNull($choice);
-
-        DB::table('pending_sign_ins')->update(['first_factor' => '{"channel_kind":"carrier_pigeon"}']);
-
-        try {
-            $this->sessions(self::CHOOSERS)->choose($choice->token, $membership);
-
-            self::fail('Expected an unreadable first factor to fail closed.');
-        } catch (\LogicException $exception) {
-            self::assertSame('A pending sign-in keeps a first factor or provenance the package cannot read.', $exception->getMessage());
-        }
-
-        self::assertSame([0, 0, 0], [Session::query()->count(), SessionProof::query()->count(), PendingSignIn::query()->count()]);
     }
 
     /**
@@ -984,6 +943,21 @@ final class SignInProofsTest extends TestCase
         CarbonImmutable::setTestNow($at);
 
         JWT::$timestamp = $at->getTimestamp();
+    }
+
+    /**
+     * The pending session a sign-in left and the credential it issued.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInResult  $result
+     * @return array{0: \SineMacula\Laravel\Authentication\Sessions\PendingSession, 1: string}
+     */
+    private static function pendingOf(SignInResult $result): array
+    {
+        self::assertTrue($result->isPending(), 'Expected a pending session; got ' . $result->status->value);
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
+
+        return [$result->pending, $result->credential];
     }
 
     /**

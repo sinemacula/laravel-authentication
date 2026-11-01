@@ -29,10 +29,10 @@ use Tests\Integration\Fixtures\CutoffIdentity;
  * session is one conditional `UPDATE`; revoking one session of a list is the
  * owner-scoped read and that `UPDATE`; a bulk revocation, which every security
  * change and a sign-out everywhere make, reads its sessions a chunk at a time
- * and writes one `UPDATE` per session and one `DELETE` of the scope's pending
- * sign-ins, a principal's after one read of its owner, a tenant's for each
- * principal after reading its tenant, and an identity's that keeps a cutoff
- * after the one conditional `UPDATE` that moves it.
+ * and writes one `UPDATE` per session, pending ones included, a principal's
+ * after one read of its owner, a tenant's for each principal after reading its
+ * tenant, and an identity's that keeps a cutoff after the one conditional
+ * `UPDATE` that moves it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -123,13 +123,13 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * Revoking three sessions of an identity reads one chunk and writes three
-     * revocations and the pending sign-ins' delete.
+     * revocations.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testABulkRevocationIsAReadPerChunkAnUpdatePerSessionAndOneDelete(): void
+    public function testABulkRevocationIsAReadPerChunkAndAnUpdatePerSession(): void
     {
         $identity = $this->seedIdentity();
 
@@ -139,13 +139,12 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions();
 
-        self::assertSame(3, $this->assertQueryBudget(1, 4, static fn (): int => $sessions->revokeSessions($identity, RevocationReason::REVOKED)));
+        self::assertSame(3, $this->assertQueryBudget(1, 3, static fn (): int => $sessions->revokeSessions($identity, RevocationReason::REVOKED)));
     }
 
     /**
      * Revoking a 3D principal's two sessions reads its owner afresh (to know
-     * whether it can hold sessions) and one chunk, and writes two revocations
-     * and the pending sign-ins' delete.
+     * whether it can hold sessions) and one chunk, and writes two revocations.
      *
      * @return void
      *
@@ -160,7 +159,7 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions('members');
 
-        self::assertSame(2, $this->assertQueryBudget(2, 3, static fn (): int => $sessions->revokePrincipalSessions($membership, RevocationReason::REVOKED)));
+        self::assertSame(2, $this->assertQueryBudget(2, 2, static fn (): int => $sessions->revokePrincipalSessions($membership, RevocationReason::REVOKED)));
     }
 
     /**
@@ -179,8 +178,7 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A security change of an identity with three sessions costs what a bulk
-     * revocation costs: one chunk read, an update per session and the pending
-     * sign-ins' delete.
+     * revocation costs: one chunk read and an update per session.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Identity): int  $change
      * @return void
@@ -198,7 +196,7 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions();
 
-        self::assertSame(3, $this->assertQueryBudget(1, 4, static fn (): int => $change($sessions, $identity)));
+        self::assertSame(3, $this->assertQueryBudget(1, 3, static fn (): int => $change($sessions, $identity)));
     }
 
     /**
@@ -219,13 +217,12 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
         $kept     = $this->signIn()->record;
         $sessions = $this->sessions();
 
-        self::assertSame(2, $this->assertQueryBudget(1, 3, static fn (): int => $sessions->passwordChanged($identity, $kept)));
+        self::assertSame(2, $this->assertQueryBudget(1, 2, static fn (): int => $sessions->passwordChanged($identity, $kept)));
     }
 
     /**
      * A deactivated principal costs what revoking its sessions costs: its owner
-     * read afresh, one chunk, an update per session and the pending sign-ins'
-     * delete.
+     * read afresh, one chunk and an update per session.
      *
      * @return void
      *
@@ -240,7 +237,7 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions('members');
 
-        self::assertSame(2, $this->assertQueryBudget(2, 3, static fn (): int => $sessions->principalDeactivated($membership)));
+        self::assertSame(2, $this->assertQueryBudget(2, 2, static fn (): int => $sessions->principalDeactivated($membership)));
     }
 
     /**
@@ -251,15 +248,14 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
      */
     public static function provideTenantPrincipals(): iterable
     {
-        yield 'one principal' => [1, 3, 2];
-        yield 'three principals' => [3, 9, 6];
+        yield 'one principal' => [1, 3, 1];
+        yield 'three principals' => [3, 9, 3];
     }
 
     /**
      * A tenant's deactivation reads each principal's tenant, owner and
-     * sessions, and writes each session's revocation and each principal's
-     * pending sign-ins' delete: three reads and two writes for each principal
-     * with one session.
+     * sessions, and writes each session's revocation: three reads and one write
+     * for each principal with one session.
      *
      * @param  int  $count
      * @param  int  $reads
@@ -287,8 +283,7 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * Signing out everywhere but the request's own session reads the identity's
-     * other sessions in one chunk, revokes them and deletes the pending
-     * sign-ins.
+     * other sessions in one chunk and revokes them.
      *
      * @return void
      *
@@ -308,7 +303,7 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = self::sessionsOf($guard);
 
-        self::assertSame(2, $this->assertQueryBudget(1, 3, static fn (): int => $sessions->signOutEverywhere(true)));
+        self::assertSame(2, $this->assertQueryBudget(1, 2, static fn (): int => $sessions->signOutEverywhere(true)));
     }
 
     /**
@@ -328,7 +323,7 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions('cutoff');
 
-        self::assertSame(2, $this->assertQueryBudget(1, 4, static fn (): int => $sessions->passwordChanged($identity)));
+        self::assertSame(2, $this->assertQueryBudget(1, 3, static fn (): int => $sessions->passwordChanged($identity)));
     }
 
     /**
@@ -352,7 +347,7 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = self::sessionsOf($guard);
 
-        self::assertSame(2, $this->assertQueryBudget(1, 3, static fn (): int => $sessions->signOutEverywhere(true)));
+        self::assertSame(2, $this->assertQueryBudget(1, 2, static fn (): int => $sessions->signOutEverywhere(true)));
         self::assertNull($identity->fresh()?->getTokensValidAfter());
     }
 

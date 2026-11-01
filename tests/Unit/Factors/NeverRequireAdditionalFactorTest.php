@@ -8,9 +8,7 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
-use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -38,32 +36,30 @@ final class NeverRequireAdditionalFactorTest extends TestCase
      */
     public function testNeverRequiresAFurtherFactor(): void
     {
-        $identity  = \Mockery::mock(Identity::class);
-        $principal = \Mockery::mock(Principal::class);
-        $context   = new AdditionalFactorContext('api', $identity, $principal, null, 'password', new ClientContext(null, null), null, null, null);
+        $identity = \Mockery::mock(Identity::class);
+        $context  = new AdditionalFactorContext('api', $identity, 'password', new ClientContext(null, null), null, null, null);
 
         self::assertFalse((new NeverRequireAdditionalFactor)->requiresAdditionalFactor($context));
     }
 
     /**
-     * The context carries everything it was given.
+     * The context carries everything it was given, and names no principal or
+     * tenant: the policy is asked about the identity, before any principal is
+     * chosen.
      *
      * @return void
      */
     public function testContextCarriesTheSignIn(): void
     {
-        $identity  = \Mockery::mock(Identity::class);
-        $principal = \Mockery::mock(Principal::class);
-        $tenant    = \Mockery::mock(Tenant::class);
-        $session   = \Mockery::mock(Session::class);
-        $client    = new ClientContext('203.0.113.7', 'agent');
+        $identity = \Mockery::mock(Identity::class);
+        $session  = \Mockery::mock(Session::class);
+        $client   = new ClientContext('203.0.113.7', 'agent');
 
-        $context = new AdditionalFactorContext('api', $identity, $principal, $tenant, 'sso', $client, 'Work laptop', 'macOS', $session);
+        $context = new AdditionalFactorContext('api', $identity, 'sso', $client, 'Work laptop', 'macOS', $session);
 
         self::assertSame('api', $context->guard);
         self::assertSame($identity, $context->identity);
-        self::assertSame($principal, $context->principal);
-        self::assertSame($tenant, $context->tenant);
+        self::assertSame(['guard', 'identity', 'method', 'client', 'clientName', 'platform', 'provenSession'], array_keys(get_object_vars($context)));
         self::assertSame('sso', $context->method);
         self::assertSame($client, $context->client);
         self::assertSame('Work laptop', $context->clientName);

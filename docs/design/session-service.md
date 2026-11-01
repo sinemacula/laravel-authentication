@@ -15,47 +15,52 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   are reserved for misconfiguration (an unknown method, a method that refuses with a reason that is not a sign-in method
   reason, an identity that is not an Eloquent model or does not implement `HasSessions`, an invalid session model, an
   `UnresolvableIdentityException`) and server errors. An identity without `HasSessions` is refused before it is admitted
-  (in `signIn()`, after its slot was taken; in `start()` and `complete()`, before anything is written), because a bearer
+  (in `signIn()`, after its slot was taken; in `start()`, before anything is written), because a bearer
   token names a session the guard can only find through that relation, so the session's access token would never
   authenticate. A `MachineIdentity` is the exception: it is let through to admission, which refuses it as a result
   (`machine_identity`), since a non-human identity has no session whatever it implements.
 - No event ever receives the sign-in input. `Attempting` and `Failed` carry only `[type => identifier]` (or
   `['identifier' => ...]` for a method without a type, or nothing); `AuthenticationFailed` carries the identifier as
   given.
-- `signIn()` order: the method is resolved (unknown throws); `Attempting`; the application policy must allow the method
-  (`method_not_allowed`, nothing counted, no timebox); the attempt limiter must grant a slot (`rate_limited`); then, in
-  the guard's credential timebox, cut short only for an admitted sign-in: the method verifies the input, the identity
-  must not be a `MachineIdentity` (`machine_identity`) and must be active, the application policy must admit it with the
-  identifier type before any principal is resolved (`admitIdentifier()`; the package's finds the identifier verified
-  where the guard requires it), the principal (the context's pin, verified like an `attempt()` pin, else the resolver's
-  default) and its tenant must be active, and the application policy must admit them with the method's identifier type;
-  a password is rehashed; the proof of a session is checked; the additional-factor policy is asked; the session is
-  written, recording the method and its identifier type on the session, or a pending sign-in is issued. Only a success
-  gives the slots back, those the method took on the accounts it checked included; a pending sign-in keeps them all,
-  with their windows, until `complete()` starts its session. The slots are written on `rate_limits.connection`, outside
-  the session's own transaction but not outside a transaction the caller opened on that connection: with the default
-  (`null`, the storage connection) a caller that rolls back around a sign-in rolls its counts back too, so its attempts
-  go uncounted. Only counters on a connection of their own survive such a rollback. `complete()` therefore gives the
-  slots back only once its delete of the pending sign-in commits on that row's connection: a rollback restores the
-  pending sign-in, and slots given back before it would be given back again when the token is completed a second time. A
+- `signIn()` order (AUTH-2.6): the method is resolved (unknown throws); `Attempting`; the application policy must allow
+  the method (`method_not_allowed`, nothing counted, no timebox); the attempt limiter must grant a slot
+  (`rate_limited`); then, in the guard's credential timebox, cut short only for an admitted identity: the method
+  verifies the input, the identity must not be a `MachineIdentity` (`machine_identity`) and must be active, and the
+  application policy must admit it with the identifier type before any principal is resolved (`admitIdentifier()`; the
+  package's finds the identifier verified where the guard requires it); a password is rehashed; then, outside the
+  timebox (`SessionEstablishment::select()` and `proceed()`, over `PendingEvaluation`): the principals the identity may
+  use the application as, read from the writer and each admitted (`Admission\PrincipalAdmission`), with none left the
+  last one's refusal or `principal_unresolved`; the one the context names (`principal_mismatch` when it is not among
+  them), or the only one, or none selected while a choice is outstanding; the proof of a session is checked; the
+  identity-level additional-factor policy is asked, with no principal or tenant; a selected principal's active tenant
+  is admitted (`Admission\TenantAdmission::select()`); and the session is written active, recording the method, its
+  identifier type and the tenant, or pending with its requirements. Only a session that starts active gives the slots
+  back, those the method took on the accounts it checked included; a pending session keeps them all, their windows in
+  its hidden `attempt_windows`, until it first activates (`SessionActivation`). The slots are written on
+  `rate_limits.connection`, outside the session's own transaction but not outside a transaction the caller opened on
+  that connection: with the default (`null`, the storage connection) a caller that rolls back around a sign-in rolls
+  its counts back too, so its attempts go uncounted. Only counters on a connection of their own survive such a rollback.
+  The first activation therefore gives the slots back only once it commits on the session's connection: a rollback
+  leaves the session pending, and slots given back before it would be given back again when it activates. A
   release that fails then is reported to the exception handler, not thrown, the one limiter error that does not
   propagate: the session already stands, and Laravel runs a commit's callbacks in order without catching, so a throw
-  would stop the later ones (another completion's events, the caller's own). The release stops at the failure, and the
+  would stop the later ones (another activation's events, the caller's own). The release stops at the failure, and the
   slots not given back stay counted. A handler that throws while reporting is not caught, as with Laravel's `rescue()`:
   an error that cannot be reported surfaces rather than vanishing.
 - The steps `signIn()` and the guard's `attempt()` take the same way are `Sessions\CredentialAttempt`'s, which each
   calls in its own order: `checkMethod()` (the application policy's method check, before anything is counted), `begin()`
   (the slot on the identifier and IP limits, from the limiter the caller resolved after the method check), the account
   attempts the method's checks count against, `accountRefusal()` (`account_rate_limited`, with the account's wait),
-  `windows()` for a pending sign-in to keep and `release()` for a session. Between the two, `attempt()` reads the
+  `windows()` for a pending session to keep and `release()` for an active one. Between the two, `attempt()` reads the
   identifier type, resolves the limiter and only then reads the identifier for the limits, once the method is allowed;
   `signIn()` resolves the limiter, its subject already built. What runs in the timebox and around it stays with each:
   `attempt()` fires `Validated` once the password is accepted, rehashes and asks the factor policy inside the timebox,
   cuts it short only for an admitted attempt and gives its slots back before the bind; `signIn()` cuts it short for an
-  admitted sign-in or a choice, rehashes after it, continues to a session, a pending factor or a choice, and gives its
-  slots back after the bind.
+  admitted identity, rehashes after it, continues to an active or a pending session, and gives its slots back after the
+  bind of an active one.
 - `start()` reloads the identity through the guard's provider and requires the same class and key (`identity_unknown`),
-  then runs the method check, the admission with no identifier type, the session proof, the factor policy and the write.
+  then runs the method check, the identity's admission with no identifier type, and the same order from the principals
+  on.
   It takes no slot and runs in no timebox: nothing is guessed. The principal is given as the argument or on the
   context, never both. A machine credential kind (`SignInMethodManager::CREDENTIAL_METHODS`) as the method is an
   `InvalidArgumentException` before anything else: a session recorded under `client_credentials` would pass for a
@@ -65,21 +70,25 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   shipped policy are the guard's token service's (see `application-policy.md`), the absolute one capped at the
   context's own deadline (`SignInContext::$notAfter`, into which `start()` folds a provenance's deadline); a context
   whose deadline is `$now` or earlier is refused as `session_expired` before anything is written.
-- Every sign-in creates a new session (D15): a new key, a new rotation id, both deadlines from `$now`. A session is
-  written in one transaction on the session's connection: the revocation of a proven session first, then the new
-  session, then its proofs (the first factor, and the further factor a completion was given) and its provenance, then
-  both tokens, so any failure while issuing, or an insert a model event cancels (a `LogicException`), rolls all of it
-  and the revocation back. Only the digest of the rotation id is stored.
+- Every sign-in creates a new session (D15): a new key, a new rotation id, both deadlines from `$now`. An active
+  session is written in one transaction on the session's connection: the revocation of a proven session first, then the
+  new session, then its proofs and its provenance, then both tokens, so any failure while issuing, or an insert a model
+  event cancels (a `LogicException`), rolls all of it and the revocation back. Only the digest of the rotation id is
+  stored. A pending session (`SessionWriter::createPending()`) is written the same way with `status = pending`, its
+  `requires`, the digest of its pending credential's secret (`pending_key`), the proven session and the digest it was
+  proven against (`supersedes_session_id`, `supersedes_refresh_key`), the slots' windows, no refresh digest, and an
+  idle deadline that is the credential's expiry (`session.pending_ttl_seconds`, never past the absolute deadline); it
+  revokes nothing and issues no token.
 - What a sign-in proved travels as an internal `Proofs\SignInProof` from the moment it is verified to the session's
   first proofs: the method, the `FirstFactor` a sign-in method returned (its channel, observations and `amr` values,
   `mfa` refused) timed when it returned, or for `start()` the provider's (the connection, the private
   `urn:sinemacula:amr:external_provider` value, the provider's time, never after now) with the `Provenance`, or an
-  unattested one (unknown channel, no value, now). A pending sign-in keeps it (`first_factor`, `provenance`, hidden
-  JSON) and a choice that becomes a pending factor copies it, so the session records the time the credentials were
-  verified. A completion's `ProofResult` is accepted only as `Proofs\ProofAcceptance::forPendingSignIn()` decides
-  (an `additional_factor` or `recovery_code`, for `sign_in`, accepted, timed between the first factor and now:
-  `proof_invalid`; bound to the pending sign-in's identity, guard and id: `proof_binding_mismatch`), after the pending
-  sign-in is used up, so a refused proof consumes it; a completion without one records only the first factor.
+  unattested one (unknown channel, no value, now). A pending session records it as its first proof when it is written,
+  so the session records the time the credentials were verified. A `satisfy()`'s `ProofResult` is accepted only as
+  `Proofs\ProofAcceptance::forPendingSession()` decides (an `additional_factor` or `recovery_code`, for `sign_in`, or
+  `enrollment` for an `additional_factor`, accepted, timed between when the session began waiting and now:
+  `proof_invalid`; bound to the pending session's identity, guard and id: `proof_binding_mismatch`); a refusal stores
+  nothing and leaves the session pending.
 - A refresh token proves a session only when it is the session's current rotation id, validly signed for the guard
   (`parseRefreshProof()`: every `parse()` check except expiry), and the session, read from the writer, is owned by the
   identity, records this guard and the same principal, and is not revoked. Anything else is no proof: a new session,
@@ -92,24 +101,27 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   digests as any revocation does, then inserts the new session as `create()` does, except that a client name or platform
   the sign-in does not give is the proven session's. The proven row keeps everything else. A swap that misses
   reconsiders the sign-in without the session, factor policy included: it creates a session and revokes nothing, or
-  issues a pending sign-in when the factor policy now asks for one; it never retries.
+  writes it pending when the factor policy now asks for a factor; it never retries. A pending sign-in supersedes only at
+  its first activation, with the same compare-and-swap on the digest it recorded; a miss there activates the session
+  and revokes nothing.
 - After the session's transaction, `SessionRevoked` (`superseded`, for a replaced session), `SessionCreated` and
-  `SignedIn` are scheduled, in that order and in one callback, on the commit of the session's connection, and a
-  completion's or a choice's slot give-back on the pending row's, and only then is the guard bound, with the usual
-  immediate bind events: a bind listener that throws cannot withhold them, and they never fire for a rolled-back
-  session. The order holds by construction: `SessionEstablishment` writes the session (or issues the
-  pending sign-in), asks the factor policy and schedules those reports, and never binds; the service binds the guard,
-  through `login()` on the `Contracts\GuardBinding` it was given, only once establishment has returned a signed-in
-  result, and `signIn()` gives its slots back after that bind.
+  `SignedIn` are scheduled, in that order and in one callback, on the commit of the session's connection, with a first
+  activation's slot give-back, and only then is the guard bound, with the usual immediate bind events: a bind listener
+  that throws cannot withhold them, and they never fire for a rolled-back session. The order holds by construction:
+  `SessionEstablishment` (and `SessionActivation` for a pending session) writes the session, asks the factor policy and
+  schedules those reports, and never binds; the service binds the guard, through `login()` on the
+  `Contracts\GuardBinding` it was given, only once establishment has returned a signed-in result, and `signIn()` gives
+  its slots back after that bind.
 - The service holds no state between calls. It runs on the guard's context (`Runtime\GuardContext`), reading the
   provider, resolver, dispatcher and request, and the sign-in method manager and policies from the container, each time
   it needs them, and reaches the guard's bound state only through its binding; it names no `Guards` class. The guard
   neither builds nor holds one: `AuthManager::sessions()` builds a service on each call, from the guard's context and
   token service, with the guard as the binding, on the container's connections and transactions manager. A service
   handed out earlier therefore follows the guard's rebinds as a new one does.
-- The principals an identity may choose from, the choice a sign-in without a default waits on, and finding a live choice
-  are `PrincipalChoices`' (see `principal-choice-and-switch.md`); the service routes a sign-in to it and binds a chosen
-  session as it binds any other.
+- Acting on a pending session is `PendingSessions`' (`pending()`, `satisfy()`, `choose()`, `discard()`): it finds the
+  session by its credential under the row's lock, re-runs the gate (`PendingEvaluation`) and activates it
+  (`SessionActivation`) or leaves it waiting; the service binds an activated session as it binds any other. See
+  [Pending sessions](#pending-sessions).
 - Ending sessions is not the service's own: `signOut()`, `signOutEverywhere()`, `revokeSession()`, `revokeSessions()`,
   `revokePrincipalSessions()` and the security-change methods delegate to `SessionRevocations` (see
   `session-lifecycle.md`), on the guard's context, with the guard as the `Contracts\GuardBinding` the two sign-out calls
@@ -132,43 +144,61 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   before `SessionCreated`. Its context has the guard, the sign-in's client, the identity, principal and tenant the
   sign-in admitted, the proven session and the method it records.
 - `start()`: the same without `Attempting`.
-- A sign-in held for a further factor: `Attempting` (not from `start()`), then, once the pending sign-in is committed on
-  its connection, `AdditionalFactorRequired` (a context of guard, identity, principal, tenant, proven session, method
-  and client, and the expiry; never the token), nothing bound and nothing revoked. Its completion follows the sign-in
-  path without `Attempting`, replacing the proven session only if it is still unchanged then; its discard emits `Failed`
-  and `AuthenticationFailed` (`additional_factor_failed`, the method, the discarding client, the identity when the
-  provider still returns it), and a token that discards nothing emits nothing.
+- A sign-in whose session is written pending: `Attempting` (not from `start()`), then, once committed on its
+  connection, `SessionPending` (a context of guard, identity, the principal and tenant once selected, proven session,
+  method and client, what it requires and its expiry; never the credential), nothing bound and nothing revoked. Its
+  first activation follows the sign-in path without `Attempting`, replacing the proven session only if it is still
+  unchanged then; its discard is a revocation (`signed_out`, `SessionRevoked`), and a credential that discards nothing
+  emits nothing.
+
+## Pending sessions
+
+- A session is pending while `requires` lists anything (`mfa`, then `principal`). Its credential is
+  `<session key>.<secret>`: the secret from `RefreshTokenHasher::generate()`, only its digest stored, compared in
+  constant time; it is not a JWT, so no guard authenticates a request or a refresh with it, and its session's tokens
+  are refused as `session_pending` (`OwnedSession`, `RefreshJudgment` before any key comparison, so no reuse is
+  detected). The credential allows only the actions of the first requirement (`PendingRequirement::actions()`), and
+  `pending_action_not_allowed` answers any other.
+- `PendingSessions::find()` splits the credential, reads the session by key under the row's lock (`SessionLookup`),
+  and requires it of this guard, pending, unrevoked, before its idle deadline, with a matching digest and something
+  required; the owner reloaded through the provider as the recorded one, and the principal, when recorded, through the
+  hinted path as the recorded one and still owned. Anything else is `pending_invalid`. `pending()` does the same without
+  a lock and writes nothing.
+- `satisfy()` and `choose()` run in one transaction on the session's connection that is rolled back on any refusal, so a
+  refused proof or choice stores nothing and never revokes. Each re-runs the gate: the identity, the method still
+  allowed, and the principal and tenant recorded (`PendingEvaluation::recorded()`), then the factor policy, given the
+  stored proofs (`SessionProofs::hasAcceptedAdditional()`), then a choice. With nothing left the session activates; with
+  something left `requires` is updated and the result is pending, without a new credential.
+- `SessionActivation::activate()` writes the active state with one compare-and-swap on `status = pending` and the
+  digest: `status = active`, `requires` and `pending_key` cleared, a new rotation id, a fresh idle deadline, the
+  principal and tenant. On the first activation (no refresh digest yet) it supersedes the proven session, gives back the
+  kept slots and schedules `SessionRevoked` (`superseded`), `SessionCreated` and `SignedIn`; a later one (a session that
+  returned to pending) records `switched_at` (`SwitchFloor`) and schedules `SessionActivated`.
+- `PendingTransitions::returnToPending()` takes an active session back to pending with one compare-and-swap on the
+  loaded refresh digest, principal, tenant, policy version, deadlines and status: a new credential, `requires`
+  (`mfa`), the destination's principal and tenant, the switch time (`SwitchFloor`) and the credential's expiry as the
+  idle deadline; its refresh token stays refused as `session_pending` until it activates with a new rotation id.
+  `SessionReturnedToPending` follows the commit.
+- `discard()` revokes a live pending session as `signed_out`, with `SessionRevoked`; it never gives slots back.
 
 ## Failure / Edge Cases
 
-- A required additional factor starts no session: the service stores a pending sign-in (the digest of a single-use,
-  guard-bound token's secret, who, as whom, how, from which client, the proven session and the digest it was proven
-  against, the windows of the attempt-limit slots the sign-in took, and an expiry from
-  `authentication.sign_in.pending_ttl_seconds`) and returns its token. The token is not a JWT, so no guard authenticates
-  a request or a refresh with it. The slots stay taken until the pending sign-in completes, the one the method's check
-  took on the account (`SignInRequest::reserveAccountAttempt()`) among them, and `discard()` uses one up without a
-  session (as when its factor fails), so each guess at a factor costs a sign-in attempt. For the password method the
+- The slots a pending session keeps stay taken until it first activates, the one the method's check took on the
+  account (`SignInRequest::reserveAccountAttempt()`) among them, and a discard or expiry leaves them counted, so each
+  guess at a factor costs a sign-in attempt. For the password method the
   guesses are bounded by the account's one count, whatever spelling of the identifier or guard the sign-ins used, held
   to the most permissive `per_identifier` limit among the guards that check the account (see `application-policy.md`);
-  for a method that counts no account, only by its identifier's and the IP address's limits. A pending sign-in from
+  for a method that counts no account, only by its identifier's and the IP address's limits. A pending session from
   `start()` holds no slots (nothing was guessed), so its external verifier bounds it.
-- `pending()` finds a live pending sign-in of the guard (identity reloaded through the provider as the recorded owner,
-  principal through the hinted path as the recorded one, still owned) without using it up. `complete()` uses it up by a
-  `DELETE` on its id, digest and unexpired `expires_at` that only one completion can win, checks it again (method,
-  activity, tenant, `admitIdentifier()` and `admit()` with the stored identifier type; not the factor policy), and
-  writes the session in the same transaction; a failed check still uses it up. Every lookup failure is
-  `pending_invalid`. A completion runs in the completing request's client: its events and the session's last use carry
-  that client, while a session it creates records the client the sign-in came from as its creation.
-- A sign-in that names no principal, for an identity whose resolver has no default but which has eligible principals,
-  waits for a choice instead of failing: a pending sign-in of purpose `principal_choice`, with no principal and the
-  sign-in's slots, reported by `PrincipalChoiceRequired`. `pending()` and `complete()` never take a choice token. See
-  `principal-choice-and-switch.md`.
+- Two `satisfy()` calls on one credential serialise on the row's lock: one activates, and the other finds the session
+  active and is `pending_invalid`. An activation runs in the acting request's client: its events and the session's last
+  use carry that client, while the session keeps the client the sign-in came from as its creation.
 - Inside a caller's transaction the service's transaction is a savepoint: the guard is bound at once, the lifecycle
   events wait for the caller's commit, and a rollback withdraws them with the session while the guard stays bound. Do
   not roll back around a sign-in.
 - A listener that throws on a bind event propagates after the session committed: the session exists and the pair is
   lost, but `SessionCreated` and `SignedIn` were already dispatched (or, inside a caller's transaction, wait for its
-  commit) and a completion's slots are given back. A listener that throws on `SessionCreated` or `SignedIn` with no
+  commit) and an activation's slots are given back. A listener that throws on `SessionCreated` or `SignedIn` with no
   transaction open propagates before the bind: the session stands, the guard is not bound, and `SignedIn` is not
   dispatched after a throwing `SessionCreated`.
 - A session replaced by a sign-in is revoked: its access tokens stop at once and its refresh tokens are refused as
@@ -182,7 +212,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 
 ## Implementation Anchors
 
-- `src/Sessions/SessionService.php`: `signIn()`, `start()`, `complete()`, `choose()`, `bound()`;
+- `src/Sessions/SessionService.php`: `signIn()`, `start()`, `pending()`, `satisfy()`, `choose()`, `discard()`,
+  `bound()`;
   `src/Sessions/Concerns/EndsSessions.php`: the methods it delegates to `src/Sessions/SessionRevocations.php` (a trait
   only so the service stays within phpcs's limit of methods a class may declare);
   `src/Sessions/Concerns/RefreshesSessions.php`: `refresh()` and `refreshFromRequest()`, delegated to
@@ -190,19 +221,20 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   `src/Sessions/Concerns/ProvesSessions.php`: `stepUp()` and `reauthenticate()`, delegated to
   `src/Sessions/SessionStepUp.php` and `src/Sessions/SessionReauthentication.php` over `src/Sessions/ProofIssuance.php`
   (see `proofs-and-freshness.md`).
-- `src/Sessions/SessionEstablishment.php`: `proceed()`, `establish()`, `complete()`, `write()`, `signedIn()`,
-  `giveBack()`: the session, the factor policy and the scheduled reports, never the bind.
-- `src/Sessions/PrincipalChoices.php`: `offerChoice()`, `admissible()`, `liveChoice()`.
+- `src/Sessions/SessionEstablishment.php`: `select()`, `proceed()`, `establish()`, `wait()`, `write()`, `signedIn()`:
+  the session, the factor policy and the scheduled reports, never the bind.
+- `src/Sessions/PendingEvaluation.php` (the gate), `src/Sessions/PendingSessions.php`,
+  `src/Sessions/SessionActivation.php`, `src/Sessions/PendingTransitions.php`, `src/Sessions/PendingState.php`,
+  `src/Sessions/PendingSession.php` and `src/Sessions/Enums/{PendingRequirement,PendingAction,SessionStatus}.php`.
 - `src/Sessions/CredentialAttempt.php`: the method check, the slots and their give-back, shared with `attempt()`
   (`src/Guards/Concerns/SignsInWithCredentials.php`).
 - `src/Sessions/SignInRequest.php` (`reserveAccountAttempt()`) and `src/RateLimiting/AccountAttempts.php`: the slots a
   sign-in's method takes on the accounts it checks, held with the sign-in's own.
-- `src/Sessions/SessionWriter.php`: `create()`, `replace()`, `record()` and the compare-and-swap.
+- `src/Sessions/SessionWriter.php`: `create()`, `replace()`, `createPending()`, `record()` and the compare-and-swap.
 - `src/Proofs/SignInProof.php`, `src/Proofs/ProofWriter.php`, `src/Proofs/ProofAcceptance.php`, `src/Proofs/FirstFactor.php`
   and the drivers' `authenticate()`: what a sign-in proves and how its session records it.
 - `src/Sessions/ProvenSessions.php`, `src/Jwt/JwtTokenService.php` (`parseRefreshProof()`),
   `src/SessionRecords/SessionLookup.php`.
-- `src/Sessions/PendingSignIns.php` and `src/Models/PendingSignIn.php`: issuing, finding and consuming pending sign-ins.
 - `src/Sessions/SessionPreconditions.php`: the `HasSessions` refusal, and `start()`'s one-principal rule and
   reloaded-identity check.
 - `src/Admission/SignInAdmission.php`, shared with `attempt()`; `src/Admission/PinnedPrincipal.php`.
@@ -215,7 +247,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - `tests/Feature/Contracts/CredentialAttemptMatrixTest.php`: every case of `signIn('password')` beside `attempt()`'s,
   with its answer, events, timebox, rehash and slots; `tests/Feature/Sessions/CredentialAttemptTest.php`
 - `tests/Feature/Sessions/SessionEstablishmentTest.php`: establishment on its own (what it writes, returns and
-  schedules, and that it never binds); `tests/Feature/Sessions/PrincipalChoicesTest.php`
+  schedules, and that it never binds)
 - `tests/Feature/AuthManagerTest.php`: the service built per call on the guard's context, binding and token service
 - `tests/Feature/Sessions/SessionRefreshTest.php`, `tests/Unit/Sessions/RefreshResultTest.php`: the refresh, its events
   and bind, and every refusal returned
@@ -225,17 +257,16 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   `Auth::sessions()`, with tokens checked through `auth:api`
 - `tests/Integration/Sessions/SessionServiceTest.php`
 - `tests/Feature/Sessions/ProvenSessionsTest.php`, `tests/Feature/Sessions/SessionWriterTest.php`
-- `tests/Feature/Sessions/PendingSignInsTest.php`, `tests/Integration/Sessions/PendingFactorSessionServiceTest.php`
-- `tests/Integration/Sessions/ReplicaPendingSignInsTest.php`: pending sign-ins read from the writer
+- `tests/Feature/Sessions/PendingSessionsTest.php`, `tests/Integration/Sessions/ConcurrentPendingSatisfactionTest.php`
 - `tests/Unit/Sessions/SessionPreconditionsTest.php`
 - `tests/Integration/Sessions/SignInPolicyEndToEndTest.php`: the shipped application policy, attempt limiter,
   normalisers and verified-identifier gate, through `signIn()`, `start()` and `attempt()`
-- `tests/Integration/Migration/PendingSignInsTableSchemaTest.php`
+- `tests/Integration/Migration/SessionsTableSchemaTest.php`
 - `tests/Feature/Proofs/SignInProofsTest.php`, `tests/Feature/Proofs/SignInProofTest.php`: the proofs and provenance
-  each sign-in records, a completion's further factor and every refusal of one, the choice carrying them across
+  each sign-in records, a satisfied further factor and every refusal of one, the choice carrying them across
 - `tests/Performance/SessionServiceQueryBudgetTest.php`
 - `tests/Feature/Contracts/EventSequenceTest.php`, `tests/Integration/Contracts/EventSequenceTest.php`: the event
-  sequence of every sign-in, completion, choice and discard, and around the session connection's transaction
+  sequence of every sign-in, satisfaction, choice and discard, and around the session connection's transaction
 
 ## Change Triggers
 
@@ -245,10 +276,11 @@ Update this note when any of the following change:
 - which steps `Sessions\CredentialAttempt` shares between `signIn()` and `attempt()`
 - what proves a session, or what replacing one writes, keeps or revokes
 - what the session's transaction contains, or when the guard is bound, or what builds the service
-- when `SessionRevoked` (`superseded`), `SessionCreated`, `SignedIn` and `AdditionalFactorRequired` are dispatched, or
-  what they carry
+- when `SessionRevoked` (`superseded`), `SessionCreated`, `SignedIn`, `SessionPending`, `SessionReturnedToPending` and
+  `SessionActivated` are dispatched, or what they carry
 - what reaches the events from the sign-in input
-- what a pending sign-in stores, how long it lives, what finds it, or what completing it checks
-- what a sign-in records as its proofs or provenance, or which proofs a completion accepts
+- what a pending session stores, how long its credential lives, what finds it, what it allows, or what activating it
+  checks
+- what a sign-in records as its proofs or provenance, or which proofs `satisfy()` accepts
 - which of its methods it delegates to `SessionRevocations`, or what of the guard those need
 - what a refresh returns, binds or reports, or what it delegates to `SessionRefresh`

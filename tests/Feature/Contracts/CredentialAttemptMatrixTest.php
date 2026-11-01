@@ -20,7 +20,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Models\Session as SessionRecord;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\Sessions\CredentialAttempt;
@@ -345,8 +345,8 @@ final class CredentialAttemptMatrixTest extends TestCase
         ]];
 
         yield 'no default principal' => ['no default principal', [
-            'result'      => 'principal_required',
-            'events'      => ['Attempting choosers', 'PrincipalChoiceRequired choosers i1/-/-'],
+            'result'      => 'pending',
+            'events'      => ['Attempting choosers', 'SessionPending choosers principal i1/-/s1'],
             'timebox'     => 'cut short',
             'rehashed'    => true,
             'reservation' => 'kept',
@@ -354,8 +354,8 @@ final class CredentialAttemptMatrixTest extends TestCase
         ]];
 
         yield 'factor required' => ['factor required', [
-            'result'      => 'factor_required',
-            'events'      => ['Attempting api', 'AdditionalFactorRequired api i1/p1/-'],
+            'result'      => 'pending',
+            'events'      => ['Attempting api', 'SessionPending api mfa i1/p1/s1'],
             'timebox'     => 'cut short',
             'rehashed'    => true,
             'reservation' => 'kept',
@@ -613,7 +613,7 @@ final class CredentialAttemptMatrixTest extends TestCase
     /**
      * What became of the slots the sign-in asked for, on the identifier and IP
      * limits or on the account's: `none` when it asked for none, else, for
-     * each, `refused`, `released`, `kept` (held by the pending sign-in it left)
+     * each, `refused`, `released`, `kept` (held by the pending session it left)
      * or `consumed` (left counted).
      *
      * @param  \Tests\Fixtures\Sessions\RecordingAttemptLimiter  $limiter
@@ -623,7 +623,7 @@ final class CredentialAttemptMatrixTest extends TestCase
     private static function disposition(RecordingAttemptLimiter $limiter, bool $account): string
     {
         $reservations = array_filter($limiter->reservations, static fn (AttemptReservation $reservation): bool => ($reservation->subject->account !== null) === $account);
-        $held         = PendingSignIn::query()->first()->attempt_windows ?? [];
+        $held         = SessionRecord::query()->where('status', 'pending')->first()->attempt_windows ?? [];
 
         $dispositions = array_map(static fn (AttemptReservation $reservation): string => match (true) {
             !$reservation->granted()                         => 'refused',

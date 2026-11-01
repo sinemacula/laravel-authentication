@@ -10,75 +10,74 @@ use Illuminate\Queue\SerializesModels;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
-use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
 use SineMacula\Laravel\Authentication\Events\EventContext;
+use SineMacula\Laravel\Authentication\Events\SessionPending;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use Tests\Unit\Stubs\PlainIdentityFixture;
-use Tests\Unit\Stubs\PlainPrincipalFixture;
 use Tests\Unit\Stubs\PlainSessionFixture;
 
 /**
- * AdditionalFactorRequired event unit tests.
+ * SessionPending event unit tests.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversClass(AdditionalFactorRequired::class)]
-final class AdditionalFactorRequiredTest extends TestCase
+#[CoversClass(SessionPending::class)]
+final class SessionPendingTest extends TestCase
 {
     /**
-     * The event keeps its context and when the pending sign-in expires.
+     * The event keeps its context, what the session waits on in order, and when
+     * its pending credential expires.
      *
      * @return void
      */
-    public function testKeepsItsContextAndExpiry(): void
+    public function testKeepsItsContextRequirementsAndExpiry(): void
     {
         $context = self::context();
-        $event   = new AdditionalFactorRequired($context, CarbonImmutable::parse('2026-01-01 00:10:00'));
+        $event   = new SessionPending($context, ['mfa', 'principal'], CarbonImmutable::parse('2026-01-01 00:05:00'));
 
         self::assertInstanceOf(AuthenticationEvent::class, $event);
         self::assertSame($context, $event->context);
         self::assertSame($context, $event->context());
-        self::assertEquals(CarbonImmutable::parse('2026-01-01 00:10:00'), $event->expiresAt);
+        self::assertSame(['mfa', 'principal'], $event->requires);
+        self::assertEquals(CarbonImmutable::parse('2026-01-01 00:05:00'), $event->expiresAt);
     }
 
     /**
      * The event serialises its models for queued listeners and survives a round
-     * trip. It does not ask the dispatcher to wait for a transaction: that
-     * would wait for whichever transaction is open last on any connection, so
-     * the package dispatches it once the written row's own connection commits.
+     * trip. It does not ask the dispatcher to wait for a transaction: the
+     * package dispatches it once the pending session's own connection commits.
      *
      * @return void
      */
     public function testSerializesItsModelsAndDispatchesWhenTheSenderSays(): void
     {
-        $context = self::context();
-        $event   = new AdditionalFactorRequired($context, CarbonImmutable::parse('2026-01-01 00:10:00'));
+        $event = new SessionPending(self::context(), ['principal'], CarbonImmutable::parse('2026-01-01 00:05:00'));
 
         self::assertNotInstanceOf(ShouldDispatchAfterCommit::class, $event);
         self::assertContains(SerializesModels::class, class_uses_recursive($event));
 
         $copy = unserialize(serialize($event));
 
-        self::assertInstanceOf(AdditionalFactorRequired::class, $copy);
+        self::assertInstanceOf(SessionPending::class, $copy);
         self::assertSame('api', $copy->context->guard);
         self::assertSame('7', $copy->context->identityId);
+        self::assertNull($copy->context->principalId);
         self::assertSame('session-1', $copy->context->sessionId);
-        self::assertEquals(CarbonImmutable::parse('2026-01-01 00:10:00'), $copy->expiresAt);
+        self::assertSame(['principal'], $copy->requires);
+        self::assertEquals(CarbonImmutable::parse('2026-01-01 00:05:00'), $copy->expiresAt);
     }
 
     /**
-     * A context with an identity, principal and session, signed in with a
-     * password from a known client.
+     * A context with an identity and a pending session and no principal yet,
+     * signed in with a password from a known client.
      *
      * @return \SineMacula\Laravel\Authentication\Events\EventContext
      */
     private static function context(): EventContext
     {
-        $client = new ClientContext('203.0.113.7', 'agent');
-
-        return new EventContext('api', $client, new PlainIdentityFixture(7), new PlainPrincipalFixture('p-1'), null, new PlainSessionFixture('session-1'), 'password');
+        return new EventContext('api', new ClientContext('203.0.113.7', 'agent'), new PlainIdentityFixture(7), null, null, new PlainSessionFixture('session-1'), 'password');
     }
 }

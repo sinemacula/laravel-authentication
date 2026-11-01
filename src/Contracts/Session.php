@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Contracts;
 
 use Carbon\CarbonInterface;
+use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 
 /**
  * Session contract.
@@ -15,7 +16,9 @@ use Carbon\CarbonInterface;
  *
  * A session is one sign-in, on one application, on one device: it holds the
  * refresh credential, the idle and absolute deadlines that end it, and its
- * revocation.
+ * revocation. It is active, or pending while it waits on requirements (a
+ * further factor, a choice of principal), when it holds a pending credential
+ * and no refresh credential the package accepts.
  *
  * Every refresh and revocation state accessor is read inside
  * `WriteConnection::during()` for the session by the package: model reads on
@@ -91,15 +94,69 @@ interface Session
     public function getSignedInAt(): ?CarbonInterface;
 
     /**
-     * Return when the session last switched the principal it acts as, or `null`
-     * when it never did. Access tokens naming the session that were issued
-     * before it are rejected.
+     * Return the floor for the issue time of the session's access tokens, moved
+     * by every change of its context (its principal or active tenant, a return
+     * to pending, an activation after one), or `null` when it never changed.
+     * Access tokens naming the session that were issued before it are rejected.
      *
      * @return ?\Carbon\CarbonInterface
      *
      * @throws \LogicException
      */
-    public function getPrincipalSwitchedAt(): ?CarbonInterface;
+    public function getSwitchedAt(): ?CarbonInterface;
+
+    /**
+     * Return whether the session is active or pending. A stored value that is
+     * neither, or a status that was not loaded, throws a `LogicException`
+     * rather than reading as either.
+     *
+     * @return \SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus
+     *
+     * @throws \LogicException
+     */
+    public function getStatus(): SessionStatus;
+
+    /**
+     * Return what a pending session waits on, in the order it must be met: a
+     * list of `PendingRequirement`s, empty for an active session. A stored
+     * value that is not such a list throws a `LogicException`.
+     *
+     * @return list<\SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement>
+     *
+     * @throws \LogicException
+     */
+    public function getRequires(): array;
+
+    /**
+     * Return the digest of a pending session's credential secret, or `null` for
+     * an active session. NEVER the plaintext: the package compares the
+     * presented secret against it with `hash_equals()`.
+     *
+     * @return ?string
+     *
+     * @throws \LogicException
+     */
+    public function getPendingKey(): ?string;
+
+    /**
+     * Return the opaque id of the session's active tenant, or `null` when it
+     * acts in none.
+     *
+     * @return ?string
+     *
+     * @throws \LogicException
+     */
+    public function getTenantId(): ?string;
+
+    /**
+     * Return the version of the tenant authentication policy the session was
+     * last checked against, or `null` when the policy answered none.
+     *
+     * @return ?string
+     *
+     * @throws \LogicException
+     */
+    public function getTenantPolicyVersion(): ?string;
 
     /**
      * Return the idle deadline: the session ends at this time unless a refresh

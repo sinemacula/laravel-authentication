@@ -25,8 +25,7 @@ use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
-use SineMacula\Laravel\Authentication\Models\PendingSignIn;
-use SineMacula\Laravel\Authentication\Proofs\SignInProof;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\SessionRecords\IdentitySessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\RevocationScope;
@@ -35,6 +34,7 @@ use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\AccessOnlyIdentity;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
@@ -48,7 +48,7 @@ use Tests\Unit\Stubs\PlainSessionFixture;
 /**
  * Feature tests of the session service's sign-out and revocation methods: what
  * each revokes, what it leaves alone, what it reports, and the cutoff and
- * pending sign-ins a bulk revocation ends with the sessions.
+ * pending sessions a bulk revocation ends with the others.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -64,7 +64,7 @@ use Tests\Unit\Stubs\PlainSessionFixture;
 #[CoversTrait(EndsSessions::class)]
 final class RevocationWriterTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithProofs, InteractsWithSessions;
 
     /** @var string The frozen time every revocation happens at. */
     private const string NOW = '2027-01-15 10:00:00';
@@ -283,26 +283,26 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
-     * An identity whose key is unknown, as an unsaved model's, records no
-     * pending sign-ins, so none is deleted for it.
+     * An identity whose key is unknown, as an unsaved model's, owns no pending
+     * session, so none is ended for it.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAnIdentityWithoutAKeyEndsNoPendingSignIns(): void
+    public function testAnIdentityWithoutAKeyEndsNoPendingSession(): void
     {
         $this->seedIdentity();
 
-        $pending = $this->pendingSignIn();
+        [$pending] = $this->pendingSignIn();
 
         self::assertSame(0, $this->sessions()->revokeSessions(new IntegrationIdentity, RevocationReason::REVOKED));
-        self::assertTrue(PendingSignIn::query()->whereKey(explode('.', $pending, 2)[0])->exists());
+        self::assertNull(DB::table('authentication_sessions')->where('id', $pending)->value('revoked_at'));
     }
 
     /**
-     * A scope picks sessions and pending sign-ins by type as well as by
-     * identifier: another type's rows with the same identifier are left alone.
+     * A scope picks sessions by type as well as by identifier: another type's
+     * rows with the same identifier, pending ones among them, are left alone.
      *
      * @return void
      *
@@ -313,14 +313,15 @@ final class RevocationWriterTest extends TestCase
         $identity = $this->seedIdentity();
         $session  = $this->signIn();
 
+        $this->pendingSignIn();
+
         DB::table('authentication_sessions')->update(['authenticatable_type' => 'another_type', 'principal_type' => 'another_type']);
-        DB::table('pending_sign_ins')->insert($this->pendingRow('another_type', IdentifierCoercion::stringify($identity->getKey()) ?? ''));
 
         $this->sessions()->revokeSessions($identity, RevocationReason::REVOKED);
         $this->sessions()->revokePrincipalSessions($identity, RevocationReason::REVOKED);
 
         self::assertNull(self::revokedAt($session));
-        self::assertSame(1, DB::table('pending_sign_ins')->count());
+        self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
     }
 
     /**
@@ -340,7 +341,8 @@ final class RevocationWriterTest extends TestCase
     /**
      * Revoking an identity's sessions covers every guard, skips the excepted
      * session, leaves other identities' sessions alone, ends the identity's
-     * pending sign-ins, and reports each session and then the scope.
+     * pending session with the rest, so its credential can no longer activate
+     * it, and reports each session and then the scope.
      *
      * @return void
      *
@@ -355,16 +357,23 @@ final class RevocationWriterTest extends TestCase
         $kept    = $this->signIn();
         $revoked = $this->signIn('admin');
         $theirs  = $this->signIn('api', 'grace@example.test');
-        $pending = $this->pendingSignIn();
-        $mine    = $this->pendingSignIn('grace@example.test');
+
+        [$pending, $pendingCredential, $pendingProof] = $this->pendingSignIn();
+        [, $theirsCredential, $theirsProof]           = $this->pendingSignIn('grace@example.test');
 
         $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class]);
 
-        self::assertSame(1, $this->sessions('api')->revokeSessions($identity, RevocationReason::PASSWORD_CHANGED, $kept->record));
+        self::assertSame(2, $this->sessions('api')->revokeSessions($identity, RevocationReason::PASSWORD_CHANGED, $kept->record));
 
-        self::assertSame([SessionRevoked::class, SignedOutEverywhere::class], $this->recordedClasses());
+        self::assertSame([SessionRevoked::class, SessionRevoked::class, SignedOutEverywhere::class], $this->recordedClasses());
+        self::assertSame(
+            [self::idOf($revoked), $pending],
+            array_map(static fn (object $event): ?string => $event instanceof SessionRevoked ? $event->context->sessionId : null, array_slice($this->recorded, 0, 2)),
+        );
 
-        $record = $this->recordedEvent(SessionRevoked::class);
+        $record = $this->recorded[0];
+
+        self::assertInstanceOf(SessionRevoked::class, $record);
 
         self::assertSame('admin', $record->context->guard);
         self::assertSame(self::idOf($revoked), $record->context->sessionId);
@@ -385,10 +394,9 @@ final class RevocationWriterTest extends TestCase
         self::assertNull(self::revokedAt($kept));
         self::assertNull(self::revokedAt($theirs));
         self::assertSame(self::NOW, self::revokedAt($revoked));
-        self::assertFalse(PendingSignIn::query()->whereKey(explode('.', $pending, 2)[0])->exists());
-        self::assertTrue(PendingSignIn::query()->whereKey(explode('.', $mine, 2)[0])->exists());
-        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->complete($pending)->reason);
-        self::assertTrue($this->sessions()->complete($mine)->isSignedIn());
+        self::assertSame('password_changed', DB::table('authentication_sessions')->where('id', $pending)->value('revoked_reason'));
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($pendingCredential, $pendingProof)->reason);
+        self::assertTrue($this->sessions()->satisfy($theirsCredential, $theirsProof)->isSignedIn());
     }
 
     /**
@@ -491,9 +499,10 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
-     * An identity that cannot hold sessions cannot hold a pending sign-in
-     * either (no session starts for it), so its revocation leaves both tables
-     * alone, a row recorded for it by hand included, and is still reported.
+     * An identity that cannot hold sessions cannot hold a pending one either
+     * (no session starts for it), so its revocation leaves the session table
+     * alone, a pending row recorded for it by hand included, and is still
+     * reported.
      *
      * @return void
      *
@@ -510,12 +519,24 @@ final class RevocationWriterTest extends TestCase
         $identity = new AccessOnlyIdentity;
         $identity->forceFill(['email' => 'ada@example.test'])->save();
 
-        DB::table('pending_sign_ins')->insert($this->pendingRow($identity->getMorphClass(), IdentifierCoercion::stringify($identity->getKey()) ?? ''));
+        DB::table('authentication_sessions')->insert([
+            'guard'                => 'api',
+            'sign_in_method'       => 'password',
+            'signed_in_at'         => now(),
+            'idle_expires_at'      => now()->addMinutes(5),
+            'id'                   => '0190e1a4-0000-7000-8000-000000000001',
+            'generation'           => '0190e1a4-0000-7000-8000-000000000002',
+            'status'               => 'pending',
+            'requires'             => '["mfa"]',
+            'pending_key'          => str_repeat('a', 64),
+            'authenticatable_type' => $identity->getMorphClass(),
+            'authenticatable_id'   => IdentifierCoercion::stringify($identity->getKey()) ?? '',
+        ]);
 
         $this->recordEvents([SignedOutEverywhere::class]);
 
         self::assertSame(0, $this->sessions()->revokeSessions($identity, RevocationReason::IDENTITY_DEACTIVATED));
-        self::assertSame(1, DB::table('pending_sign_ins')->count());
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
         self::assertCount(1, $this->recorded);
 
         Schema::drop('access_only_identities');
@@ -549,7 +570,7 @@ final class RevocationWriterTest extends TestCase
 
     /**
      * Revoking a principal's sessions revokes only the sessions acting as it,
-     * of every identity, and ends the pending sign-ins that would act as it.
+     * of every identity, pending ones included.
      *
      * @return void
      *
@@ -664,14 +685,15 @@ final class RevocationWriterTest extends TestCase
 
     /**
      * Sign the identity with the email in while every sign-in needs a further
-     * factor, and return the pending token.
+     * factor, and return its pending session's id, its credential, and an
+     * accepted further factor's proof bound to it.
      *
      * @param  string  $email
-     * @return string
+     * @return array{0: string, 1: string, 2: \SineMacula\Laravel\Authentication\Proofs\ProofResult}
      *
      * @throws \Throwable
      */
-    private function pendingSignIn(string $email = 'ada@example.test'): string
+    private function pendingSignIn(string $email = 'ada@example.test'): array
     {
         $previous = app(AdditionalFactorPolicy::class);
 
@@ -689,37 +711,16 @@ final class RevocationWriterTest extends TestCase
             }
         });
 
-        $pending = $this->sessions()->signIn('password', self::credentials($email))->pending;
+        $result = $this->sessions()->signIn('password', self::credentials($email));
 
         app()->instance(AdditionalFactorPolicy::class, $previous);
 
-        self::assertNotNull($pending);
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
 
-        return $pending->token;
-    }
+        $id = (string) IdentifierCoercion::stringify($result->pending->id);
 
-    /**
-     * A pending sign-in row for the owner.
-     *
-     * @param  string  $type
-     * @param  string  $id
-     * @return array<string, mixed>
-     */
-    private function pendingRow(string $type, string $id): array
-    {
-        return [
-            'id'                   => '0190e1a4-0000-7000-8000-000000000001',
-            'token_digest'         => str_repeat('a', 64),
-            'purpose'              => PendingSignIn::ADDITIONAL_FACTOR,
-            'guard'                => 'api',
-            'sign_in_method'       => 'password',
-            'authenticatable_type' => $type,
-            'authenticatable_id'   => $id,
-            'principal_type'       => $type,
-            'principal_id'         => $id,
-            'first_factor'         => json_encode(SignInProof::unattested('password', CarbonImmutable::parse('2027-01-15 10:00:00'))->toArray(), JSON_THROW_ON_ERROR),
-            'expires_at'           => '2027-01-15 10:05:00',
-        ];
+        return [$id, $result->credential, self::adapterProof($result->pending->identity, 'api', $result->pending->id, Purpose::SIGN_IN)];
     }
 
     /**

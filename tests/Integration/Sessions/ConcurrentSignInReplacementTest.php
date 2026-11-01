@@ -553,7 +553,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
      */
     private function reset(): void
     {
-        foreach (['authentication_sessions', 'pending_sign_ins', 'rate_limits', 'integration_identities'] as $table) {
+        foreach (['authentication_sessions', 'rate_limits', 'integration_identities'] as $table) {
             DB::table($table)->delete();
         }
 

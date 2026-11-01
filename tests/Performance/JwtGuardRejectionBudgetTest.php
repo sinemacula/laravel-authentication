@@ -134,7 +134,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
             'inactive' => $identity->forceFill(['is_active' => false])->save(),
             'idle'     => $session->forceFill(['idle_expires_at' => $this->now])->save(),
             'absolute' => $session->forceFill(['absolute_expires_at' => $this->now->copy()->subSecond()])->save(),
-            'switched' => $session->forceFill(['principal_id' => 'another principal', 'principal_switched_at' => $this->now])->save(),
+            'switched' => $session->forceFill(['principal_id' => 'another principal', 'switched_at' => $this->now])->save(),
             default    => $session->forceFill(['revoked_at' => $this->now])->save(),
         };
 

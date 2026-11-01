@@ -14,8 +14,8 @@ new session, so "the device" and "the record" are no longer one thing.
 - The record is a session in every name the package gives it: the contracts (`Session`, `EloquentSession`,
   `EloquentSessionOrigin`, `HasSessions`, `ValidatesSessionKey`), the model (`Models\Session`), its traits, the
   `SessionRecords\` helpers, the service methods, events, failure reasons, listeners, testing helpers, configuration
-  (`authentication.session.*`, `AUTHENTICATION_SESSION_*`), the table and the pending sign-in's columns
-  (`proven_session_id`, `proven_session_refresh_key`). "Device" is left only where it means the physical client, and in
+  (`authentication.session.*`, `AUTHENTICATION_SESSION_*`), the table and the pending session's columns
+  (`supersedes_session_id`, `supersedes_refresh_key`). "Device" is left only where it means the physical client, and in
   Laravel's own `logoutOtherDevices()` and `OtherDeviceLogout`.
 - The record helpers live in `SessionRecords\`, apart from the `Sessions\` service layer, so the token, guard, HTTP,
   admission and support code may name the record without reaching the service.

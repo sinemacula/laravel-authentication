@@ -30,5 +30,6 @@ final readonly class RefreshResult
     use HoldsARotatedSession {
         succeeded as public refreshed;
         hasSucceeded as public isRefreshed;
+        returned as public pending;
     }
 }

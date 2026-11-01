@@ -127,7 +127,15 @@ final class BenchSchema
         $blueprint->string('authenticatable_id')->nullable();
         $blueprint->string('principal_type')->nullable();
         $blueprint->string('principal_id')->nullable();
-        $blueprint->dateTime('principal_switched_at', 0)->nullable();
+        $blueprint->string('status', 16)->default('active');
+        $blueprint->string('requires', 64)->nullable();
+        $blueprint->string('pending_key', 64)->nullable();
+        $blueprint->string('supersedes_session_id')->nullable();
+        $blueprint->string('supersedes_refresh_key', 64)->nullable();
+        $blueprint->text('attempt_windows')->nullable();
+        $blueprint->string('tenant_id')->nullable();
+        $blueprint->string('tenant_policy_version', 64)->nullable();
+        $blueprint->dateTime('switched_at', 0)->nullable();
         $blueprint->string('guard')->nullable();
         $blueprint->string('sign_in_method')->nullable();
         $blueprint->string('sign_in_identifier_type')->nullable();
@@ -150,6 +158,7 @@ final class BenchSchema
         $blueprint->index(['authenticatable_type', 'authenticatable_id']);
         $blueprint->index(['principal_type', 'principal_id']);
         $blueprint->index('guard');
+        $blueprint->index('tenant_id');
         $blueprint->index('idle_expires_at');
         $blueprint->index('absolute_expires_at');
         $blueprint->index('revoked_at');

@@ -24,12 +24,12 @@ claims a specific principal or session and the runtime cannot prove that claim, 
   same class.
 - A bearer `sid` is accepted only for the principal the session records: the session's `principal_type` and
   `principal_id` must name the token's principal (a session that records none fails closed), and the token's `iat` must
-  not be before the second of the session's last principal switch (`principal_switched_at`), else
+  not be before the second of the session's last switch (`switched_at`), else
   `session_principal_mismatch`. A switch from A to B ends A's tokens at once, and a switch back to A does not revive the
   A tokens issued before it; the switch's own tokens are issued in its second, so they pass. The one residue is an A
   token issued in the same second as an A -> B -> A pair completed within that second. A session pinned on `attempt()`
   must record the principal being bound, else `session_mismatch`. Both read the row already loaded, with no query, and
-  a session loaded without `principal_switched_at` throws a `LogicException` rather than reading as never switched.
+  a session loaded without `switched_at` throws a `LogicException` rather than reading as never switched.
 - Refresh is stricter than bearer auth: refresh always requires a valid `sid`, because refresh is session-backed.
 - A `sid` is checked against the session model's key format before any query; one that cannot be a key fails closed as
   an unresolved session, and a database error on a well-formed `sid` propagates instead of reading as a missing session.

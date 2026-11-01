@@ -12,6 +12,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
+use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
@@ -47,11 +48,13 @@ final readonly class RefreshRotationStore
      * move its idle deadline, in one compare-and-swap UPDATE.
      *
      * The swap applies only while the row still holds the presented id as its
-     * current one, is not revoked, and has both deadlines exactly as they were
-     * loaded (a `null` absolute one matched as `IS NULL`): any concurrent
-     * rotation, revocation, or deadline change makes it affect no row. It
-     * records the presented id as the previous one and `$now` as the rotation
-     * time. Returns whether the row was rotated.
+     * current one, is active and not revoked, and has both deadlines exactly as
+     * they were loaded (a `null` absolute one matched as `IS NULL`): any
+     * concurrent rotation, revocation, return to pending, or deadline change
+     * makes it affect no row. Its status is matched as well as its deadlines,
+     * since a pending session's deadline can equal the one it held while
+     * active. It records the presented id as the previous one and `$now` as the
+     * rotation time. Returns whether the row was rotated.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  string  $presentedRotationId
@@ -80,6 +83,7 @@ final readonly class RefreshRotationStore
 
         $affected = $this->table($session)
             ->where($session->getRefreshKeyName(), $presentedDigest)
+            ->where($session->getStatusName(), SessionStatus::ACTIVE->value)
             ->whereNull($session->getRevokedAtName())
             ->where($this->loadedDeadlines($session))
             ->update($rotated);
@@ -142,9 +146,9 @@ final readonly class RefreshRotationStore
 
         if ($switching) {
             $switched += [
-                $type                                  => PrincipalReference::type($target),
-                $id                                    => PrincipalReference::id($target),
-                $session->getPrincipalSwitchedAtName() => $session->fromDateTime($now),
+                $type                         => PrincipalReference::type($target),
+                $id                           => PrincipalReference::id($target),
+                $session->getSwitchedAtName() => $session->fromDateTime($now),
             ];
         }
 

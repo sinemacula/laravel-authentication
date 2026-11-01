@@ -3,23 +3,22 @@
 ## Purpose
 
 This note records how a session comes to act as one principal of an identity that may act as several: a sign-in that
-names none waits for the identity to choose (`choice()`, `choose()`), and a live session moves to another principal
+names none, for an identity with several, waits pending for the identity to choose (`pending()`, `choose()`), and a
+live session moves to another principal
 (`switchPrincipal()`). Starting a session is in `session-service.md`; the refresh judgement both paths share is in
 `refresh-rotation-and-replay.md`; the bearer checks that end the old principal's tokens are in `fail-closed-pid-did.md`.
 
 ## Invariants
 
-- A choice is offered only by `signIn()` and `start()`, only when no principal is named, the resolver has no default
-  (`principal_unresolved` with an identity), and the identity has at least one eligible principal; otherwise the
-  sign-in fails as `principal_unresolved`, as before. `attempt()` never offers one.
-- Eligible principals (`SessionService::principals()`) are the identity's `principals()` read on the write connection
-  (the resolver's default for an identity that is its own principal or has no `principals()`), active, in an active
-  tenant or none, and admitted by the application policy with no identifier type. Offering a choice, and every later
-  `choice()` lookup, which recomputes the list, also admits the identity (`admitIdentifier()`) and each of them with the
-  sign-in's identifier type (the one the choice stores): a principal the policy then refuses is neither offered nor
-  listed, and when it refuses every one the sign-in fails with that reason, storing and reporting nothing.
-  `principals($identity, $identifierType)` lists the same way for a switch screen given the type the session
-  records, so it lists only targets the application policy lets that session switch to.
+- A choice is offered only by `signIn()` and `start()`, only when no principal is named and the identity has more than
+  one admitted principal: with one, that one is selected; with none, the sign-in fails with the last one's refusal or
+  `principal_unresolved`, after the credential was verified. `attempt()` never offers one.
+- Admitted principals (`PendingEvaluation::principals()`, and `SessionService::principals()` for a switch screen) are
+  the identity's `principals()` read on the write connection (the resolver's default for an identity that is its own
+  principal or has no `principals()`), each admitted by `Admission\PrincipalAdmission` (active, in an active tenant,
+  allowed to use the application) with the sign-in's identifier type, so a principal the policy refuses is neither
+  offered nor listed. `principals($identity, $identifierType)` lists the same way given the type the session records,
+  so it lists only targets the application policy lets that session switch to.
 - Each principal read with the others is checked on a stored copy (`WriteConnection::stored()`): Eloquent strict mode
   prevents lazy loading on models read together, and the activity check (and any application policy that reads it) reads
   its tenant. The list holds the principals as read.
@@ -27,22 +26,20 @@ names none waits for the identity to choose (`choice()`, `choose()`), and a live
   (`SignInAdmission`), so with the package's policy a guard requiring a verified identifier refuses an unverified one
   as `identifier_unverified` whether the identity has principals or not, and the answer never tells someone holding an
   unverified identity's password whether it has been invited anywhere. A policy that wraps the package's keeps this by
-  asking the wrapped `admitIdentifier()`. A policy that refuses only some principals in `admit()` is asked only once a
-  principal resolves, so for an identity with none the sign-in answers `principal_unresolved`.
-- A choice is a pending sign-in with `purpose = principal_choice` and no principal (the pending table's principal
-  columns are nullable for this). It keeps the client, the identifier type, the attempt windows, and a session the
-  client proved for the identity whatever principal it records. Only the digest of its secret is stored.
-- Choice and factor tokens are not interchangeable: `PendingSignIns::live()` takes the purpose, so `pending()` and
-  `complete()` find only factors and `choice()` and `choose()` only choices; `discard()` takes either and reports
-  `principal_choice_abandoned` or `additional_factor_failed` by purpose.
-- `choose()` deletes the choice first, with a delete only one call can make, so a choice is single use whatever the
-  outcome. It then runs the sign-in admission with `PinnedPrincipal::resolve()` (`principal_mismatch`), the identifier
-  type the sign-in used, and the factor policy; a required factor becomes an `additional_factor` pending sign-in with
-  the same windows. The proven session is replaced (revoked as `superseded`, with a new session in its place) only
-  when it records the chosen principal and is unchanged; otherwise it is left as it is. Offering or discarding the
-  choice revokes nothing.
-- The attempt slots a sign-in took stay counted while it waits for a choice and are given back only once a session
-  started from it commits.
+  asking the wrapped `admitIdentifier()`.
+- A choice is a pending session (see `session-service.md`) whose `requires` holds `principal` and which records no
+  principal. The identity-level factor policy is asked before any choice, so a required factor comes first (`mfa`, then
+  `principal`), and no principal is listed or chosen while it is outstanding (`pending_action_not_allowed`).
+- `choose()` runs under the session's row lock in one transaction rolled back on any refusal, so a refused choice
+  leaves the session pending for another. It admits the identity and the method again, resolves the chosen principal
+  through the hinted path as the very one named and owned (`principal_mismatch`), admits it, and admits the tenant the
+  call names or the principal's own (`Admission\TenantAdmission::select()`); then asks the factor policy again: a
+  factor it now asks for records the principal and tenant and leaves the session waiting on `mfa`, with the same
+  credential; otherwise the session activates as the principal. The proven session is replaced (revoked as
+  `superseded`) at the first activation only when it is still the one proven and records the chosen principal;
+  otherwise it is left as it is. Offering or discarding the choice revokes nothing else.
+- The attempt slots a sign-in took stay counted while it waits for a choice and are given back only once the session
+  first activates.
 - A switch is proven by the session's refresh token, never an access token, and judged by `RefreshJudgment::classify()`
   as a refresh is: the refresh limits (counted against the token's session and the client's IP address), the guard, a
   live session, and the rotation id. A replayed id revokes the session as `rotation_reuse`.
@@ -62,28 +59,29 @@ names none waits for the identity to choose (`choice()`, `choose()`), and a live
   the target before the write, and end at the restarted idle deadline.
 - The switch is one compare-and-swap (`RefreshRotationStore::switchPrincipal()`) on the presented digest, an unrevoked
   row, both loaded deadlines and the loaded principal columns. It writes the rotation, both deadlines and, when the
-  principal changes, the target and `principal_switched_at`. A switch to the recorded principal writes no switch.
+  principal changes, the target and `switched_at` (`SessionRecords\SwitchFloor`). A switch to the recorded principal
+  writes no switch.
 - With the previous rotation id inside the grace window, the current credential is reissued for the target, writing
   nothing, only when the session records the target and either its last rotation was a switch
-  (`principal_switched_at = refresh_rotated_at`) or the token's own `principal` is the target; anything else is
+  (`switched_at = refresh_rotated_at`) or the token's own `principal` is the target; anything else is
   `rotation_conflict`, without revoking.
 - A missed swap re-reads the row with a lock and judges it once: a still-current id is `rotation_conflict`, a previous
   id is answered by the retry rule against the row as it now is (after the owner is checked again), and anything else
   fails for its reason, a replay (`rotation_reuse`) revoking the session as a first judgement does. There is never a
   second swap.
-- `PrincipalChoiceRequired` and `PrincipalSwitched` are dispatched through `AfterCommit` on the session model's
-  connection. `PrincipalSwitched` carries the session's recorded previous morph class and identifier and the previous
-  principal only when the hinted path still returns that very principal (same type and identifier).
+- `SessionPending` and `PrincipalSwitched` are dispatched through `AfterCommit` on the session model's connection.
+  `PrincipalSwitched` carries the session's recorded previous morph class and identifier and the previous principal only
+  when the hinted path still returns that very principal (same type and identifier).
 
 ## Success Path
 
-1. `signIn()` verifies the identity, finds no principal, and offers the choice: the pending row is written,
-   `PrincipalChoiceRequired` follows the commit, and the result `requiresPrincipal()`.
-2. `choice($token)` lists the eligible principals; `choose($token, $principal)` starts the session as it, scheduling
-   `SessionCreated` and `SignedIn` for the session's commit before it binds the guard (`Validated`, `Login` and the bind
-   events), and the slots are given back after the commit. With no transaction open on the session's connection that is
-   `SessionCreated`, `SignedIn`, then `Login`; inside a caller's transaction the bind events come first, and the pair
-   follows its commit or is dropped on a rollback.
+1. `signIn()` verifies the identity, finds several principals and none named, and writes the session pending on
+   `principal`: `SessionPending` follows the commit, and the result `isPending()`, listing the principals.
+2. `pending($credential, PendingAction::LIST_PRINCIPALS)` lists them again; `choose($credential, $principal)` activates
+   the session as it, scheduling `SessionCreated` and `SignedIn` for the session's commit before it binds the guard
+   (`Validated`, `Login` and the bind events), and the slots are given back after the commit. With no transaction open
+   on the session's connection that is `SessionCreated`, `SignedIn`, then `Login`; inside a caller's transaction the
+   bind events come first, and the pair follows its commit or is dropped on a rollback.
 3. Later, `switchPrincipalFromRequest($other)` (or `switchPrincipal($refreshToken, $other)` with a token read by the
    caller) rotates the session to the other principal and schedules `PrincipalSwitched` for the commit on the session's
    connection before it binds the guard to it (`Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`), so a bind
@@ -102,38 +100,30 @@ names none waits for the identity to choose (`choice()`, `choose()`), and a live
   revocation fails as `session_revoked`.
 - A previous principal that no longer resolves (deleted, or recorded under a type the morph map no longer uses) is
   reported by its snapshot only.
-- A choice whose identity no longer resolves through the guard's provider is no choice (`choice()` returns `null`,
+- A choice whose identity no longer resolves through the guard's provider is no choice (`pending()` returns `null`,
   `choose()` fails as `pending_invalid`).
 - The comparison of the expiry against `$now` reads the absolute deadline; the idle deadline is never later, so the
   two readings agree.
 
 ## Implementation Anchors
 
-- `src/Sessions/SessionService.php`: `principals()`, `choice()`, `choose()`, `switchPrincipal()`,
-  `switchPrincipalFromRequest()`, `switched()`, `previousPrincipal()`; a chosen session is established by
-  `src/Sessions/SessionEstablishment.php` (`establish()`) and then bound by the service.
-- `src/Sessions/PrincipalChoices.php`: `offerChoice()`, `admissible()`, `candidates()`, `refusalOf()`, `liveChoice()`,
-  `awaitsChoice()`.
+- `src/Sessions/SessionService.php`: `principals()`, `pending()`, `choose()`, `switchPrincipal()`,
+  `switchPrincipalFromRequest()`, `switched()`, `previousPrincipal()`; a chosen session is activated by
+  `src/Sessions/PendingSessions.php` (`choose()`) over `src/Sessions/SessionActivation.php` and then bound by the
+  service.
+- `src/Sessions/PendingEvaluation.php`: `principals()`, `selection()`, `named()`, `destination()`, `owesFactor()`.
 - `src/Sessions/PrincipalSwitch.php`: one switch, built per call; `switch()` (the limiter), `switchOn()`, `admit()`,
   `isTarget()`, `switchCurrent()`, `rotateTo()`, `retry()`, `afterLostSwitch()`, `deadlines()`.
 - `src/Jwt/RefreshRotationStore.php`: `switchPrincipal()` and `reload()`.
 - `src/Jwt/RefreshJudgment.php`: `classify()`, shared with the refresh exchange.
-- `src/Sessions/PendingSignIns.php`: `issueChoice()`, `live()` (by purpose), `delete()`, `provenSession()`.
 - `src/Sessions/ProvenSessions.php`: `provenSessionOf()`, which proves a session without a principal for a choice.
-- `src/Sessions/SessionService.php`: `signInWith()`, `startFor()` and `discard()`, which route a sign-in to a choice
-  and a discard to its reason.
-- `src/Events/PrincipalChoiceRequired.php`, `src/Events/PrincipalSwitched.php`, `src/Sessions/PrincipalChoice.php`,
-  `src/Sessions/SwitchResult.php`.
+- `src/Events/SessionPending.php`, `src/Events/PrincipalSwitched.php`, `src/Sessions/PendingSession.php`,
+  `src/Sessions/SwitchResult.php`, `src/SessionRecords/SwitchFloor.php`.
 
 ## Authoritative Tests
 
-- `tests/Feature/Sessions/PrincipalChoicesTest.php` (the choices on their own: the admissible principals, a choice
-  offered and reported once committed, an identity with none, a live choice until it is used up)
-- `tests/Feature/Sessions/ChoosesPrincipalsTest.php` (the choice over HTTP and through the service, choose then factor
-  then complete, discard, the token purposes, the proven session, the slots, no choice for an unverified identifier, the
-  listing with an identifier type, a choice under Eloquent strict mode, a choice or switch whose bind listener throws,
-  reported at once or on the caller's commit and withdrawn by its rollback, and a tenant an enforced morph map leaves
-  out)
+- `tests/Feature/Sessions/PendingSessionsTest.php` (a choice offered and listed, the factor before it, a choice
+  refused and made again, a factor asked after it, the proven session, the slots, discard)
 - `tests/Feature/Sessions/PrincipalSwitchTest.php` (the switch over HTTP, the old access token refused at once,
   A -> B -> A, the old refresh token inside and after the grace window, the lost response retried, every refusal, a
   switch read from the request and the transport's refusals, and a switch screen's listing)
@@ -142,28 +132,23 @@ names none waits for the identity to choose (`choice()`, `choose()`), and a live
   window or to two refreshes, which revokes the session)
 - `tests/Integration/Sessions/ConcurrentSwitchAndRevocationTest.php` (on PostgreSQL and MySQL, two processes: a switch
   waiting on a revocation, on a refresh of its token and on an identical switch, after a commit and after a rollback)
-- `tests/Integration/Sessions/TransactionalChoosesPrincipalsTest.php` (`PrincipalSwitched` and
-  `PrincipalChoiceRequired` only on commit, and a rolled-back choice's slots kept),
-  `tests/Integration/Sessions/PrincipalChoiceEndToEndTest.php` (offer, choose, then a bearer request as the chosen
-  principal)
-- `tests/Integration/Sessions/ReplicaChoosesPrincipalsTest.php` (the eligible principals read on the write connection)
-- `tests/Feature/Sessions/PendingSignInsTest.php` `testIssueChoiceStoresTheSignInWithoutAPrincipal`,
-  `testALivePendingSignInIsFoundOnlyForItsPurpose`, `testAChoicesProvenSessionCountsOnlyForThePrincipalItRecords`
+- `tests/Integration/Applications/ReplicaChoicesAcrossConnectionsTest.php` (the principals read on the write
+  connection)
 - `tests/Feature/Jwt/RefreshRotationStoreTest.php` `testSwitchPrincipalRecordsTheTargetAndMirrorsIt`,
   `testSwitchPrincipalMissesAfterAChangeSinceTheSessionWasLoaded`
 - `tests/Integration/Http/RefreshCookieSessionLifecycleTest.php` (a switch proven by the refresh cookie, its
   cross-site checks, and the rotated cookie)
 - `tests/Performance/PrincipalSwitchQueryBudgetTest.php` (seven reads and one write per switch, from the request
   too; six reads and no write per grace retry; the counters' writes alone for a refusal, and their read alone when
-  rate-limited; four reads and the counters' writes and the insert per choice offered; five reads per choice read, and
-  five reads and five writes per choice made; and a time ceiling for switches, retries and refusals)
+  rate-limited; the reads, the counters' writes and the insert of a sign-in left pending on a choice, the reads of a
+  choice listed, and the reads and writes of a choice made; and a time ceiling for switches, retries and refusals)
 
 ## Change Triggers
 
 Update this note when any of the following change:
 
-- when a choice is offered, which principals are eligible, or what a choice stores
+- when a choice is offered, which principals are admitted, or what a pending choice records
 - the checks a switch runs, the order it runs them in, or the retry rule for the previous rotation id
 - the switch's compare-and-swap predicate or the columns it writes
 - how the deadlines of a switched session are derived
-- what `PrincipalChoiceRequired` or `PrincipalSwitched` carry, or when they are dispatched
+- what `SessionPending` or `PrincipalSwitched` carry, or when they are dispatched

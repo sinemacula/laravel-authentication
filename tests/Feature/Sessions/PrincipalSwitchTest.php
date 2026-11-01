@@ -280,7 +280,7 @@ final class PrincipalSwitchTest extends TestCase
         $record = DB::table('authentication_sessions')->sole();
 
         self::assertSame((string) $second->getKey(), (string) $record->principal_id); // @phpstan-ignore cast.string
-        self::assertSame($this->now->toDateTimeString(), CarbonImmutable::parse($record->principal_switched_at)->toDateTimeString());
+        self::assertSame($this->now->toDateTimeString(), CarbonImmutable::parse($record->switched_at)->toDateTimeString());
         self::assertSame($this->now->toDateTimeString(), CarbonImmutable::parse($record->refresh_rotated_at)->toDateTimeString());
         self::assertSame($absolute, $record->absolute_expires_at);
         self::assertSame($this->now->addMinutes(60 * 24 * 30)->toDateTimeString(), CarbonImmutable::parse($record->idle_expires_at)->toDateTimeString());
@@ -426,11 +426,11 @@ final class PrincipalSwitchTest extends TestCase
 
         self::assertSame(FailureReason::ROTATION_CONFLICT, $conflict->reason);
 
-        DB::table('authentication_sessions')->update(['principal_switched_at' => $this->now->subMinute()]);
+        DB::table('authentication_sessions')->update(['switched_at' => $this->now->subMinute()]);
 
         self::assertSame(FailureReason::ROTATION_CONFLICT, $this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $second)->reason);
 
-        DB::table('authentication_sessions')->update(['principal_switched_at' => $row['principal_switched_at']]);
+        DB::table('authentication_sessions')->update(['switched_at' => $row['switched_at']]);
 
         $this->bearer($retried->session->tokens->accessToken)->assertOk()->assertExactJson(['principal' => $second->getKey()]);
         self::assertNotNull(self::sessionsOf($this->freshGuard(self::GUARD))->refresh($retried->session->tokens->refreshToken)->session);
@@ -560,7 +560,7 @@ final class PrincipalSwitchTest extends TestCase
 
         self::assertTrue($result->isSwitched());
         self::assertSame([], $this->recordedClasses());
-        self::assertNull(DB::table('authentication_sessions')->value('principal_switched_at'));
+        self::assertNull(DB::table('authentication_sessions')->value('switched_at'));
         self::assertSame($this->now->toDateTimeString(), $this->storedTime('refresh_rotated_at'));
 
         $this->bearer($session->tokens->accessToken)->assertOk();
@@ -600,10 +600,9 @@ final class PrincipalSwitchTest extends TestCase
         $factors = \Mockery::mock(AdditionalFactorPolicy::class);
         $factors->shouldReceive('requiresAdditionalFactor')
             ->once()
-            ->andReturnUsing(static fn (AdditionalFactorContext $context): bool => $context->principal->is($second) // @phpstan-ignore method.notFound
-                && $context->provenSession?->getSessionIdentifier() === $session->record->getSessionIdentifier()
-                && $context->method                                 === 'password'
-                && $context->guard                                  === self::GUARD);
+            ->andReturnUsing(static fn (AdditionalFactorContext $context): bool => $context->provenSession?->getSessionIdentifier() === $session->record->getSessionIdentifier()
+                && $context->method                                                                                                 === 'password'
+                && $context->guard                                                                                                  === self::GUARD);
 
         app()->instance(AdditionalFactorPolicy::class, $factors);
 

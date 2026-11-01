@@ -31,8 +31,8 @@ to these events, so the shape and the timing are a contract.
   changed under the compare-and-swap). An identity or principal it does not hold then takes the snapshot of the owner
   (its morph class and identifier) and the principal the row records, read from its attributes without a query; sessions
   record no tenant. Every other event keeps the snapshots of what it holds, even when it carries a session: an
-  identity's `SignedOutEverywhere` (its session is the one kept), `PrincipalChoiceRequired` (the proven session) and a
-  switch refused for its target name no principal.
+  identity's `SignedOutEverywhere` (its session is the one kept), a `SessionPending` waiting on a choice of principal
+  and a switch refused for its target name no principal.
 - Everything in a context but its four models is the snapshot: facts fixed at event time, the record audit sinks keep,
   which survives a queue unchanged; `toArray()` gives it as scalars (snake_case keys, `occurred_at` as an ISO 8601 UTC
   string to the microsecond, the client as `ip` and `user_agent`), a payload a sink can store or queue on its own. It is
@@ -80,9 +80,11 @@ to these events, so the shape and the timing are a contract.
   connection commits, scheduling them before it binds the guard; every sign-in creates its session. A sign-in that
   replaces the session the client proved first dispatches that session's `SessionRevoked` (`superseded`), with the
   sign-in's guard, client, identity, principal and tenant and the method the session records, in the same callback. A
-  sign-in held for a factor dispatches `AdditionalFactorRequired` with the proven session, after the pending sign-in
-  commits, and one held for a choice of principal `PrincipalChoiceRequired`, with the identity, the method and the
-  proven session but no principal or tenant.
+  sign-in whose session is written pending dispatches `SessionPending` after it commits, with the pending session, the
+  proven session, what it requires and its expiry, and the principal and tenant only once selected; its first
+  activation dispatches `SessionCreated` and `SignedIn` as a sign-in does. A session that returns to pending from
+  active dispatches `SessionReturnedToPending` (the flow, what it requires, its expiry, and the principal and tenant it
+  left when they changed), and its later activation `SessionActivated`.
 - Switch of principal: `PrincipalSwitched` carries the new principal and tenant in its context and the previous
   principal's recorded morph class and identifier as snapshots of its own, after the switch commits on the session's
   connection; it is scheduled before the guard binds the switched session.

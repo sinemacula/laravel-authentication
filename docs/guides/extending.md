@@ -42,7 +42,7 @@ so one method never has a second spelling for a guard to allow or a session to r
 An `AttemptLimiter` of your own counts a subject's `account` in one counter that every guard shares, held to each
 guard's `per_identifier` limit (and not counted where that limit is `null`), as well as the identifier's and the IP
 address's counters of the guard. Without that, the account bounds under [Rate limits](configuration.md#rate-limits) and
-[Additional factors](signing-in.md#additional-factors) do not hold: a limiter keyed only by guard, identifier and IP
+[In order](signing-in.md#in-order) do not hold: a limiter keyed only by guard, identifier and IP
 address (one built on Laravel's `RateLimiter`, say) lets every spelling of an identifier, and every guard, guess an
 account's password and its further factor anew. It records in each granted reservation's `windows` everything its
 `release()` needs to give the slots back (string keys and values), and gives them back from the windows alone. A sign-in
@@ -286,12 +286,15 @@ seam has a default that works alone.
 ### Further factors (`laravel-mfa`)
 
 - Bind `Contracts\AdditionalFactorPolicy` (the default, `NeverRequireAdditionalFactor`, never asks). It is asked about
-  every admitted sign-in, from `signIn()` and `start()`, and again on a switch of principal, with the guard, identity,
-  principal, tenant, method, client and the session the client proved (see
-  [Additional factors](signing-in.md#additional-factors)).
-- When it asks for a factor, the sign-in waits: `SignInResult::requiresFactor()` and its `PendingFactor` token, then
-  `Auth::sessions()->pending()`, `complete()` or `discard()` once the factor is verified or fails. `attempt()` cannot
-  wait, so it fails as `additional_factor_required`.
+  every admitted identity's sign-in, from `signIn()` and `start()`, before any principal is chosen, again whenever its
+  pending session is acted on, and on a switch of principal, with the guard, identity, method, client and the session
+  the client proved; it names no principal or tenant (see [Additional factors](signing-in.md#additional-factors)). A
+  stored accepted further factor or recovery code meets it.
+- When it asks for a factor, the sign-in's session waits pending with `mfa` outstanding: `SignInResult::isPending()`,
+  its `PendingSession` and pending credential, then `Auth::sessions()->pending($credential, $action)` to check an
+  `mfa.*` action (`Sessions\Enums\PendingAction`) before the factor package acts, `satisfy()` once the factor is
+  verified, or `discard()` (see [Pending sessions](signing-in.md#pending-sessions)). `attempt()` cannot wait, so it
+  fails as `additional_factor_required`.
 - A factor removed ends the identity's other sessions: `Auth::sessions()->factorRemoved($identity, Auth::session())`.
 - Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity)` and `verifyFactor()`, which count and
   report nothing: the factor's outcome is the factor package's to limit and report. `verifyFactor()` answers a
@@ -302,11 +305,13 @@ seam has a default that works alone.
   channel, factor, what it observed (`null` for anything it did not), its `Evaluation` (accepted, and multifactor as it
   judged it: `amr` carries `mfa` only from there, never counted from the values, and a proof's own values may not name
   `mfa`), its `amr` values (at most 8, each 1 to 48 printable ASCII characters other than `"` and `\`; anything else is
-  an `InvalidArgumentException`), its time and its `ProofBinding` (identity, application, session or pending sign-in,
-  purpose). Complete a pending sign-in with `complete($token, $proof)`, bound to `PendingFactor::$id` for `sign_in` (see
-  [Additional factors](signing-in.md#additional-factors)). Nothing a factor package keeps about a session survives a
-  sign-in: every sign-in starts a new session with a new id and its own proofs, and the session the client proved
-  (`AdditionalFactorContext::$provenSession`) is revoked with its proofs left on it.
+  an `InvalidArgumentException`), its time and its `ProofBinding` (identity, application, session, purpose).
+  Satisfy a pending session with `satisfy($credential, $proof)`, bound to `PendingSession::$id` for `sign_in`,
+  or `enrollment` for the factor that confirms a bootstrap enrolment (see
+  [Satisfying a further factor](signing-in.md#satisfying-a-further-factor)). Nothing a factor package keeps about a
+  session survives a sign-in: every sign-in starts a new session with a new id and its own proofs, and the session the
+  client proved (`AdditionalFactorContext::$provenSession`) is revoked with its proofs left on it when the new one first
+  activates.
 - Step a signed-in session up with a factor the factor package has just verified: `Auth::sessions()->stepUp($proof)`,
   with the `ProofResult` bound to the session's key for `step_up`. The session keeps its refresh token and deadlines,
   and every access token issued for it from then on carries the factor in `auth_time` and `amr`; the session then

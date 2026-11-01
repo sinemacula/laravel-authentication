@@ -9,7 +9,7 @@ Every session records the proofs it was established and kept with, each a timest
 |---------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `first_factor`                  | every sign-in: what the sign-in method verified (see [Writing a sign-in method](signing-in.md#writing-a-sign-in-method)), or the external provider's result `start()` was given |
 | `first_factor_reauthentication` | a reauthentication with the first factor on an active session                                                                                                                   |
-| `additional_factor`             | a further factor an adapter verified: at sign-in, with `complete()`, or as a step-up                                                                                            |
+| `additional_factor`             | a further factor an adapter verified: at sign-in, with `satisfy()`, or as a step-up                                                                                             |
 | `recovery_code`                 | a recovery code an adapter accepted in place of a further factor                                                                                                                |
 | `external_reauthentication`     | reserved for a reauthentication at the external provider the session began with: nothing records it yet                                                                         |
 
@@ -33,13 +33,13 @@ reauthentication at the provider is a proof of its own and never rewrites how th
 indexed by connection and by tenant, for finding the sessions of a connection or of a tenant's connections, but the
 package has no lookup or revocation by connection or tenant yet: only the indexes.
 
-Proofs and provenance belong to the session's key, so they carry unchanged from a pending sign-in to its session, and
-across every refresh and switch of principal. A sign-in that replaces a session the client proved it holds is a new
-session with its own proofs; the replaced session keeps its own. A new session counts only its own sign-in's: anything
-recorded under its key before (by an earlier session whose key the database issued again) is deleted as it records them.
-`auth_time` and `amr` are derived from the proofs when an access token is issued, never stored in their place. Every
-read of them is from the write connection, so a lagging replica cannot hide a proof just written. They hold personal
-data (a code's destination), are hidden from a model's serialised form, and are pruned with their session (see
+Proofs and provenance belong to the session's key, so they carry unchanged from a pending session to the active one it
+becomes, and across every refresh and switch of principal. A sign-in that replaces a session the client proved it holds
+is a new session with its own proofs; the replaced session keeps its own. A new session counts only its own sign-in's:
+anything recorded under its key before (by an earlier session whose key the database issued again) is deleted as it
+records them. `auth_time` and `amr` are derived from the proofs when an access token is issued, never stored in their
+place. Every read of them is from the write connection, so a lagging replica cannot hide a proof just written. They hold
+personal data (a code's destination), are hidden from a model's serialised form, and are pruned with their session (see
 [Pruning](operations.md#pruning)).
 
 ## Stepping up
@@ -231,7 +231,7 @@ With the current rotation id, the token's principal must be the one the session 
 The switch keeps the session's absolute deadline, or its having none while the guard sets no limit, held to the guard's
 absolute lifetime counted from the sign-in (`session_expired` when that has passed), restarts the idle one under the
 guard's lifetimes, issues both tokens for the target, then records the target, the switch time
-(`principal_switched_at`), the rotation and both deadlines in one compare-and-swap. The access tokens of the principal
+(`switched_at`), the rotation and both deadlines in one compare-and-swap. The access tokens of the principal
 switched from stop at once, and switching back does not revive them (see [Session](configuration.md#session)). A switch
 to the principal the session already records rotates the credential like a refresh and reports no switch.
 
@@ -284,9 +284,9 @@ revoked it reports `SessionRevoked`. `revokeSession()` finds the session through
 the write connection, so another identity's session is simply not found and the call returns `false`, as it does for an
 unknown or already revoked one. `revokeSessions()` covers every session the identity's relation returns, of every guard;
 `revokePrincipalSessions()` every session of the configured model that records the principal. Both keep the `except`
-session when one is given, return how many sessions they revoked, and also end the scope's pending sign-ins (a further
-factor or a principal choice waiting to be completed), so a credential issued before the revocation cannot start a
-session after it. `revokeSessions()` also cancels the identity's pending identifier changes, of every type and through
+session when one is given, and return how many sessions they revoked; pending sessions (waiting on a further factor or
+a choice of principal) are sessions too, so their credentials stop working with them and none activates after the
+revocation. `revokeSessions()` also cancels the identity's pending identifier changes, of every type and through
 every guard: a change link needs no session, so one requested from a session that ends could otherwise still move the
 account to an identifier of the requester's (see [Changing identifiers](identifier-changes.md)). `revokeSession()` and
 `revokePrincipalSessions()` leave them, since the identity keeps its other sessions. `signOutEverywhere()` is
@@ -298,8 +298,8 @@ every session is still revoked, but the identity's other session-less tokens kee
 
 A bulk revocation first moves the scope's "tokens valid after" cutoff to now, when the identity or principal records one
 (`HasTokensValidAfter`), then, in one transaction on the storage connection, revokes each unrevoked session, read on the
-write connection in key order 500 at a time, and deletes the pending sign-ins and, for an identity, its pending
-identifier changes. Once that transaction commits, `SessionRevoked` reports each session it revoked (with the session's
+write connection in key order 500 at a time, pending ones included, and, for an identity, cancels its pending identifier
+changes. Once that transaction commits, `SessionRevoked` reports each session it revoked (with the session's
 own guard) and then `SignedOutEverywhere` reports the scope, with the acting guard, the reason, the count (also `0`, so
 the action itself is recorded), the cutoff it set (or `null`), and the session it kept. If the session transaction
 fails, the cutoff it already moved stands: more is cut off, never less, and calling again finishes the job. One window
@@ -323,7 +323,8 @@ session.
 ### Listing sessions
 
 `sessions()` returns one page of an identity's active sessions for a "where you're signed in" screen: every session it
-holds on any guard that is not revoked and is before its idle deadline and its absolute deadline when it has one (each
+holds on any guard that is active (not pending), not revoked and before its idle deadline and its absolute deadline
+when it has one (each
 summary's `absolute_expires_at` is `null` when it has none), most recently used first
 (sessions never used last), then newest first:
 
@@ -353,8 +354,8 @@ Session::query()->active()->where('guard', 'api')->count();
 ### Revoking on security changes
 
 Call the session service from your own flows when something about an identity's security changes; each ends the
-affected sessions as a bulk revocation, with its own reason, moves the scope's cutoff, and ends its pending sign-ins
-and, for the four that end an identity's sessions, its pending identifier changes:
+affected sessions (pending ones included) as a bulk revocation, with its own reason, moves the scope's cutoff, and, for
+the four that end an identity's sessions, cancels its pending identifier changes:
 
 | Method                                             | Ends                                       | Reason                  |
 |----------------------------------------------------|--------------------------------------------|-------------------------|
@@ -366,7 +367,7 @@ and, for the four that end an identity's sessions, its pending identifier change
 | `tenantDeactivated($tenant, iterable $principals)` | Every session acting as a listed principal | `tenant_deactivated`    |
 
 Never call `passwordChanged()` for the automatic rehash of a password on sign-in: the password did not change. These
-methods end sessions, pending sign-ins and pending identifier changes only. A change or a reset set through
+methods end sessions and pending identifier changes only. A change or a reset set through
 `Auth::passwords()->set()` (see [Setting a password](passwords.md#setting-a-password)) calls them and also ends the
 other proofs that could take the account back without a session: the reset links and codes and the sign-in codes of the
 identity. A registration calls none of them and ends only the reset links and codes. A password your own flow saves

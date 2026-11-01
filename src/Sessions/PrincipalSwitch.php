@@ -299,8 +299,6 @@ final readonly class PrincipalSwitch
         return Container::getInstance()->make(AdditionalFactorPolicy::class)->requiresAdditionalFactor(new AdditionalFactorContext(
             $this->context->name(),
             $admitted->identity,
-            $admitted->principal,
-            $admitted->tenant,
             (string) $session->getSignInMethod(),
             $this->client,
             null,
@@ -562,7 +560,7 @@ final readonly class PrincipalSwitch
      */
     private static function isLastRotationASwitch(EloquentSession&Model $session): bool
     {
-        $switchedAt = $session->getPrincipalSwitchedAt();
+        $switchedAt = $session->getSwitchedAt();
 
         return $switchedAt !== null && $switchedAt->getTimestamp() === $session->getRefreshRotatedAt()?->getTimestamp();
     }

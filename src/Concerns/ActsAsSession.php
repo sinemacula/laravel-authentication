@@ -11,28 +11,31 @@ use Carbon\CarbonInterface;
  * names. Override the `*Name()` methods to remap columns.
  *
  * The refresh and revocation state (both digests, the rotation time, the
- * session's start, the principal switch time, both deadlines, and the
- * revocation time) must be loaded: a session selected without one of those
- * columns throws a `LogicException` rather than reading the missing value as
- * `null`, so a partial select surfaces as a misconfiguration instead of
- * admitting an ended or revoked session, or reading a current refresh token as
- * a replay. Timestamps stored without a `datetime` cast (the raw value the
- * database returns) are converted rather than ignored. Any timestamp in the
- * hour that repeats when the clocks go back is read as its first pass, so a
- * deadline or rotation time never reads late.
+ * session's start, the floor its context changes set, both deadlines, the
+ * revocation time, and the standing `RecordsSessionStanding` reads) must be
+ * loaded: a session selected without one of those columns throws a
+ * `LogicException` rather than reading the missing value as `null`, so a
+ * partial select surfaces as a misconfiguration instead of admitting an ended
+ * or revoked session, or reading a current refresh token as a replay.
+ * Timestamps stored without a `datetime` cast (the raw value the database
+ * returns) are converted rather than ignored. Any timestamp in the hour that
+ * repeats when the clocks go back is read as its first pass, so a deadline or
+ * rotation time never reads late.
  *
- * Both digests are hidden from `toArray()` and `toJson()`, under whatever
- * column names the model uses. The guard, sign-in method and client a session
- * started with come from `RecordsSessionOrigin`, when it started and last
- * switched its principal from `RecordsSessionMilestones`, and the `active()`
- * scope from `ScopesActiveSessions`.
+ * Both refresh digests, the pending credential's digest, the proven session's
+ * digest and the attempt-limit slots are hidden from `toArray()` and
+ * `toJson()`, under whatever column names the model uses. The guard, sign-in
+ * method and client a session started with come from `RecordsSessionOrigin`,
+ * when it started and last changed its context from `RecordsSessionMilestones`,
+ * its status, requirements and active tenant from `RecordsSessionStanding`, and
+ * the `active()` scope from `ScopesActiveSessions`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
 trait ActsAsSession
 {
-    use ReadsSessionAttributes, RecordsSessionMilestones, RecordsSessionOrigin, ScopesActiveSessions;
+    use ReadsSessionAttributes, RecordsSessionMilestones, RecordsSessionOrigin, RecordsSessionStanding, ScopesActiveSessions;
 
     /**
      * Return the session's primary key.
@@ -243,12 +246,18 @@ trait ActsAsSession
     }
 
     /**
-     * Hide the refresh digests from serialisation.
+     * Hide the digests and the attempt-limit slots from serialisation.
      *
      * @return void
      */
     protected function initializeActsAsSession(): void
     {
-        $this->mergeHidden([$this->getRefreshKeyName(), $this->getPreviousRefreshKeyName()]);
+        $this->mergeHidden([
+            $this->getRefreshKeyName(),
+            $this->getPreviousRefreshKeyName(),
+            $this->getPendingKeyName(),
+            $this->getSupersedesRefreshKeyName(),
+            $this->getAttemptWindowsName(),
+        ]);
     }
 }

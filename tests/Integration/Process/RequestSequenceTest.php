@@ -234,7 +234,7 @@ final class RequestSequenceTest extends TestCase
 
         $this->me($session)->assertJson(['identity' => $ada->getKey()]);
 
-        Session::query()->whereKey($session->record->getKey())->update(['principal_id' => 'another-principal', 'principal_switched_at' => Carbon::now()]);
+        Session::query()->whereKey($session->record->getKey())->update(['principal_id' => 'another-principal', 'switched_at' => Carbon::now()]);
 
         $this->recordEvents([AuthenticationFailed::class]);
 

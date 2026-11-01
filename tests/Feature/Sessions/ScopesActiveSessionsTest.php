@@ -40,25 +40,26 @@ final class ScopesActiveSessionsTest extends TestCase
     }
 
     /**
-     * The scope keeps sessions that are unrevoked and strictly before both
-     * deadlines, an absolute deadline of `null` being none, with qualified
+     * The scope keeps sessions that are active, unrevoked and strictly before
+     * both deadlines, an absolute deadline of `null` being none, with qualified
      * columns, and the current second.
      *
      * @return void
      */
-    public function testTheScopeKeepsUnrevokedSessionsBeforeBothDeadlines(): void
+    public function testTheScopeKeepsActiveUnrevokedSessionsBeforeBothDeadlines(): void
     {
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2027-01-15 10:00:00'));
 
         $query = Session::query()->active();
 
         self::assertSame(
-            'select * from authentication_sessions where authentication_sessions.revoked_at is null'
+            'select * from authentication_sessions where authentication_sessions.status = ?'
+            . ' and authentication_sessions.revoked_at is null'
             . ' and authentication_sessions.idle_expires_at > ?'
             . ' and (authentication_sessions.absolute_expires_at is null or authentication_sessions.absolute_expires_at > ?)',
             str_replace(['"', '`'], '', $query->toSql()),
         );
-        self::assertSame(['2027-01-15 10:00:00', '2027-01-15 10:00:00'], $query->getBindings());
+        self::assertSame(['active', '2027-01-15 10:00:00', '2027-01-15 10:00:00'], $query->getBindings());
     }
 
     /**
@@ -74,7 +75,8 @@ final class ScopesActiveSessionsTest extends TestCase
         ActiveSessions::constrain($query, $session, CarbonImmutable::parse('2027-01-15 10:00:00'));
 
         self::assertSame(
-            'select * from scoped_renamed_pruning_sessions where scoped_renamed_pruning_sessions.ended_at is null'
+            'select * from scoped_renamed_pruning_sessions where scoped_renamed_pruning_sessions.status = ?'
+                . ' and scoped_renamed_pruning_sessions.ended_at is null'
                 . ' and scoped_renamed_pruning_sessions.idle_until > ?'
                 . ' and (scoped_renamed_pruning_sessions.valid_until is null or scoped_renamed_pruning_sessions.valid_until > ?)',
             str_replace(['"', '`'], '', $query->toSql()),

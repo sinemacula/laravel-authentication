@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionDeadlines;
 use SineMacula\Laravel\Authentication\Sessions\ActiveSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
@@ -26,6 +27,7 @@ use SineMacula\Laravel\Authentication\Sessions\SessionSummary;
 use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
@@ -53,7 +55,7 @@ use Tests\TestCase;
 #[CoversClass(SessionSummary::class)]
 final class OptionalAbsoluteLimitTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithProofs, InteractsWithSessions;
 
     /** @var string Guard that sets no absolute limit. */
     private const string UNLIMITED = 'api';
@@ -227,37 +229,44 @@ final class OptionalAbsoluteLimitTest extends TestCase
     }
 
     /**
-     * A sign-in waiting for a further factor keeps its deadline: completed
-     * before it, the session is capped at it; completed once it has passed, the
-     * completion is refused as `session_expired`.
+     * A sign-in waiting for a further factor keeps its deadline: the pending
+     * session records it as its absolute deadline and its credential expires
+     * with it; satisfied before it, the session activates capped at it; once it
+     * has passed, the pending session has ended with its credential, which
+     * names no live pending session any more (`pending_invalid`).
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAPendingSignInKeepsItsDeadline(): void
+    public function testAPendingSessionKeepsItsDeadline(): void
     {
-        $this->seedIdentity();
+        $identity = $this->seedIdentity();
+
         $this->requireAFurtherFactor();
 
         $deadline = $this->now->addMinute();
-        $early    = $this->sessions(self::UNLIMITED)->signIn('password', self::credentials(), $this->context($deadline))->pending;
-        $late     = $this->sessions(self::UNLIMITED)->signIn('password', self::credentials(), $this->context($deadline))->pending;
+        $early    = $this->sessions(self::UNLIMITED)->signIn('password', self::credentials(), $this->context($deadline));
+        $late     = $this->sessions(self::UNLIMITED)->signIn('password', self::credentials(), $this->context($deadline));
 
-        self::assertNotNull($early);
-        self::assertNotNull($late);
+        self::assertNotNull($early->pending);
+        self::assertNotNull($early->credential);
+        self::assertNotNull($late->pending);
+        self::assertNotNull($late->credential);
+        self::assertSame($deadline->getTimestamp(), $early->pending->expiresAt->getTimestamp());
+        self::assertSame($deadline->getTimestamp(), $early->pending->session->getAbsoluteExpiresAt()?->getTimestamp());
 
-        $session = $this->sessions(self::UNLIMITED)->complete($early->token)->session;
+        $session = $this->sessions(self::UNLIMITED)->satisfy($early->credential, self::adapterProof($identity, self::UNLIMITED, $early->pending->id, Purpose::SIGN_IN))->session;
 
         self::assertNotNull($session);
         self::assertSame($deadline->getTimestamp(), $this->stored($session)->getAbsoluteExpiresAt()?->getTimestamp());
 
         $this->moveClocksTo($deadline);
 
-        $refused = $this->sessions(self::UNLIMITED)->complete($late->token);
+        $refused = $this->sessions(self::UNLIMITED)->satisfy($late->credential, self::adapterProof($identity, self::UNLIMITED, $late->pending->id, Purpose::SIGN_IN));
 
         self::assertTrue($refused->isFailed());
-        self::assertSame(FailureReason::SESSION_EXPIRED, $refused->reason);
+        self::assertSame(FailureReason::PENDING_INVALID, $refused->reason);
     }
 
     /**

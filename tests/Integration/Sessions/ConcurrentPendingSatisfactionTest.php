@@ -18,26 +18,30 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
-use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Models\SessionProof;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Proofs\ProofResult;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
-use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
-use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
+use SineMacula\Laravel\Authentication\Sessions\PendingSessions;
+use SineMacula\Laravel\Authentication\Sessions\SessionActivation;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Races two completions of one pending sign-in on PostgreSQL and MySQL, each in
- * a process with a database connection of its own: one completes inside a
- * transaction it holds open, and the other, started meanwhile, waits on the
- * pending sign-in's row. Whichever transaction commits the delete wins; the
- * other completion fails as `pending_invalid` and starts nothing, so exactly
- * one session is created, one set of slots given back, and one set of events
- * dispatched.
+ * Races two `satisfy()` calls with one pending credential on PostgreSQL and
+ * MySQL, each in a process with a database connection of its own: one satisfies
+ * the session inside a transaction it holds open, and the other, started
+ * meanwhile, waits on the session's row lock. Whichever transaction commits the
+ * activation wins; the other call finds the session active and fails as
+ * `pending_invalid`, storing no proof, so exactly one session activates, one
+ * further factor is recorded, one set of slots is given back, and one set of
+ * events is dispatched.
  *
  * Skipped on SQLite, whose in-memory database each process would have to
  * itself, and where `pcntl` is not available.
@@ -48,22 +52,22 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(SessionService::class)]
-#[CoversClass(SessionEstablishment::class)]
-#[CoversClass(PendingSignIns::class)]
-final class ConcurrentPendingCompletionTest extends TestCase
+#[CoversClass(PendingSessions::class)]
+#[CoversClass(SessionActivation::class)]
+final class ConcurrentPendingSatisfactionTest extends TestCase
 {
-    use InteractsWithRateLimits, InteractsWithSessions;
+    use InteractsWithProofs, InteractsWithRateLimits, InteractsWithSessions;
 
-    /** @var int How long the first completion holds its transaction open once the second has started, in microseconds. */
+    /** @var int How long the first call holds its transaction open once the second has started, in microseconds. */
     private const int HOLD_MICROSECONDS = 1000000;
 
-    /** @var float The least time, in seconds, the second completion must have waited to show it waited on the first. */
+    /** @var float The least time, in seconds, the second call must have waited to show it waited on the first. */
     private const float LEAST_WAIT_SECONDS = 0.5;
 
-    /** @var int How long the second completion waits to be started before giving up, in seconds. */
+    /** @var int How long the second call waits to be started before giving up, in seconds. */
     private const int START_TIMEOUT_SECONDS = 10;
 
-    /** @var string Directory the second completion reports its outcome in. */
+    /** @var string Directory the second call reports its outcome in. */
     private string $outcomes;
 
     /**
@@ -107,7 +111,7 @@ final class ConcurrentPendingCompletionTest extends TestCase
             }
         });
 
-        $this->outcomes = sys_get_temp_dir() . '/completion-race-' . bin2hex(random_bytes(8));
+        $this->outcomes = sys_get_temp_dir() . '/satisfaction-race-' . bin2hex(random_bytes(8));
 
         mkdir($this->outcomes);
     }
@@ -139,47 +143,46 @@ final class ConcurrentPendingCompletionTest extends TestCase
     }
 
     /**
-     * The completion that commits first starts the session; the one that waited
-     * on its delete then finds the pending sign-in gone and fails as
-     * `pending_invalid` for its method, without a session, a slot given back,
-     * or a sign-in event.
+     * The call that commits first activates the session; the one that waited on
+     * its lock then finds it active and fails as `pending_invalid`, without a
+     * proof stored, a slot given back, or a sign-in event.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testOnlyTheFirstOfTwoConcurrentCompletionsToCommitStartsASession(): void
+    public function testOnlyTheFirstOfTwoConcurrentSatisfactionsToCommitActivatesTheSession(): void
     {
         $identity = $this->seedHeldSignIn();
 
-        [$first, $second] = $this->raceCompletions($this->pendingToken(), commitFirst: true);
+        [$first, $second] = $this->raceSatisfactions($this->pendingSession(), commitFirst: true);
 
         self::assertTrue($first->isSignedIn());
         self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
 
         self::assertSame(['status' => 'failed', 'reason' => FailureReason::PENDING_INVALID->value], $second['result']);
         self::assertSame([Failed::class, AuthenticationFailed::class], $second['events']);
-        self::assertSame('password', $second['failedMethod']);
+        self::assertNull($second['failedMethod']);
         self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
 
         $this->assertOneSessionAndOneRelease($identity);
     }
 
     /**
-     * When the first completion's transaction rolls back, the completion that
-     * waited on its delete completes the pending sign-in instead: it starts the
-     * one session, gives the slots back and dispatches the events, while the
-     * rolled-back completion leaves nothing behind.
+     * When the first call's transaction rolls back, the call that waited on its
+     * lock activates the session instead: it stores the one further factor,
+     * gives the slots back and dispatches the events, while the rolled-back
+     * call leaves nothing behind.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testACompletionWaitingOnOneThatRollsBackStartsTheSession(): void
+    public function testASatisfactionWaitingOnOneThatRollsBackActivatesTheSession(): void
     {
         $identity = $this->seedHeldSignIn();
 
-        [$first, $second] = $this->raceCompletions($this->pendingToken(), commitFirst: false);
+        [$first, $second] = $this->raceSatisfactions($this->pendingSession(), commitFirst: false);
 
         self::assertTrue($first->isSignedIn());
         self::assertSame([], $this->recordedClasses());
@@ -230,36 +233,38 @@ final class ConcurrentPendingCompletionTest extends TestCase
     }
 
     /**
-     * Sign in and return the token of the pending sign-in the factor policy
-     * asked for, which holds a second slot on the identifier and the account.
+     * Sign in and return the credential of the pending session the factor
+     * policy asked for, which holds a second slot on the identifier and the
+     * account, with an accepted further factor's proof bound to it.
      *
-     * @return string
+     * @return array{0: string, 1: \SineMacula\Laravel\Authentication\Proofs\ProofResult}
      *
      * @throws \Throwable
      */
-    private function pendingToken(): string
+    private function pendingSession(): array
     {
-        $pending = $this->sessions()->signIn('password', self::credentials())->pending;
+        $result = $this->sessions()->signIn('password', self::credentials());
 
-        self::assertNotNull($pending);
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
         self::assertSame([2, 2], [$this->identifierHits(), $this->accountHits()]);
 
-        return $pending->token;
+        return [$result->credential, self::adapterProof($result->pending->identity, 'api', $result->pending->id, Purpose::SIGN_IN)];
     }
 
     /**
-     * Complete the pending sign-in here inside a transaction, start a second
-     * completion of it in another process once this one has deleted the row,
-     * hold the transaction open while the second waits, then commit or roll
-     * back, and return both outcomes.
+     * Satisfy the pending session here inside a transaction, start a second
+     * call with the same credential in another process once this one has
+     * activated the row, hold the transaction open while the second waits on
+     * its lock, then commit or roll back, and return both outcomes.
      *
-     * @param  string  $token
+     * @param  array{0: string, 1: \SineMacula\Laravel\Authentication\Proofs\ProofResult}  $pending
      * @param  bool  $commitFirst
      * @return array{0: \SineMacula\Laravel\Authentication\Sessions\SignInResult, 1: array<array-key, mixed>}
      *
      * @throws \Throwable
      */
-    private function raceCompletions(#[\SensitiveParameter] string $token, bool $commitFirst): array
+    private function raceSatisfactions(array $pending, bool $commitFirst): array
     {
         $this->recordEvents([Failed::class, AuthenticationFailed::class, SessionCreated::class, SignedIn::class]);
 
@@ -268,12 +273,12 @@ final class ConcurrentPendingCompletionTest extends TestCase
         $pid = pcntl_fork();
 
         if ($pid === 0) {
-            $this->completeInChild($token);
+            $this->satisfyInChild(...$pending);
         }
 
         DB::beginTransaction();
 
-        $first = $this->sessions()->complete($token);
+        $first = $this->sessions()->satisfy(...$pending);
 
         touch("{$this->outcomes}/start");
         usleep(self::HOLD_MICROSECONDS);
@@ -291,14 +296,15 @@ final class ConcurrentPendingCompletionTest extends TestCase
     }
 
     /**
-     * In the forked process: wait to be started, complete the pending sign-in
-     * on a connection of its own, report the outcome, and end without running
-     * the parent's shutdown.
+     * In the forked process: wait to be started, satisfy the pending session on
+     * a connection of its own, report the outcome, and end without running the
+     * parent's shutdown.
      *
-     * @param  string  $token
+     * @param  string  $credential
+     * @param  \SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof
      * @return never
      */
-    private function completeInChild(#[\SensitiveParameter] string $token): never
+    private function satisfyInChild(#[\SensitiveParameter] string $credential, ProofResult $proof): never
     {
         try {
             $deadline = microtime(true) + self::START_TIMEOUT_SECONDS;
@@ -308,7 +314,7 @@ final class ConcurrentPendingCompletionTest extends TestCase
             }
 
             $started = microtime(true);
-            $result  = $this->sessions()->complete($token);
+            $result  = $this->sessions()->satisfy($credential, $proof);
             $failed  = array_values(array_filter($this->recorded, static fn (object $event): bool => $event instanceof AuthenticationFailed));
 
             $outcome = [
@@ -329,8 +335,9 @@ final class ConcurrentPendingCompletionTest extends TestCase
     }
 
     /**
-     * Assert the race left one session, no pending sign-in, and the
-     * identifier's and the account's held slots given back once each.
+     * Assert the race left one active session with its first factor and one
+     * further factor, and the identifier's and the account's held slots given
+     * back once each.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @return void
@@ -338,8 +345,8 @@ final class ConcurrentPendingCompletionTest extends TestCase
     private function assertOneSessionAndOneRelease(IntegrationIdentity $identity): void
     {
         self::assertSame(1, Session::query()->where('authenticatable_type', $identity->getMorphClass())->count());
-        self::assertSame(1, Session::query()->count());
-        self::assertSame(0, PendingSignIn::query()->count());
+        self::assertSame(1, Session::query()->where('status', 'active')->count());
+        self::assertSame(2, SessionProof::query()->count());
         self::assertSame([1, 1], [$this->identifierHits(), $this->accountHits()]);
     }
 

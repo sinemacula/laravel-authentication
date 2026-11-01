@@ -110,7 +110,6 @@ final class MachineCodeSignInTest extends TestCase
         self::assertTrue($machine->is($failure->context->identity));
         self::assertNotNull(DB::table('one_time_codes')->value('consumed_at'));
         self::assertSame(0, DB::table('authentication_sessions')->count());
-        self::assertSame(0, DB::table('pending_sign_ins')->count());
     }
 
     /**

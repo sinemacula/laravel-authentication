@@ -4,71 +4,71 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Events;
 
-use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Queue\SerializesModels;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Events\EventContext;
-use SineMacula\Laravel\Authentication\Events\PrincipalChoiceRequired;
+use SineMacula\Laravel\Authentication\Events\SessionActivated;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use Tests\Unit\Stubs\PlainIdentityFixture;
+use Tests\Unit\Stubs\PlainPrincipalFixture;
 use Tests\Unit\Stubs\PlainSessionFixture;
 
 /**
- * PrincipalChoiceRequired event unit tests.
+ * SessionActivated event unit tests.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversClass(PrincipalChoiceRequired::class)]
-final class PrincipalChoiceRequiredTest extends TestCase
+#[CoversClass(SessionActivated::class)]
+final class SessionActivatedTest extends TestCase
 {
     /**
-     * The event keeps its context and expiry.
+     * The event keeps the context of the session that activated again.
      *
      * @return void
      */
-    public function testKeepsItsContextAndExpiry(): void
+    public function testKeepsItsContext(): void
     {
-        $context   = self::context();
-        $expiresAt = CarbonImmutable::parse('2027-01-15 10:05:00');
-        $event     = new PrincipalChoiceRequired($context, $expiresAt);
+        $context = self::context();
+        $event   = new SessionActivated($context);
 
         self::assertInstanceOf(AuthenticationEvent::class, $event);
         self::assertSame($context, $event->context);
         self::assertSame($context, $event->context());
-        self::assertSame($expiresAt, $event->expiresAt);
     }
 
     /**
      * The event serialises its models for queued listeners and survives a round
-     * trip, and it does not ask the dispatcher to wait for a transaction: the
-     * package dispatches it once the pending choice commits.
+     * trip. It does not ask the dispatcher to wait for a transaction: that
+     * would wait for whichever transaction is open last on any connection, so
+     * the package dispatches it once the written row's own connection commits.
      *
      * @return void
      */
     public function testSerializesItsModelsAndDispatchesWhenTheSenderSays(): void
     {
-        $event = new PrincipalChoiceRequired(self::context(), CarbonImmutable::parse('2027-01-15 10:05:00'));
+        $context = self::context();
+        $event   = new SessionActivated($context);
 
         self::assertNotInstanceOf(ShouldDispatchAfterCommit::class, $event);
         self::assertContains(SerializesModels::class, class_uses_recursive($event));
 
         $copy = unserialize(serialize($event));
 
-        self::assertInstanceOf(PrincipalChoiceRequired::class, $copy);
+        self::assertInstanceOf(SessionActivated::class, $copy);
+        self::assertSame('api', $copy->context->guard);
         self::assertSame('7', $copy->context->identityId);
-        self::assertNull($copy->context->principalId);
-        self::assertSame('proven-session', $copy->context->sessionId);
-        self::assertSame('2027-01-15 10:05:00', $copy->expiresAt->toDateTimeString());
+        self::assertSame('session-1', $copy->context->sessionId);
     }
 
     /**
-     * A context for an identity choosing on a session it proved it holds.
+     * A context with an identity, principal and session, signed in with a
+     * password from a known client.
      *
      * @return \SineMacula\Laravel\Authentication\Events\EventContext
      */
@@ -76,6 +76,6 @@ final class PrincipalChoiceRequiredTest extends TestCase
     {
         $client = new ClientContext('203.0.113.7', 'agent');
 
-        return new EventContext('api', $client, new PlainIdentityFixture(7), session: new PlainSessionFixture('proven-session'), method: 'password');
+        return new EventContext('api', $client, new PlainIdentityFixture(7), new PlainPrincipalFixture('p-1'), null, new PlainSessionFixture('session-1'), 'password');
     }
 }

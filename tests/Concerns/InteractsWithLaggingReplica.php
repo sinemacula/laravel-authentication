@@ -89,7 +89,6 @@ trait InteractsWithLaggingReplica
         $manager = app(DatabaseManager::class);
         $files   = [
             '2026_04_06_000000_create_authentication_sessions_table.php',
-            '2026_04_06_000001_create_pending_sign_ins_table.php',
             '2026_04_06_000002_create_rate_limits_table.php',
             '2026_04_06_000008_create_authentication_proofs_table.php',
             '2026_04_06_000009_create_authentication_provenance_table.php',

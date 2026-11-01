@@ -8,12 +8,18 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 
 /**
- * How a sign-in through the session service ended: a started session, a pending
- * sign-in waiting for a further factor, a sign-in waiting for its identity to
- * choose a principal, or a failure with its reason (and, for `rate_limited`,
- * the seconds until the next attempt may be made). A failure is a result rather
- * than an exception, so the caller answers it as it chooses; exceptions are
- * kept for misconfiguration and server errors.
+ * How a sign-in, or an action on its pending session, through the session
+ * service ended: an active session with its token pair, a pending session
+ * waiting on requirements (with its pending credential when the call issued
+ * one), or a failure with its reason (and, for `rate_limited`, the seconds
+ * until the next attempt may be made). A failure is a result rather than an
+ * exception, so the caller answers it as it chooses; exceptions are kept for
+ * misconfiguration and server errors.
+ *
+ * The pending credential travels only in the response body, never in a URL or a
+ * cookie, and is handed out once: an action that leaves the session pending
+ * answers without it, and the client keeps the one it holds. Like the token
+ * pair, it is a plain string here.
  *
  * @api
  *
@@ -27,34 +33,35 @@ final readonly class SignInResult
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus  $status
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
-     * @param  ?\SineMacula\Laravel\Authentication\Sessions\PendingFactor  $pending
+     * @param  ?\SineMacula\Laravel\Authentication\Sessions\PendingSession  $pending
+     * @param  ?string  $credential
      * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  ?int  $retryAfter
-     * @param  ?\SineMacula\Laravel\Authentication\Sessions\PrincipalChoice  $choice
      */
     private function __construct(
 
         /** How the sign-in ended. */
         public SignInStatus $status,
 
-        /** The session that started, when one did. */
+        /** The session that activated, when one did. */
         public ?SignedInSession $session = null,
 
-        /** The pending sign-in waiting for a further factor, when one is required. */
-        public ?PendingFactor $pending = null,
+        /** The session waiting on requirements, when it is pending. */
+        public ?PendingSession $pending = null,
+
+        /** The pending credential, when the call issued one. */
+        #[\SensitiveParameter]
+        public ?string $credential = null,
 
         /** Why the sign-in failed, when it did. */
         public ?FailureReason $reason = null,
 
         /** Seconds until another attempt may be made, for `rate_limited` only. */
         public ?int $retryAfter = null,
-
-        /** The choice of principal the identity must make, when one is required. */
-        public ?PrincipalChoice $choice = null,
     ) {}
 
     /**
-     * A sign-in that started the session.
+     * A sign-in whose session activated.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
      * @return self
@@ -65,26 +72,16 @@ final readonly class SignInResult
     }
 
     /**
-     * A sign-in that needs a further factor before its session may start.
+     * A sign-in whose session waits on requirements, with the pending
+     * credential when the call issued one.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\PendingFactor  $pending
+     * @param  \SineMacula\Laravel\Authentication\Sessions\PendingSession  $pending
+     * @param  ?string  $credential
      * @return self
      */
-    public static function pendingFactor(PendingFactor $pending): self
+    public static function pending(PendingSession $pending, #[\SensitiveParameter] ?string $credential = null): self
     {
-        return new self(SignInStatus::FACTOR_REQUIRED, pending: $pending);
-    }
-
-    /**
-     * A sign-in that waits for its identity to choose the principal its session
-     * acts as.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\PrincipalChoice  $choice
-     * @return self
-     */
-    public static function principalRequired(PrincipalChoice $choice): self
-    {
-        return new self(SignInStatus::PRINCIPAL_REQUIRED, choice: $choice);
+        return new self(SignInStatus::PENDING, pending: $pending, credential: $credential);
     }
 
     /**
@@ -108,7 +105,7 @@ final readonly class SignInResult
     }
 
     /**
-     * Whether a session started.
+     * Whether the session activated.
      *
      * @return bool
      */
@@ -118,24 +115,13 @@ final readonly class SignInResult
     }
 
     /**
-     * Whether a further factor is required before the session may start.
+     * Whether the session waits on requirements.
      *
      * @return bool
      */
-    public function requiresFactor(): bool
+    public function isPending(): bool
     {
-        return $this->status === SignInStatus::FACTOR_REQUIRED;
-    }
-
-    /**
-     * Whether the identity must choose a principal before the session may
-     * start.
-     *
-     * @return bool
-     */
-    public function requiresPrincipal(): bool
-    {
-        return $this->status === SignInStatus::PRINCIPAL_REQUIRED;
+        return $this->status === SignInStatus::PENDING;
     }
 
     /**

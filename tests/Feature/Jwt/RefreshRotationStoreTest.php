@@ -116,6 +116,7 @@ final class RefreshRotationStoreTest extends TestCase
         yield from [
             'rotated elsewhere'       => [['refresh_key' => RefreshTokenHasher::hash('elsewhere')]],
             'revoked'                 => [['revoked_at' => '2026-04-06 11:59:00']],
+            'returned to pending'     => [['status' => 'pending', 'requires' => '["mfa"]']],
             'idle deadline moved'     => [['idle_expires_at' => '2026-07-06 12:00:00']],
             'absolute deadline moved' => [['absolute_expires_at' => '2026-05-06 12:00:00']],
         ];
@@ -123,8 +124,10 @@ final class RefreshRotationStoreTest extends TestCase
 
     /**
      * The swap applies only to the state the session was loaded with: after a
-     * concurrent rotation, revocation, or deadline change it affects no row,
-     * reports so, and leaves the in-memory session as it was.
+     * concurrent rotation, revocation, return to pending, or deadline change it
+     * affects no row, reports so, and leaves the in-memory session as it was.
+     * The status is matched on its own, since a pending session's deadline can
+     * equal the one it held while active.
      *
      * @param  array<string, mixed>  $change
      * @return void
@@ -162,7 +165,7 @@ final class RefreshRotationStoreTest extends TestCase
 
         self::assertSame(PlainPrincipalFixture::class, $row['principal_type']);
         self::assertSame('p-2', $row['principal_id']);
-        self::assertSame($this->now->getTimestamp(), Carbon::parse($row['principal_switched_at'])->getTimestamp()); // @phpstan-ignore argument.type
+        self::assertSame($this->now->getTimestamp(), Carbon::parse($row['switched_at'])->getTimestamp()); // @phpstan-ignore argument.type
         self::assertSame(RefreshTokenHasher::hash(self::NEXT), $row['refresh_key']);
         self::assertSame(RefreshTokenHasher::hash(self::CURRENT), $row['previous_refresh_key']);
         self::assertSame($this->now->getTimestamp(), Carbon::parse($row['refresh_rotated_at'])->getTimestamp()); // @phpstan-ignore argument.type
@@ -170,7 +173,7 @@ final class RefreshRotationStoreTest extends TestCase
         self::assertSame($absolute->getTimestamp(), Carbon::parse($row['absolute_expires_at'])->getTimestamp()); // @phpstan-ignore argument.type
 
         self::assertSame('p-2', $session->getAttribute('principal_id'));
-        self::assertSame($this->now->getTimestamp(), $session->getPrincipalSwitchedAt()?->getTimestamp());
+        self::assertSame($this->now->getTimestamp(), $session->getSwitchedAt()?->getTimestamp());
         self::assertSame(RefreshTokenHasher::hash(self::NEXT), $session->getRefreshKey());
         self::assertSame($absolute->getTimestamp(), $session->getAbsoluteExpiresAt()?->getTimestamp());
         self::assertFalse($session->isDirty());
@@ -193,7 +196,7 @@ final class RefreshRotationStoreTest extends TestCase
         $row = $this->row($session);
 
         self::assertSame('p-1', $row['principal_id']);
-        self::assertNull($row['principal_switched_at']);
+        self::assertNull($row['switched_at']);
         self::assertSame(RefreshTokenHasher::hash(self::NEXT), $row['refresh_key']);
     }
 

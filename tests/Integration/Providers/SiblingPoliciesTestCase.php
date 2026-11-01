@@ -14,8 +14,8 @@ use SineMacula\Laravel\Authentication\Exceptions\InvalidScopeException;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use Tests\Concerns\InteractsWithMachineCredentials;
 use Tests\Fixtures\Resolvers\IdentityAsPrincipalResolver;
@@ -74,9 +74,9 @@ abstract class SiblingPoliciesTestCase extends TestCase
 
     /**
      * The sibling's additional-factor policy is the one a sign-in asks: the
-     * sign-in waits for a further factor, with a pending sign-in stored and no
-     * session created, rather than starting a session as the package's default
-     * policy would.
+     * sign-in waits for a further factor, with its session pending and no token
+     * issued, rather than starting a session as the package's default policy
+     * would.
      *
      * @return void
      *
@@ -98,9 +98,10 @@ abstract class SiblingPoliciesTestCase extends TestCase
             new SignInContext(new ClientContext(self::MACHINE_IP, self::MACHINE_AGENT)),
         );
 
-        static::assertTrue($result->requiresFactor(), 'Expected the sign-in to wait for a factor; got ' . $result->status->value);
-        static::assertSame(1, PendingSignIn::query()->count());
-        static::assertSame(0, Session::query()->count());
+        static::assertTrue($result->isPending(), 'Expected the sign-in to wait for a factor; got ' . $result->status->value);
+        static::assertSame([PendingRequirement::MFA], $result->pending?->requires);
+        static::assertSame(1, Session::query()->where('status', 'pending')->count());
+        static::assertSame(0, Session::query()->where('status', 'active')->count());
     }
 
     /**

@@ -30,8 +30,9 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
-use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Models\SessionProof;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
@@ -39,6 +40,7 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\InteractsWithTypedPrincipals;
@@ -80,7 +82,7 @@ use Tests\TestCase;
 #[CoversClass(VerificationLinks::class)]
 final class SignInPolicyEndToEndTest extends TestCase
 {
-    use InteractsWithRateLimits, InteractsWithSessions, InteractsWithTypedPrincipals, InteractsWithVerifiableIdentities;
+    use InteractsWithProofs, InteractsWithRateLimits, InteractsWithSessions, InteractsWithTypedPrincipals, InteractsWithVerifiableIdentities;
 
     /** @var int Access lifetime of the `members` guard, in minutes. */
     private const int MEMBERS_ACCESS_MINUTES = 2;
@@ -408,10 +410,10 @@ final class SignInPolicyEndToEndTest extends TestCase
     /**
      * A sign-in waiting for a further factor keeps the slot its password check
      * took on the account, so the factor can be guessed no more often than the
-     * password, however the sign-ins name the account: five pending sign-ins
+     * password, however the sign-ins name the account: five pending sessions
      * through two guards and two identifiers, each discarded as a failed
      * factor, use the account's limit up, and a sixth sign-in with the right
-     * password mints no pending sign-in.
+     * password mints no pending session.
      *
      * @return void
      *
@@ -427,29 +429,30 @@ final class SignInPolicyEndToEndTest extends TestCase
         foreach ([['api', self::credentials()], ['by_number', $byNumber]] as [$guard, $credentials]) {
             for ($guess = 0; $guess < ($guard === 'api' ? 3 : 2); $guess++) {
 
-                $pending = $this->sessions($guard)->signIn('password', $credentials)->pending;
+                $credential = $this->sessions($guard)->signIn('password', $credentials)->credential;
 
-                self::assertNotNull($pending, "Expected a pending sign-in through {$guard}");
-                self::assertTrue($this->sessions($guard)->discard($pending->token));
+                self::assertNotNull($credential, "Expected a pending session through {$guard}");
+                self::assertTrue($this->sessions($guard)->discard($credential));
             }
         }
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', self::credentials())->reason);
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions('by_number')->signIn('password', $byNumber)->reason);
-        self::assertSame(0, PendingSignIn::query()->count());
+        self::assertSame(5, Session::query()->where('status', 'pending')->where('revoked_reason', 'signed_out')->count());
+        self::assertSame(0, Session::query()->whereNull('revoked_at')->count());
     }
 
     /**
      * On MySQL, whose default collation finds one account by many variants of
      * its address, each variant has its own identifier limit but the account
-     * one: five pending sign-ins through five variants use it up, and a sixth
-     * variant with the right password mints no pending sign-in.
+     * one: five pending sessions through five variants use it up, and a sixth
+     * variant with the right password mints no pending session.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testCollationVariantsCannotMintMorePendingSignInsThanTheAccountAllowsOnMySql(): void
+    public function testCollationVariantsCannotMintMorePendingSessionsThanTheAccountAllowsOnMySql(): void
     {
         if (DB::connection()->getDriverName() !== 'mysql') {
             self::markTestSkipped('Only MySQL\'s default collation finds an account by these variants.');
@@ -462,13 +465,13 @@ final class SignInPolicyEndToEndTest extends TestCase
         $variants = ["v\u{00ED}ctim@example.test", "vic\u{200B}tim@example.test", "\u{FF56}ictim@example.test", "victi\u{0301}m@example.test", "victim@ex\u{00E1}mple.test"];
 
         foreach ($variants as $variant) {
-            self::assertTrue($this->sessions()->signIn('password', ['email' => $variant, 'password' => self::PASSWORD])->requiresFactor(), "No pending sign-in for {$variant}");
+            self::assertTrue($this->sessions()->signIn('password', ['email' => $variant, 'password' => self::PASSWORD])->isPending(), "No pending session for {$variant}");
         }
 
         $refused = $this->sessions()->signIn('password', ['email' => "victi\u{200B}m@example.test", 'password' => self::PASSWORD]);
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $refused->reason);
-        self::assertSame(5, PendingSignIn::query()->count());
+        self::assertSame(5, Session::query()->where('status', 'pending')->count());
     }
 
     /**
@@ -541,31 +544,35 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * A sign-in waiting for a further factor when the application stops listing
-     * its method is spent and then refused: completing it is
-     * `method_not_allowed` and writes no session, and the token cannot be
-     * completed again (`pending_invalid`).
+     * A session waiting for a further factor when the application stops listing
+     * its method is refused every time it is satisfied (`method_not_allowed`):
+     * it never activates, and stays pending, without the proof, until its
+     * credential expires.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAPendingSignInWhoseMethodIsRemovedIsSpentAndRefused(): void
+    public function testAPendingSessionWhoseMethodIsRemovedIsRefused(): void
     {
-        $this->seedPasswordIdentity('ada@example.test');
+        $identity = $this->seedPasswordIdentity('ada@example.test');
 
         self::requireAFurtherFactor();
 
-        $pending = $this->sessions()->signIn('password', self::credentials())->pending;
+        $result = $this->sessions()->signIn('password', self::credentials());
 
-        self::assertNotNull($pending);
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
 
         config()->set('auth.guards.api.application.methods', []);
 
-        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->complete($pending->token)->reason);
-        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->complete($pending->token)->reason);
-        self::assertSame(0, PendingSignIn::query()->count());
-        self::assertSame(0, Session::query()->count());
+        $proof = self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN);
+
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->satisfy($result->credential, $proof)->reason);
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->satisfy($result->credential, $proof)->reason);
+        self::assertSame(1, Session::query()->where('status', 'pending')->whereNull('revoked_at')->count());
+        self::assertSame(0, Session::query()->where('status', 'active')->count());
+        self::assertSame(1, SessionProof::query()->count());
     }
 
     /**

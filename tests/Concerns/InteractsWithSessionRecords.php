@@ -55,16 +55,16 @@ trait InteractsWithSessionRecords
      * session service writes them at sign-in: the principal, and no switch.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @return array{principal_type: string, principal_id: ?string, principal_switched_at: null}
+     * @return array{principal_type: string, principal_id: ?string, switched_at: null}
      */
     protected static function recordedPrincipal(Principal $principal): array
     {
-        return ['principal_type' => PrincipalReference::type($principal), 'principal_id' => PrincipalReference::id($principal), 'principal_switched_at' => null];
+        return ['principal_type' => PrincipalReference::type($principal), 'principal_id' => PrincipalReference::id($principal), 'switched_at' => null];
     }
 
     /**
-     * A session of the guard, signed in with a password now, that ends at the
-     * given times.
+     * An active session of the guard, signed in with a password now, that ends
+     * at the given times.
      *
      * @formatter:off
      *
@@ -73,7 +73,7 @@ trait InteractsWithSessionRecords
      * @param  \Carbon\CarbonInterface  $idle
      * @param  \Carbon\CarbonInterface  $absolute
      * @param  string  $guard
-     * @return array{guard: string, sign_in_method: string, signed_in_at: \Carbon\CarbonInterface, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
+     * @return array{status: string, guard: string, sign_in_method: string, signed_in_at: \Carbon\CarbonInterface, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -82,6 +82,7 @@ trait InteractsWithSessionRecords
     protected static function sessionEndingAt(CarbonInterface $idle, CarbonInterface $absolute, string $guard = 'api'): array
     {
         return [
+            'status'              => 'active',
             'guard'               => $guard,
             'sign_in_method'      => 'password',
             'signed_in_at'        => Carbon::now(),
@@ -140,7 +141,15 @@ trait InteractsWithSessionRecords
             $blueprint->string('authenticatable_id')->nullable();
             $blueprint->string('principal_type')->nullable();
             $blueprint->string('principal_id')->nullable();
-            $blueprint->dateTime('principal_switched_at', 0)->nullable();
+            $blueprint->string('status', 16)->default('active');
+            $blueprint->string('requires', 64)->nullable();
+            $blueprint->string('pending_key', 64)->nullable();
+            $blueprint->string('supersedes_session_id')->nullable();
+            $blueprint->string('supersedes_refresh_key', 64)->nullable();
+            $blueprint->text('attempt_windows')->nullable();
+            $blueprint->string('tenant_id')->nullable();
+            $blueprint->string('tenant_policy_version', 64)->nullable();
+            $blueprint->dateTime('switched_at', 0)->nullable();
             $blueprint->string('guard')->nullable();
             $blueprint->string('sign_in_method')->nullable();
             $blueprint->string('sign_in_identifier_type')->nullable();

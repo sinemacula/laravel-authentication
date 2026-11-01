@@ -157,7 +157,7 @@ other rotated token as a replay that revokes the session.
   revoked the continued session. A client that lost the sign-in response and retries with the old token proves nothing
   (its session is already revoked) and gets another session. A swap that misses (a parallel refresh rotated the session
   first) never retries: the sign-in is reconsidered without the session, so it starts a new session, revoking nothing,
-  or becomes a pending sign-in when the additional-factor policy now asks for a factor. A refresh that loses to a
+  or is written pending when the additional-factor policy now asks for a factor. A refresh that loses to a
   committed replacement finds the session revoked.
 - Only the immediately previous id is honoured: after `R0 -> R1 -> R2`, a delayed retry of `R0` is a replay even within
   the grace window of the first rotation, and revokes the session.

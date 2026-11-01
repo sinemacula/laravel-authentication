@@ -9,14 +9,18 @@ use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 /**
  * Additional-factor policy contract.
  *
- * Asked after the primary sign-in method has verified the identity and the
- * guard has admitted it, whether the sign-in needs a further factor before a
- * session may start. The package's default never requires one; an MFA package
- * or the application binds its own policy in the container.
+ * Asked about the identity, after the primary sign-in method has verified it
+ * and the guard has admitted it, and before any principal is chosen, whether
+ * the sign-in needs a further factor before its session may activate. The
+ * package's default never requires one; an MFA package or the application binds
+ * its own policy in the container. A tenant that asks more of a session says so
+ * through the tenant authentication policy instead.
  *
- * When a factor is required, the session service starts no session: it hands
- * out a short-lived, single-use pending sign-in that cannot authenticate a
- * request, which the factor's verifier completes once the factor is proven.
+ * When a factor is required, the session service issues no token: the session
+ * is pending, with a short-lived pending credential that cannot authenticate a
+ * request, until the factor's verifier hands it the factor's proof
+ * (`satisfy()`). The policy is asked again each time the pending session is
+ * acted on, and a stored accepted further factor or recovery code meets it.
  *
  * @api
  *

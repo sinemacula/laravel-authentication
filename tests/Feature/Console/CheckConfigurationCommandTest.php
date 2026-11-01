@@ -60,7 +60,6 @@ final class CheckConfigurationCommandTest extends TestCase
 
     /** @var list<string> What a run prints for the package-wide settings after the storage and session checks. */
     private const array SHARED_OK = [
-        '[sign_in] OK',
         '[passwords] OK',
         '[codes] OK',
         '[delivery] OK',
@@ -219,9 +218,9 @@ final class CheckConfigurationCommandTest extends TestCase
             ['authentication.session.prune_after_days' => 3651],
             '[session] authentication.session.prune_after_days must be an integer from 0 to 3650.',
         ];
-        yield 'a pending sign-in lifetime out of range' => [
-            ['authentication.sign_in.pending_ttl_seconds' => 5],
-            '[sign_in] authentication.sign_in.pending_ttl_seconds must be an integer from 30 to 3600.',
+        yield 'a pending credential lifetime out of range' => [
+            ['authentication.session.pending_ttl_seconds' => 5],
+            '[session] authentication.session.pending_ttl_seconds must be an integer from 30 to 3600.',
         ];
         yield 'a password minimum below 8' => [
             ['authentication.passwords.min_length' => 7],
@@ -396,7 +395,7 @@ final class CheckConfigurationCommandTest extends TestCase
             'auth.guards.api.refresh_token'              => ['header' => ''],
             'authentication.session.model'               => '',
             'authentication.session.prune_after_days'    => -1,
-            'authentication.sign_in.pending_ttl_seconds' => 'soon',
+            'authentication.session.pending_ttl_seconds' => 'soon',
         ]);
 
         self::assertSame([1, [
@@ -412,7 +411,7 @@ final class CheckConfigurationCommandTest extends TestCase
             '[machine] OK',
             '[session] authentication.session.model must be a non-empty class-string of an Eloquent model implementing [' . EloquentSession::class . ']; got [(empty string)].',
             '[session] authentication.session.prune_after_days must be an integer from 0 to 3650.',
-            '[sign_in] authentication.sign_in.pending_ttl_seconds must be an integer from 30 to 3600.',
+            '[session] authentication.session.pending_ttl_seconds must be an integer from 30 to 3600.',
             '[api] Application `methods` for guard [api] must be a list of lower-case sign-in method names: set `authentication.application.methods` '
                 . 'or the guard\'s `application.methods` override.',
             '[api] Refresh token transport for guard [api]: `refresh_token.header` must be a header or cookie name without `.`.',
@@ -570,7 +569,6 @@ final class CheckConfigurationCommandTest extends TestCase
         self::assertSame([
             '[storage] OK',
             '[session] OK',
-            '[sign_in] OK',
             '[passwords] OK',
             '[passkeys] OK',
             '[api_keys] OK',
@@ -616,7 +614,6 @@ final class CheckConfigurationCommandTest extends TestCase
         self::assertSame([
             '[storage] OK',
             '[session] OK',
-            '[sign_in] OK',
             '[passwords] OK',
             '[codes] OK',
             '[delivery] OK',
@@ -791,7 +788,6 @@ final class CheckConfigurationCommandTest extends TestCase
         $before = [
             '[storage] OK',
             '[session] OK',
-            '[sign_in] OK',
             '[passwords] OK',
             '[delivery] OK',
             '[passkeys] OK',
@@ -858,7 +854,6 @@ final class CheckConfigurationCommandTest extends TestCase
         $before = [
             '[storage] OK',
             '[session] OK',
-            '[sign_in] OK',
             '[passwords] OK',
             '[delivery] OK',
             '[passkeys] OK',

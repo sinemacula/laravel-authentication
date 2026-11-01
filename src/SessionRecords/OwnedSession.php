@@ -11,6 +11,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
@@ -38,11 +39,13 @@ final class OwnedSession
     /**
      * Why the guard may not authenticate on the session at the given time, or
      * `null` when it may: a session of another guard (or of none), a revoked
-     * one, and one that has ended (past its idle or absolute deadline, or
-     * without deadlines), in that order. The revocation and the deadlines are
-     * read whatever the guard, so a session loaded without one of them is
-     * reported as the misconfiguration it is. The deadlines are checked with no
-     * leeway, so a token cannot outlive its session.
+     * one, a pending one (it waits on requirements, so no token of it is
+     * accepted until it activates), and one that has ended (past its idle or
+     * absolute deadline, or without deadlines), in that order. The revocation,
+     * the status and the deadlines are read whatever the guard, so a session
+     * loaded without one of them is reported as the misconfiguration it is. The
+     * deadlines are checked with no leeway, so a token cannot outlive its
+     * session.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $guard
@@ -56,11 +59,13 @@ final class OwnedSession
         return WriteConnection::during($session, static function () use ($session, $guard, $now): ?FailureReason {
 
             $revoked = $session->getRevokedAt() !== null;
+            $pending = $session->getStatus() === SessionStatus::PENDING;
             $ended   = SessionDeadlines::hasEnded($session, $now);
 
             return match (true) {
                 $session->getGuard() !== $guard => FailureReason::SESSION_GUARD_MISMATCH,
                 $revoked                        => FailureReason::SESSION_REVOKED,
+                $pending                        => FailureReason::SESSION_PENDING,
                 $ended                          => FailureReason::SESSION_EXPIRED,
                 default                         => null,
             };
@@ -84,9 +89,10 @@ final class OwnedSession
 
     /**
      * Whether a token issued at the given time (its `iat`) was issued at or
-     * after the session last switched its principal, so a token of a principal
-     * the session switched away from cannot come back to life when it switches
-     * back. A session that never switched accepts any time.
+     * after the floor the session's last change of context set (see
+     * `SwitchFloor`), so a token from before a switch, or before a return to
+     * pending, cannot come back to life when the session comes back to that
+     * context. A session whose context never changed accepts any time.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  mixed  $issuedAt
@@ -96,7 +102,7 @@ final class OwnedSession
      */
     public static function isIssuedSinceSwitch(Session $session, mixed $issuedAt): bool
     {
-        $switched = WriteConnection::during($session, static fn (): ?CarbonInterface => $session->getPrincipalSwitchedAt());
+        $switched = WriteConnection::during($session, static fn (): ?CarbonInterface => $session->getSwitchedAt());
 
         return $switched === null || (is_int($issuedAt) && $issuedAt >= $switched->getTimestamp());
     }

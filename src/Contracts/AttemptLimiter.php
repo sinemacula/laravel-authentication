@@ -36,12 +36,12 @@ interface AttemptLimiter
      *
      * A granted reservation records in its `windows` everything `release()`
      * needs to give its slots back (a key and a value per slot, both strings):
-     * a sign-in that waits for a further factor stores the windows of each
-     * reservation it holds and, when it completes, gives each back through a
-     * reservation rebuilt from its own windows, whose subject keeps only the
-     * guard, the flow, the identifier type and the IP address. Two reservations
-     * may record the same key (one account checked twice), and each is given
-     * back.
+     * a sign-in whose session waits on requirements stores the windows of each
+     * reservation it holds and, when the session first activates, gives each
+     * back through a reservation rebuilt from its own windows, whose subject
+     * keeps only the guard, the flow, the identifier type and the IP address.
+     * Two reservations may record the same key (one account checked twice), and
+     * each is given back.
      *
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject  $subject
      * @return \SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation

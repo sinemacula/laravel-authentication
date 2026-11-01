@@ -14,7 +14,7 @@ use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Sessions\PrincipalChoices;
+use SineMacula\Laravel\Authentication\Sessions\PendingEvaluation;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\LandlordPrincipal;
@@ -35,7 +35,7 @@ use Tests\TestCase;
  *
  * @internal
  */
-#[CoversClass(PrincipalChoices::class)]
+#[CoversClass(PendingEvaluation::class)]
 #[CoversClass(ApplicationAdmission::class)]
 final class ReplicaChoicesAcrossConnectionsTest extends TestCase
 {

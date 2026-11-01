@@ -24,8 +24,8 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
  * between the two: when it reads the identifier for the limits and when it
  * resolves the limiter. The attempt holds that slot and the account attempts
  * the secret checks count against, refuses a sign-in an account had no attempts
- * left for (`accountRefusal()`), hands a pending sign-in the windows it keeps
- * until it completes (`windows()`), and gives every slot back for a sign-in
+ * left for (`accountRefusal()`), hands a pending session the windows it keeps
+ * until it activates (`windows()`), and gives every slot back for a sign-in
  * that started its session (`release()`).
  *
  * What differs between the two entry points stays with each: the timebox and
@@ -118,7 +118,7 @@ final readonly class CredentialAttempt
 
     /**
      * The windows of every slot the sign-in holds, its own first, for a pending
-     * sign-in to keep and give back when it completes.
+     * session to keep and give back when it first activates.
      *
      * @return list<array<string, string>>
      */

@@ -195,7 +195,7 @@ final class PasswordSignInTest extends TestCase
     {
         yield from [
             'not an array' => ['username'],
-            'unknown key'  => [['password_identifier' => 'username', 'pending_table' => 'staff_pending']],
+            'unknown key'  => [['password_identifier' => 'username', 'pending_ttl_seconds' => 300]],
             'list'         => [['username']],
         ];
     }

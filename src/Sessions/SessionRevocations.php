@@ -39,9 +39,9 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * the first revocation's time and reason kept, and only the call that changed
  * the row reporting `SessionRevoked`, once the revocation is committed on the
  * session's own connection. A bulk revocation moves the scope's "tokens valid
- * after" cutoff when it records one, ends its pending sign-ins and, for an
- * identity, cancels its pending identifier changes; it reports each session it
- * revoked and then `SignedOutEverywhere`, also when it revoked none.
+ * after" cutoff when it records one, ends its pending sessions with the rest
+ * and, for an identity, cancels its pending identifier changes; it reports each
+ * session it revoked and then `SignedOutEverywhere`, also when it revoked none.
  * Deactivation already stops every token at once through the live activity
  * checks; revoking makes the end outlast a reactivation and records why.
  *
@@ -210,9 +210,9 @@ final readonly class SessionRevocations
 
     /**
      * Revoke every session of the identity, of every guard, except the given
-     * one, end its pending sign-ins, and cancel its pending identifier changes;
-     * when the identity records a "tokens valid after" cutoff, move it to now
-     * first. Returns how many sessions this call revoked.
+     * one (its pending sessions among them), and cancel its pending identifier
+     * changes; when the identity records a "tokens valid after" cutoff, move it
+     * to now first. Returns how many sessions this call revoked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -231,9 +231,9 @@ final readonly class SessionRevocations
 
     /**
      * Revoke every session that acts as the principal, except the given one,
-     * and end the pending sign-ins that would act as it; when the principal
-     * records a "tokens valid after" cutoff, move it to now first. Returns how
-     * many sessions this call revoked.
+     * pending sessions that record it among them; when the principal records a
+     * "tokens valid after" cutoff, move it to now first. Returns how many
+     * sessions this call revoked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -338,9 +338,9 @@ final readonly class SessionRevocations
      * principals listed for it (`tenant_deactivated`), since sessions record
      * principals, not tenants. Every principal must act within the tenant, or
      * nothing is written and an `InvalidArgumentException` is thrown; a
-     * principal listed twice counts once. All sessions and pending sign-ins are
-     * ended in one transaction, after each principal's cutoff moved, with one
-     * `SignedOutEverywhere` per principal.
+     * principal listed twice counts once. All sessions, pending ones among
+     * them, are ended in one transaction, after each principal's cutoff moved,
+     * with one `SignedOutEverywhere` per principal.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  iterable<\SineMacula\Laravel\Authentication\Contracts\Principal>  $principals

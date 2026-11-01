@@ -5,57 +5,51 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Container\Container;
-use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\Refused;
-use SineMacula\Laravel\Authentication\Admission\SignInAdmission;
-use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
-use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
-use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SessionCreated;
+use SineMacula\Laravel\Authentication\Events\SessionPending;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
-use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
-use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Models\PendingSignIn;
-use SineMacula\Laravel\Authentication\Proofs\NewProof;
-use SineMacula\Laravel\Authentication\Proofs\ProofAcceptance;
-use SineMacula\Laravel\Authentication\Proofs\ProofResult;
+use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
+use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 
 /**
- * Takes an admitted sign-in to its session, or to a pending sign-in when the
- * additional-factor policy asks for a further factor, and schedules what
- * reports it: `AdditionalFactorRequired` once a pending sign-in is committed,
- * `SessionRevoked` (`superseded`, for the session the new one replaced, if
- * any), `SessionCreated` and `SignedIn` once a session is committed on the
- * session's connection, and the slot give-back of the pending sign-in a session
- * completes once that sign-in's delete is committed.
+ * Takes a sign-in whose identity is admitted on to its session, in the order
+ * sign-in takes (see `PendingEvaluation`): the principal selected, the
+ * identity-level factor policy, and, with a principal, the tenant it is to be
+ * active in. With nothing outstanding the session is written active with its
+ * first pair; otherwise it is written pending, waiting on the further factor,
+ * then the choice of principal, with its pending credential and no token.
+ * Either way it records the sign-in's first-factor proof and provenance.
  *
- * Every sign-in is a new session, recording the sign-in's own proofs (its first
- * factor, with the time it was verified, and the further factor a completion
- * was given) and its provenance. A session the client proved it holds (with the
- * refresh token of its previous session) is revoked by the sign-in that
- * replaces it, in the same transaction; nothing else is ever revoked, however
- * alike the client is, and the replaced session's proofs stay with it.
+ * Every sign-in is a new session. A session the client proved it holds (with
+ * the refresh token of its previous session) is revoked (`superseded`) by an
+ * active sign-in that replaces it, in the same transaction, or by a pending
+ * one's first activation; nothing else is ever revoked, however alike the
+ * client is, and the replaced session's proofs stay with it.
  *
- * It never binds the guard. The session service binds after it returns, so
- * everything a session's commit reports is already scheduled when the bind
- * starts, and a bind listener that throws cannot withhold it.
- *
- * It runs on the guard's context: its events carry the client of the sign-in
- * they report, and go to the context's dispatcher as it is when they are
- * dispatched.
+ * It schedules what reports the session once committed on the session's
+ * connection (`SessionPending`, or `SessionRevoked` for the session replaced,
+ * `SessionCreated` and `SignedIn`) and never binds the guard: the session
+ * service binds after it returns, so a bind listener that throws cannot
+ * withhold a report. It runs on the guard's context: its events carry the
+ * client of the sign-in they report, and go to the context's dispatcher as it
+ * is when they are dispatched.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -70,7 +64,7 @@ final readonly class SessionEstablishment
      * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
      * @param  \SineMacula\Laravel\Authentication\Sessions\SessionWriter  $writer
      * @param  \SineMacula\Laravel\Authentication\Sessions\ProvenSessions  $proof
-     * @param  \SineMacula\Laravel\Authentication\Sessions\PendingSignIns  $pendings
+     * @param  \SineMacula\Laravel\Authentication\Sessions\PendingEvaluation  $evaluation
      * @param  \SineMacula\Laravel\Authentication\Database\AfterCommit  $afterCommit
      * @param  \Illuminate\Contracts\Container\Container  $container
      */
@@ -79,159 +73,80 @@ final readonly class SessionEstablishment
         /** The context of the guard whose sessions are established. */
         private GuardContext $context,
 
-        /** Writes the session, revoking the one it replaces, and issues the pair. */
+        /** Writes the session, active or pending, revoking the one an active one replaces. */
         private SessionWriter $writer,
 
         /** Decides which session a client proved it holds. */
         private ProvenSessions $proof,
 
-        /** Issues and completes the sign-ins waiting for a further factor. */
-        private PendingSignIns $pendings,
+        /** The checks a sign-in passes in order. */
+        private PendingEvaluation $evaluation,
 
-        /** Defers the lifecycle events, and a completion's released slots, until the writes commit. */
+        /** Defers the lifecycle events until the writes commit. */
         private AfterCommit $afterCommit,
 
-        /** Container the sign-in policies and the attempt limiter are resolved from. */
+        /** Container the application policy and the configuration are resolved from. */
         private Container $container,
     ) {}
 
     /**
-     * Take an admitted sign-in to its session: check the client's proof of an
-     * existing session, then establish a new session, replacing the proven one.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
-     * @param  string  $method
-     * @param  ?string  $identifierType
-     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
-     * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
-     * @param  ?list<array<string, string>>  $attemptWindows
-     * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
-     *
-     * @throws \Throwable
-     */
-    public function proceed(
-        Admitted $admitted,
-        string $method,
-        ?string $identifierType,
-        SignInContext $context,
-        SignInProof $proof,
-        ?array $attemptWindows = null,
-    ): Refused|SignInResult {
-        $proven = $context->refreshToken === null
-            ? null
-            : $this->proof->provenSession($this->context->name(), $admitted, $context->refreshToken);
-
-        return $this->establish($admitted, $proven, $method, $identifierType, $context, $proof, CarbonImmutable::now()->startOfSecond(), $attemptWindows);
-    }
-
-    /**
-     * Refuse a sign-in whose deadline (`SignInContext::$notAfter`) has already
-     * passed at `$now` as `session_expired`, before anything is asked or
-     * written. Otherwise ask the additional-factor policy about the sign-in on
-     * the proven session (or none): when it requires a further factor, hand out
-     * a pending sign-in that remembers the session and the attempt-limit slots
-     * the sign-in took, and dispatch `AdditionalFactorRequired` once it is
-     * committed; otherwise start a new session, which replaces the proven one.
-     * When the proven session changed before it could be replaced, the sign-in
-     * is reconsidered without it, factor policy included; it never retries the
-     * session. A session that completes a spent pending sign-in (a choice of
-     * principal) gives back the slots that sign-in took once committed, and
-     * records the client the sign-in began from.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
-     * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $proven
-     * @param  string  $method
-     * @param  ?string  $identifierType
-     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
-     * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
-     * @param  \Carbon\CarbonImmutable  $now
-     * @param  ?list<array<string, string>>  $attemptWindows
-     * @param  ?\SineMacula\Laravel\Authentication\Models\PendingSignIn  $spent
-     * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
-     *
-     * @throws \Throwable
-     */
-    public function establish(
-        Admitted $admitted,
-        (EloquentSession&Model)|null $proven,
-        string $method,
-        ?string $identifierType,
-        SignInContext $context,
-        SignInProof $proof,
-        CarbonImmutable $now,
-        ?array $attemptWindows,
-        ?PendingSignIn $spent = null,
-    ): Refused|SignInResult {
-        if ($context->hasPassedDeadline($now)) {
-            return Refused::after(FailureReason::SESSION_EXPIRED, $admitted);
-        }
-
-        $admitted = $admitted->on($proven);
-
-        if ($this->requiresAdditionalFactor($admitted, $method, $context)) {
-
-            $pending = $this->pendings->issue($this->context->name(), $admitted, $method, $identifierType, $context, $proof, $now, $attemptWindows);
-            $event   = new AdditionalFactorRequired(
-                new EventContext($pending->guard, $context->client, $pending->identity, $pending->principal, $pending->tenant, $pending->provenSession, $method),
-                $pending->expiresAt,
-            );
-
-            $this->afterCommit->run(new PendingSignIn, fn () => $this->context->dispatch($event));
-
-            return SignInResult::pendingFactor($pending);
-        }
-
-        $session = $this->write($admitted, $proven, $identifierType, $context, $proof, $now, $spent === null ? null : PendingSignIns::origin($spent));
-
-        return $session === null
-            ? $this->establish($admitted, null, $method, $identifierType, $context, $proof, $now, $attemptWindows, $spent)
-            : $this->signedIn($session, $proven, $admitted, $context, $spent);
-    }
-
-    /**
-     * Use the pending sign-in up, check it again (its deadline, which time
-     * waiting may have passed, included), and the further factor's proof when
-     * one is given (see `ProofAcceptance`), and write its session, in one
-     * transaction on the pending sign-in's connection, then schedule what
-     * reports the session and the give-back of the slots its sign-in took.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\FoundPendingSignIn  $found
-     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
-     * @param  \Carbon\CarbonImmutable  $now
-     * @param  ?\SineMacula\Laravel\Authentication\Proofs\ProofResult  $factor
-     * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
-     *
-     * @throws \Throwable
-     */
-    public function complete(FoundPendingSignIn $found, SignInContext $context, CarbonImmutable $now, ?ProofResult $factor = null): Refused|SignInResult
-    {
-        $outcome = $found->pending->getConnection()->transaction(fn (): array|Refused => $this->completeWith($found, $context, $now, $factor));
-
-        if ($outcome instanceof Refused) {
-            return $outcome;
-        }
-
-        [$admitted, $session, $superseded] = $outcome;
-
-        return $this->signedIn($session, $superseded, $admitted, $context, $found->pending);
-    }
-
-    /**
-     * Use the pending sign-in up, check it again and the further factor's
-     * proof, and write its session with the pending sign-in's first factor and
-     * that proof, all in the caller's transaction, replacing the proven session
-     * when it is unchanged; the session it replaced, if any, is returned with
-     * the session.
+     * Select the principal the admitted identity's sign-in acts as, or find the
+     * principals it is to choose from: a sign-in whose deadline
+     * (`SignInContext::$notAfter`) has already passed fails as
+     * `session_expired`, before anything is read; then the principal named, or
+     * the only one the application admits, or none and the principals to choose
+     * from (see `PendingEvaluation::selection()`).
      *
      * @formatter:off
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\FoundPendingSignIn  $found
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $named
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
-     * @param  \Carbon\CarbonImmutable  $now
-     * @param  ?\SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof
-     * @return array{0: \SineMacula\Laravel\Authentication\Admission\Admitted, 1: \SineMacula\Laravel\Authentication\Sessions\SignedInSession, 2: (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null}|\SineMacula\Laravel\Authentication\Admission\Refused
+     * @return array{0: ?\SineMacula\Laravel\Authentication\Contracts\Principal, 1: list<\SineMacula\Laravel\Authentication\Contracts\Principal>}|\SineMacula\Laravel\Authentication\Admission\Refused
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    public function select(Identity $identity, ?Principal $named, SignInContext $context): array|Refused
+    {
+        if ($context->hasPassedDeadline(CarbonImmutable::now()->startOfSecond())) {
+            return new Refused(FailureReason::SESSION_EXPIRED, $identity);
+        }
+
+        $selection = $this->evaluation->selection($identity, $named);
+
+        return $selection instanceof FailureReason ? new Refused($selection, $identity) : $selection;
+    }
+
+    /**
+     * Take the sign-in on from its selection to its session: check the client's
+     * proof of an existing session (for the principal selected, or any of the
+     * identity's when none is), ask the identity-level factor
+     * policy, and with a principal admit the tenant it is to be active in;
+     * then write the session active when nothing is outstanding, replacing the
+     * proven session, or pending otherwise. When the proven session changed
+     * before an active sign-in could replace it, the sign-in is judged again
+     * without it, factor policy included; it never retries the session.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  array{0: ?\SineMacula\Laravel\Authentication\Contracts\Principal, 1: list<\SineMacula\Laravel\Authentication\Contracts\Principal>}  $selection
+     * @param  string  $method
+     * @param  ?string  $identifierType
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
+     * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
+     * @param  ?list<array<string, string>>  $attemptWindows
+     * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -239,77 +154,158 @@ final readonly class SessionEstablishment
      *
      * @throws \Throwable
      */
-    private function completeWith(FoundPendingSignIn $found, SignInContext $context, CarbonImmutable $now, ?ProofResult $proof): array|Refused
-    {
-        $factor = $found->factor;
+    public function proceed(
+        Identity $identity,
+        array $selection,
+        string $method,
+        ?string $identifierType,
+        SignInContext $context,
+        SignInProof $proof,
+        ?array $attemptWindows = null,
+    ): Refused|SignInResult {
+        [$principal] = $selection;
 
-        SessionPreconditions::assertHoldsSessions($factor->identity);
+        $proven = $context->refreshToken === null
+            ? null
+            : $this->proof->provenSessionOf($this->context->name(), $identity, $principal, $context->refreshToken);
 
-        $signIn  = SignInProof::kept($found->pending);
-        $refusal = match (true) {
-            $context->hasPassedDeadline($now) => FailureReason::SESSION_EXPIRED,
-            $proof === null                   => null,
-            default                           => ProofAcceptance::forPendingSignIn($proof, $found->pending, $signIn->authenticatedAt, $now),
-        };
-        $admitted = $this->pendings->consume($found, $now) ? $this->admitCompletion($found, $refusal) : new Refused(FailureReason::PENDING_INVALID);
+        return $this->establish($identity, $selection, $method, $identifierType, $context, $proof, $attemptWindows, $proven, CarbonImmutable::now()->startOfSecond());
+    }
 
-        if ($admitted instanceof Refused) {
-            return $admitted;
+    /**
+     * Establish the sign-in's session on the proven session (or none).
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  array{0: ?\SineMacula\Laravel\Authentication\Contracts\Principal, 1: list<\SineMacula\Laravel\Authentication\Contracts\Principal>}  $selection
+     * @param  string  $method
+     * @param  ?string  $identifierType
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
+     * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
+     * @param  ?list<array<string, string>>  $attemptWindows
+     * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $proven
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     *
+     * @throws \Throwable
+     */
+    private function establish(
+        Identity $identity,
+        array $selection,
+        string $method,
+        ?string $identifierType,
+        SignInContext $context,
+        SignInProof $proof,
+        ?array $attemptWindows,
+        (EloquentSession&Model)|null $proven,
+        CarbonImmutable $now,
+    ): Refused|SignInResult {
+        [$principal, $principals] = $selection;
+
+        $owes   = $this->evaluation->owesFactor($identity, $method, $context->client, $context->clientName, $context->platform, $proven, null);
+        $tenant = $principal === null ? null : $this->evaluation->destination($principal, $context->tenant);
+
+        if ($tenant instanceof FailureReason) {
+            return new Refused($tenant, $identity, $principal, session: $proven);
         }
 
-        $origin     = PendingSignIns::origin($found->pending);
-        $type       = $found->pending->identifier_type;
-        $proofs     = $proof === null ? $signIn : $signIn->withAdditional(NewProof::fromResult($proof));
-        $proven     = $found->provenSession;
-        $replaced   = $proven   === null ? null : $this->write($admitted, $proven, $type, $context, $proofs, $now, $origin);
-        $superseded = $replaced === null ? null : $proven;
-        $session    = $replaced ?? $this->write($admitted, null, $type, $context, $proofs, $now, $origin);
+        $requires = PendingEvaluation::requirements($owes, $principal);
 
-        return [$admitted->on($session->record), $session, $superseded];
+        if ($principal === null || $requires !== []) {
+            return $this->wait($identity, $principal, $tenant, $requires, $principals, $identifierType, $context, $proof, $proven, $attemptWindows, $now);
+        }
+
+        $session = $this->write(new Admitted($identity, $principal, $tenant, $proven), $proven, $identifierType, $context, $proof, $now);
+
+        return $session === null
+            ? $this->establish($identity, $selection, $method, $identifierType, $context, $proof, $attemptWindows, null, $now)
+            : $this->signedIn($session, $proven, $tenant, $context);
     }
 
     /**
-     * Admit a pending sign-in that was used up: refused with `$refusal` (its
-     * passed deadline's or its further factor's proof's), if any, when the
-     * method is no longer allowed, or as the application policy refuses its
-     * identity and principal with the identifier type the sign-in used.
+     * Write the sign-in's session pending, waiting on what is outstanding, and
+     * schedule `SessionPending` for once it is committed.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\FoundPendingSignIn  $found
-     * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $refusal
-     * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
+     * @formatter:off
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \InvalidArgumentException
-     * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  non-empty-list<\SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement>  $requires
+     * @param  list<\SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
+     * @param  ?string  $identifierType
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
+     * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
+     * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $proven
+     * @param  ?list<array<string, string>>  $attemptWindows
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     *
+     * @throws \Throwable
      */
-    private function admitCompletion(FoundPendingSignIn $found, ?FailureReason $refusal): Admitted|Refused
-    {
-        $factor = $found->factor;
-        $policy = $this->container->make(ApplicationPolicy::class);
+    private function wait(
+        Identity $identity,
+        ?Principal $principal,
+        ?Tenant $tenant,
+        array $requires,
+        array $principals,
+        ?string $identifierType,
+        SignInContext $context,
+        SignInProof $proof,
+        (EloquentSession&Model)|null $proven,
+        ?array $attemptWindows,
+        CarbonImmutable $now,
+    ): SignInResult {
+        $ttl = PendingState::ttlSeconds($this->container->make(Repository::class));
 
-        return match (true) {
-            $refusal !== null                                               => new Refused($refusal, $factor->identity, $factor->principal),
-            !$policy->allowsMethod($this->context->name(), $factor->method) => new Refused(FailureReason::METHOD_NOT_ALLOWED, $factor->identity, $factor->principal),
-            default                                                         => (new SignInAdmission($policy))->admit(
-                $this->context->name(),
-                $factor->identity,
-                static fn (): Principal => $factor->principal,
-                FailureReason::PRINCIPAL_UNRESOLVED,
-                $found->pending->identifier_type,
-            ),
-        };
+        $draft = new PendingSessionDraft($identity, $principal, $tenant, $requires, $identifierType, $proof, $proven, $attemptWindows);
+
+        [$record, $credential] = $this->writer->createPending($draft, $context, $this->lifetimes(), $now, $ttl);
+
+        $expiresAt = PendingState::expiry($now, $ttl, $record->getAbsoluteExpiresAt());
+        $pending   = new PendingSession(
+            $record->getSessionIdentifier(),
+            $this->context->name(),
+            $identity,
+            $principal,
+            $tenant,
+            $requires,
+            $proof->method,
+            $expiresAt,
+            $record,
+            $principals,
+        );
+        $event = new SessionPending(
+            new EventContext($this->context->name(), $context->client, $identity, $principal, $tenant, $record, $proof->method),
+            array_map(static fn (PendingRequirement $requirement): string => $requirement->value, $requires),
+            $expiresAt,
+        );
+
+        $this->afterCommit->run($record, fn () => $this->context->dispatch($event));
+
+        return SignInResult::pending($pending, $credential);
     }
 
     /**
-     * Write the session of an admitted sign-in, with the guard's lifetimes: a
-     * new session, replacing the proven one when there is one, recorded as
-     * created from the origin's client when that differs from the context's (a
-     * completion records where its sign-in began). The session records the
-     * method (the proof's) and the type of identifier the sign-in used, which a
-     * later switch of principal admits its target with, and the sign-in's
-     * proofs and provenance. `null` when the proven session changed before it
-     * could be replaced.
+     * Write the active session of an admitted sign-in, with the guard's
+     * lifetimes: a new session, replacing the proven one when there is one. The
+     * session records the method (the proof's) and the type of identifier the
+     * sign-in used, which a later switch admits its target with, and the
+     * sign-in's proofs and provenance. `null` when the proven session changed
+     * before it could be replaced.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $proven
@@ -317,7 +313,6 @@ final readonly class SessionEstablishment
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
      * @param  \Carbon\CarbonImmutable  $now
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $origin
      * @return ($proven is null ? \SineMacula\Laravel\Authentication\Sessions\SignedInSession : ?\SineMacula\Laravel\Authentication\Sessions\SignedInSession)
      *
      * @throws \Throwable
@@ -329,50 +324,30 @@ final readonly class SessionEstablishment
         SignInContext $context,
         SignInProof $proof,
         CarbonImmutable $now,
-        ?ClientContext $origin = null,
     ): ?SignedInSession {
-        $lifetimes = $this->container->make(ApplicationPolicy::class)->lifetimes($this->context->name());
-
-        $origin ??= $context->client;
-
         return $proven === null
-            ? $this->writer->create($admitted, $identifierType, $context, $lifetimes, $now, $origin, $proof)
-            : $this->writer->replace($admitted->on($proven), $identifierType, $context, $lifetimes, $now, $origin, $proof);
+            ? $this->writer->create($admitted, $identifierType, $context, $this->lifetimes(), $now, $context->client, $proof)
+            : $this->writer->replace($admitted, $identifierType, $context, $this->lifetimes(), $now, $context->client, $proof);
     }
 
     /**
-     * Whether the additional-factor policy asks the sign-in for a further
-     * factor.
+     * The guard's lifetimes, as the application policy gives them.
      *
-     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
-     * @param  string  $method
-     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
-     * @return bool
+     * @return \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    private function requiresAdditionalFactor(Admitted $admitted, string $method, SignInContext $context): bool
+    private function lifetimes(): TokenLifetimes
     {
-        return $this->container->make(AdditionalFactorPolicy::class)->requiresAdditionalFactor(new AdditionalFactorContext(
-            $this->context->name(),
-            $admitted->identity,
-            $admitted->principal,
-            $admitted->tenant,
-            $method,
-            $context->client,
-            $context->clientName,
-            $context->platform,
-            $admitted->session,
-        ));
+        return $this->container->make(ApplicationPolicy::class)->lifetimes($this->context->name());
     }
 
     /**
-     * Schedule the reports of a written session, and answer it, once the
+     * Schedule the reports of a written active session, and answer it, once the
      * session is committed on the session's own connection: `SessionRevoked`
      * (`superseded`) for the session it replaced, if any, then `SessionCreated`
      * and `SignedIn`, in turn, so a listener that throws stops the reports
-     * after its own; and the give-back of the slots of the pending sign-in it
-     * completes, if any, once that sign-in's delete is committed on its own.
+     * after its own.
      *
      * The replaced session's revocation is reported with its guard (the
      * sign-in's own) and the method it records, the sign-in's client, and the
@@ -381,16 +356,15 @@ final readonly class SessionEstablishment
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $superseded
-     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
-     * @param  ?\SineMacula\Laravel\Authentication\Models\PendingSignIn  $spent
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      */
-    private function signedIn(SignedInSession $session, (EloquentSession&Model)|null $superseded, Admitted $admitted, SignInContext $context, ?PendingSignIn $spent): SignInResult
+    private function signedIn(SignedInSession $session, (EloquentSession&Model)|null $superseded, ?Tenant $tenant, SignInContext $context): SignInResult
     {
-        $event   = new EventContext($this->context->name(), $context->client, $session->identity, $session->principal, $admitted->tenant, $session->record, $session->method);
+        $event   = new EventContext($this->context->name(), $context->client, $session->identity, $session->principal, $tenant, $session->record, $session->method);
         $revoked = $superseded === null ? null : new SessionRevoked(
-            new EventContext($this->context->name(), $context->client, $session->identity, $session->principal, $admitted->tenant, $superseded, $superseded->getSignInMethod()),
+            new EventContext($this->context->name(), $context->client, $session->identity, $session->principal, $tenant, $superseded, $superseded->getSignInMethod()),
             RevocationReason::SUPERSEDED,
         );
         $created  = new SessionCreated($event);
@@ -406,38 +380,6 @@ final readonly class SessionEstablishment
             $this->context->dispatch($signedIn);
         });
 
-        // A rolled-back completion restores the pending sign-in, whose token
-        // can then be completed again: giving its slots back before the commit,
-        // on a counter connection of its own, would give them back twice.
-        if ($spent !== null) {
-            $this->afterCommit->run($spent, fn () => $this->giveBack($spent));
-        }
-
         return SignInResult::signedIn($session);
-    }
-
-    /**
-     * Give back the attempt-limit slots a committed completion's sign-in took.
-     *
-     * A failure is reported, not thrown: the session already stands, and
-     * Laravel runs a commit's callbacks in order without catching, so a throw
-     * here would stop the callbacks queued after this one (another session's
-     * events, the caller's own) from running. The slots not given back stay
-     * counted.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Models\PendingSignIn  $pending
-     * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     */
-    private function giveBack(PendingSignIn $pending): void
-    {
-        try {
-            foreach (PendingSignIns::reservations($pending) as $reservation) {
-                $this->container->make(AttemptLimiter::class)->release($reservation);
-            }
-        } catch (\Throwable $exception) {
-            $this->container->make(ExceptionHandler::class)->report($exception);
-        }
     }
 }

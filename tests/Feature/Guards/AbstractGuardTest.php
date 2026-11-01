@@ -610,7 +610,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
      * The additional-factor policy is asked about the admitted sign-in with
      * the password method and the request's client, and is never told of a
      * session; when it requires a factor the attempt fails, because
-     * `attempt()` cannot hand out a pending sign-in.
+     * `attempt()` cannot leave a session pending.
      *
      * @return void
      *
@@ -644,8 +644,6 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         self::assertInstanceOf(AdditionalFactorContext::class, $asked);
         self::assertSame(self::GUARD_NAME, $asked->guard);
         self::assertSame($identity, $asked->identity);
-        self::assertSame($principal, $asked->principal);
-        self::assertNull($asked->tenant);
         self::assertSame('password', $asked->method);
         self::assertSame(self::IP, $asked->client->ip);
         self::assertNull($asked->clientName);
@@ -660,14 +658,15 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * The additional-factor policy is told of the tenant the principal acts
-     * within, as the activity check loaded it, so it can decide per tenant.
+     * The additional-factor policy is asked about the identity alone, whatever
+     * principal and tenant the attempt admitted: a tenant that asks more says
+     * so through its tenant authentication policy.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testTheFactorPolicyIsToldOfThePrincipalsTenant(): void
+    public function testTheFactorPolicyIsAskedAboutTheIdentityAlone(): void
     {
         $identity = $this->mockIdentity();
         $tenant   = \Mockery::mock(Tenant::class);
@@ -690,8 +689,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         self::assertTrue($this->makeGuard()->attempt(['email' => 'ada@example.test', 'password' => 'secret']));
         self::assertInstanceOf(AdditionalFactorContext::class, $asked);
-        self::assertSame($principal, $asked->principal);
-        self::assertSame($tenant, $asked->tenant);
+        self::assertSame($identity, $asked->identity);
+        self::assertSame(['guard', 'identity', 'method', 'client', 'clientName', 'platform', 'provenSession'], array_keys(get_object_vars($asked)));
     }
 
     /**

@@ -10,7 +10,7 @@ enforces this at every entry point that verifies something:
 | Entry point                                                        | A non-human identity is                                      |
 |--------------------------------------------------------------------|--------------------------------------------------------------|
 | A password check (`signIn('password')`, `attempt()`, `validate()`) | refused as `invalid_credentials`, no hash computed, no count |
-| Any other sign-in method, `start()`, `complete()`, `choose()`      | refused at admission as `machine_identity`                   |
+| Any other sign-in method, `start()`, `satisfy()`, `choose()`       | refused at admission as `machine_identity`                   |
 | A refresh or a switch of principal on a session it owns            | refused as `machine_identity`                                |
 | A session's access token (`jwt` guard) naming it                   | refused as `machine_identity`                                |
 | `Auth::jwt()->issueAccessToken()` / `issueRefreshToken()`          | refused with a `LogicException`                              |

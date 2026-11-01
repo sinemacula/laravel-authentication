@@ -30,8 +30,9 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\Enums\ResetStatus;
 use SineMacula\Laravel\Authentication\Passwords\PasswordService;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
-use SineMacula\Laravel\Authentication\Sessions\PrincipalChoices;
+use SineMacula\Laravel\Authentication\Sessions\PendingSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -40,6 +41,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Concerns\ChangesIdentifiers;
 use Tests\Concerns\InteractsWithMachineClients;
 use Tests\Concerns\InteractsWithPasswords;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\RecordsEventSequences;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -70,14 +72,14 @@ use Tests\TestCase;
 #[CoversClass(JwtGuard::class)]
 #[CoversClass(ApiKeyGuard::class)]
 #[CoversClass(SessionService::class)]
-#[CoversClass(PrincipalChoices::class)]
+#[CoversClass(PendingSessions::class)]
 #[CoversClass(SessionEstablishment::class)]
 #[CoversClass(PasswordService::class)]
 #[CoversClass(IdentifierChangeService::class)]
 #[CoversClass(ClientCredentialsExchange::class)]
 final class EventSequenceTest extends TestCase
 {
-    use ChangesIdentifiers, InteractsWithMachineClients, InteractsWithPasswords, RecordsEventSequences;
+    use ChangesIdentifiers, InteractsWithMachineClients, InteractsWithPasswords, InteractsWithProofs, RecordsEventSequences;
 
     /** @var string The password a change or a reset sets. */
     private const string NEW_PASSWORD = 'a brand new passphrase';
@@ -461,7 +463,7 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * A sign-in held for a further factor reports the request and binds
+     * A sign-in held for a further factor reports its pending session and binds
      * nothing.
      *
      * @return void
@@ -480,17 +482,17 @@ final class EventSequenceTest extends TestCase
 
         $result = self::sessionsOf($guard)->signIn('password', self::credentials());
 
-        self::assertSame(SignInStatus::FACTOR_REQUIRED, $result->status);
+        self::assertSame(SignInStatus::PENDING, $result->status);
         self::assertSame([
             'Attempting api',
-            'AdditionalFactorRequired api i1/p1/-',
+            'SessionPending api mfa i1/p1/s1',
         ], $this->recordedSequence());
         self::assertFalse($guard->hasUser());
     }
 
     /**
-     * A sign-in held for a choice of principal reports the choice and binds
-     * nothing.
+     * A sign-in held for a choice of principal reports its pending session and
+     * binds nothing.
      *
      * @return void
      *
@@ -507,10 +509,10 @@ final class EventSequenceTest extends TestCase
 
         $result = self::sessionsOf($guard)->signIn('password', self::credentials('chooser@example.test'));
 
-        self::assertSame(SignInStatus::PRINCIPAL_REQUIRED, $result->status);
+        self::assertSame(SignInStatus::PENDING, $result->status);
         self::assertSame([
             'Attempting choosers',
-            'PrincipalChoiceRequired choosers i1/-/-',
+            'SessionPending choosers principal i1/-/s1',
         ], $this->recordedSequence());
         self::assertFalse($guard->hasUser());
     }
@@ -577,27 +579,28 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * `complete()` starts the held sign-in's session as a sign-in does, without
-     * `Attempting`.
+     * `satisfy()` activates the held sign-in's session as a sign-in does,
+     * without `Attempting`.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testCompleteSignsInWithoutAttempting(): void
+    public function testSatisfySignsInWithoutAttempting(): void
     {
         $identity = $this->seedIdentity();
         $this->requireAFurtherFactor();
 
-        $token    = $this->sessions()->signIn('password', self::credentials())->pending?->token;
+        $held     = $this->sessions()->signIn('password', self::credentials());
         $sessions = $this->sessions();
 
-        self::assertIsString($token);
+        self::assertNotNull($held->pending);
+        self::assertIsString($held->credential);
 
         $this->nameKeys($identity, $identity);
         $this->recordSequence();
 
-        $result = $sessions->complete($token);
+        $result = $sessions->satisfy($held->credential, self::adapterProof($identity, 'api', $held->pending->id, Purpose::SIGN_IN));
 
         self::assertTrue($result->isSignedIn());
         self::assertSame([
@@ -613,8 +616,8 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * `choose()` starts the session as the chosen principal, as a sign-in does,
-     * without `Attempting`.
+     * `choose()` activates the session as the chosen principal, as a sign-in
+     * does, without `Attempting`.
      *
      * @return void
      *
@@ -624,7 +627,7 @@ final class EventSequenceTest extends TestCase
     {
         [$chooser, $membership] = $this->seedChooser();
 
-        $token    = $this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'))->choice?->token;
+        $token    = $this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'))->credential;
         $sessions = $this->sessions('choosers');
 
         self::assertIsString($token);
@@ -648,7 +651,7 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * `discard()` reports the held sign-in's failure.
+     * `discard()` reports the held sign-in's session revoked, once.
      *
      * @return void
      *
@@ -659,7 +662,7 @@ final class EventSequenceTest extends TestCase
         $identity = $this->seedIdentity();
         $this->requireAFurtherFactor();
 
-        $token    = $this->sessions()->signIn('password', self::credentials())->pending?->token;
+        $token    = $this->sessions()->signIn('password', self::credentials())->credential;
         $sessions = $this->sessions();
 
         self::assertIsString($token);
@@ -670,8 +673,7 @@ final class EventSequenceTest extends TestCase
         self::assertTrue($sessions->discard($token));
         self::assertFalse($sessions->discard($token));
         self::assertSame([
-            'Failed api i1',
-            'AuthenticationFailed api sign_in:additional_factor_failed i1/-/-',
+            'SessionRevoked api signed_out i1/p1/s1',
         ], $this->recordedSequence());
     }
 

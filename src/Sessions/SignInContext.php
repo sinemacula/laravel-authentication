@@ -10,12 +10,15 @@ use Illuminate\Http\Request;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\ClientText;
+use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 
 /**
  * Where a sign-in comes from and what it asks for: the client (its IP address
  * and user agent), the name and platform it gives itself, the principal it
- * wants to act as, the refresh token it holds for a session it signed in on
- * before, and a deadline of the session's own.
+ * wants to act as and the tenant it wants to act in, the refresh token it holds
+ * for a session it signed in on before, and a deadline of the session's own.
+ * The tenant applies once a principal is selected at sign-in; a choice of
+ * principal names its own.
  *
  * The client name and platform come from the client, so they are made safe to
  * store as `ClientContext` makes the user agent safe: NUL bytes removed,
@@ -66,6 +69,7 @@ final readonly class SignInContext
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?string  $refreshToken
      * @param  ?\Carbon\CarbonInterface  $notAfter
+     * @param  ?\SineMacula\Laravel\Authentication\Tenancy\TenantSelection  $tenant
      */
     public function __construct(
 
@@ -86,6 +90,9 @@ final readonly class SignInContext
 
         // Latest the session may last, such as a provider's session deadline.
         ?CarbonInterface $notAfter = null,
+
+        /** Tenant the sign-in asks to act in once a principal is selected; `null` for the principal's own. */
+        public ?TenantSelection $tenant = null,
     ) {
         $this->clientName = ClientText::clean($clientName, self::DESCRIPTION_MAX_LENGTH);
         $this->platform   = ClientText::clean($platform, self::DESCRIPTION_MAX_LENGTH);
@@ -106,7 +113,7 @@ final readonly class SignInContext
             ? $this->notAfter
             : $notAfter;
 
-        return new self($this->client, $this->clientName, $this->platform, $this->principal, $this->refreshToken, $earliest);
+        return new self($this->client, $this->clientName, $this->platform, $this->principal, $this->refreshToken, $earliest, $this->tenant);
     }
 
     /**

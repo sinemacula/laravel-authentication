@@ -519,7 +519,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
      */
     private function reset(): void
     {
-        foreach (['authentication_sessions', 'authentication_proofs', 'pending_sign_ins', 'rate_limits', 'activatable_tenant_memberships', 'activatable_tenants'] as $table) {
+        foreach (['authentication_sessions', 'authentication_proofs', 'rate_limits', 'activatable_tenant_memberships', 'activatable_tenants'] as $table) {
             DB::table($table)->delete();
         }
 

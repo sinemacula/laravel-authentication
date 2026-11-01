@@ -206,8 +206,8 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * Keeping the cutoff leaves the scope's sessions, pending sign-ins and
-     * parts as they were and drops only the cutoff to move.
+     * Keeping the cutoff leaves the scope's sessions and parts as they were and
+     * drops only the cutoff to move.
      *
      * @return void
      */
@@ -220,7 +220,6 @@ final class RevocationScopeTest extends TestCase
         self::assertSame($identity, $scope->cutoff);
         self::assertNull($kept->cutoff);
         self::assertSame($scope->sessions, $kept->sessions);
-        self::assertSame($scope->pendings, $kept->pendings);
         self::assertSame($scope->changes, $kept->changes);
         self::assertSame($identity, $kept->identity);
         self::assertNull($kept->principal);

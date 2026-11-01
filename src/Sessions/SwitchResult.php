@@ -30,5 +30,6 @@ final readonly class SwitchResult
     use HoldsARotatedSession {
         succeeded as public switched;
         hasSucceeded as public isSwitched;
+        returned as public pending;
     }
 }

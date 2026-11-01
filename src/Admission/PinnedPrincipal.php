@@ -12,7 +12,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * Proves that a principal someone else named (one pinned on `attempt()` or on a
- * sign-in, or recorded on a pending sign-in) belongs to an identity, and
+ * sign-in, or recorded on a pending session) belongs to an identity, and
  * returns the resolver's own instance of it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

@@ -13,7 +13,7 @@ use SineMacula\Laravel\Authentication\Admission\SignInAdmission;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
-use SineMacula\Laravel\Authentication\Sessions\PrincipalChoices;
+use SineMacula\Laravel\Authentication\Sessions\PendingEvaluation;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithApplicationGrants;
@@ -40,7 +40,7 @@ use Tests\TestCase;
 #[CoversClass(SignInAdmission::class)]
 #[CoversClass(RefreshAdmission::class)]
 #[CoversClass(PrincipalSwitch::class)]
-#[CoversClass(PrincipalChoices::class)]
+#[CoversClass(PendingEvaluation::class)]
 final class ReplicaApplicationPolicyTest extends TestCase
 {
     use InteractsWithApplicationGrants, InteractsWithLaggingReplica, InteractsWithSessions;
