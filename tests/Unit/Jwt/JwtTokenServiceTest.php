@@ -232,8 +232,10 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     /**
      * A token parses only when its header type names its type: with an expected
      * type it must name that type, and without one it may name either, whose
-     * own claims are then required. A header type that names neither is
-     * rejected, whatever the claims.
+     * own claims are then required. An access token's claims hold every claim
+     * a refresh token requires, so under a refresh header they parse as one:
+     * the header, not the claims, names the type. A header type that names
+     * neither is rejected, whatever the claims.
      *
      * @param  mixed  $typ
      * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $named
@@ -246,17 +248,14 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
 
         foreach (TokenType::cases() as $type) {
 
-            $token = $this->sign(['alg' => self::ALGORITHM, 'kid' => self::KID, 'typ' => $typ], $this->completeClaims($type));
+            $token  = $this->sign(['alg' => self::ALGORITHM, 'kid' => self::KID, 'typ' => $typ], $this->completeClaims($type));
+            $parses = $named === $type || ($named === TokenType::REFRESH && $type === TokenType::ACCESS);
 
             foreach (TokenType::cases() as $expected) {
-                self::assertSame($named === $type && $expected === $type, is_array($service->parse($token, $expected)), "{$type->name} claims expected as {$expected->name}");
+                self::assertSame($parses && $expected === $named, is_array($service->parse($token, $expected)), "{$type->name} claims expected as {$expected->name}");
             }
 
-            if ($named !== null && $named !== $type) {
-                continue;
-            }
-
-            self::assertSame($named === $type, is_array($service->parse($token)), "{$type->name} claims without an expected type");
+            self::assertSame($parses, is_array($service->parse($token)), "{$type->name} claims without an expected type");
         }
     }
 

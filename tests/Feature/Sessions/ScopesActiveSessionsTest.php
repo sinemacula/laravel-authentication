@@ -41,7 +41,8 @@ final class ScopesActiveSessionsTest extends TestCase
 
     /**
      * The scope keeps sessions that are unrevoked and strictly before both
-     * deadlines, with qualified columns, and the current second.
+     * deadlines, an absolute deadline of `null` being none, with qualified
+     * columns, and the current second.
      *
      * @return void
      */
@@ -53,7 +54,8 @@ final class ScopesActiveSessionsTest extends TestCase
 
         self::assertSame(
             'select * from authentication_sessions where authentication_sessions.revoked_at is null'
-            . ' and authentication_sessions.idle_expires_at > ? and authentication_sessions.absolute_expires_at > ?',
+            . ' and authentication_sessions.idle_expires_at > ?'
+            . ' and (authentication_sessions.absolute_expires_at is null or authentication_sessions.absolute_expires_at > ?)',
             str_replace(['"', '`'], '', $query->toSql()),
         );
         self::assertSame(['2027-01-15 10:00:00', '2027-01-15 10:00:00'], $query->getBindings());
@@ -73,7 +75,8 @@ final class ScopesActiveSessionsTest extends TestCase
 
         self::assertSame(
             'select * from scoped_renamed_pruning_sessions where scoped_renamed_pruning_sessions.ended_at is null'
-                . ' and scoped_renamed_pruning_sessions.idle_until > ? and scoped_renamed_pruning_sessions.valid_until > ?',
+                . ' and scoped_renamed_pruning_sessions.idle_until > ?'
+                . ' and (scoped_renamed_pruning_sessions.valid_until is null or scoped_renamed_pruning_sessions.valid_until > ?)',
             str_replace(['"', '`'], '', $query->toSql()),
         );
     }

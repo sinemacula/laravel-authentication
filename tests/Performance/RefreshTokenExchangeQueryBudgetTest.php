@@ -626,13 +626,14 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     /**
      * Tenant-aware 3D refresh success should pay exactly the limits' read, the
      * session read, the authenticatable read, the joined principal+tenant read,
-     * and one rotation write.
+     * the read of the session's proofs for the new access token's `auth_time`
+     * and `amr`, and one rotation write.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testThreeDimensionalRefreshPathWithTenantAccessUsesFourReadsAndOneWrite(): void
+    public function testThreeDimensionalRefreshPathWithTenantAccessUsesFiveReadsAndOneWrite(): void
     {
         [$identity, $principal] = $this->seedTenantAwareThreeDimensionalFixtures();
         $rotationId             = 'refresh-tenant-aware-success';
@@ -652,7 +653,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $jwt->issueRefreshToken($session, $rotationId, $principal);
         $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
 
-        $result = $this->assertQueryBudget(4, 1, static function () use ($guard, $token): ?TokenPair {
+        $result = $this->assertQueryBudget(5, 1, static function () use ($guard, $token): ?TokenPair {
             $tokens = GuardSessions::of($guard)->refresh($token)->session?->tokens;
             $guard->principal()?->getIdentity();
             $guard->tenant();
@@ -665,14 +666,14 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
     /**
      * A tenant-aware refresh for a secondary tenant hint should still pay the
-     * same limits + session + identity + joined principal read budget as the
-     * primary tenant path.
+     * same limits + session + identity + joined principal + proofs read budget
+     * as the primary tenant path.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testThreeDimensionalRefreshPathWithSecondaryTenantHintUsesFourReadsAndOneWrite(): void
+    public function testThreeDimensionalRefreshPathWithSecondaryTenantHintUsesFiveReadsAndOneWrite(): void
     {
         [$identity, , $secondaryPrincipal] = $this->seedTenantAwareThreeDimensionalFixturesWithSecondaryTenant();
         $rotationId                        = 'refresh-tenant-aware-secondary-success';
@@ -692,7 +693,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $jwt->issueRefreshToken($session, $rotationId, $secondaryPrincipal);
         $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
 
-        $result = $this->assertQueryBudget(4, 1, static function () use ($guard, $token): ?TokenPair {
+        $result = $this->assertQueryBudget(5, 1, static function () use ($guard, $token): ?TokenPair {
             $tokens = GuardSessions::of($guard)->refresh($token)->session?->tokens;
             $guard->principal()?->getIdentity();
             $guard->tenant();

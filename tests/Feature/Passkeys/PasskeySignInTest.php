@@ -248,8 +248,8 @@ final class PasskeySignInTest extends TestCase
     public function testALongCredentialIdIsNeverTheProofsReference(): void
     {
         $identity = $this->seedIdentity();
-        $options  = Auth::passkeys()->registrationOptions($identity, self::USER_NAME);
-        $passkey  = Auth::passkeys()->register($identity, $options->challengeId, $this->authenticator()->create($options->options, 1023), 'Laptop')->passkey;
+        $options  = Auth::passkeys('api')->registrationOptions($identity, self::USER_NAME);
+        $passkey  = Auth::passkeys('api')->register($identity, $options->challengeId, $this->authenticator()->create($options->options, 1023), 'Laptop')->passkey;
 
         self::assertNotNull($passkey);
         self::assertTrue($this->signInWithPasskey()->isSignedIn());

@@ -708,9 +708,9 @@ final class SessionWriterTest extends TestCase
         $identity  = $this->seedIdentity();
         $lifetimes = new TokenLifetimes(5, 60, $absolute, 30);
         $context   = $this->context()->withNotAfter($deadlineIn === null ? null : $this->now->addSeconds($deadlineIn));
-        $first     = $this->writer()->create($this->admitted($identity), 'password', 'email', $context, $lifetimes, $this->now, $context->client);
+        $first     = $this->writer()->create($this->admitted($identity), 'email', $context, $lifetimes, $this->now, $context->client, SignInProof::unattested('password', $this->now));
         $proven    = Session::query()->whereKey($first->record->getKey())->firstOrFail();
-        $second    = $this->writer()->replace($this->admitted($identity)->on($proven), 'password', 'email', $context, $lifetimes, $this->now, $context->client);
+        $second    = $this->writer()->replace($this->admitted($identity)->on($proven), 'email', $context, $lifetimes, $this->now, $context->client, SignInProof::unattested('password', $this->now));
 
         self::assertNotNull($second);
 
@@ -738,7 +738,7 @@ final class SessionWriterTest extends TestCase
         $context  = $this->context()->withNotAfter($this->now);
 
         try {
-            $this->writer()->create($this->admitted($identity), 'password', 'email', $context, $this->lifetimes(), $this->now, $context->client);
+            $this->writer()->create($this->admitted($identity), 'email', $context, $this->lifetimes(), $this->now, $context->client, SignInProof::unattested('password', $this->now));
 
             self::fail('Expected the writer to refuse the deadline.');
         } catch (\InvalidArgumentException $exception) {

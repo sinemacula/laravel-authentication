@@ -212,7 +212,14 @@ final class StepUpTest extends TestCase
             ['api', 'totp', IdentifierCoercion::stringify($signedIn->record->getKey())],
             [$event->context->guard, $event->context->method, $event->context->sessionId],
         );
-        self::assertSame($signedIn->identity, $event->context()->identity);
+
+        // The identity reported is the session's owner as admitted again under
+        // the lock, not the instance the adapter bound the proof to.
+        $reported = $event->context()->identity;
+
+        self::assertInstanceOf(IntegrationIdentity::class, $reported);
+        self::assertNotSame($signedIn->identity, $reported);
+        self::assertSame($signedIn->identity->getAuthIdentifier(), $reported->getAuthIdentifier());
     }
 
     /**

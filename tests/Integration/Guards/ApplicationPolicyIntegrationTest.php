@@ -257,7 +257,7 @@ final class ApplicationPolicyIntegrationTest extends TestCase
 
         self::assertIsString($key);
 
-        $legacy = JWT::encode([...$claims, 'pty' => 'contractor'], $key, 'HS256', $kid);
+        $legacy = JWT::encode([...$claims, 'pty' => 'contractor'], $key, 'HS256', $kid, ['typ' => TokenType::ACCESS->value]);
 
         $this->withToken($legacy)->getJson('/api/me')->assertOk()->assertExactJson(['principal' => $membership->getKey()]);
     }

@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Feature\IdentifierChanges;
 
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Foundation\Application;
@@ -144,9 +145,13 @@ final class IdentifierChangeServiceTest extends TestCase
     public function testEveryMethodRefusesAnIdentityThatCannotChange(\Closure $identity, string $exception, string $message): void
     {
         $identity = $identity();
-        $proof    = self::freshSession($identity);
-        $changes  = $this->changes();
-        $calls    = [
+
+        // An identity that is no model can hold no session row, so another
+        // identity's session stands in: the identity is refused before the
+        // proof is read.
+        $proof   = self::freshSession($identity instanceof Model ? $identity : self::seedChangeable());
+        $changes = $this->changes();
+        $calls   = [
             static fn (): mixed => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof),
             static fn (): mixed => $changes->requestByLink($identity, 'email', self::NEW_EMAIL, $proof, 'email.confirm'),
             static fn (): mixed => $changes->confirmByCode($identity, 'email', self::CODE),

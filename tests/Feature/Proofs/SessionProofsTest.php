@@ -198,13 +198,14 @@ final class SessionProofsTest extends TestCase
         $record = $this->signedIn()->record;
         $bound  = ['guard' => 'api', 'authenticatable_type' => $record->getAttribute('authenticatable_type'), 'authenticatable_id' => $record->getAttribute('authenticatable_id')];
         $stepUp = new FreshnessRequirement(900, [ProofKind::ADDITIONAL_FACTOR]);
+        $later  = $this->now->addMinute();
         $others = [
             'another guard'      => ['guard' => 'admin'],
             'another owner type' => ['authenticatable_type' => 'another-model'],
             'another owner key'  => ['authenticatable_id' => '999999'],
         ];
 
-        self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now, ['otp'], new Evaluation(true, true));
+        self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $later, ['otp'], new Evaluation(true, true));
 
         foreach ($others as $case => $binding) {
 
@@ -213,13 +214,13 @@ final class SessionProofsTest extends TestCase
             $summary = AuthenticationClaims::forSession($record);
 
             self::assertSame(['pwd'], $summary->methods, $case);
-            self::assertNull(SessionProofs::newestMeeting($record, $stepUp, $this->now), $case);
+            self::assertNull(SessionProofs::newestMeeting($record, $stepUp, $later), $case);
         }
 
         DB::table('authentication_proofs')->where('kind', 'additional_factor')->update($bound);
 
         self::assertSame(['pwd', 'otp', 'mfa'], AuthenticationClaims::forSession($record)->methods);
-        self::assertSame(ProofKind::ADDITIONAL_FACTOR, SessionProofs::newestMeeting($record, $stepUp, $this->now)?->kind);
+        self::assertSame(ProofKind::ADDITIONAL_FACTOR, SessionProofs::newestMeeting($record, $stepUp, $later)?->kind);
     }
 
     /**

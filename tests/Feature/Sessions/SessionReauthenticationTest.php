@@ -123,9 +123,9 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
-     * Reauthenticating with the password through a route behind `auth:api`
-     * answers a new access token for the session; the session keeps its refresh
-     * token and deadlines.
+     * Reauthenticating with the password through a route behind `auth:api`,
+     * while the access token is still live, answers a new access token for the
+     * session; the session keeps its refresh token and deadlines.
      *
      * @return void
      *
@@ -136,7 +136,7 @@ final class SessionReauthenticationTest extends TestCase
         $signedIn = $this->signedIn();
         $before   = self::refreshState();
 
-        $this->clockAt($this->now->addHour());
+        $this->clockAt($this->now->addMinutes(10));
 
         $answer = $this->withToken($signedIn->tokens->accessToken)->postJson('/reauthenticate', self::credentials())->assertOk()->json();
 
@@ -227,7 +227,10 @@ final class SessionReauthenticationTest extends TestCase
 
         self::assertSame([FailureReason::INVALID_CREDENTIALS, FailureReason::INVALID_CREDENTIALS], [$wrong->reason, $foreign->reason]);
         self::assertSame([AuthenticationFailed::class, AuthenticationFailed::class], $this->recordedClasses());
-        self::assertSame(AuthenticationFlow::REAUTHENTICATION, $this->recordedEvent(AuthenticationFailed::class)->flow);
+        self::assertSame(
+            [[AuthenticationFlow::REAUTHENTICATION, FailureReason::INVALID_CREDENTIALS], [AuthenticationFlow::REAUTHENTICATION, FailureReason::INVALID_CREDENTIALS]],
+            array_map(static fn (object $event): array => $event instanceof AuthenticationFailed ? [$event->flow, $event->reason] : [], $this->recorded),
+        );
         self::assertSame(0, SessionProof::query()->where('kind', 'first_factor_reauthentication')->count());
         self::assertSame(1, self::counterHits('sign_in', 'per_account', AccountAttempts::account($signedIn->identity)));
     }

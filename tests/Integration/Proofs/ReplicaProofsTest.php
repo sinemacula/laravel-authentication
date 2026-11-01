@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Integration\Proofs;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -61,13 +62,15 @@ final class ReplicaProofsTest extends TestCase
     }
 
     /**
-     * Remove the temporary database files.
+     * Release the clock and remove the temporary database files.
      *
      * @return void
      */
     #[\Override]
     protected function tearDown(): void
     {
+        CarbonImmutable::setTestNow();
+
         parent::tearDown();
 
         $this->removeLaggingReplicaFiles();
@@ -84,12 +87,19 @@ final class ReplicaProofsTest extends TestCase
      */
     public function testProofsTheReplicaHasNotSeenCount(): void
     {
+        $now = CarbonImmutable::now()->startOfSecond();
+
+        CarbonImmutable::setTestNow($now);
+
         $session = $this->sessions()->signIn('password', self::credentials())->session;
 
         self::assertNotNull($session);
         self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('authentication_proofs')->count());
         self::assertSame(['pwd'], AuthenticationClaims::forSession($session->record)->methods);
         self::assertSame(ProofKind::FIRST_FACTOR, app(FreshnessPolicy::class)->freshProof($session->record, Operations::IDENTIFIER_CHANGE)?->kind);
+
+        // A minute on, so the step-up's values follow the first factor's.
+        CarbonImmutable::setTestNow($now->addMinute());
 
         self::assertTrue($this->sessions()->stepUp(self::adapterProof($session->identity, 'api', $session->record->getKey()))->isIssued());
 

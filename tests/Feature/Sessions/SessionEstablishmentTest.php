@@ -810,7 +810,8 @@ final class SessionEstablishmentTest extends TestCase
 
         self::assertInstanceOf(Refused::class, $refused);
         self::assertSame(FailureReason::SESSION_EXPIRED, $refused->reason);
-        self::assertSame($identity, $refused->identity);
+        self::assertSame($found->factor->identity, $refused->identity);
+        self::assertSame($identity->getKey(), $found->factor->identity->getAuthIdentifier());
         self::assertSame(0, PendingSignIn::query()->count());
         self::assertSame(0, DB::table('authentication_sessions')->count());
     }

@@ -213,9 +213,10 @@ final class IdentifierChangeRequestsTest extends TestCase
 
     /**
      * A newer request replaces the identity's pending change of the type,
-     * through any guard: its request, guard, identifier and times are written
-     * over the old ones, and the old request's code is invalidated. A change of
-     * another type is a change of its own.
+     * through any guard, on that guard's own session: its request, guard,
+     * identifier and times are written over the old ones, and the old
+     * request's code is invalidated. A change of another type is a change of
+     * its own.
      *
      * @return void
      *
@@ -233,7 +234,7 @@ final class IdentifierChangeRequestsTest extends TestCase
 
         $this->moveTo($this->now->addMinute());
 
-        $this->changes('admin')->requestByLink($identity, 'email', 'ada@third.example.test', $proof, 'email.confirm');
+        $this->changes('admin')->requestByLink($identity, 'email', 'ada@third.example.test', self::freshSession($identity, 'admin'), 'email.confirm');
         $this->changes()->requestByCode($identity, 'phone', self::NEW_PHONE, $proof);
 
         $email = (array) DB::table('identifier_changes')->where('type', 'email')->first();
@@ -428,7 +429,8 @@ final class IdentifierChangeRequestsTest extends TestCase
     public function testTheProofIsCheckedBeforeTheIdentifier(): void
     {
         $identity = self::seedChangeable();
-        $request  = $this->changes()->requestByCode($identity, 'email', self::EMAIL, self::freshSession($identity));
+        $stale    = Reauthentication::session(self::seedSession($identity, signedInAt: $this->now->subHour()));
+        $request  = $this->changes()->requestByCode($identity, 'email', self::EMAIL, $stale);
 
         self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $request->status);
     }
