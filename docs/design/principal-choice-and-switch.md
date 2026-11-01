@@ -3,11 +3,13 @@
 ## Purpose
 
 This note records how a session comes to act as one principal of an identity that may act as several: a sign-in that
-names none, for an identity with several, waits pending for the identity to choose (`pending()`, `choose()`), and a
-live session moves to another principal, another active tenant, or both (`switchTo()`). Starting a session is in
+names none, for an identity with several, waits pending for the identity to choose (`pending()`, `choose()`), and a live
+session moves to another principal, another active tenant, or both (`switchTo()`). Starting a session is in
 `session-service.md`; the refresh judgement both paths share is in `refresh-rotation-and-replay.md`; the bearer checks
 that end the tokens issued before a switch are in `fail-closed-pid-did.md`; the access contracts that decide the
-destination tenant are in `application-policy.md`.
+destination tenant are in `application-policy.md`; the pending session a choice waits as, and a switch's return to
+pending, are in `pending-sessions.md`; the active tenant and the tenant authentication policy are in
+`active-tenant-and-switching.md`.
 
 ## Invariants
 
@@ -32,14 +34,15 @@ destination tenant are in `application-policy.md`.
 - A choice is a pending session (see `session-service.md`) whose `requires` holds `principal` and which records no
   principal. The identity-level factor policy is asked before any choice, so a required factor comes first (`mfa`, then
   `principal`), and no principal is listed or chosen while it is outstanding (`pending_action_not_allowed`).
-- `choose()` runs under the session's row lock in one transaction rolled back on any refusal, so a refused choice
-  leaves the session pending for another. It admits the identity and the method again, resolves the chosen principal
-  through the hinted path as the very one named and owned (`principal_mismatch`), admits it, and admits the tenant the
-  call names or the principal's own (`Admission\TenantAdmission::select()`); then asks the factor policy again: a
-  factor it now asks for records the principal and tenant and leaves the session waiting on `mfa`, with the same
-  credential; otherwise the session activates as the principal. The proven session is replaced (revoked as
-  `superseded`) at the first activation only when it is still the one proven and records the chosen principal;
-  otherwise it is left as it is. Offering or discarding the choice revokes nothing else.
+- `choose()` runs under the session's row lock in one transaction rolled back on any refusal, so a refused choice leaves
+  the session pending for another. It admits the identity and the method again, resolves the chosen principal through
+  the hinted path as the very one named and owned (`principal_mismatch`), admits it, and admits the tenant the call
+  names or the principal's own (`Admission\TenantAdmission::select()`); then judges that tenant's authentication policy,
+  whose connection requirement refuses this principal alone (`sso_required`, nothing recorded), and asks the factor
+  policy again: a factor either asks for records the principal and tenant and leaves the session waiting on `mfa`, with
+  the same credential; otherwise the session activates as the principal. The proven session is replaced (revoked as
+  `superseded`) at the first activation only when it is still the one proven and records the chosen principal; otherwise
+  it is left as it is. Offering or discarding the choice revokes nothing else.
 - The attempt slots a sign-in took stay counted while it waits for a choice and are given back only once the session
   first activates.
 - A switch is proven by the session's refresh token, never an access token, and judged by `RefreshJudgment::classify()`
@@ -168,8 +171,8 @@ destination tenant are in `application-policy.md`.
   `testContextChangesCompareTheDestinationWithTheLoadedSession`
 - `tests/Integration/Http/RefreshCookieSessionLifecycleTest.php` (a switch proven by the refresh cookie, its
   cross-site checks, and the rotated cookie)
-- `tests/Performance/SessionSwitchQueryBudgetTest.php` (seven reads and one write per switch, from the request
-  too; six reads and no write per grace retry; the counters' writes alone for a refusal, and their read alone when
+- `tests/Performance/SessionSwitchQueryBudgetTest.php` (eight reads and one write per switch, from the request
+  too; seven reads and no write per grace retry; the counters' writes alone for a refusal, and their read alone when
   rate-limited; the reads, the counters' writes and the insert of a sign-in left pending on a choice, the reads of a
   choice listed, and the reads and writes of a choice made; and a time ceiling for switches, retries and refusals)
 
@@ -179,7 +182,7 @@ Update this note when any of the following change:
 
 - when a choice is offered, which principals are admitted, or what a pending choice records
 - the checks a switch runs, the order it runs them in, or the retry rule for the previous rotation id
-- what a destination's tenant policy does to a switch
+- what a destination's tenant policy does to a switch or a choice
 - the switch's compare-and-swap predicate or the columns it writes
 - how the deadlines of a switched session are derived
 - what `SessionPending` or `PrincipalSwitched` carry, or when they are dispatched

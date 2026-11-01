@@ -43,6 +43,9 @@ are caught on the server.
   detection, and a browser refresh cookie with CSRF checks.
 - **Sign-in methods**: password, one-time code to a phone or email, and passkeys, behind one contract that SSO and
   custom methods plug into.
+- **Pending sessions**: a sign-in that still owes a further factor or a choice of principal waits as a pending session,
+  with a short-lived credential that allows only the actions it owes; a tenant may require a further factor or single
+  sign-on of the sessions acting in it.
 - **Sessions**: timestamped proofs of every sign-in and an external provider's provenance on each session, step-up and
   reauthentication with `auth_time` and `amr` derived from the proofs, per-operation freshness judged on the proof that
   meets it, list, sign out, sign out everywhere, revoke on security changes, and switch principal or active tenant.
@@ -162,7 +165,7 @@ Route::middleware('auth:api')->get('/me', fn () => Auth::identity());
 |-----------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
 | [Installation](docs/guides/installation.md)               | Keys, guards and providers, the `401`, localisation, access-only mode                                                  |
 | [Identity models](docs/guides/identity-models.md)         | 2D and 3D models, identifiers, verification, activity                                                                  |
-| [Signing in](docs/guides/signing-in.md)                   | The session service, one-time codes, passkeys, custom methods, factors                                                 |
+| [Signing in](docs/guides/signing-in.md)                   | The session service, pending sessions, one-time codes, passkeys, custom methods, factors                               |
 | [Refreshing](docs/guides/refreshing.md)                   | Refresh, the refresh cookie and replay detection                                                                       |
 | [Sessions](docs/guides/sessions.md)                       | Proofs, step-up, reauthentication, freshness, switching principal or tenant, signing out, listing sessions, revocation |
 | [Passwords](docs/guides/passwords.md)                     | Password policy, setting a password and password reset                                                                 |

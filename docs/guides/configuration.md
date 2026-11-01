@@ -387,8 +387,8 @@ A session is one sign-in, on one application, on one device. The shipped migrati
 | `status`                                               | `active` (the default) or `pending`                                                                      |
 | `requires`                                             | What a pending session waits on, in order (`mfa`, `principal`)                                           |
 | `pending_key`                                          | Digest of the pending credential's secret                                                                |
-| `supersedes_session_id`, `supersedes_refresh_key`      | The session a pending sign-in replaces when it first activates                                           |
-| `attempt_windows`                                      | The attempt slots a pending sign-in keeps until it first activates                                       |
+| `supersedes_session_id`, `supersedes_refresh_key`      | The session a pending session replaces when it first activates                                           |
+| `attempt_windows`                                      | The attempt slots a pending session keeps until it first activates                                       |
 | `tenant_id`, `tenant_policy_version`                   | The active tenant's opaque identifier (`null` for none, indexed), and the version of its policy last met |
 | `switched_at`                                          | When the session's context last changed (principal or active tenant, a return to pending, an activation) |
 | `guard`, `sign_in_method`                              | The guard and sign-in method that created it                                                             |

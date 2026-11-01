@@ -209,7 +209,7 @@ platform the previous one recorded when the sign-in gives none. Once committed, 
 dispatched for the previous session before the new session's `SessionCreated` and `SignedIn`. If the session changes
 before it can be revoked (a parallel refresh, say), the sign-in is reconsidered without it and revokes nothing: it
 starts on a new session, or leaves it pending when the additional-factor policy now asks for a further factor without
-the session's trust. A pending sign-in supersedes the proven session only when it first activates. The
+the session's trust. A pending session supersedes the proven session only when it first activates. The
 additional-factor policy is told of the session the client proved; the new session has a new id, so nothing a factor
 package kept about the previous session carries over to it.
 

@@ -104,7 +104,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   digests as any revocation does, then inserts the new session as `create()` does, except that a client name or platform
   the sign-in does not give is the proven session's. The proven row keeps everything else. A swap that misses
   reconsiders the sign-in without the session, factor policy included: it creates a session and revokes nothing, or
-  writes it pending when the factor policy now asks for a factor; it never retries. A pending sign-in supersedes only at
+  writes it pending when the factor policy now asks for a factor; it never retries. A pending session supersedes only at
   its first activation, with the same compare-and-swap on the digest it recorded; a miss there activates the session
   and revokes nothing.
 - After the session's transaction, `SessionRevoked` (`superseded`, for a replaced session), `SessionCreated` and
@@ -124,7 +124,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - Acting on a pending session is `PendingSessions`' (`pending()`, `satisfy()`, `choose()`, `discard()`): it finds the
   session by its credential under the row's lock, re-runs the gate (`PendingEvaluation`) and activates it
   (`SessionActivation`) or leaves it waiting; the service binds an activated session as it binds any other. See
-  [Pending sessions](#pending-sessions).
+  `pending-sessions.md`.
 - Ending sessions is not the service's own: `signOut()`, `signOutEverywhere()`, `revokeSession()`, `revokeSessions()`,
   `revokePrincipalSessions()` and the security-change methods delegate to `SessionRevocations` (see
   `session-lifecycle.md`), on the guard's context, with the guard as the `Contracts\GuardBinding` the two sign-out calls
@@ -154,36 +154,6 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   unchanged then; its discard is a revocation (`signed_out`, `SessionRevoked`), and a credential that discards nothing
   emits nothing.
 
-## Pending sessions
-
-- A session is pending while `requires` lists anything (`mfa`, then `principal`). Its credential is
-  `<session key>.<secret>`: the secret from `RefreshTokenHasher::generate()`, only its digest stored, compared in
-  constant time; it is not a JWT, so no guard authenticates a request or a refresh with it, and its session's tokens
-  are refused as `session_pending` (`OwnedSession`, `RefreshJudgment` before any key comparison, so no reuse is
-  detected). The credential allows only the actions of the first requirement (`PendingRequirement::actions()`), and
-  `pending_action_not_allowed` answers any other.
-- `PendingSessions::find()` splits the credential, reads the session by key under the row's lock (`SessionLookup`),
-  and requires it of this guard, pending, unrevoked, before its idle deadline, with a matching digest and something
-  required; the owner reloaded through the provider as the recorded one, and the principal, when recorded, through the
-  hinted path as the recorded one and still owned. Anything else is `pending_invalid`. `pending()` does the same without
-  a lock and writes nothing.
-- `satisfy()` and `choose()` run in one transaction on the session's connection that is rolled back on any refusal, so a
-  refused proof or choice stores nothing and never revokes. Each re-runs the gate: the identity, the method still
-  allowed, and the principal and tenant recorded (`PendingEvaluation::recorded()`), then the factor policy, given the
-  stored proofs (`SessionProofs::hasAcceptedAdditional()`), then a choice. With nothing left the session activates; with
-  something left `requires` is updated and the result is pending, without a new credential.
-- `SessionActivation::activate()` writes the active state with one compare-and-swap on `status = pending` and the
-  digest: `status = active`, `requires` and `pending_key` cleared, a new rotation id, a fresh idle deadline, the
-  principal and tenant. On the first activation (no refresh digest yet) it supersedes the proven session, gives back the
-  kept slots and schedules `SessionRevoked` (`superseded`), `SessionCreated` and `SignedIn`; a later one (a session that
-  returned to pending) records `switched_at` (`SwitchFloor`) and schedules `SessionActivated`.
-- `PendingTransitions::returnToPending()` takes an active session back to pending with one compare-and-swap on the
-  loaded refresh digest, principal, tenant, policy version, deadlines and status: a new credential, `requires`
-  (`mfa`), the destination's principal and tenant, the switch time (`SwitchFloor`) and the credential's expiry as the
-  idle deadline; its refresh token stays refused as `session_pending` until it activates with a new rotation id.
-  `SessionReturnedToPending` follows the commit.
-- `discard()` revokes a live pending session as `signed_out`, with `SessionRevoked`; it never gives slots back.
-
 ## Failure / Edge Cases
 
 - The slots a pending session keeps stay taken until it first activates, the one the method's check took on the
@@ -193,9 +163,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   to the most permissive `per_identifier` limit among the guards that check the account (see `application-policy.md`);
   for a method that counts no account, only by its identifier's and the IP address's limits. A pending session from
   `start()` holds no slots (nothing was guessed), so its external verifier bounds it.
-- Two `satisfy()` calls on one credential serialise on the row's lock: one activates, and the other finds the session
-  active and is `pending_invalid`. An activation runs in the acting request's client: its events and the session's last
-  use carry that client, while the session keeps the client the sign-in came from as its creation.
+- An activation runs in the acting request's client: its events and the session's last use carry that client, while
+  the session keeps the client the sign-in came from as its creation.
 - Inside a caller's transaction the service's transaction is a savepoint: the guard is bound at once, the lifecycle
   events wait for the caller's commit, and a rollback withdraws them with the session while the guard stays bound. Do
   not roll back around a sign-in.

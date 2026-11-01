@@ -522,8 +522,8 @@ A tenant may ask more of the sessions active in it than the identity's own sign-
 through one of its connections (single sign-on). The package asks the bound `Contracts\TenantAuthenticationPolicy`
 (the default, `RequireNothingOfTenants`, asks nothing; see [Tenant authentication
 policies](extending.md#tenant-authentication-policies)) whenever a session comes to act in a tenant or keeps acting in
-it: at sign-in once a principal is selected, at a choice of principal, when a pending session activates, and at every
-refresh, never on a bearer request. A session that falls short:
+it: at sign-in once a principal is selected, at a choice of principal, when a pending session activates, at every
+refresh, and for the destination of a switch, never on a bearer request. A session that falls short:
 
 | Where                       | Needs a connection                                                       | Lacks a further factor                                                   |
 |-----------------------------|--------------------------------------------------------------------------|--------------------------------------------------------------------------|
@@ -531,6 +531,7 @@ refresh, never on a bearer request. A session that falls short:
 | Choice of principal         | that principal refused as `sso_required`, the session stays pending      | the principal recorded, the session pending on `mfa`                     |
 | Satisfying a further factor | refused as `sso_required`, the session stays pending until it expires    | stays pending                                                            |
 | Refresh                     | refused as `sso_required`, the session revoked (`tenant_policy_changed`) | returned to pending: the result `isPending()`, with a pending credential |
+| Switch                      | refused as `sso_required`, the session unchanged                         | returned to pending with the destination recorded, as for a refresh      |
 | `attempt()`                 | refused as `sso_required`                                                | refused as `additional_factor_required`                                  |
 
 A further factor is met only as the bound `Contracts\RequirementCheck` judges the session's proofs (the default,
