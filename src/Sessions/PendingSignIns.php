@@ -429,7 +429,10 @@ final readonly class PendingSignIns
 
     /**
      * Store a pending sign-in of the purpose and return its token, expiry and
-     * id: the token's secret is kept only as its digest.
+     * id: the token's secret is kept only as its digest. The deadline is
+     * written in the application's time zone, since the column keeps a
+     * wall-clock time that is read back in that zone, and a deadline given in
+     * another would move by the difference.
      *
      * @formatter:off
      *
@@ -492,7 +495,7 @@ final readonly class PendingSignIns
             'proven_session_id'          => $session === null ? null : IdentifierCoercion::stringify($session->getSessionIdentifier()),
             'proven_session_refresh_key' => $session?->getRefreshKey(),
             'attempt_windows'            => $attemptWindows,
-            'not_after'                  => $context->notAfter,
+            'not_after'                  => $context->notAfter?->setTimezone(date_default_timezone_get()),
             'first_factor'               => $proof->toArray(),
             'provenance'                 => $proof->provenanceToArray(),
             'expires_at'                 => $expiresAt,

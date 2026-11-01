@@ -14,9 +14,11 @@ use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
@@ -41,6 +43,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
+use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ChoosingMember;
 use Tests\Integration\Fixtures\ChoosingMembership;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -268,8 +271,7 @@ final class SignInProofsTest extends TestCase
 
     /**
      * The provider's deadline for its session caps the session's absolute
-     * deadline below the application's limit, and the earlier of it and the
-     * context's own deadline applies.
+     * deadline below the application's limit.
      *
      * @return void
      *
@@ -282,6 +284,146 @@ final class SignInProofsTest extends TestCase
 
         self::assertNotNull($session);
         self::assertSame($this->now->addHours(8)->getTimestamp(), $session->record->getAbsoluteExpiresAt()?->getTimestamp());
+    }
+
+    /**
+     * Rows of `[hours from now to the context's own deadline, hours from now to
+     * the deadline the session is capped at]`, with the provider's deadline 8
+     * hours from now.
+     *
+     * @return iterable<string, array{0: int, 1: int}>
+     */
+    public static function provideContextDeadlines(): iterable
+    {
+        yield from [
+            'the context earlier' => [2, 2],
+            'the context later'   => [10, 8],
+        ];
+    }
+
+    /**
+     * Of the provider's deadline and the context's own, the earlier caps the
+     * session, and the provenance still records the provider's as it was given.
+     *
+     * @param  int  $contextIn
+     * @param  int  $cappedIn
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideContextDeadlines')]
+    public function testTheEarlierOfTheProvidersAndTheContextsDeadlinesApplies(int $contextIn, int $cappedIn): void
+    {
+        $identity = $this->seedIdentity();
+        $context  = new SignInContext(new ClientContext('203.0.113.7', 'agent'), notAfter: $this->now->addHours($contextIn));
+        $session  = $this->sessions()->start($identity, null, 'sso', $context, new Provenance('connection-7', sessionNotAfter: $this->now->addHours(8)))->session;
+
+        self::assertNotNull($session);
+        self::assertSame($this->now->addHours($cappedIn)->getTimestamp(), $session->record->getAbsoluteExpiresAt()?->getTimestamp());
+        self::assertSame($this->now->addHours(8)->getTimestamp(), self::provenanceOf($session->record)?->provider_session_expires_at?->getTimestamp());
+    }
+
+    /**
+     * A provider whose deadline is this second or has passed starts no session:
+     * `start()` is refused as `session_expired`, reported by
+     * `AuthenticationFailed`, before any session, proof or provenance is
+     * written.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAProvidersPassedDeadlineIsRefusedBeforeAnythingIsWritten(): void
+    {
+        $identity = $this->seedIdentity();
+
+        foreach ([$this->now, $this->now->subMinute()] as $deadline) {
+
+            $this->recordEvents([AuthenticationFailed::class]);
+
+            $result = $this->sessions()->start($identity, null, 'sso', null, new Provenance('connection-7', sessionNotAfter: $deadline));
+
+            self::assertTrue($result->isFailed());
+            self::assertSame(FailureReason::SESSION_EXPIRED, $result->reason);
+            self::assertSame(FailureReason::SESSION_EXPIRED, $this->recordedEvent(AuthenticationFailed::class)->reason);
+        }
+
+        self::assertSame(0, Session::query()->count());
+        self::assertSame(0, SessionProof::query()->count());
+        self::assertSame(0, SessionProvenance::query()->count());
+        self::assertSame(0, PendingSignIn::query()->count());
+    }
+
+    /**
+     * Rows of `[time zone]`: zones behind and ahead of the application's.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideDeadlineZones(): iterable
+    {
+        yield from [
+            'behind the application'   => ['America/New_York'],
+            'ahead of the application' => ['Asia/Tokyo'],
+        ];
+    }
+
+    /**
+     * A provider's deadline given in a time zone other than the application's
+     * is kept to the same instant while a sign-in waits for a further factor,
+     * so the session its completion starts ends exactly then.
+     *
+     * @param  string  $zone
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideDeadlineZones')]
+    public function testAPendingFactorKeepsTheDeadlineInAnyTimeZone(string $zone): void
+    {
+        $identity = $this->seedIdentity();
+        $deadline = $this->now->addHours(8)->setTimezone($zone);
+
+        self::requireAFurtherFactor();
+
+        $pending = $this->sessions()->start($identity, null, 'sso', null, new Provenance('connection-7', sessionNotAfter: $deadline))->pending;
+
+        self::assertNotNull($pending);
+        self::assertSame($deadline->getTimestamp(), PendingSignIn::query()->sole()->not_after?->getTimestamp());
+
+        $this->clockAt($this->now->addMinutes(2));
+
+        $session = $this->sessions()->complete($pending->token)->session;
+
+        self::assertNotNull($session);
+        self::assertSame($deadline->getTimestamp(), $session->record->getAbsoluteExpiresAt()?->getTimestamp());
+    }
+
+    /**
+     * A provider's deadline given in a time zone other than the application's
+     * is kept to the same instant while a sign-in waits for a choice of
+     * principal, so the session the choice starts ends exactly then.
+     *
+     * @param  string  $zone
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideDeadlineZones')]
+    public function testAChoiceKeepsTheDeadlineInAnyTimeZone(string $zone): void
+    {
+        [$member, $membership] = $this->seedChooser();
+
+        $deadline = $this->now->addHours(8)->setTimezone($zone);
+        $choice   = $this->sessions(self::CHOOSERS)->start($member, null, 'sso', null, new Provenance('connection-7', sessionNotAfter: $deadline))->choice;
+
+        self::assertNotNull($choice);
+
+        $this->clockAt($this->now->addMinutes(2));
+
+        $session = $this->sessions(self::CHOOSERS)->choose($choice->token, $membership)->session;
+
+        self::assertNotNull($session);
+        self::assertSame($deadline->getTimestamp(), $session->record->getAbsoluteExpiresAt()?->getTimestamp());
     }
 
     /**
@@ -472,6 +614,8 @@ final class SignInProofsTest extends TestCase
             'a time after now'                => [['offset' => 1], $invalid],
             'a time before the first factor'  => [['offset' => -61], $invalid],
             'another identity'                => [['identity' => 'other'], $binding],
+            'an identity that is not a model' => [['identity' => 'plain'], $binding],
+            'another model with the same key' => [['identity' => 'same key'], $binding],
             'another application'             => [['application' => 'admin'], $binding],
             'another pending sign-in'         => [['pending' => '0190e1a4-0000-7000-8000-000000000001'], $binding],
             'no pending sign-in'              => [['pending' => null], $binding],
@@ -509,7 +653,7 @@ final class SignInProofsTest extends TestCase
         $kind       = $changes['kind']       ?? ProofKind::ADDITIONAL_FACTOR;
         $purpose    = $changes['purpose']    ?? Purpose::SIGN_IN;
         $evaluation = $changes['evaluation'] ?? new Evaluation(true, true);
-        $made       = ($changes['identity'] ?? 'same') === 'other' ? self::otherIdentity($identity) : $identity;
+        $made       = self::madeBy($changes['identity'] ?? 'same', $identity);
 
         self::assertIsInt($offset);
         self::assertInstanceOf(ProofKind::class, $kind);
@@ -673,6 +817,20 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
+     * A proof is never recorded on a session that has no key, so none is left
+     * bound to nothing.
+     *
+     * @return void
+     */
+    public function testAProofIsNeverRecordedOnASessionWithoutAKey(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('A proof can only be recorded on a session that has a key.');
+
+        self::recordProof(new Session, ProofKind::FIRST_FACTOR, $this->now);
+    }
+
+    /**
      * A pending sign-in whose kept first factor cannot be read is a
      * misconfiguration, never a sign-in without one.
      *
@@ -770,6 +928,25 @@ final class SignInProofsTest extends TestCase
                 return true;
             }
         });
+    }
+
+    /**
+     * The identity a proof names: the one given, another persisted beside it
+     * (`other`), one that is not a model (`plain`), or a model of another class
+     * with the same key (`same key`).
+     *
+     * @param  mixed  $who
+     * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
+     * @return \SineMacula\Laravel\Authentication\Contracts\Identity
+     */
+    private static function madeBy(mixed $who, IntegrationIdentity $identity): Identity
+    {
+        return match ($who) {
+            'other'    => self::otherIdentity($identity),
+            'plain'    => \Mockery::mock(Identity::class),
+            'same key' => (new ActivatableTenantMember)->forceFill(['id' => $identity->getKey()]),
+            default    => $identity,
+        };
     }
 
     /**
