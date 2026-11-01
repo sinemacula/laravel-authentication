@@ -310,6 +310,8 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
         $config->set('authentication.jwt.keys', ['default' => 'guard-config-test-secret-with-at-least-32!']);
         $config->set('authentication.jwt.active_kid', 'default');
         $config->set('authentication.jwt.algorithm', 'HS256');
+        $config->set('authentication.jwt.issuer', 'https://issuer.example.test');
+        $config->set('authentication.jwt.audience', 'https://api.example.test');
         $config->set('authentication.jwt.access_ttl_minutes', 15);
         $config->set('authentication.jwt.refresh_idle_ttl_minutes', 60 * 24 * 30);
 

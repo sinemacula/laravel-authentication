@@ -806,9 +806,9 @@ final class AuthenticationServiceProviderTest extends TestCase
 
     /**
      * The migrations tag publishes every shipped migration (sessions, pending
-     * sign-ins, rate limits, one-time codes, passkeys, passkey challenges and
-     * API keys), from the package to the application's migrations, under their
-     * own file names.
+     * sign-ins, rate limits, one-time codes, passkeys, passkey challenges, API
+     * keys, identifier changes, proofs and provenance), from the package to the
+     * application's migrations, under their own file names.
      *
      * @return void
      */
@@ -831,6 +831,8 @@ final class AuthenticationServiceProviderTest extends TestCase
             '2026_04_06_000005_create_passkey_challenges_table.php',
             '2026_04_06_000006_create_api_keys_table.php',
             '2026_04_06_000007_create_identifier_changes_table.php',
+            '2026_04_06_000008_create_authentication_proofs_table.php',
+            '2026_04_06_000009_create_authentication_provenance_table.php',
         ];
 
         foreach ($migrations as $migration) {
@@ -991,6 +993,8 @@ final class AuthenticationServiceProviderTest extends TestCase
         $config->set('authentication.jwt.keys', ['default' => self::JWT_SECRET]);
         $config->set('authentication.jwt.active_kid', 'default');
         $config->set('authentication.jwt.algorithm', self::JWT_ALGORITHM);
+        $config->set('authentication.jwt.issuer', 'https://issuer.example.test');
+        $config->set('authentication.jwt.audience', 'https://api.example.test');
         $config->set('authentication.jwt.access_ttl_minutes', self::JWT_TTL_MINUTES);
 
         $config->set('auth.providers.identities', [

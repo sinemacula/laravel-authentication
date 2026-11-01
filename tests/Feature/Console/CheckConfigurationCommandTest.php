@@ -1175,6 +1175,8 @@ final class CheckConfigurationCommandTest extends TestCase
         $config->set('authentication.session.model', Session::class);
         $config->set('authentication.jwt.keys', ['kid' => self::SECRET]);
         $config->set('authentication.jwt.active_kid', 'kid');
+        $config->set('authentication.jwt.issuer', 'https://issuer.example.test');
+        $config->set('authentication.jwt.audience', 'https://api.example.test');
         $config->set('auth.providers.users', ['driver' => 'model', 'model' => IntegrationIdentity::class]);
         $config->set('auth.guards.web', ['driver' => 'session', 'provider' => 'users']);
         $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'users', 'application' => ['methods' => ['password']]]);
