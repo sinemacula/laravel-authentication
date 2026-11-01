@@ -59,14 +59,17 @@ left out; anything else (a list of addresses, a float, a boolean, `null`) fails 
 lookup, so request input passed straight through cannot reach accounts the identifier's limit does not count.
 `signIn('password', ...)` takes the same strings, `Stringable`s and integers, and refuses anything else as
 `invalid_credentials` without a lookup. The password check itself is counted against the account it is made for (see
-[Rate limits](configuration.md#rate-limits)). After the password, the identity, the principal and its tenant must be
-active, the pins must hold, the application policy must admit the identity as that principal, the password is rehashed
-when its stored hash no longer matches the hasher's algorithm or cost (unless Laravel's `hashing.rehash_on_login` is
-off), and the additional-factor policy must not ask for a further factor: `attempt()` cannot leave a session pending,
-so a guard whose policy requires a factor fails it with `additional_factor_required`. A successful attempt gives its
-slots back; a failed one keeps them. Every failure fires Laravel's `Failed` and then `AuthenticationFailed` with a
-reason (see [Events](events.md#events)). `validate()` checks only the credentials and never rehashes, as with Laravel's
-own guards; neither does a bearer request or a refresh, which never see a password.
+[Rate limits](configuration.md#rate-limits)). After the password, the identity, the principal and its own tenant must be
+active, the application policy must admit the identity (`admitIdentifier()`), `ApplicationAccess` must let the principal
+use the application (`principal_ineligible`), the pins must hold, and the active tenant (the principal's own, or the one
+a pinned session records) must be one `TenantAccess` lets it act in and active (`tenant_ineligible`, `tenant_inactive`).
+The password is rehashed when its stored hash no longer matches the hasher's algorithm or cost (unless Laravel's
+`hashing.rehash_on_login` is off). `attempt()` cannot leave a session pending, so the additional-factor policy must not
+ask for a further factor (`additional_factor_required`), and the active tenant's authentication policy, judged against
+the password, must ask for neither a connection (`sso_required`) nor a further factor (`additional_factor_required`). A
+successful attempt gives its slots back; a failed one keeps them. Every failure fires Laravel's `Failed` and then
+`AuthenticationFailed` with a reason (see [Events](events.md#events)). `validate()` checks only the credentials and
+never rehashes, as with Laravel's own guards; neither does a bearer request or a refresh, which never see a password.
 
 The pins are verified rather than trusted, because they often come from request input: the principal must be one the
 resolver returns for that identifier on the authenticated identity (same class, same identifier) and must belong to that
@@ -150,11 +153,11 @@ application policy must allow the method (`method_not_allowed`, nothing counted)
 address must have attempts left (`rate_limited`, with the wait); then, inside the credential timebox, the method must
 verify the input and the identity must be admitted; a password is rehashed when its hash is outdated; and the sign-in
 follows the order [Pending sessions](#pending-sessions) sets out: the principals, the one selected or a choice, the
-identity-level factor policy, and the selected principal's active tenant. Failures are results, not exceptions:
-Laravel's `Failed` and then `AuthenticationFailed` report them, with the reason. A method name that is not registered
-(exactly: `Password` is not `password`), a method that refuses with any reason but `invalid_credentials`, a
-misconfigured model and database errors still throw. A sign-in whose session starts active gives its attempt slots
-back.
+identity-level factor policy, the selected principal's active tenant, and that tenant's authentication policy
+(`sso_required`, or a further factor owed). Failures are results, not exceptions: Laravel's `Failed` and then
+`AuthenticationFailed` report them, with the reason. A method name that is not registered (exactly: `Password` is not
+`password`), a method that refuses with any reason but `invalid_credentials`, a misconfigured model and database errors
+still throw. A sign-in whose session starts active gives its attempt slots back.
 
 `start($identity, $principal, $method, $context, $provenance)` begins a session for an identity something else verified,
 such as an external identity provider. The identity is reloaded through the guard's provider (`identity_unknown` when

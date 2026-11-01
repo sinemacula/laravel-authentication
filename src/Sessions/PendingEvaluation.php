@@ -49,7 +49,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * one, else none and a choice is outstanding); the identity-level factor
  * policy, asked before any principal is chosen and met once the session holds
  * an accepted further factor or recovery code; and, with a principal, the
- * tenant it is to be active in.
+ * tenant it is to be active in and that tenant's authentication policy.
  *
  * It decides; it writes nothing. Every read and every contract is asked on the
  * write connection.

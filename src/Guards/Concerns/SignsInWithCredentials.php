@@ -224,9 +224,10 @@ trait SignsInWithCredentials
      * Refuse the admitted sign-in when the additional-factor policy asks it for
      * a further factor, which `attempt()` cannot hand out. A pinned session
      * proves nothing about who holds the client, so the policy is never told of
-     * one. The authentication policy of the principal's tenant is then judged
-     * against the password the sign-in proved: one that requires a connection
-     * refuses it as `sso_required`, and one that requires a further factor as
+     * one. The authentication policy of the active tenant (the principal's own,
+     * or the one a pinned session records) is then judged against the password
+     * the sign-in proved: one that requires a connection refuses it as
+     * `sso_required`, and one that requires a further factor as
      * `additional_factor_required`.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted

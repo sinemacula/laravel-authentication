@@ -64,11 +64,11 @@ Route::middleware('auth:api')->post('/step-up', function (Request $request) {
 The proof must be an `additional_factor` or a `recovery_code`, made for `Purpose::STEP_UP`, accepted by its adapter's
 `Evaluation`, and made no later than now and no earlier than the session started (`proof_invalid` otherwise); its
 `ProofBinding` must name the session's owner, this guard and the session's key (`proof_binding_mismatch`). The session
-is read again and locked while the proof is recorded, so it must still be one of the guard's live sessions of a person
-(`session_unknown`, `session_guard_mismatch`, `session_revoked`, `session_expired`, `machine_identity`), and it is
-admitted again as a refresh admits it (its owner, principal and tenant active, the method still allowed, the principal
-still eligible). A revocation that commits first refuses the step-up; one that commits after ends the new token at its
-next request, as it ends every access token of the session.
+is read again and locked while the proof is recorded, so it must still be one of the guard's live, active sessions of a
+person (`session_unknown`, `session_guard_mismatch`, `session_revoked`, `session_pending`, `session_expired`,
+`machine_identity`), and it is admitted again as a refresh admits it (its owner, principal and tenant active, the method
+still allowed, the principal still eligible). A revocation that commits first refuses the step-up; one that commits
+after ends the new token at its next request, as it ends every access token of the session.
 
 The new access token's `auth_time` is the newest time of the session's proofs, so never earlier than the step-up proof's
 (a reauthentication recorded after the proof was made keeps its own, later time), and its `amr` gains the proof's

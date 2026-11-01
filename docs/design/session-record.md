@@ -12,11 +12,11 @@ new session, so "the device" and "the record" are no longer one thing.
 ## Invariants
 
 - The record is a session in every name the package gives it: the contracts (`Session`, `EloquentSession`,
-  `EloquentSessionOrigin`, `HasSessions`, `ValidatesSessionKey`), the model (`Models\Session`), its traits, the
-  `SessionRecords\` helpers, the service methods, events, failure reasons, listeners, testing helpers, configuration
-  (`authentication.session.*`, `AUTHENTICATION_SESSION_*`), the table and the pending session's columns
-  (`supersedes_session_id`, `supersedes_refresh_key`). "Device" is left only where it means the physical client, and in
-  Laravel's own `logoutOtherDevices()` and `OtherDeviceLogout`.
+  `EloquentSessionOrigin`, `EloquentSessionStanding`, `HasSessions`, `ValidatesSessionKey`), the model
+  (`Models\Session`), its traits, the `SessionRecords\` helpers, the service methods, events, failure reasons,
+  listeners, testing helpers, configuration (`authentication.session.*`, `AUTHENTICATION_SESSION_*`), the table and the
+  pending session's columns (`supersedes_session_id`, `supersedes_refresh_key`). "Device" is left only where it means
+  the physical client, and in Laravel's own `logoutOtherDevices()` and `OtherDeviceLogout`.
 - The record helpers live in `SessionRecords\`, apart from the `Sessions\` service layer, so the token, guard, HTTP,
   admission and support code may name the record without reaching the service.
 - `Models\Session` shares its short name with Laravel's `Session` facade and `Illuminate\Contracts\Session\Session`.
@@ -27,9 +27,9 @@ new session, so "the device" and "the record" are no longer one thing.
 - A value object whose own name says session names the record `$record` (`SignedInSession::$record`,
   `ExchangedRefresh::$record`), so no call reads `->session->session`.
 - The table defaults to `authentication_sessions`, which keeps it clear of the `sessions` table of Laravel's database
-  session driver, and its indexes are named `<table>_owner_index`, `_principal_index`, `_guard_index`, `_idle_index`,
-  `_absolute_index` and `_revoked_index`. Laravel's default name for the owner index of the default table is 69
-  characters, over MySQL's 64; with these suffixes, a configured name of up to 47 characters fits PostgreSQL's 63.
+  session driver, and its indexes are named `<table>_owner_index`, `_principal_index`, `_guard_index`, `_tenant_index`,
+  `_idle_index`, `_absolute_index` and `_revoked_index`. Laravel's default name for the owner index of the default table
+  is 69 characters, over MySQL's 64; with these suffixes, a configured name of up to 47 characters fits PostgreSQL's 63.
 - Tokens name their session in the `sid` claim (`Claims::SESSION_ID`); nothing here depends on the claim's name.
 - `idle_expires_at` is required and `absolute_expires_at` nullable: `null` means the session has no absolute deadline,
   because its application sets no absolute limit (`refresh_absolute_ttl_minutes` is `null`) and its sign-in supplied no
@@ -52,7 +52,7 @@ new session, so "the device" and "the record" are no longer one thing.
 
 - An identity model implements `HasSessions` with a `sessions()` relation over `Models\Session` (or its own
   `EloquentSession` model, configured as `authentication.session.model`), and the shipped migration creates the table
-  under its configured name with the six named indexes.
+  under its configured name with the seven named indexes.
 - A sign-in with the previous session's refresh token in `SignInContext::$refreshToken` revokes that session as
   `superseded` and creates the new one; the reports and their order are `session-service.md`'s.
 

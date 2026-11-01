@@ -104,10 +104,11 @@ final readonly class BearerAuthentication
 
     /**
      * Authenticate the access token for a request from the client: the admitted
-     * identity, principal, the tenant its activity check loaded, and the
-     * session, with, for a client credentials token, its API key and scopes; or
-     * the failure that reports why not, with as much of the context as was
-     * established (the session id the token named included).
+     * identity, principal, active tenant (the one the session records, or the
+     * principal's own for a token without a session), and the session, with,
+     * for a client credentials token, its API key and scopes; or the failure
+     * that reports why not, with as much of the context as was established (the
+     * session id the token named included).
      *
      * @param  string  $token
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client

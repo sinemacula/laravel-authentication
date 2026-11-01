@@ -34,10 +34,13 @@ use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
  * Takes a sign-in whose identity is admitted on to its session, in the order
  * sign-in takes (see `PendingEvaluation`): the principal selected, the
  * identity-level factor policy, and, with a principal, the tenant it is to be
- * active in. With nothing outstanding the session is written active with its
- * first pair; otherwise it is written pending, waiting on the further factor,
- * then the choice of principal, with its pending credential and no token.
- * Either way it records the sign-in's first-factor proof and provenance.
+ * active in and that tenant's authentication policy, judged against the
+ * sign-in's own evidence (a connection it requires and the sign-in did not use
+ * refuses it as `sso_required`; a further factor it requires is owed as the
+ * identity's own is). With nothing outstanding the session is written active
+ * with its first pair; otherwise it is written pending, waiting on the further
+ * factor, then the choice of principal, with its pending credential and no
+ * token. Either way it records the sign-in's first-factor proof and provenance.
  *
  * Every sign-in is a new session. A session the client proved it holds (with
  * the refresh token of its previous session) is revoked (`superseded`) by an

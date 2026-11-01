@@ -20,7 +20,12 @@ inheritance:
 | Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` under a name the package does not use |
 | Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy` in the container; call `factorRemoved()` when a factor is removed         |
 | Passkeys as a further factor      | Call `Auth::passkeys()->factorOptions()` and `verifyFactor()` from your further-factor package                   |
-| Application decisions             | Implement `ApplicationPolicy` and bind it in the container                                                       |
+| Application decisions             | Implement `ApplicationPolicy` (methods, lifetimes, identifiers) and bind it in the container                     |
+| Who may use an application        | Implement `ApplicationAccess` and bind it in the container                                                       |
+| Tenants a principal may act in    | Implement `TenantAccess` and bind it in the container                                                            |
+| Tenants named by identifier       | Implement `TenantResolver` and bind it in the container                                                          |
+| Tenant authentication policies    | Implement `TenantAuthenticationPolicy` and bind it; call `tenantPolicyChanged()` when it changes                 |
+| Judging a further factor          | Implement `RequirementCheck` and bind it in the container (a further-factor package binds one)                   |
 | Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                                                          |
 | Identifier normal forms           | Implement `IdentifierNormalizer`, register it by type in the config                                              |
 | One-time code delivery            | Implement `OneTimeCodeSender` and bind it in the container                                                       |
@@ -345,6 +350,10 @@ seam has a default that works alone.
 
 ### Further factors (`laravel-mfa`)
 
+- Bind `Contracts\RequirementCheck` (the default, `MeetNoRequirement`, meets nothing). It judges whether a session's
+  proofs meet the further factor a tenant's authentication policy requires, at sign-in, at the choice, on refresh, on a
+  switch and when a pending session is acted on; without it, a tenant that requires a further factor never activates a
+  session (see [Tenant authentication policies](#tenant-authentication-policies)).
 - Bind `Contracts\AdditionalFactorPolicy` (the default, `NeverRequireAdditionalFactor`, never asks). It is asked about
   every admitted identity's sign-in, from `signIn()` and `start()`, before any principal is chosen, and again whenever
   its pending session is acted on (never on a switch), with the guard, identity, method, client and the session the

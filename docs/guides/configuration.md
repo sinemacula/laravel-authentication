@@ -458,10 +458,12 @@ must record the principal being bound. The checks read the row already loaded, w
 session acting in a tenant other than its principal's own resolves it once per request to check it is still active.
 `ActsAsSession` reads any stored timestamp as a value, with or without a `datetime` cast on the column, and throws a
 `LogicException` when the session was loaded without one of its refresh or revocation state columns (both digests, the
-rotation time, the session's start, the switch time, both deadlines, and the revocation time) or without the
-sign-in's identifier type (`sign_in_identifier_type`), for example through a `sessions()` relation or a global scope
-that selects other columns, so a partial select is reported instead of being read as a session that is not revoked, has
-no deadline, or whose sign-in used no identifier.
+rotation time, the session's start, the switch time, both deadlines, and the revocation time), without one of its
+standing columns (`status`, `requires`, `pending_key`, `tenant_id` and `tenant_policy_version`; the bearer path reads
+`status` and `tenant_id` on every request) or without the sign-in's identifier type (`sign_in_identifier_type`), for
+example through a `sessions()` relation or a global scope that selects other columns, so a partial select is reported
+instead of being read as a session that is not revoked, is active, acts in no tenant, has no deadline, or whose sign-in
+used no identifier.
 
 ### Pending sessions
 

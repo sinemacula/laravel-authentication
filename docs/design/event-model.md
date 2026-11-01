@@ -29,8 +29,9 @@ to these events, so the shape and the timing are a contract.
 - An event about a session row itself is built with `fromSession`: every `SessionRevoked`, and a refresh or switch
   refused on the row's own state before its owner was read (a `RefreshJudgment` verdict, `identity_unknown`, a row that
   changed under the compare-and-swap). An identity or principal it does not hold then takes the snapshot of the owner
-  (its morph class and identifier) and the principal the row records, read from its attributes without a query; sessions
-  record no tenant. Every other event keeps the snapshots of what it holds, even when it carries a session: an
+  (its morph class and identifier) and the principal the row records, and a tenant it does not hold the snapshot of the
+  active tenant's identifier the row records (`tenant_id`, with no morph class), read from its attributes without a
+  query. Every other event keeps the snapshots of what it holds, even when it carries a session: an
   identity's `SignedOutEverywhere` (its session is the one kept), a `SessionPending` waiting on a choice of principal
   and a switch refused for its target name no principal.
 - Everything in a context but its four models is the snapshot: facts fixed at event time, the record audit sinks keep,
@@ -53,11 +54,11 @@ to these events, so the shape and the timing are a contract.
   report an in-memory bind (`PrincipalAssigned`, `SessionAuthenticated`) fire at once.
 - A bind sets the identity, principal and session first and then dispatches `Authenticated`, `PrincipalAssigned` and
   `SessionAuthenticated?`, all describing the same context, so a listener on any of them reads the whole of it from the
-  guard. A bind the guard verified (bearer, refresh, `attempt()`, the session service) reports the tenant its activity
-  check loaded; a trusted bind (`login()`, `authenticateAs()`, `setUser()`, `setPrincipal()`, `setSession()`) reads the
-  principal's tenant on the write connection and reports none when the tenant cannot be loaded
-  (`TenantUnavailableException`), while a principal loaded without its tenant's key is a misconfiguration whose
-  `LogicException` propagates.
+  guard. A bind the guard verified (bearer, refresh, `attempt()`, the session service) reports the active tenant its
+  admission found; a trusted bind (`login()`, `authenticateAs()`, `setUser()`, `setPrincipal()`, `setSession()`) reads
+  the tenant the bound session records, or without a session the principal's own, on the write connection and
+  unchecked, and reports none when it cannot be loaded (`TenantUnavailableException`, which `tenant()` then throws),
+  while a principal loaded without its tenant's key is a misconfiguration whose `LogicException` propagates.
 - One failure event, `AuthenticationFailed`, reports every failed sign-in, refresh, switch, bearer token, API
   key, client credentials exchange, request for a one-time code and verification by code or link, with the flow
   (`AuthenticationFlow`) and a reason (`FailureReason`), the identifier a sign-in named, and the wait of a rate-limited
@@ -90,8 +91,8 @@ to these events, so the shape and the timing are a contract.
   which of the two changed (`principalChanged`, `tenantChanged`), after the switch commits on the session's
   connection; it is scheduled before the guard binds the switched session, and only when something changed. A switch
   whose destination asks for a further factor dispatches `SessionReturnedToPending` (flow `switch`) instead.
-- Refresh: the guard dispatches `Refreshed` and `SignedIn` with the session's context, including the tenant the
-  exchange's activity check loaded and the method the session records, after the rotation commits on the session's
+- Refresh: the guard dispatches `Refreshed` and `SignedIn` with the session's context, including the session's active
+  tenant the exchange admitted and the method the session records, after the rotation commits on the session's
   connection, scheduling them before it binds the exchanged session.
 - A write is reported before the guard binds to it, so a bind listener that throws (on `Validated`, `Login`,
   `Authenticated`, `PrincipalAssigned` or `SessionAuthenticated`) cannot withhold the report: its exception still
@@ -191,11 +192,12 @@ to these events, so the shape and the timing are a contract.
   `testAFailureIsReturnedNotDispatched`
 - `tests/Feature/Sessions/SessionServiceTest.php`
   `testAMethodThatRefusesWithAServiceReasonIsAMisconfiguration`, `testASignInWhoseBindListenerThrowsIsStillReported`,
-  `testACompletionWhoseBindListenerThrowsIsStillReportedAndGivesItsSlotsBack`,
-  `testACompletionWhoseBindListenerThrowsFollowsTheCallersTransaction`, `testALifecycleListenerThatThrowsStopsTheBind`
-- `tests/Feature/Sessions/ChoosesPrincipalsTest.php`
-  `testAChoiceWhoseBindListenerThrowsIsStillReported`, `testAChoiceWhoseBindListenerThrowsFollowsTheCallersTransaction`,
-  `testASwitchWhoseBindListenerThrowsIsStillReported`, `testASwitchWhoseBindListenerThrowsIsReportedOnTheCallersCommit`,
+  `testAStartedSessionWhoseBindListenerThrowsIsStillReported`,
+  `testAnActivationWhoseBindListenerThrowsIsStillReportedAndGivesItsSlotsBack`,
+  `testAnActivationWhoseBindListenerThrowsFollowsTheCallersTransaction`, `testALifecycleListenerThatThrowsStopsTheBind`
+- `tests/Feature/Sessions/SessionSwitchTest.php`
+  `testASwitchWhoseBindListenerThrowsIsStillReported`, `testASwitchWhoseBindListenerThrowsIsReportedOnTheCallersCommit`
+- `tests/Feature/Sessions/PendingSessionsTest.php`
   `testAChoiceUnderAnEnforcedMorphMapRecordsAnUnmappedTenantByItsClass`
 - `tests/Feature/Guards/JwtGuardTest.php`
   `testARefreshWhoseBindListenerThrowsIsStillReported`

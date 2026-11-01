@@ -39,14 +39,15 @@ trait ProvesSessions
      * `step_up`, accepted, made no later than now and no earlier than the
      * session started (`proof_invalid`), and bound to the session's owner, this
      * guard and the session's key (`proof_binding_mismatch`); the session,
-     * locked while the proof is recorded, must be one of this guard's live
-     * sessions (`session_unknown`, `session_guard_mismatch`, `session_revoked`,
-     * `session_expired`, `machine_identity`) and admitted again as a refresh
-     * is. The new token's `auth_time` is the newest of the session's proof
-     * times, so never earlier than the proof's, and its `amr` gains the proof's
-     * values, and `mfa` when the evaluation reports multifactor authentication.
-     * Once committed, `SteppedUp` reports it; a refusal reports
-     * `AuthenticationFailed` (flow `step_up`) and is answered, never thrown.
+     * locked while the proof is recorded, must be one of this guard's live,
+     * active sessions (`session_unknown`, `session_guard_mismatch`,
+     * `session_revoked`, `session_pending`, `session_expired`,
+     * `machine_identity`) and admitted again as a refresh is. The new token's
+     * `auth_time` is the newest of the session's proof times, so never earlier
+     * than the proof's, and its `amr` gains the proof's values, and `mfa` when
+     * the evaluation reports multifactor authentication. Once committed,
+     * `SteppedUp` reports it; a refusal reports `AuthenticationFailed` (flow
+     * `step_up`) and is answered, never thrown.
      *
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof
      * @return \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult

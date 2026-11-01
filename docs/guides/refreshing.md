@@ -274,7 +274,10 @@ replay. With `refresh_grace_seconds` set to 0 the previous id is a replay too. A
 credential cannot tell a replay from anything else, so its tokens fail with `refresh_key_missing` and the session is
 left alone. When a parallel refresh changes the session between this refresh's read and its write, the row is judged
 again as it now is: usually that makes this refresh a grace retry; a deadline that moved in between fails it with
-`rotation_conflict`, without revoking anything, and the client can simply retry.
+`rotation_conflict`, without revoking anything, and the client can simply retry. So does a refresh that found the
+session short of its tenant's policy and lost its revocation or return to pending to another request: the policy it
+asked refused a pair, so it gets none, and a revocation never applies to a session another request moved on (a switch
+to a tenant it meets, say), whose next refresh is judged afresh.
 
 A refresh token for a rotation id the session never held is a replay too. A client that signs in again with its current
 refresh token (see [Signing in](signing-in.md#signing-in-the-session-service)) gets a new session, and its previous

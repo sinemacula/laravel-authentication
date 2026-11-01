@@ -140,14 +140,25 @@ checked before it gets here is in `session-service.md`; the choice of principal 
 - `tests/Feature/Sessions/PendingSessionsTest.php` (the actions per requirement, an unknown, expired, revoked,
   other-guard or tampered credential, every acceptance refusal, activation, moving on to the choice, a bootstrap
   enrolment proof, a recovery code, the gate's refusals, the proven session, the slots, discard)
-- `tests/Feature/Sessions/PendingTransitionsTest.php` (a return to pending, its compare-and-swap, its event)
+- `tests/Feature/Sessions/PendingTransitionsTest.php` (a return to pending, its compare-and-swap, the version it
+  records, its event)
+- `tests/Feature/Sessions/PendingEvaluationTest.php` (the gate's checks on their own) and
+  `tests/Feature/Sessions/SessionActivationTest.php` (an activation's compare-and-swap and what it writes)
 - `tests/Feature/Sessions/TenantAuthenticationPolicyTest.php` (a tenant's factor or connections at sign-in, at the
   choice, at activation and at refresh)
 - `tests/Feature/Sessions/SessionSwitchTest.php` `testADestinationAskingForAFactorReturnsTheSessionToPendingUntilItIsMet`
 - `tests/Feature/Proofs/ProofAcceptanceTest.php`, `tests/Unit/Sessions/PendingSessionTest.php`,
   `tests/Unit/Sessions/PendingStateTest.php`, `tests/Unit/Sessions/Enums/PendingRequirementTest.php`,
   `tests/Unit/Traits/RecordsSessionStandingTest.php`, `tests/Unit/SessionRecords/SwitchFloorTest.php`
-- `tests/Integration/Sessions/ConcurrentPendingSatisfactionTest.php` (two calls on one credential)
+- `tests/Integration/Sessions/ConcurrentPendingSatisfactionTest.php` (two calls on one credential) and
+  `tests/Integration/Sessions/ConcurrentPendingLocksTest.php` (satisfy, discard and the policy-change helper waiting on
+  one another's row lock, on PostgreSQL and MySQL)
+- `tests/Integration/Sessions/ReplicaPendingSessionsTest.php` (pending, satisfy and the choice on a lagging replica)
+- `tests/Integration/Sessions/IntegerKeyPendingSessionTest.php` and
+  `tests/Integration/Sessions/DottedKeyPendingSessionTest.php` (a credential naming an integer key, and a key that
+  holds a `.`)
+- `tests/Integration/Jwt/RefreshTokenExchangeTest.php` (a refresh's return to pending and its revocation racing a
+  rotation, a revocation and a switch of tenant)
 - `tests/Integration/Migration/SessionsTableSchemaTest.php` (the columns and their lengths)
 
 ## Change Triggers

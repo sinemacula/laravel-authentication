@@ -117,7 +117,7 @@ final readonly class EventContext implements Arrayable
         /** Principal the identity acts as, if known. */
         public ?Principal $principal = null,
 
-        /** Tenant the principal acts within, if known and there is one. */
+        /** The active tenant, the one the principal acts in, if known and there is one. */
         public ?Tenant $tenant = null,
 
         /** The session, if one was loaded. */
