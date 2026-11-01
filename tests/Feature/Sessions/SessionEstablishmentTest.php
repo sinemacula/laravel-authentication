@@ -33,6 +33,8 @@ use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Models\SessionProof;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\Sessions\FoundPendingSignIn;
@@ -43,6 +45,7 @@ use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -62,7 +65,7 @@ use Tests\TestCase;
 #[CoversClass(SessionEstablishment::class)]
 final class SessionEstablishmentTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithProofs, InteractsWithSessions;
 
     /** @var list<array<string, string>> The windows of the slots a sign-in took, as a limiter records them. */
     private const array WINDOWS = [['ip' => '1:60'], ['identifier' => '1:60']];
@@ -545,6 +548,47 @@ final class SessionEstablishmentTest extends TestCase
         self::assertInstanceOf(Refused::class, $again);
         self::assertSame(FailureReason::PENDING_INVALID, $again->reason);
         self::assertSame(self::WINDOWS, self::released($limiter));
+    }
+
+    /**
+     * A completion with a further factor made for the pending sign-in records
+     * it beside the first factor; one made before the first factor it adds to
+     * is refused as `proof_invalid`, and the pending sign-in is used up.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACompletionTakesAFurtherFactorMadeForItsSignIn(): void
+    {
+        $identity     = $this->seedIdentity();
+        $guard        = $this->freshGuard();
+        $establishing = $this->establishment($guard);
+
+        self::requireAFurtherFactor(true);
+
+        $begin = fn (): FoundPendingSignIn => $this->found($guard, (string) self::outcome($establishing->proceed(
+            self::admitted($identity),
+            'password',
+            'email',
+            $this->context(),
+            SignInProof::unattested('password', CarbonImmutable::now()),
+        ))->pending?->token);
+
+        $found  = $begin();
+        $proof  = self::adapterProof($identity, $guard->getName(), $found->pending->getKey(), Purpose::SIGN_IN);
+        $result = $establishing->complete($found, $this->context(), CarbonImmutable::now(), $proof);
+
+        self::assertInstanceOf(SignInResult::class, $result);
+        self::assertNotNull($result->session);
+        self::assertSame(['first_factor', 'additional_factor'], SessionProof::query()->where('session_id', IdentifierCoercion::stringify($result->session->record->getKey()))->orderBy('kind', 'desc')->pluck('kind')->all());
+
+        $early   = $begin();
+        $refused = $establishing->complete($early, $this->context(), CarbonImmutable::now(), self::adapterProof($identity, $guard->getName(), $early->pending->getKey(), Purpose::SIGN_IN, at: CarbonImmutable::now()->subSecond()));
+
+        self::assertInstanceOf(Refused::class, $refused);
+        self::assertSame(FailureReason::PROOF_INVALID, $refused->reason);
+        self::assertSame(0, PendingSignIn::query()->count());
     }
 
     /**

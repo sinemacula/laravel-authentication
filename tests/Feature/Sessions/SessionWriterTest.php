@@ -11,9 +11,11 @@ use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Ramsey\Uuid\Uuid;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -753,6 +755,53 @@ final class SessionWriterTest extends TestCase
         self::assertTrue(Str::isUuid($stored[0]) && Str::isUuid($stored[1]));
         self::assertNotSame($stored[0], $stored[1]);
         self::assertSame($stored, [$first->record->getAttribute('generation'), $second->record->getAttribute('generation')]);
+    }
+
+    /**
+     * A session written under a key an earlier session left proofs and a
+     * provenance under, bound to the same owner and guard, counts only its own
+     * sign-in's: what the earlier one left is deleted before its first factor
+     * is recorded.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionUnderAReusedKeyKeepsOnlyItsOwnProofs(): void
+    {
+        $identity = $this->seedIdentity();
+        $key      = Uuid::uuid7();
+        $left     = (string) Str::uuid7();
+
+        DB::table('authentication_proofs')->insert([
+            'id'                   => $left,
+            'session_id'           => $key->toString(),
+            'kind'                 => 'additional_factor',
+            'purpose'              => 'step_up',
+            'method'               => 'totp',
+            'channel_kind'         => 'authenticator_app',
+            'methods'              => '["otp"]',
+            'accepted'             => true,
+            'multifactor'          => true,
+            'authenticatable_type' => $identity->getMorphClass(),
+            'authenticatable_id'   => IdentifierCoercion::stringify($identity->getKey()),
+            'guard'                => 'api',
+            'authenticated_at'     => $this->now->subMinute(),
+        ]);
+        DB::table('authentication_provenance')->insert(['session_id' => $key->toString(), 'connection_id' => 'connection-7']);
+
+        Str::createUuidsUsingSequence([$key, $key]);
+
+        try {
+            $session = $this->writer()->create($this->admitted($identity), 'email', $this->context(), $this->lifetimes(), $this->now, $this->context()->client, SignInProof::unattested('password', $this->now));
+        } finally {
+            Str::createUuidsNormally();
+        }
+
+        self::assertSame($key->toString(), IdentifierCoercion::stringify($session->record->getKey()));
+        self::assertSame(['first_factor'], DB::table('authentication_proofs')->where('session_id', $key->toString())->pluck('kind')->all());
+        self::assertFalse(DB::table('authentication_proofs')->where('id', $left)->exists());
+        self::assertFalse(DB::table('authentication_provenance')->where('session_id', $key->toString())->exists());
     }
 
     /**
