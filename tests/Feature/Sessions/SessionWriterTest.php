@@ -790,10 +790,13 @@ final class SessionWriterTest extends TestCase
         ]);
         DB::table('authentication_provenance')->insert(['session_id' => $key->toString(), 'connection_id' => 'connection-7']);
 
+        $context = $this->context();
+        $proof   = SignInProof::unattested('password', $this->now);
+
         Str::createUuidsUsingSequence([$key, $key]);
 
         try {
-            $session = $this->writer()->create($this->admitted($identity), 'email', $this->context(), $this->lifetimes(), $this->now, $this->context()->client, SignInProof::unattested('password', $this->now));
+            $session = $this->writer()->create($this->admitted($identity), 'email', $context, $this->lifetimes(), $this->now, $context->client, $proof);
         } finally {
             Str::createUuidsNormally();
         }

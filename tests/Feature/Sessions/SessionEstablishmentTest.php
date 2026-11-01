@@ -581,10 +581,13 @@ final class SessionEstablishmentTest extends TestCase
 
         self::assertInstanceOf(SignInResult::class, $result);
         self::assertNotNull($result->session);
-        self::assertSame(['first_factor', 'additional_factor'], SessionProof::query()->where('session_id', IdentifierCoercion::stringify($result->session->record->getKey()))->orderBy('kind', 'desc')->pluck('kind')->all());
+        $sessionId = IdentifierCoercion::stringify($result->session->record->getKey());
+
+        self::assertSame(['first_factor', 'additional_factor'], SessionProof::query()->where('session_id', $sessionId)->orderBy('kind', 'desc')->pluck('kind')->all());
 
         $early   = $begin();
-        $refused = $establishing->complete($early, $this->context(), CarbonImmutable::now(), self::adapterProof($identity, $guard->getName(), $early->pending->getKey(), Purpose::SIGN_IN, at: CarbonImmutable::now()->subSecond()));
+        $before  = self::adapterProof($identity, $guard->getName(), $early->pending->getKey(), Purpose::SIGN_IN, at: CarbonImmutable::now()->subSecond());
+        $refused = $establishing->complete($early, $this->context(), CarbonImmutable::now(), $before);
 
         self::assertInstanceOf(Refused::class, $refused);
         self::assertSame(FailureReason::PROOF_INVALID, $refused->reason);

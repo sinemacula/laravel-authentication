@@ -577,9 +577,11 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
      */
     public function testConstructorRejectsAnEmptyIssuerOrAudience(): void
     {
+        $lifetimes = new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30);
+
         foreach ([['', self::AUDIENCE], [self::ISSUER, '']] as [$issuer, $audience]) {
             try {
-                new JwtTokenService($this->makeKeyring(), self::GUARD, new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30), 30, $issuer, $audience);
+                new JwtTokenService($this->makeKeyring(), self::GUARD, $lifetimes, 30, $issuer, $audience);
 
                 self::fail('Expected the service to need an issuer and an audience.');
             } catch (\InvalidArgumentException $exception) {

@@ -153,10 +153,14 @@ final class SignInProofTest extends TestCase
         $kept       = self::kept(SignInProof::verified('email_code', $factor, $at), $provenance);
 
         self::assertSame(['email_code', ChannelKind::EMAIL, 'ada@example.test', ['otp']], [$kept->method, $kept->channel->kind, $kept->channel->reference, $kept->methods]);
-        self::assertSame(
-            [true, false, false, true, true, KeyProtection::SOFTWARE],
-            [$kept->observed->userPresence, $kept->observed->userVerification, $kept->observed->backupEligible, $kept->observed->backupState, $kept->observed->phishingResistant, $kept->observed->keyProtection],
-        );
+        self::assertSame([true, false, false, true, true, KeyProtection::SOFTWARE], [
+            $kept->observed->userPresence,
+            $kept->observed->userVerification,
+            $kept->observed->backupEligible,
+            $kept->observed->backupState,
+            $kept->observed->phishingResistant,
+            $kept->observed->keyProtection,
+        ]);
         self::assertSame($at->getTimestamp(), $kept->authenticatedAt->getTimestamp());
         self::assertSame(date_default_timezone_get(), $kept->authenticatedAt->getTimezone()->getName());
         self::assertNotNull($kept->provenance);

@@ -48,8 +48,8 @@ final class AuthenticationMethodsTest extends TestCase
     }
 
     /**
-     * A list of at most eight values of 1 to 48 printable ASCII characters, none
-     * of them `mfa`, is kept whole and in order.
+     * A list of at most eight values of 1 to 48 printable ASCII characters,
+     * none of them `mfa`, is kept whole and in order.
      *
      * @param  list<string>  $methods
      * @return void

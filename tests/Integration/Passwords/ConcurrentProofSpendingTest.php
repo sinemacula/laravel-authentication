@@ -369,8 +369,8 @@ final class ConcurrentProofSpendingTest extends TestCase
      * A revocation of every session made while a request proven by one of them
      * is held once its check found the session fresh and it counted its first
      * `identifier_change` slot, before its transaction, is found under the
-     * lock: reauthentication is required, nothing is written, and the slots
-     * are given back. Held at the session's first read instead, the check's
+     * lock: reauthentication is required, nothing is written, and the slots are
+     * given back. Held at the session's first read instead, the check's
      * freshness read would already find the session revoked, and nothing would
      * be counted or locked.
      *
