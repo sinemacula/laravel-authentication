@@ -31,7 +31,8 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * Each runs in one transaction on the session's connection. The session is
  * written first (after the revocation of the session it replaces), then the
  * sign-in's proofs (the first factor, and the further factor a completion was
- * given), then its provenance when an external provider established it, and the
+ * given), then its provenance when an external provider established it, each
+ * after deleting what an earlier session holding the same key left, and the
  * tokens are issued after them, inside the transaction, so a cancelled insert
  * or any failure while issuing (signing, randomness, an identifier that cannot
  * be read) rolls every write back: no session is left without a client that
@@ -348,7 +349,9 @@ final readonly class SessionWriter
     /**
      * Record the sign-in's proofs on the new session: its first factor, the
      * further factor a completion was given, if any, and the provenance of a
-     * session an external provider established.
+     * session an external provider established. Whatever an earlier session
+     * whose key the new one reuses left under it is deleted first, so the new
+     * session counts only its own sign-in's proofs.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
@@ -359,6 +362,7 @@ final readonly class SessionWriter
      */
     private function record(EloquentSession&Model $session, SignInProof $proof): void
     {
+        ProofWriter::clear($session);
         ProofWriter::record($session, $this->guard, $proof->firstFactor());
 
         if ($proof->additional !== null) {

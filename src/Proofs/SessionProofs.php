@@ -103,8 +103,11 @@ final class SessionProofs
     /**
      * The query for the session's counting proofs, on the write PDO: those
      * bound to the session as it is now, its key, its guard and its owner, as
-     * `ProofWriter` binds them, so a proof left behind by an earlier session
-     * whose key a later one reuses never counts for it.
+     * `ProofWriter` binds them, so another identity's or application's proof
+     * under the same key never counts for it. A sign-in deletes what an earlier
+     * session whose key it reuses left under it before recording its own
+     * (`ProofWriter::clear()`), so the same identity's proofs from that earlier
+     * session never count either.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return \Illuminate\Database\Eloquent\Builder<\SineMacula\Laravel\Authentication\Models\SessionProof>

@@ -39,7 +39,10 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * even on a model that soft-deletes, as Laravel's mass pruning force-deletes (a
  * soft-deleted session would never be selected again, and its IP address and
  * user agent would be kept for good). A session deleted any other way leaves
- * its proofs and provenance behind.
+ * its proofs and provenance behind, so whatever deletes sessions otherwise (a
+ * truncation included) should delete the rows recorded under their keys too;
+ * a sign-in whose new session reuses such a key deletes them before recording
+ * its own, so they never count for it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

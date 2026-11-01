@@ -14,7 +14,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * Records proofs and provenance on a session, in the caller's transaction on
- * the storage connection, where the session itself is written.
+ * the storage connection, where the session itself is written, and clears what
+ * an earlier session left under a new session's key.
  *
  * A proof's binding is the session it is recorded on: its owner (the identity),
  * its guard (the application) and its key; the purpose is the proof's own.
@@ -103,6 +104,26 @@ final class ProofWriter
         ]);
 
         self::insert($row);
+    }
+
+    /**
+     * Delete every proof and provenance recorded under the new session's key,
+     * before it records its own. A key the database issues again (an integer
+     * key whose counter a truncation reset) would otherwise inherit what an
+     * earlier session holding it left behind, which is bound to the same owner
+     * and guard when the same identity signs in again.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @return void
+     *
+     * @throws \LogicException
+     */
+    public static function clear(EloquentSession&Model $session): void
+    {
+        $sessionId = self::sessionId($session);
+
+        (new SessionProof)->newQuery()->where('session_id', $sessionId)->delete();
+        (new SessionProvenance)->newQuery()->where('session_id', $sessionId)->delete();
     }
 
     /**

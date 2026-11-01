@@ -117,17 +117,24 @@ trait InteractsWithSessionRecords
      * Create a session table with every column of the shipped migration. The
      * owner and both deadlines are nullable, unlike the shipped table, so tests
      * can store a session without an owner or deadlines. The table is created
-     * on the given connection, or the default one.
+     * on the given connection, or the default one, keyed by a UUID or, when
+     * `$incrementing`, by an integer the database issues.
      *
      * @param  string  $table
      * @param  string  $key
      * @param  ?string  $connection
+     * @param  bool  $incrementing
      * @return void
      */
-    protected static function createSessionRecordTable(string $table, string $key = 'id', ?string $connection = null): void
+    protected static function createSessionRecordTable(string $table, string $key = 'id', ?string $connection = null, bool $incrementing = false): void
     {
-        Schema::connection($connection)->create($table, static function (Blueprint $blueprint) use ($key): void {
-            $blueprint->uuid($key)->primary();
+        Schema::connection($connection)->create($table, static function (Blueprint $blueprint) use ($key, $incrementing): void {
+            if ($incrementing) {
+                $blueprint->increments($key);
+            } else {
+                $blueprint->uuid($key)->primary();
+            }
+
             $blueprint->string('authenticatable_type')->nullable();
             $blueprint->string('authenticatable_id')->nullable();
             $blueprint->string('principal_type')->nullable();

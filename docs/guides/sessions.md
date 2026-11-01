@@ -31,10 +31,12 @@ by tenant, so the sessions of a connection, or of a tenant's connections, are fo
 
 Proofs and provenance belong to the session's key, so they carry unchanged from a pending sign-in to its session, and
 across every refresh and switch of principal. A sign-in that replaces a session the client proved it holds is a new
-session with its own proofs; the replaced session keeps its own. `auth_time` and `amr` are derived from the proofs when
-an access token is issued, never stored in their place. Every read of them is from the write connection, so a lagging
-replica cannot hide a proof just written. They hold personal data (a code's destination), are hidden from a model's
-serialised form, and are pruned with their session (see [Pruning](operations.md#pruning)).
+session with its own proofs; the replaced session keeps its own. A new session counts only its own sign-in's: anything
+recorded under its key before (by an earlier session whose key the database issued again) is deleted as it records them.
+`auth_time` and `amr` are derived from the proofs when an access token is issued, never stored in their place. Every
+read of them is from the write connection, so a lagging replica cannot hide a proof just written. They hold personal
+data (a code's destination), are hidden from a model's serialised form, and are pruned with their session (see
+[Pruning](operations.md#pruning)).
 
 ## Stepping up
 

@@ -20,8 +20,10 @@ the token's claims and every freshness answer are worked out from them, never st
   sign-in to its session and across every refresh and switch of principal; a sign-in that replaces a session starts a
   new session with its own.
 - Every read of proofs is of the session's own: those recorded under its key and bound to its guard and its owner (the
-  morph type and key the session records), so a proof left behind by an earlier session whose key a later one reuses,
-  after the sessions were deleted without their proofs, never counts for it.
+  morph type and key the session records), so another identity's or application's proof under the same key never
+  counts for it. A sign-in deletes every proof and provenance recorded under its new session's key before it records
+  its own (`ProofWriter::clear()`), so a key the database issues again (an integer key whose counter a truncation
+  reset, after the sessions were deleted without their proofs) inherits nothing, the same identity's proofs included.
 - Every read of proofs is on the write connection and bounded: the claims read one aggregate query grouped by kind,
   `amr` set and multifactor report (`SessionProofs::history()`), and freshness reads the newest proof a requirement
   takes with `LIMIT 1` on the session, kind and time index (`SessionProofs::newestMeeting()`), so a session with many
