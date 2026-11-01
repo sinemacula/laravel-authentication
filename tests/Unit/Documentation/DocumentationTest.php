@@ -38,7 +38,7 @@ use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome
 final class DocumentationTest extends TestCase
 {
     /** @var list<string> Configuration maps whose keys are data the application names (kids, identifier types), documented as the map. */
-    private const array DATA_MAPS = ['jwt.keys', 'identifiers.normalisers'];
+    private const array DATA_MAPS = ['jwt.keys', 'identifiers.normalizers'];
 
     /** @var ?string The README and the guides, read once. */
     private static ?string $documentation = null;

@@ -75,7 +75,7 @@ final class IdentifierChangeTest extends TestCase
      *
      * @return void
      */
-    public function testKeepsTheIdentifiersOutOfSerialisation(): void
+    public function testKeepsTheIdentifiersOutOfSerialization(): void
     {
         self::insertChange('a', '2026-04-06 13:00:00');
 

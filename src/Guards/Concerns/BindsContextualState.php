@@ -106,7 +106,7 @@ trait BindsContextualState
      * credential (through the trusted `login()`, `setUser()` or
      * `authenticateAs()`) gets `[]`: a machine is always limited. The package
      * carries scopes and never interprets them; they are a ceiling the
-     * application's authorization intersects with the principal's permissions.
+     * application's authorisation intersects with the principal's permissions.
      *
      * @return ?list<string>
      *

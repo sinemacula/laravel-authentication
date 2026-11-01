@@ -24,7 +24,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch;
  *
  * @internal
  */
-final class RefreshJudgement
+final class RefreshJudgment
 {
     /**
      * Disallow instantiation; utility container only.

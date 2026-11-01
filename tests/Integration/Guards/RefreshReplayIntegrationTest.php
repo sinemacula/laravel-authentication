@@ -349,7 +349,7 @@ final class RefreshReplayIntegrationTest extends TestCase
      * commits between this refresh's read and its swap is handled as the engine
      * allows: MySQL's locking re-read sees the committed rotation, so this
      * refresh is a grace retry; PostgreSQL refuses the swap with a
-     * serialization failure, which propagates as a server error for the caller
+     * serialisation failure, which propagates as a server error for the caller
      * to retry, and nothing is revoked.
      *
      * @return void

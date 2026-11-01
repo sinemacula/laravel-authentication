@@ -95,7 +95,7 @@ final class RefreshTokenExchangeBench
     }
 
     /**
-     * Lazily initialize the shared harness.
+     * Lazily initialise the shared harness.
      *
      * @return \Benchmarks\Support\RefreshTokenExchangeBenchHarness
      *

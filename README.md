@@ -50,7 +50,7 @@ are caught on the server.
 - **Events** for every sign-in, refresh, revocation and failure, with one shared context and never a secret.
 - **Localisable messages**: the `401` and `429` messages translate through your `lang/{locale}.json`, and every other
   answer is a code your application words.
-- **Extension points** for MFA, authorization, SSO and audit packages, each with a default that works without them.
+- **Extension points** for MFA, authorisation, SSO and audit packages, each with a default that works without them.
 
 ## Installation
 
@@ -163,7 +163,7 @@ Route::middleware('auth:api')->get('/me', fn () => Auth::identity());
 | [Configuration](docs/guides/configuration.md)             | Every configuration key                                                  |
 | [Operations](docs/guides/operations.md)                   | Read replicas, Octane, key rotation, pruning and the configuration check |
 | [Testing](docs/guides/testing.md)                         | Acting as an identity in your tests, context assertions and fakes        |
-| [Extending](docs/guides/extending.md)                     | Extension points and the MFA, authorization, SSO and audit seams         |
+| [Extending](docs/guides/extending.md)                     | Extension points and the MFA, authorisation, SSO and audit seams         |
 
 The security and lifecycle contracts behind them, for maintainers and reviewers, are in
 [docs/design](docs/design/README.md).

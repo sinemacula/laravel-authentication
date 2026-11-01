@@ -77,7 +77,7 @@ final class BenchDatabase
         self::boot();
 
         if (self::$capsule === null) {
-            throw new \LogicException('Benchmark database capsule was not initialized.');
+            throw new \LogicException('Benchmark database capsule was not initialised.');
         }
 
         return self::$capsule;

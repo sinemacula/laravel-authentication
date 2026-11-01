@@ -57,7 +57,7 @@ final class ProvidesTokensValidAfterTest extends TestCase
      *
      * @return void
      */
-    public function testHonoursARenamedColumn(): void
+    public function testHonorsARenamedColumn(): void
     {
         $model = new class extends StubCutoffModel {
             /**

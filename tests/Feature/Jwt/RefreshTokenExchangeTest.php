@@ -1070,7 +1070,7 @@ final class RefreshTokenExchangeTest extends TestCase
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testOnlyTheImmediatelyPreviousRotationIdIsHonoured(): void
+    public function testOnlyTheImmediatelyPreviousRotationIdIsHonored(): void
     {
         $first  = self::ROTATION_ID;
         $device = $this->seedDevice(35, ['refresh_key' => RefreshTokenHasher::hash($first)]);

@@ -44,7 +44,7 @@ final class ActsAsTenantTest extends TestCase
      *
      * @return void
      */
-    public function testGetTenantIdentifierHonoursAttributeNameOverride(): void
+    public function testGetTenantIdentifierHonorsAttributeNameOverride(): void
     {
         $tenant = new StubTenantWithCustomIdentifier;
         $tenant->setRawAttributes(['tenant_uuid' => 'tenant-from-override']);
@@ -58,7 +58,7 @@ final class ActsAsTenantTest extends TestCase
      *
      * @return void
      */
-    public function testGetTenantIdentifierHonoursAnOverrideBuiltOnTheDefault(): void
+    public function testGetTenantIdentifierHonorsAnOverrideBuiltOnTheDefault(): void
     {
         $tenant = new StubTenantWithPrefixedIdentifier;
         $tenant->setRawAttributes(['id' => 1, 'tenant_id' => 'tenant-from-prefixed-column']);

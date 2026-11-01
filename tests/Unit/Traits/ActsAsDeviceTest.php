@@ -368,10 +368,10 @@ final class ActsAsDeviceTest extends TestCase
      *
      * @throws \Illuminate\Database\Eloquent\JsonEncodingException
      */
-    public function testBothDigestsAreHiddenFromSerialisation(): void
+    public function testBothDigestsAreHiddenFromSerialization(): void
     {
         $device = new class extends StubUncastDevice {
-            /** @var list<string> The attributes that should be hidden for serialization. */
+            /** @var list<string> The attributes that should be hidden for serialisation. */
             protected $hidden = ['created_ip'];
         };
 
@@ -392,7 +392,7 @@ final class ActsAsDeviceTest extends TestCase
      *
      * @return void
      */
-    public function testRenamedDigestColumnsAreHiddenFromSerialisation(): void
+    public function testRenamedDigestColumnsAreHiddenFromSerialization(): void
     {
         $device = new class extends StubUncastDevice {
             /**

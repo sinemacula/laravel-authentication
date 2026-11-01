@@ -35,7 +35,7 @@ final class JwtTokenServiceFactory
     /** @var int Largest accepted clock-skew leeway, in seconds. */
     private const int MAX_LEEWAY_SECONDS = 300;
 
-    /** @var array<string, \SineMacula\Laravel\Authentication\Jwt\JwtTokenService> Memoized services keyed by guard name. */
+    /** @var array<string, \SineMacula\Laravel\Authentication\Jwt\JwtTokenService> Memoised services keyed by guard name. */
     private array $resolved = [];
 
     /**

@@ -126,7 +126,7 @@ final class JwtGuardBench
     }
 
     /**
-     * Lazily initialize the shared harness.
+     * Lazily initialise the shared harness.
      *
      * @return \Benchmarks\Support\JwtGuardBenchHarness
      *

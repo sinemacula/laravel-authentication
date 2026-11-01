@@ -8,10 +8,10 @@ use Illuminate\Database\Eloquent\Casts\AsStringable;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
-use SineMacula\Laravel\Authentication\Casts\NormalisedIdentifier;
-use Tests\Integration\Fixtures\NormalisedEmailIdentity;
+use SineMacula\Laravel\Authentication\Casts\NormalizedIdentifier;
+use Tests\Integration\Fixtures\NormalizedEmailIdentity;
 use Tests\TestCase;
-use Tests\Unit\Stubs\StubReversingNormaliser;
+use Tests\Unit\Stubs\StubReversingNormalizer;
 
 /**
  * Feature tests for the cast that designates an identity attribute as an
@@ -22,8 +22,8 @@ use Tests\Unit\Stubs\StubReversingNormaliser;
  *
  * @internal
  */
-#[CoversClass(NormalisedIdentifier::class)]
-final class NormalisedIdentifierTest extends TestCase
+#[CoversClass(NormalizedIdentifier::class)]
+final class NormalizedIdentifierTest extends TestCase
 {
     /**
      * `using()` builds the declaration Eloquent instantiates the cast from, and
@@ -33,12 +33,12 @@ final class NormalisedIdentifierTest extends TestCase
      */
     public function testUsingBuildsTheCastDeclaration(): void
     {
-        self::assertSame(NormalisedIdentifier::class . ':email', NormalisedIdentifier::using('email'));
+        self::assertSame(NormalizedIdentifier::class . ':email', NormalizedIdentifier::using('email'));
 
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Identifier type [E-mail] must be a lower-case letter');
 
-        NormalisedIdentifier::using('E-mail');
+        NormalizedIdentifier::using('E-mail');
     }
 
     /**
@@ -47,15 +47,15 @@ final class NormalisedIdentifierTest extends TestCase
      *
      * @return void
      */
-    public function testFromDeclarationRecognisesOnlyIdentifierCasts(): void
+    public function testFromDeclarationRecognizesOnlyIdentifierCasts(): void
     {
-        self::assertSame('phone', NormalisedIdentifier::fromDeclaration(NormalisedIdentifier::using('phone'))?->type);
-        self::assertNull(NormalisedIdentifier::fromDeclaration(NormalisedIdentifier::class));
-        self::assertNull(NormalisedIdentifier::fromDeclaration('string'));
-        self::assertNull(NormalisedIdentifier::fromDeclaration(AsStringable::class));
-        self::assertNull(NormalisedIdentifier::fromDeclaration(null));
-        self::assertNull(NormalisedIdentifier::fromDeclaration(['email']));
-        self::assertNull(NormalisedIdentifier::fromDeclaration('x' . NormalisedIdentifier::using('email')));
+        self::assertSame('phone', NormalizedIdentifier::fromDeclaration(NormalizedIdentifier::using('phone'))?->type);
+        self::assertNull(NormalizedIdentifier::fromDeclaration(NormalizedIdentifier::class));
+        self::assertNull(NormalizedIdentifier::fromDeclaration('string'));
+        self::assertNull(NormalizedIdentifier::fromDeclaration(AsStringable::class));
+        self::assertNull(NormalizedIdentifier::fromDeclaration(null));
+        self::assertNull(NormalizedIdentifier::fromDeclaration(['email']));
+        self::assertNull(NormalizedIdentifier::fromDeclaration('x' . NormalizedIdentifier::using('email')));
     }
 
     /**
@@ -69,7 +69,7 @@ final class NormalisedIdentifierTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Identifier type [] must be a lower-case letter');
 
-        NormalisedIdentifier::fromDeclaration(NormalisedIdentifier::class . ':');
+        NormalizedIdentifier::fromDeclaration(NormalizedIdentifier::class . ':');
     }
 
     /**
@@ -80,13 +80,13 @@ final class NormalisedIdentifierTest extends TestCase
      */
     public function testSettingStoresTheNormalForm(): void
     {
-        $identity        = new NormalisedEmailIdentity;
+        $identity        = new NormalizedEmailIdentity;
         $identity->email = '  Ben@Example.COM ';
 
         self::assertSame('ben@example.com', $identity->email);
         self::assertSame('ben@example.com', $identity->getAttributes()['email']);
 
-        $filled = new NormalisedEmailIdentity(['email' => Str::of('ADA@Example.org')]);
+        $filled = new NormalizedEmailIdentity(['email' => Str::of('ADA@Example.org')]);
 
         self::assertSame('ada@example.org', $filled->getAttributes()['email']);
 
@@ -103,7 +103,7 @@ final class NormalisedIdentifierTest extends TestCase
      */
     public function testReadingReturnsTheStoredValue(): void
     {
-        $identity = (new NormalisedEmailIdentity)->newFromBuilder(['email' => 'Legacy@Example.COM']);
+        $identity = (new NormalizedEmailIdentity)->newFromBuilder(['email' => 'Legacy@Example.COM']);
 
         self::assertSame('Legacy@Example.COM', $identity->email);
     }
@@ -133,10 +133,10 @@ final class NormalisedIdentifierTest extends TestCase
     #[DataProvider('provideRefusedValues')]
     public function testRefusesValuesThatCannotBeAnIdentifier(mixed $value): void
     {
-        $identity = new NormalisedEmailIdentity;
+        $identity = new NormalizedEmailIdentity;
 
         $this->assertRefused(
-            'Cannot set `email` on ' . NormalisedEmailIdentity::class . ': the value is not a valid `email` identifier.',
+            'Cannot set `email` on ' . NormalizedEmailIdentity::class . ': the value is not a valid `email` identifier.',
             static fn (): mixed => $identity->setAttribute('email', $value),
         );
 
@@ -148,11 +148,11 @@ final class NormalisedIdentifierTest extends TestCase
      *
      * @return void
      */
-    public function testNormalisesWithTheRegisteredNormaliser(): void
+    public function testNormalizesWithTheRegisteredNormalizer(): void
     {
-        config()->set('authentication.identifiers.normalisers.email', StubReversingNormaliser::class);
+        config()->set('authentication.identifiers.normalizers.email', StubReversingNormalizer::class);
 
-        self::assertSame('moc.elpmaxe@neb', (new NormalisedIdentifier('email'))->normalise('ben@example.com'));
+        self::assertSame('moc.elpmaxe@neb', (new NormalizedIdentifier('email'))->normalize('ben@example.com'));
     }
 
     /**

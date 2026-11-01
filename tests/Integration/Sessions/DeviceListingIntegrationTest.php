@@ -142,7 +142,7 @@ final class DeviceListingIntegrationTest extends TestCase
      *
      * @return void
      */
-    public function testSummarisesTheRow(): void
+    public function testSummarizesTheRow(): void
     {
         $identity = $this->seedIdentity();
         $now      = Carbon::parse(self::NOW);

@@ -354,7 +354,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testReplacedRefreshTokenIsHonouredInsideTheGraceWindowOnly(): void
+    public function testReplacedRefreshTokenIsHonoredInsideTheGraceWindowOnly(): void
     {
         $plainRotationId = 'stored-rotation-id';
 

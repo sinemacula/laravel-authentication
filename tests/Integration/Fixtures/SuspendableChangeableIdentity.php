@@ -5,7 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Integration\Fixtures;
 
 use Illuminate\Database\Eloquent\Model;
-use SineMacula\Laravel\Authentication\Casts\NormalisedIdentifier;
+use SineMacula\Laravel\Authentication\Casts\NormalizedIdentifier;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
@@ -49,9 +49,9 @@ final class SuspendableChangeableIdentity extends Model implements CanBeActive, 
     protected function casts(): array
     {
         return [
-            'email'             => NormalisedIdentifier::using('email'),
+            'email'             => NormalizedIdentifier::using('email'),
             'email_verified_at' => 'datetime',
-            'phone'             => NormalisedIdentifier::using('phone'),
+            'phone'             => NormalizedIdentifier::using('phone'),
             'phone_verified_at' => 'datetime',
             'is_active'         => 'boolean',
         ];

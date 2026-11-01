@@ -7,7 +7,7 @@ namespace SineMacula\Laravel\Authentication\Casts;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
 use Illuminate\Database\Eloquent\Model;
-use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
+use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 
 /**
@@ -18,7 +18,7 @@ use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
  *
  *     protected function casts(): array
  *     {
- *         return ['email' => NormalisedIdentifier::using('email')];
+ *         return ['email' => NormalizedIdentifier::using('email')];
  *     }
  *
  * Setting the attribute stores the value as the type's normaliser returns it
@@ -33,7 +33,7 @@ use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
  *
  * @implements \Illuminate\Contracts\Database\Eloquent\CastsAttributes<mixed, ?string>
  */
-final readonly class NormalisedIdentifier implements CastsAttributes
+final readonly class NormalizedIdentifier implements CastsAttributes
 {
     /**
      * Constructor.
@@ -117,13 +117,13 @@ final readonly class NormalisedIdentifier implements CastsAttributes
             return null;
         }
 
-        $normalised = is_string($value) || $value instanceof \Stringable ? $this->normalise((string) $value) : null;
+        $normalized = is_string($value) || $value instanceof \Stringable ? $this->normalize((string) $value) : null;
 
-        if ($normalised === null) {
+        if ($normalized === null) {
             throw new \InvalidArgumentException(sprintf('Cannot set `%s` on %s: the value is not a valid `%s` identifier.', $key, $model::class, $this->type));
         }
 
-        return $normalised;
+        return $normalized;
     }
 
     /**
@@ -136,8 +136,8 @@ final readonly class NormalisedIdentifier implements CastsAttributes
      * @throws \InvalidArgumentException
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function normalise(#[\SensitiveParameter] string $identifier): ?string
+    public function normalize(#[\SensitiveParameter] string $identifier): ?string
     {
-        return Container::getInstance()->make(IdentifierNormalisers::class)->get($this->type)->normalise($identifier);
+        return Container::getInstance()->make(IdentifierNormalizers::class)->get($this->type)->normalize($identifier);
     }
 }

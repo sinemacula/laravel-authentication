@@ -89,7 +89,7 @@ final class JwtGuardRequestsTest extends TestCase
 
         Route::middleware('auth:api')->get('/protected', static fn (): array => ['identity' => Auth::guard('api')->id()]);
 
-        Route::middleware([SetLocaleFromRequest::class, 'auth:api'])->get('/localised', static fn (): array => ['identity' => Auth::guard('api')->id()]);
+        Route::middleware([SetLocaleFromRequest::class, 'auth:api'])->get('/localized', static fn (): array => ['identity' => Auth::guard('api')->id()]);
 
         Route::middleware([BindRequestTranslator::class, 'auth:api'])->get('/rebound', static fn (): array => ['identity' => Auth::guard('api')->id()]);
 
@@ -236,9 +236,9 @@ final class JwtGuardRequestsTest extends TestCase
      */
     public function testEachGuestIsRefusedInItsOwnRequestsLocale(): void
     {
-        $this->serve(self::octaneRequest('GET', '/localised', ['locale' => 'fr']))->assertUnauthorized()->assertExactJson(['message' => 'Non authentifié.']);
-        $this->serve(self::octaneRequest('GET', '/localised', ['locale' => 'de']))->assertUnauthorized()->assertExactJson(['message' => 'Unauthenticated.']);
-        $this->serve(self::octaneRequest('GET', '/localised', ['locale' => 'fr']))->assertUnauthorized()->assertExactJson(['message' => 'Non authentifié.']);
+        $this->serve(self::octaneRequest('GET', '/localized', ['locale' => 'fr']))->assertUnauthorized()->assertExactJson(['message' => 'Non authentifié.']);
+        $this->serve(self::octaneRequest('GET', '/localized', ['locale' => 'de']))->assertUnauthorized()->assertExactJson(['message' => 'Unauthenticated.']);
+        $this->serve(self::octaneRequest('GET', '/localized', ['locale' => 'fr']))->assertUnauthorized()->assertExactJson(['message' => 'Non authentifié.']);
     }
 
     /**

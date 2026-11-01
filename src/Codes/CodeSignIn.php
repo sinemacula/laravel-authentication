@@ -10,7 +10,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
+use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
@@ -65,7 +65,7 @@ final readonly class CodeSignIn implements SignInMethod
      *
      * @param  string  $type
      * @param  \SineMacula\Laravel\Authentication\Codes\OneTimeCodes  $codes
-     * @param  \SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers  $normalisers
+     * @param  \SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers  $normalizers
      * @param  \SineMacula\Laravel\Authentication\Verification\IdentifierVerifier  $verifier
      *
      * @throws \InvalidArgumentException
@@ -79,7 +79,7 @@ final readonly class CodeSignIn implements SignInMethod
         private OneTimeCodes $codes,
 
         /** Normalisers that give identifiers their normal form. */
-        private IdentifierNormalisers $normalisers,
+        private IdentifierNormalizers $normalizers,
 
         /** Gives an identity's own identifier its canonical form, to compare with the bound one. */
         private IdentifierVerifier $verifier,
@@ -159,7 +159,7 @@ final readonly class CodeSignIn implements SignInMethod
     public function binding(string $guard, #[\SensitiveParameter] array $input): ?CodeBinding
     {
         $given      = $this->identifier($guard, $input);
-        $identifier = $given === null ? null : $this->normalisers->get($this->type)->normalise($given);
+        $identifier = $given === null ? null : $this->normalizers->get($this->type)->normalize($given);
 
         return $identifier === null ? null : CodeBinding::signIn($guard, $this->type, $identifier);
     }

@@ -153,7 +153,7 @@ criterion, and the signing-in guide's "Enumeration resistance" table lists every
   `src/Codes/SendOneTimeCode.php`, `src/Runtime/JwtGuardContexts.php` (how the job finds its guard's context),
   `src/Codes/CodeIdentifiers.php` (an identity's own identifier, and whether it holds the bound one).
 - `src/Contracts/OneTimeCodeSender.php`, `src/Codes/OneTimeCodeMessage.php`, `src/Testing/FakeOneTimeCodeSender.php`.
-- `src/Identifiers/E164PhoneNormaliser.php`, `src/Models/OneTimeCode.php`,
+- `src/Identifiers/E164PhoneNormalizer.php`, `src/Models/OneTimeCode.php`,
   `database/migrations/2026_04_06_000003_create_one_time_codes_table.php`.
 - `src/Console/CheckConfigurationCommand.php` (`[codes]` checks and the `sync` and `failover` warnings).
 

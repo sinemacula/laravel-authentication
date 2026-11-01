@@ -27,7 +27,7 @@ to these events, so the shape and the timing are a contract.
   device snapshot when no device row was loaded. The morph class says which model a reference names, never what kind of
   principal it is: a caller's category is the application's to record, from the principal it is given.
 - An event about a device row itself is built with `fromDevice`: every `DeviceRevoked`, and a refresh or switch refused
-  on the row's own state before its owner was read (a `RefreshJudgement` verdict, `identity_unknown`, a row that changed
+  on the row's own state before its owner was read (a `RefreshJudgment` verdict, `identity_unknown`, a row that changed
   under the compare-and-swap). An identity or principal it does not hold then takes the snapshot of the owner (its morph
   class and identifier) and the principal the row records, read from its attributes without a query; devices record no
   tenant. Every other event keeps the snapshots of what it holds, even when it carries a device: an identity's
@@ -151,7 +151,7 @@ to these events, so the shape and the timing are a contract.
 - `tests/Unit/Events/EventContextTest.php`
   `testRecordsWhenItWasBuilt`, `testSnapshotsEveryReferenceAsAString`, `testRecordsEloquentModelsByTheirMorphClass`,
   `testSnapshotsDoNotFollowLaterChanges`, `testKeepsANamedDeviceIdWithoutADevice`,
-  `testKeepsTheCredentialAndItsScopes`, `testToArrayIsTheSnapshotAsScalars`, `testSurvivesASerialiseRoundTrip`,
+  `testKeepsTheCredentialAndItsScopes`, `testToArrayIsTheSnapshotAsScalars`, `testSurvivesASerializeRoundTrip`,
   `testAModelAnEnforcedMorphMapLeavesOutIsRecordedByItsClassName`
 - `tests/Feature/Events/Concerns/SerializesLiveModelsTest.php`
   `testALiveModelIsFetchedAgainInItsStateThen`, `testALiveModelWhoseRowIsGoneComesBackNull`,
@@ -172,7 +172,7 @@ to these events, so the shape and the timing are a contract.
 - `tests/Feature/Guards/AbstractGuardEventContextTest.php`
   `testAListenerOnAuthenticatedSeesTheWholeContext`, `testTheBindEventsCarryTheWholeContext`,
   `testATenantThatCannotBeLoadedIsReportedAsNone`, `testAMisconfiguredTenantPropagatesFromATrustedBind`
-- `tests/Integration/Events/SignInEventSerialisationTest.php`
+- `tests/Integration/Events/SignInEventSerializationTest.php`
   `testAQueuedEventHoldsIdentifiersAndNoSecret`, `testTheSnapshotsSurviveTheQueue`,
   `testAnEventWhoseRowsWereDeletedStillRestores`, `testAQueuedListenerOnTheSyncConnectionGetsTheSnapshotOfDeletedRows`,
   `testAQueuedListenerRunByAWorkerGetsTheSnapshotOfDeletedRows`

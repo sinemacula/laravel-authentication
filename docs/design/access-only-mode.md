@@ -52,7 +52,7 @@ principal auth without device tracking or refresh rotation.
 - Guard construction still validates the configured device model: its class, and that it lives on the storage
   connection. The package tolerates a missing table on this path because bearer auth with `did = null` never tries to
   query it.
-- Access-token `jti` values are not consulted on the bearer path. Revocation behavior therefore comes from identity and
+- Access-token `jti` values are not consulted on the bearer path. Revocation behaviour therefore comes from identity and
   principal rehydration, not from a server-side access-token store.
 
 ## Implementation Anchors

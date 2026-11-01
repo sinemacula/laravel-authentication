@@ -34,7 +34,7 @@ token's `scope` claim. That string may be at most 8,192 bytes: a longer list is 
 when the key is issued, so it is always stored whole. A client credentials token carries the list in its claims, so one
 granting a long list can outgrow a proxy's limit on a request header line (8 KB under nginx's and Apache's defaults,
 which a token reaches once its list passes about 5,800 bytes); keep the scopes a client asks for short, or raise that
-limit. Scopes are a ceiling, never a permission: authorization computes the principal's permissions and intersects them
+limit. Scopes are a ceiling, never a permission: authorisation computes the principal's permissions and intersects them
 with the credential's scopes, so a scope grants nothing the principal could not already do.
 
 `Auth::scopes()` (and `scopes()` on a package guard) reports them for the request:
@@ -56,7 +56,7 @@ credential's id in `credentialId`.
 
 Scopes are checked when a credential is issued: each must be a well-formed scope token, and the bound
 `ScopeRegistry` may reject any of them for the principal on the guard. The default, `AcceptAnyScope`, accepts every
-well-formed scope; an authorization package binds its own so keys can only carry scopes that name real permissions:
+well-formed scope; an authorisation package binds its own so keys can only carry scopes that name real permissions:
 
 ```php
 use SineMacula\Laravel\Authentication\Contracts\Principal;

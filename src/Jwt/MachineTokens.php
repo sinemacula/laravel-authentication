@@ -60,7 +60,7 @@ final class MachineTokens
             throw new \InvalidArgumentException('Cannot issue a client credentials token without its `cid` claim: the API key id must be a UUID.');
         }
 
-        return [Claims::CREDENTIAL_ID->value => $credentialId, Claims::SCOPE->value => Scopes::format(Scopes::normalise($scopes))];
+        return [Claims::CREDENTIAL_ID->value => $credentialId, Claims::SCOPE->value => Scopes::format(Scopes::normalize($scopes))];
     }
 
     /**

@@ -56,7 +56,7 @@ final class DeviceSummaryTest extends TestCase
      *
      * @return void
      */
-    public function testSummarisesEveryColumnItShows(): void
+    public function testSummarizesEveryColumnItShows(): void
     {
         $summary = DeviceSummary::of(self::device(self::ROW), true);
 

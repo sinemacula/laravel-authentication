@@ -192,7 +192,7 @@ final class ResetRequestsTest extends TestCase
      */
     public static function provideMisconfiguredResets(): iterable
     {
-        $message = 'Password reset codes need a normaliser registered for identifier type [username] in `authentication.identifiers.normalisers`.';
+        $message = 'Password reset codes need a normaliser registered for identifier type [username] in `authentication.identifiers.normalizers`.';
 
         yield from [
             'a code type with no normaliser'       => [static fn (PasswordService $passwords) => $passwords->sendResetCode('username', ['username' => 'ada']), $message],

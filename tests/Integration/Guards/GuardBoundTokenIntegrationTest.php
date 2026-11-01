@@ -220,7 +220,7 @@ final class GuardBoundTokenIntegrationTest extends TestCase
      *
      * @throws \Random\RandomException
      */
-    public function testRefreshHonoursTheGuardProviderScope(): void
+    public function testRefreshHonorsTheGuardProviderScope(): void
     {
         $outside = $this->seedPrincipal('staff@staff.test');
         $inside  = $this->seedPrincipal('someone' . DomainScopedModelProvider::DOMAIN);

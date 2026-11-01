@@ -58,7 +58,7 @@ can verify its signature, and the `sub` is then looked up in the wrong guard's p
 - `tests/Integration/Guards/GuardBoundTokenIntegrationTest.php`
   `testRefreshRejectsAnOwnerOfAnotherModelThatSharesTheKey`
 - `tests/Integration/Guards/GuardBoundTokenIntegrationTest.php`
-  `testRefreshHonoursTheGuardProviderScope`
+  `testRefreshHonorsTheGuardProviderScope`
 - `tests/Unit/Jwt/JwtTokenServiceTest.php`
   `testParseRejectsATokenWithoutAGuardClaim`
 - `tests/Feature/Guards/JwtGuardRefreshResolutionTest.php`

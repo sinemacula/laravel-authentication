@@ -43,7 +43,7 @@ final class Scopes
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidScopeException
      */
-    public static function normalise(array $scopes): array
+    public static function normalize(array $scopes): array
     {
         $malformed = [];
 
@@ -80,7 +80,7 @@ final class Scopes
      */
     public static function parse(string $scope): array
     {
-        return $scope === '' ? [] : self::normalise(explode(' ', $scope));
+        return $scope === '' ? [] : self::normalize(explode(' ', $scope));
     }
 
     /**
@@ -123,16 +123,16 @@ final class Scopes
      */
     public static function grantable(ScopeRegistry $registry, string $guard, Principal $principal, array $scopes): array
     {
-        $normalised = self::normalise($scopes);
-        $answer     = $registry->rejected($guard, $principal, $normalised);
+        $normalized = self::normalize($scopes);
+        $answer     = $registry->rejected($guard, $principal, $normalized);
 
         if ($answer !== []) {
-            $named = array_values(array_intersect($normalised, $answer));
+            $named = array_values(array_intersect($normalized, $answer));
 
-            throw new InvalidScopeException("The scope registry does not allow these scopes for the principal on guard [{$guard}].", $named === [] ? $normalised : $named);
+            throw new InvalidScopeException("The scope registry does not allow these scopes for the principal on guard [{$guard}].", $named === [] ? $normalized : $named);
         }
 
-        return $normalised;
+        return $normalized;
     }
 
     /**

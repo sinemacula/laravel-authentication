@@ -8,7 +8,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
 
 /**
- * Scope registry that may not grant `admin` to anyone, as an authorization
+ * Scope registry that may not grant `admin` to anyone, as an authorisation
  * package's would for a scope no principal holds.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

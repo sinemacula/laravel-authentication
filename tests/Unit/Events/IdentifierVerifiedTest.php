@@ -51,7 +51,7 @@ final class IdentifierVerifiedTest extends TestCase
      *
      * @return void
      */
-    public function testSerialisesItsModelsAndDispatchesWhenTheSenderSays(): void
+    public function testSerializesItsModelsAndDispatchesWhenTheSenderSays(): void
     {
         $context = self::context();
         $event   = new IdentifierVerified($context, 'email');

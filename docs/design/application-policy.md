@@ -48,7 +48,7 @@ normalisers meet that policy, since a sign-in passes through all three.
   type, report any refusal as `principal_ineligible`, but a sign-in, a switch's check with the session's identifier type
   and an API key report the reason the policy gives, and a client credentials exchange answers `unauthorized_client` for
   `principal_ineligible` and `invalid_client` for any other reason. A caller's category (staff, a client's
-  administrator, a service) is the application's or authorization's to model, never the token's: no claim carries it and
+  administrator, a service) is the application's or authorisation's to model, never the token's: no claim carries it and
   no accessor returns it.
 - The verified-identifier gate applies only when the guard sets `require_verified_identifier` and the sign-in names an
   identifier type: the password method's is the guard's `sign_in.password_identifier`, else
@@ -150,7 +150,7 @@ normalisers meet that policy, since a sign-in passes through all three.
   and `src/Guards/Concerns/VerifiesPinnedContext.php` (`resolveDeviceFromHint()`).
 - `src/Contracts/AttemptLimiter.php`, `src/RateLimiting/DatabaseAttemptLimiter.php`,
   `src/RateLimiting/AttemptLimits.php`, `src/RateLimiting/RateLimitStore.php`.
-- `src/Identifiers/IdentifierNormalisers.php`, `src/Casts/NormalisedIdentifier.php`, `src/Providers/ModelProvider.php`.
+- `src/Identifiers/IdentifierNormalizers.php`, `src/Casts/NormalizedIdentifier.php`, `src/Providers/ModelProvider.php`.
 - `src/Verification/IdentifierVerifier.php` (`verifiable()`) and `src/Verification/VerificationLinks.php`.
 
 ## Authoritative Tests

@@ -45,7 +45,7 @@ final class MailIdentifierChangeNotifier implements IdentifierChangeNotifier
 $this->app->singleton(IdentifierChangeNotifier::class, MailIdentifierChangeNotifier::class);
 ```
 
-**Uniqueness.** Give the identifier's column a unique index on the stored, normalised value (the `NormalisedIdentifier`
+**Uniqueness.** Give the identifier's column a unique index on the stored, normalised value (the `NormalizedIdentifier`
 cast stores it so; see [Identifiers](identity-models.md#identifiers)), and a composite one with the tenant's key for
 identifiers unique per tenant. A confirmation checks first that the guard's identity provider finds no other identity
 holding the new identifier, but only the index decides a race between two confirmations of one value: the one that loses

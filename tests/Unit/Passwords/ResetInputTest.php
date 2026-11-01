@@ -10,8 +10,8 @@ use Illuminate\Support\Stringable;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Identifiers\EmailNormaliser;
-use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
+use SineMacula\Laravel\Authentication\Identifiers\EmailNormalizer;
+use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Passwords\ResetInput;
 
 /**
@@ -80,16 +80,16 @@ final class ResetInputTest extends TestCase
      *
      * @return void
      */
-    public function testACodeNeedsANormalisedType(): void
+    public function testACodeNeedsANormalizedType(): void
     {
-        $normalisers = new IdentifierNormalisers(new Container, new Repository(['authentication' => ['identifiers' => ['normalisers' => ['email' => EmailNormaliser::class]]]]));
+        $normalizers = new IdentifierNormalizers(new Container, new Repository(['authentication' => ['identifiers' => ['normalizers' => ['email' => EmailNormalizer::class]]]]));
 
-        ResetInput::assertCodeType($normalisers, 'email');
+        ResetInput::assertCodeType($normalizers, 'email');
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Password reset codes need a normaliser registered for identifier type [phone] in `authentication.identifiers.normalisers`.');
+        $this->expectExceptionMessage('Password reset codes need a normaliser registered for identifier type [phone] in `authentication.identifiers.normalizers`.');
 
-        ResetInput::assertCodeType($normalisers, 'phone');
+        ResetInput::assertCodeType($normalizers, 'phone');
     }
 
     /**

@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
-use Tests\Integration\Fixtures\NormalisedEmailIdentity;
+use Tests\Integration\Fixtures\NormalizedEmailIdentity;
 
 /**
  * Query-budget and timing contracts for designated identifiers: normalising a
@@ -27,10 +27,10 @@ use Tests\Integration\Fixtures\NormalisedEmailIdentity;
  */
 #[CoversClass(ModelProvider::class)]
 #[CoversClass(JwtGuard::class)]
-final class NormalisedIdentifierBudgetTest extends PerformanceContractTestCase
+final class NormalizedIdentifierBudgetTest extends PerformanceContractTestCase
 {
     /** @var string Guard over the identity. */
-    private const string GUARD = 'normalised_api';
+    private const string GUARD = 'normalized_api';
 
     /** @var string Plaintext password of the seeded identity. */
     private const string PASSWORD = 'correct horse battery staple';
@@ -48,7 +48,7 @@ final class NormalisedIdentifierBudgetTest extends PerformanceContractTestCase
     {
         parent::setUp();
 
-        Schema::create('normalised_email_identities', static function (Blueprint $blueprint): void {
+        Schema::create('normalized_email_identities', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');
             $blueprint->string('email')->nullable()->unique();
             $blueprint->string('name');
@@ -65,7 +65,7 @@ final class NormalisedIdentifierBudgetTest extends PerformanceContractTestCase
     #[\Override]
     protected function tearDown(): void
     {
-        Schema::dropIfExists('normalised_email_identities');
+        Schema::dropIfExists('normalized_email_identities');
 
         parent::tearDown();
     }
@@ -77,7 +77,7 @@ final class NormalisedIdentifierBudgetTest extends PerformanceContractTestCase
      *
      * @return void
      */
-    public function testNormalisedLookupUsesOneReadAndARejectedOneNone(): void
+    public function testNormalizedLookupUsesOneReadAndARejectedOneNone(): void
     {
         $this->seedIdentity(10);
 
@@ -141,8 +141,8 @@ final class NormalisedIdentifierBudgetTest extends PerformanceContractTestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
 
-        $config->set('auth.guards.' . self::GUARD, ['driver' => 'jwt', 'provider' => 'normalised', 'application' => ['methods' => ['password']]]);
-        $config->set('auth.providers.normalised', ['driver' => 'model', 'model' => NormalisedEmailIdentity::class]);
+        $config->set('auth.guards.' . self::GUARD, ['driver' => 'jwt', 'provider' => 'normalized', 'application' => ['methods' => ['password']]]);
+        $config->set('auth.providers.normalized', ['driver' => 'model', 'model' => NormalizedEmailIdentity::class]);
         $config->set('authentication.timebox.credentials_microseconds', 1);
     }
 
@@ -153,18 +153,18 @@ final class NormalisedIdentifierBudgetTest extends PerformanceContractTestCase
      */
     private function provider(): ModelProvider
     {
-        return new ModelProvider(new BcryptHasher(['rounds' => 5]), NormalisedEmailIdentity::class);
+        return new ModelProvider(new BcryptHasher(['rounds' => 5]), NormalizedEmailIdentity::class);
     }
 
     /**
      * Seed the identity with its password hashed at the given bcrypt cost.
      *
      * @param  int  $cost
-     * @return \Tests\Integration\Fixtures\NormalisedEmailIdentity
+     * @return \Tests\Integration\Fixtures\NormalizedEmailIdentity
      */
-    private function seedIdentity(int $cost): NormalisedEmailIdentity
+    private function seedIdentity(int $cost): NormalizedEmailIdentity
     {
-        return NormalisedEmailIdentity::query()->create([
+        return NormalizedEmailIdentity::query()->create([
             'email'    => 'Signer@Example.test',
             'name'     => 'Signer',
             'password' => (new BcryptHasher(['rounds' => $cost]))->make(self::PASSWORD),

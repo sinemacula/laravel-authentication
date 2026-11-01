@@ -56,7 +56,7 @@ final class PrincipalSwitchedTest extends TestCase
      *
      * @return void
      */
-    public function testSerialisesItsModelsAndDispatchesWhenTheSenderSays(): void
+    public function testSerializesItsModelsAndDispatchesWhenTheSenderSays(): void
     {
         $event = new PrincipalSwitched(self::context(), new PlainPrincipalFixture('9'), 'membership', '9');
 

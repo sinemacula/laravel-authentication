@@ -16,7 +16,7 @@ use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Events\IdentifierVerified;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Identifiers\EmailNormaliser;
+use SineMacula\Laravel\Authentication\Identifiers\EmailNormalizer;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 use Tests\Concerns\InteractsWithVerifiableIdentities;
@@ -179,7 +179,7 @@ final class IdentifierVerifierTest extends TestCase
      *
      * @return void
      */
-    public function testCanonicalFormFollowsTheTypesNormaliser(): void
+    public function testCanonicalFormFollowsTheTypesNormalizer(): void
     {
         self::assertSame('ben@example.com', $this->verifier()->canonical('email', ' Ben@Example.COM'));
         self::assertNull($this->verifier()->canonical('email', '  '));
@@ -192,9 +192,9 @@ final class IdentifierVerifierTest extends TestCase
      *
      * @return void
      */
-    public function testTypeWithoutANormaliserIsComparedExactly(): void
+    public function testTypeWithoutANormalizerIsComparedExactly(): void
     {
-        config()->set('authentication.identifiers.normalisers', ['email' => EmailNormaliser::class]);
+        config()->set('authentication.identifiers.normalizers', ['email' => EmailNormalizer::class]);
 
         $identity = self::seedVerifiableIdentity('ben@example.com', 'Member-42');
 

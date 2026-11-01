@@ -84,7 +84,7 @@ final class MachineCredentialBench
     }
 
     /**
-     * Lazily initialize the shared harness.
+     * Lazily initialise the shared harness.
      *
      * @return \Benchmarks\Support\MachineCredentialBenchHarness
      *

@@ -52,7 +52,7 @@ final class DeviceRevokedTest extends TestCase
      *
      * @return void
      */
-    public function testSerialisesItsModelsAndDispatchesWhenTheSenderSays(): void
+    public function testSerializesItsModelsAndDispatchesWhenTheSenderSays(): void
     {
         $context = self::context();
         $event   = new DeviceRevoked($context, RevocationReason::ROTATION_REUSE);
