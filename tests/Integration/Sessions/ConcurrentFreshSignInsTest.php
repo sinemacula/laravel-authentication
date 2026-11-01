@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
+use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
@@ -25,13 +26,14 @@ use Tests\TestCase;
  * Races sign-ins of different identities that each start a new session, on
  * PostgreSQL and MySQL, each side in a process with a database connection of
  * its own: one side signs in inside a transaction it holds open, the other,
- * started meanwhile, signs in, and the first then signs in again before it
- * commits. A new session's key sorts after every key already recorded, so the
- * sign-ins all write their proofs and provenance at the end of the same
- * indexes; clearing what an earlier session left under a key must lock nothing
- * there, or on MySQL the second side waits on the first and the first's next
- * sign-in then waits on the second, a deadlock that fails one of them. Neither
- * side waits, and every sign-in commits with its own proof and provenance.
+ * started meanwhile, signs in, and the first, once the other has reached the
+ * insert of its proof, signs in again before it commits. A new session's key
+ * sorts after every key already recorded, so the sign-ins all write their
+ * proofs and provenance at the end of the same indexes; clearing what an
+ * earlier session left under a key must lock nothing there, or on MySQL the
+ * second side waits on the first and the first's next sign-in then waits on the
+ * second, a deadlock that fails one of them. Neither side waits, and every
+ * sign-in commits with its own proof and provenance.
  *
  * Skipped on SQLite, whose in-memory database each process would have to
  * itself, and where `pcntl` is not available.
@@ -47,14 +49,14 @@ final class ConcurrentFreshSignInsTest extends TestCase
 {
     use InteractsWithSessions;
 
-    /** @var int How long the first side holds its transaction open once the second has started, in microseconds. */
-    private const int HOLD_MICROSECONDS = 1000000;
+    /** @var int How long the first side waits, once the second is about to insert its proof, for that insert to reach the server, in microseconds. */
+    private const int SETTLE_MICROSECONDS = 200000;
 
     /** @var float The most time, in seconds, the second side may take, to show it never waited on the first. */
     private const float MOST_WAIT_SECONDS = 0.5;
 
-    /** @var int How long the second side waits to be started before giving up, in seconds. */
-    private const int START_TIMEOUT_SECONDS = 10;
+    /** @var int How long either side waits for the other's signal before giving up, in seconds. */
+    private const int SIGNAL_TIMEOUT_SECONDS = 10;
 
     /** @var list<class-string> The events both sides record. */
     private const array EVENTS = [SessionCreated::class, SignedIn::class];
@@ -116,10 +118,10 @@ final class ConcurrentFreshSignInsTest extends TestCase
 
     /**
      * A sign-in of another identity, while the first side holds its sign-in
-     * open, does not wait on it, and the first side's next sign-in, made while
-     * the second would still be waiting if it had to, does not wait on the
-     * second's: all three commit, each session with only its own first factor
-     * and provenance.
+     * open, does not wait on it, and the first side's next sign-in, made once
+     * the second has sent the insert of its proof (where it would be waiting if
+     * it had to), does not wait on the second's: all three commit, each session
+     * with only its own first factor and provenance.
      *
      * @return void
      *
@@ -138,7 +140,15 @@ final class ConcurrentFreshSignInsTest extends TestCase
         $pid = pcntl_fork();
 
         if ($pid === 0) {
-            $this->runInChild(fn (): string => $this->startFor($grace));
+            $this->runInChild(function () use ($grace): string {
+                $inserting = "{$this->outcomes}/inserting";
+
+                SessionProof::creating(static function () use ($inserting): void {
+                    touch($inserting);
+                });
+
+                return $this->startFor($grace);
+            });
         }
 
         DB::beginTransaction();
@@ -146,7 +156,10 @@ final class ConcurrentFreshSignInsTest extends TestCase
         $first = $this->startFor($ada);
 
         touch("{$this->outcomes}/start");
-        usleep(self::HOLD_MICROSECONDS);
+
+        self::awaitSignal("{$this->outcomes}/inserting");
+
+        usleep(self::SETTLE_MICROSECONDS);
 
         $third = $this->startFor($alan);
 
@@ -223,11 +236,7 @@ final class ConcurrentFreshSignInsTest extends TestCase
     private function runInChild(\Closure $second): never
     {
         try {
-            $deadline = microtime(true) + self::START_TIMEOUT_SECONDS;
-
-            while (!is_file("{$this->outcomes}/start") && microtime(true) < $deadline) {
-                usleep(5000);
-            }
+            self::awaitSignal("{$this->outcomes}/start");
 
             $started = microtime(true);
             $result  = $second();
@@ -241,6 +250,22 @@ final class ConcurrentFreshSignInsTest extends TestCase
         posix_kill(posix_getpid(), SIGKILL);
 
         exit(1);
+    }
+
+    /**
+     * Wait for the other side to create the signal file, or give up after the
+     * timeout.
+     *
+     * @param  string  $signal
+     * @return void
+     */
+    private static function awaitSignal(string $signal): void
+    {
+        $deadline = microtime(true) + self::SIGNAL_TIMEOUT_SECONDS;
+
+        while (!is_file($signal) && microtime(true) < $deadline) {
+            usleep(5000);
+        }
     }
 
     /**
