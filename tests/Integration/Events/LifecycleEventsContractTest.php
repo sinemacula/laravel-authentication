@@ -211,6 +211,6 @@ final class LifecycleEventsContractTest extends TestCase
         self::configureSessionGuards($config);
 
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
-        $config->set('auth.guards.choosers', ['driver' => 'jwt', 'provider' => 'choosers', 'audience' => ['methods' => ['password']]]);
+        $config->set('auth.guards.choosers', ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password']]]);
     }
 }

@@ -181,8 +181,9 @@ final class PartiallySelectedActivationIntegrationTest extends TestCase
         $config->set('auth.defaults.guard', 'api');
 
         $config->set('auth.guards.api', [
-            'driver'   => 'jwt',
-            'provider' => 'partially_selected',
+            'driver'      => 'jwt',
+            'provider'    => 'partially_selected',
+            'application' => ['methods' => ['password']],
         ]);
 
         $config->set('auth.providers.partially_selected', [

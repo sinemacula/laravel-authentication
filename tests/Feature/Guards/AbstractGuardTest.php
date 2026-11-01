@@ -16,8 +16,8 @@ use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
@@ -37,7 +37,7 @@ use Tests\Unit\Stubs\StubRequestResolvingGuard;
 
 /**
  * Feature tests for the sign-in policy `attempt()` applies on top of the
- * password sign-in method: the audience policy's method check and admission,
+ * password sign-in method: the application policy's method check and admission,
  * the attempt limits, the additional-factor policy, and the failure events that
  * report each refusal.
  *
@@ -55,8 +55,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     /** @var string IP address the sign-in request comes from. */
     private const string IP = '203.0.113.7';
 
-    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\AudiencePolicy The audience policy in the container. */
-    private MockInterface $audience;
+    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy The application policy in the container. */
+    private MockInterface $policy;
 
     /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\AttemptLimiter The attempt limiter in the container. */
     private MockInterface $limiter;
@@ -78,13 +78,13 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     {
         parent::setUp();
 
-        $this->audience = \Mockery::mock(AudiencePolicy::class);
-        $this->limiter  = \Mockery::mock(AttemptLimiter::class);
-        $this->factors  = \Mockery::mock(AdditionalFactorPolicy::class);
+        $this->policy  = \Mockery::mock(ApplicationPolicy::class);
+        $this->limiter = \Mockery::mock(AttemptLimiter::class);
+        $this->factors = \Mockery::mock(AdditionalFactorPolicy::class);
 
-        $this->audience->shouldReceive('allowsMethod')->byDefault()->andReturnUsing(fn (): bool => $this->record('allowsMethod', true));
-        $this->audience->shouldReceive('admitIdentifier')->byDefault()->andReturnUsing(fn (): mixed => $this->record('admitIdentifier', null));
-        $this->audience->shouldReceive('admit')->byDefault()->andReturnUsing(fn (): mixed => $this->record('admit', null));
+        $this->policy->shouldReceive('allowsMethod')->byDefault()->andReturnUsing(fn (): bool => $this->record('allowsMethod', true));
+        $this->policy->shouldReceive('admitIdentifier')->byDefault()->andReturnUsing(fn (): mixed => $this->record('admitIdentifier', null));
+        $this->policy->shouldReceive('admit')->byDefault()->andReturnUsing(fn (): mixed => $this->record('admit', null));
         $this->limiter->shouldReceive('acquire')
             ->byDefault()
             ->andReturnUsing(fn (AttemptSubject $subject): AttemptReservation => $this->record('acquire', new AttemptReservation($subject, null)));
@@ -93,7 +93,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         assert($this->app !== null);
 
-        $this->app->instance(AudiencePolicy::class, $this->audience);
+        $this->app->instance(ApplicationPolicy::class, $this->policy);
         $this->app->instance(AttemptLimiter::class, $this->limiter);
         $this->app->instance(AdditionalFactorPolicy::class, $this->factors);
 
@@ -103,8 +103,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * A successful attempt asks the audience policy for the method first, then
-     * reserves an attempt, finds the account, reserves an attempt on the
+     * A successful attempt asks the application policy for the method first,
+     * then reserves an attempt, finds the account, reserves an attempt on the
      * account, checks the password, admits the identity with its identifier and
      * then as its principal, rehashes the password with the credentials it
      * signed in with, asks the factor policy, and only then gives both
@@ -128,12 +128,12 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $this->resolver->shouldReceive('resolve')->once()->with($identity)->andReturn($principal);
 
-        $this->audience->shouldReceive('allowsMethod')->once()->with(self::GUARD_NAME, 'password')->andReturnUsing(fn (): bool => $this->record('allowsMethod', true));
-        $this->audience->shouldReceive('admitIdentifier')
+        $this->policy->shouldReceive('allowsMethod')->once()->with(self::GUARD_NAME, 'password')->andReturnUsing(fn (): bool => $this->record('allowsMethod', true));
+        $this->policy->shouldReceive('admitIdentifier')
             ->once()
             ->with(self::GUARD_NAME, $identity, 'email')
             ->andReturnUsing(fn (): mixed => $this->record('admitIdentifier', null));
-        $this->audience->shouldReceive('admit')->once()->with(self::GUARD_NAME, $identity, $principal, 'email')->andReturnUsing(fn (): mixed => $this->record('admit', null));
+        $this->policy->shouldReceive('admit')->once()->with(self::GUARD_NAME, $identity, $principal, 'email')->andReturnUsing(fn (): mixed => $this->record('admit', null));
 
         $reservations = [];
 
@@ -198,7 +198,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
      */
     public function testAMethodTheGuardDoesNotAllowIsRefusedBeforeAnythingIsCounted(): void
     {
-        $this->audience->shouldReceive('allowsMethod')->once()->with(self::GUARD_NAME, 'password')->andReturnFalse();
+        $this->policy->shouldReceive('allowsMethod')->once()->with(self::GUARD_NAME, 'password')->andReturnFalse();
         $this->limiter->shouldNotReceive('acquire');
         $this->provider->shouldNotReceive('retrieveByCredentials');
         $this->timebox->shouldNotReceive('call');
@@ -238,7 +238,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
      */
     public function testTheIdentifierIsReadForTheLimitsOnlyOnceTheMethodIsAllowed(): void
     {
-        $this->audience->shouldReceive('allowsMethod')->twice()->andReturnValues([false, true]);
+        $this->policy->shouldReceive('allowsMethod')->twice()->andReturnValues([false, true]);
         $this->limiter->shouldReceive('acquire')->once()->andReturnUsing(static fn (AttemptSubject $subject): AttemptReservation => new AttemptReservation($subject, 42));
         $this->provider->shouldNotReceive('retrieveByCredentials');
 
@@ -288,7 +288,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
      */
     public function testTheLimiterIsResolvedBeforeTheIdentifierIsReadForTheLimits(): void
     {
-        $this->audience->shouldReceive('allowsMethod')->once()->andReturnTrue();
+        $this->policy->shouldReceive('allowsMethod')->once()->andReturnTrue();
         $this->limiter->shouldReceive('acquire')->once()->andReturnUsing(static fn (AttemptSubject $subject): AttemptReservation => new AttemptReservation($subject, 42));
         $this->provider->shouldNotReceive('retrieveByCredentials');
 
@@ -404,8 +404,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $this->resolver->shouldReceive('resolve')->once()->andReturn($principal);
 
-        $this->audience->shouldReceive('admitIdentifier')->once()->with(self::GUARD_NAME, $identity, 'username')->andReturnNull();
-        $this->audience->shouldReceive('admit')->once()->with(self::GUARD_NAME, $identity, $principal, 'username')->andReturnNull();
+        $this->policy->shouldReceive('admitIdentifier')->once()->with(self::GUARD_NAME, $identity, 'username')->andReturnNull();
+        $this->policy->shouldReceive('admit')->once()->with(self::GUARD_NAME, $identity, $principal, 'username')->andReturnNull();
 
         $subjects = [];
 
@@ -564,7 +564,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * When the audience policy refuses the identity as its principal, the
+     * When the application policy refuses the identity as its principal, the
      * attempt fails with the policy's reason and the whole context, and nothing
      * is bound.
      *
@@ -572,7 +572,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
      *
      * @throws \Throwable
      */
-    public function testAnAudiencePolicyRefusalFailsTheAttempt(): void
+    public function testAnApplicationPolicyRefusalFailsTheAttempt(): void
     {
         $identity  = $this->mockIdentity();
         $principal = $this->mockActivePrincipal();
@@ -581,7 +581,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $this->resolver->shouldReceive('resolve')->once()->andReturn($principal);
 
-        $this->audience->shouldReceive('admit')->once()->andReturn(FailureReason::PRINCIPAL_INELIGIBLE);
+        $this->policy->shouldReceive('admit')->once()->andReturn(FailureReason::PRINCIPAL_INELIGIBLE);
         $this->factors->shouldNotReceive('requiresAdditionalFactor');
         $this->provider->shouldNotReceive('rehashPasswordIfRequired');
         $this->expectNoSlotGivenBack();
@@ -794,20 +794,20 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     {
         $guard = $this->makeGuard();
 
-        $replacement = \Mockery::mock(AudiencePolicy::class);
+        $replacement = \Mockery::mock(ApplicationPolicy::class);
         $replacement->shouldReceive('allowsMethod')->once()->andReturnFalse();
 
-        $this->audience->shouldNotReceive('allowsMethod');
+        $this->policy->shouldNotReceive('allowsMethod');
 
         assert($this->app !== null);
 
-        $this->app->instance(AudiencePolicy::class, $replacement);
+        $this->app->instance(ApplicationPolicy::class, $replacement);
 
         self::assertFalse($guard->attempt(['email' => 'ada@example.test', 'password' => 'secret']));
     }
 
     /**
-     * `validate()` checks only the credentials: no limit, audience policy or
+     * `validate()` checks only the credentials: no limit, application policy or
      * factor policy applies, and the password is never rehashed.
      *
      * @return void
@@ -820,9 +820,9 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $this->expectPasswordAccepted($identity);
 
-        $this->audience->shouldNotReceive('allowsMethod');
-        $this->audience->shouldNotReceive('admitIdentifier');
-        $this->audience->shouldNotReceive('admit');
+        $this->policy->shouldNotReceive('allowsMethod');
+        $this->policy->shouldNotReceive('admitIdentifier');
+        $this->policy->shouldNotReceive('admit');
         $this->limiter->shouldNotReceive('acquire');
         $this->factors->shouldNotReceive('requiresAdditionalFactor');
         $this->provider->shouldNotReceive('rehashPasswordIfRequired');

@@ -14,8 +14,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
 use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
@@ -53,7 +53,7 @@ final class ProviderBindingOrderTest extends TestCase
     {
         $abstracts = [
             PrincipalResolver::class,
-            AudiencePolicy::class,
+            ApplicationPolicy::class,
             AttemptLimiter::class,
             AdditionalFactorPolicy::class,
             ScopeRegistry::class,

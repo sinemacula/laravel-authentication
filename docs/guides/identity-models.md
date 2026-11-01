@@ -56,7 +56,6 @@ use Illuminate\Foundation\Auth\User;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
-use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal as PrincipalContract;
 use SineMacula\Laravel\Authentication\Contracts\Tenant as TenantContract;
@@ -65,7 +64,6 @@ use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsTenant;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
-use SineMacula\Laravel\Authentication\Concerns\ProvidesType;
 
 class AppIdentity extends User implements Identity, HasDevices, HasPrincipals
 {
@@ -104,9 +102,9 @@ class AppMembership extends Model implements CanBeActive, PrincipalContract
     }
 }
 
-class AppTenant extends Model implements HasType, TenantContract
+class AppTenant extends Model implements TenantContract
 {
-    use ActsAsTenant, ProvidesType;
+    use ActsAsTenant;
 }
 ```
 
@@ -117,7 +115,6 @@ With that shape:
   (every access token carries one), or via `resolveDefaultPrincipal()` on sign-in and on a refresh token issued
   without a principal.
 - `Auth::tenant()` returns the `AppTenant` the membership belongs to.
-- `Auth::type()` returns the tenant's type string (see [Principal type](#principal-type)).
 - A membership whose `is_active` is `false` cannot sign in, refresh, or authenticate a request (see
   [Active-state enforcement](#active-state-enforcement)).
 
@@ -132,35 +129,11 @@ a service provider. A hint can come from a caller pinning a principal on `attemp
 $this->app->singleton(PrincipalResolver::class, MyTenantScopedResolver::class);
 ```
 
-## Principal type
+## Which principals may use an application
 
-A principal can carry a type: a categorical label such as `staff`, `client_admin`, `client_staff`, or `service` that
-access tokens carry, `Auth::type()` returns, and a guard can key on. Implement `HasType` on the principal, the tenant,
-or both, and use the `ProvidesType` trait to read it from a `type` column (override `getTypeAttributeName()` for
-another column; a backed enum reads as its value, a unit enum as its name):
-
-```php
-use SineMacula\Laravel\Authentication\Concerns\ProvidesType;
-use SineMacula\Laravel\Authentication\Contracts\HasType;
-
-class AppMembership extends Model implements CanBeActive, HasType, PrincipalContract
-{
-    use ActsAsPrincipal, ProvidesActiveState, ProvidesType;
-}
-```
-
-The principal's type is its own when it implements `HasType` and reports one, otherwise the type of the tenant it acts
-within when that tenant implements `HasType`, otherwise `null`; an empty string counts as no type, so a membership with
-an empty `type` column takes its tenant's. `ProvidesType` throws a `LogicException` for a model loaded without its type
-column (a resolver that selects only some columns, say), rather than reading it as untyped and handing it its tenant's
-type. The tenant is loaded only when the principal has no type of its own, and both are read from the write
-connection. `Audience\PrincipalType::of($principal)` reads it the same way outside a request.
-
-Every access token carries the type in its `pty` claim when there is one (`typ` stays the token type, `access` or
-`refresh`); refresh tokens never carry it, so a refreshed access token carries the type the principal has at the
-refresh. Nothing checks `pty` on a bearer request: `Auth::type()` reads the bound principal as it is now, not the claim,
-and a type change shows on the next request. The claim is for consumers of the token, such as a gateway or a client
-choosing which screens to show, not a credential.
+Which principals may use an application is the application policy's `admit()`: the package's admits every principal, so
+rebind `ApplicationPolicy` to refuse some (see
+[Extending](extending.md#deciding-which-principals-may-use-an-application)). What a principal may do is authorization's.
 
 ## Identifiers
 
@@ -461,9 +434,9 @@ A tenant opts in the same way. When the tenant a principal acts within implement
 every principal in it is rejected on the same paths (refresh fails with `tenant_inactive`):
 
 ```php
-class AppTenant extends Model implements CanBeActive, HasType, TenantContract
+class AppTenant extends Model implements CanBeActive, TenantContract
 {
-    use ActsAsTenant, ProvidesActiveState, ProvidesType;
+    use ActsAsTenant, ProvidesActiveState;
 }
 ```
 

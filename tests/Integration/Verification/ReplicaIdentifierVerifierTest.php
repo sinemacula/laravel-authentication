@@ -11,9 +11,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
-use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
+use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesIdentifierVerification;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
@@ -39,7 +39,7 @@ use Tests\Unit\Stubs\PlainPrincipalFixture;
  * @internal
  */
 #[CoversClass(IdentifierVerifier::class)]
-#[CoversClass(GuardAudiencePolicy::class)]
+#[CoversClass(GuardApplicationPolicy::class)]
 #[CoversClass(VerificationLinks::class)]
 #[CoversTrait(ProvidesIdentifierVerification::class)]
 final class ReplicaIdentifierVerifierTest extends TestCase
@@ -109,11 +109,11 @@ final class ReplicaIdentifierVerifierTest extends TestCase
     {
         $identity = (new QueryingVerifiableIdentity)->newFromBuilder(['id' => 1]);
 
-        self::assertNull(app(AudiencePolicy::class)->admit('api', $identity, new PlainPrincipalFixture(1), 'email'));
+        self::assertNull(app(ApplicationPolicy::class)->admit('api', $identity, new PlainPrincipalFixture(1), 'email'));
 
         DB::connection(self::PRIMARY_CONNECTION)->table('verifiable_identities')->update(['email_verified_at' => null]);
 
-        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, app(AudiencePolicy::class)->admit('api', $identity, new PlainPrincipalFixture(1), 'email'));
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, app(ApplicationPolicy::class)->admit('api', $identity, new PlainPrincipalFixture(1), 'email'));
     }
 
     /**
@@ -221,7 +221,7 @@ final class ReplicaIdentifierVerifierTest extends TestCase
 
         $this->configureLaggingReplica($config);
 
-        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'users', 'audience' => ['require_verified_identifier' => true]]);
+        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'users', 'application' => ['require_verified_identifier' => true]]);
         $config->set('auth.guards.querying', ['driver' => 'jwt', 'provider' => 'querying']);
         $config->set('auth.providers.querying', ['driver' => 'model', 'model' => QueryingVerifiableIdentity::class]);
     }

@@ -9,8 +9,8 @@ use Carbon\CarbonInterface;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Timebox;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -35,8 +35,8 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * the instance the caller holds cannot stand in for the stored row; it must be
  * the identity's own (its recorded owner), of the guard, not revoked, with its
  * session not ended, and signed in within the window. A password proof is
- * accepted only on a guard whose audience allows the password method (one that
- * signs in only by code or passkey takes none); it is checked inside the
+ * accepted only on a guard whose application allows the password method (one
+ * that signs in only by code or passkey takes none); it is checked inside the
  * guard's credential timebox, against the identity read again through the
  * guard's identity provider on the write connection (it must still be the same
  * row), and counted first against the identity's account and the IP address
@@ -163,7 +163,7 @@ final readonly class RecentAuthentication
      * Whether the password is the identity's current one, checked inside the
      * guard's credential timebox once a slot of the account's and the IP
      * address's sign-in limits is taken; the seconds until another may be
-     * checked when they had none. A guard whose audience does not allow the
+     * checked when they had none. A guard whose application does not allow the
      * password method accepts no password as proof, and counts nothing.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -177,7 +177,7 @@ final readonly class RecentAuthentication
      */
     private function isCurrentPassword(Identity $identity, #[\SensitiveParameter] string $password, ?string $ip): bool|int
     {
-        if (!$this->container->make(AudiencePolicy::class)->allowsMethod($this->context->name(), PasswordSignIn::NAME)) {
+        if (!$this->container->make(ApplicationPolicy::class)->allowsMethod($this->context->name(), PasswordSignIn::NAME)) {
             return false;
         }
 

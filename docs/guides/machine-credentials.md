@@ -106,12 +106,12 @@ and a 40-character random secret. Only `<prefix>_<public>` (the summary's `publi
 secret are stored, so the key is shown once and cannot be shown again; a secret of about 238 bits needs no password hash
 to resist guessing. `IssuedApiKey` holds the key as a `SensitiveParameterValue`, so no dump of it (`dump()`, `print_r`,
 `var_export`) shows the key, and serialising it throws. The principal must be one the identity acts as on the guard
-(resolved through the guard's principal resolver, as a pinned principal is) and one the guard's audience admits; the key
+(resolved through the guard's principal resolver, as a pinned principal is) and one the application admits; the key
 records the identity, the principal and the principal's tenant, each by type and identifier, and the guard, and
 authenticates only as them, on that guard. A tenant's type is its morph class, or its class name when it is not an
 Eloquent model, so a tenant of another type that shares the identifier is not the recorded one. A malformed or past
-expiry, a principal the identity does not act as or the audience does not admit, a name that is empty, longer than 255
-characters, not valid UTF-8 or holds a NUL byte, and a malformed or rejected scope (see
+expiry, a principal the identity does not act as or the application does not admit, a name that is empty, longer than
+255 characters, not valid UTF-8 or holds a NUL byte, and a malformed or rejected scope (see
 [Credential scopes](#credential-scopes)) are each an `InvalidArgumentException`: issuing is a trusted, programmatic
 action.
 
@@ -125,7 +125,7 @@ digest of the secret in constant time, and then requires, in order:
 | the key was issued for this guard                                             | `credential_guard_mismatch` |
 | it is not revoked                                                             | `credential_revoked`        |
 | it has not expired (from the second its expiry names)                         | `credential_expired`        |
-| the guard's audience lists `api_key` in `methods`                             | `method_not_allowed`        |
+| the application lists `api_key` in `methods`                                  | `method_not_allowed`        |
 | the provider returns exactly the owner the key records                        | `identity_unknown`          |
 | the owner is a `MachineIdentity`                                              | `credential_invalid`        |
 | the owner is active                                                           | `identity_inactive`         |
@@ -133,7 +133,10 @@ digest of the secret in constant time, and then requires, in order:
 | the principal is active                                                       | `principal_inactive`        |
 | its tenant, if any, is active                                                 | `tenant_inactive`           |
 | the principal and its tenant are, by type and identifier, the ones recorded   | `principal_mismatch`        |
-| the guard's audience admits the principal                                     | `principal_ineligible`      |
+| the application admits the principal                                          | `principal_ineligible`      |
+
+The last check reports the reason the application policy gives: `principal_ineligible` for a principal a policy of your
+own keeps out (see [Extending](extending.md#deciding-which-principals-may-use-an-application)), the reason to return.
 
 A malformed key, an unknown public part and a wrong secret are refused alike, and an unknown public part is compared
 against a fixed digest so it costs the same as a wrong secret. A refused key dispatches one `AuthenticationFailed` (flow
@@ -184,13 +187,14 @@ $schedule->command('model:prune', ['--model' => [\SineMacula\Laravel\Authenticat
 The OAuth 2.0 client credentials grant (RFC 6749 section 4.4) exchanges a machine's API key for a short-lived access
 token of a `jwt` guard. The key is issued on that guard (`Auth::apiKeys('m2m')->issue(...)`): its public part is the
 OAuth `client_id` and its secret the `client_secret`, so a key is either presented to an `api_key` guard or exchanged on
-a `jwt` guard, never both, and rotating a key gives its client a new id. The guard's audience lists the grant:
+a `jwt` guard, never both, and rotating a key gives its client a new id. The application lists the grant in its
+`application.methods`:
 
 ```php
 'm2m' => [
-    'driver'   => 'jwt',
-    'provider' => 'clients',
-    'audience' => ['methods' => ['client_credentials']],
+    'driver'      => 'jwt',
+    'provider'    => 'clients',
+    'application' => ['methods' => ['client_credentials']],
 ],
 ```
 
@@ -211,37 +215,39 @@ and `Pragma: no-cache`, or read with `isGranted()`, `accessToken`, `expiresIn`, 
 `toArray()` and JSON form are the response body alone, so `reason`, which only your code and the event should see, never
 reaches a client however you encode the result:
 
-| Outcome                                                                                  | Response                       |
-|------------------------------------------------------------------------------------------|--------------------------------|
-| Granted                                                                                  | 200, the token (below)         |
-| Not a POST or not form-encoded; a parameter in the query, repeated or not a string       | 400 `invalid_request`          |
-| No `grant_type`; Basic and body credentials together                                     | 400 `invalid_request`          |
-| A `grant_type` other than `client_credentials`                                           | 400 `unsupported_grant_type`   |
-| No client authentication, malformed Basic, an unknown client or a wrong secret           | 401 `invalid_client`           |
-| A revoked, expired or another guard's key; its owner unknown, not a machine or inactive  | 401 `invalid_client`           |
-| Its principal or tenant no longer the key's, or inactive                                 | 401 `invalid_client`           |
-| The guard's audience does not list `client_credentials`, or does not admit the principal | 400 `unauthorized_client`      |
-| A scope that is malformed or not granted to the key                                      | 400 `invalid_scope`            |
-| The IP address (or, when you limit it, the client id) used up its failures               | 429 `slow_down`, `Retry-After` |
+| Outcome                                                                                 | Response                       |
+|-----------------------------------------------------------------------------------------|--------------------------------|
+| Granted                                                                                 | 200, the token (below)         |
+| Not a POST or not form-encoded; a parameter in the query, repeated or not a string      | 400 `invalid_request`          |
+| No `grant_type`; Basic and body credentials together                                    | 400 `invalid_request`          |
+| A `grant_type` other than `client_credentials`                                          | 400 `unsupported_grant_type`   |
+| No client authentication, malformed Basic, an unknown client or a wrong secret          | 401 `invalid_client`           |
+| A revoked, expired or another guard's key; its owner unknown, not a machine or inactive | 401 `invalid_client`           |
+| Its principal or tenant no longer the key's, or inactive                                | 401 `invalid_client`           |
+| The application lacks `client_credentials`, or refuses the principal as ineligible      | 400 `unauthorized_client`      |
+| A scope that is malformed or not granted to the key                                     | 400 `invalid_scope`            |
+| The IP address (or, when you limit it, the client id) used up its failures              | 429 `slow_down`, `Retry-After` |
 
 A granted response is `{"access_token": "...", "token_type": "Bearer", "expires_in": 900, "scope": "invoices:read"}`,
 without `scope` when the token grants none (RFC 6749 has no empty scope value; the token's own `scope` claim is then
-`""`); `invalid_client` carries `WWW-Authenticate: Basic` for a client that used Basic. `slow_down` is not an RFC 6749
-error but a registered OAuth one (RFC 8628), used because RFC 6749 defines no rate-limit error. Only failures to
-authenticate the client count against the `client_credentials` limits (100 per IP address a minute by default), and each
-is answered alike. Failures are not counted per client id by default: a client id is not a secret (RFC 6749 section
-2.2), so a limit on it would let anyone who knows it hold the real client back from any address, while against a
-40-character random secret it protects nothing. Set `rate_limits.client_credentials.per_identifier` only if you accept
-that. No scope asks for every scope the key grants; otherwise the token grants exactly those asked for. Every failure
-dispatches `AuthenticationFailed` (flow `client_credentials`, the client id when it is a key's public part in form, else
-none, so a whole key or a secret sent as the id never reaches a listener, and the key once found) and a grant
-`ClientCredentialsGranted`, with the key and the scopes granted.
+`""`); `invalid_client` carries `WWW-Authenticate: Basic` for a client that used Basic. A principal the application
+policy refuses as `principal_ineligible` is `unauthorized_client`, and one it refuses for any other reason
+`invalid_client`. `slow_down` is not an RFC 6749 error but a registered OAuth one (RFC 8628), used because RFC 6749
+defines no rate-limit error. Only failures to authenticate the client count against the `client_credentials` limits (100
+per IP address a minute by default), and each is answered alike. Failures are not counted per client id by default: a
+client id is not a secret (RFC 6749 section 2.2), so a limit on it would let anyone who knows it hold the real client
+back from any address, while against a 40-character random secret it protects nothing. Set
+`rate_limits.client_credentials.per_identifier` only if you accept that. No scope asks for every scope the key grants;
+otherwise the token grants exactly those asked for. Every failure dispatches `AuthenticationFailed` (flow
+`client_credentials`, the client id when it is a key's public part in form, else none, so a whole key or a secret sent
+as the id never reaches a listener, and the key once found) and a grant `ClientCredentialsGranted`, with the key and the
+scopes granted.
 
-The token is an access token of the guard with no device, the key's id in `cid` and its scopes in `scope`; it lives
-the guard's access lifetime for the principal's type, never past the key's expiry, and no refresh token is issued. On
-every request the bearer path reads its key by primary key (one query more than any device-less token) and requires it
-to be the guard's (`credential_invalid`), not revoked (`credential_revoked`) and not expired (`credential_expired`);
-the subject must be a machine (`credential_invalid`), and the key's owner, principal and tenant must still be what
-loaded (`principal_mismatch`, `credential_invalid`). Revoking the key, or the end of its rotation's overlap, so ends
-its tokens at the next request. A request with such a token binds with method `client_credentials`, the key in
-`credentialId` and `Auth::scopes()` the token's scopes.
+The token is an access token of the guard with no device, the key's id in `cid` and its scopes in `scope`; it lives the
+guard's access lifetime, never past the key's expiry, and no refresh token is issued. On every request the bearer path
+reads its key by primary key (one query more than any device-less token) and requires it to be the guard's
+(`credential_invalid`), not revoked (`credential_revoked`) and not expired (`credential_expired`); the subject must be a
+machine (`credential_invalid`), and the key's owner, principal and tenant must still be what loaded
+(`principal_mismatch`, `credential_invalid`). Revoking the key, or the end of its rotation's overlap, so ends its tokens
+at the next request. A request with such a token binds with method `client_credentials`, the key in `credentialId` and
+`Auth::scopes()` the token's scopes.

@@ -29,13 +29,13 @@ use Illuminate\Support\ServiceProvider;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
-use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
+use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
 use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
@@ -307,7 +307,6 @@ final class AuthenticationServiceProviderTest extends TestCase
         self::assertNull($manager->principal());
         self::assertNull($manager->device());
         self::assertNull($manager->tenant());
-        self::assertNull($manager->type());
     }
 
     /**
@@ -419,15 +418,15 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The `AudiencePolicy` contract resolves to the package policy, one
+     * The `ApplicationPolicy` contract resolves to the package policy, one
      * instance for the application.
      *
      * @return void
      */
-    public function testAudiencePolicyIsBoundToThePackagePolicyAsASingleton(): void
+    public function testApplicationPolicyIsBoundToThePackagePolicyAsASingleton(): void
     {
-        self::assertInstanceOf(GuardAudiencePolicy::class, app(AudiencePolicy::class));
-        self::assertSame(app(AudiencePolicy::class), app(AudiencePolicy::class));
+        self::assertInstanceOf(GuardApplicationPolicy::class, app(ApplicationPolicy::class));
+        self::assertSame(app(ApplicationPolicy::class), app(ApplicationPolicy::class));
     }
 
     /**
@@ -611,6 +610,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     public function testJwtGuardTracksLaterEventDispatcherRebind(): void
     {
         config()->set('authentication.timebox.credentials_microseconds', 1);
+        config()->set('auth.guards.api.application', ['methods' => ['password']]);
 
         $this->migrateRateLimits();
 
@@ -625,7 +625,10 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         Event::assertDispatched(Attempting::class, static fn (Attempting $event): bool => $event->guard === 'api');
         Event::assertDispatched(Failed::class, static fn (Failed $event): bool => $event->guard === 'api');
-        Event::assertDispatched(AuthenticationFailed::class, static fn (AuthenticationFailed $event): bool => $event->context->guard === 'api');
+        Event::assertDispatched(
+            AuthenticationFailed::class,
+            static fn (AuthenticationFailed $event): bool => $event->context->guard === 'api' && $event->reason === FailureReason::INVALID_CREDENTIALS,
+        );
     }
 
     /**

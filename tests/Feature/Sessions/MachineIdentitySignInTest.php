@@ -340,9 +340,9 @@ final class MachineIdentitySignInTest extends TestCase
         self::configureSessionGuards($config);
         self::configurePasskeys($config);
 
-        $config->set('auth.guards.api.audience.methods', ['password', 'proven', 'passkey']);
+        $config->set('auth.guards.api.application.methods', ['password', 'proven', 'passkey']);
         $config->set('auth.providers.machines', ['driver' => 'model', 'model' => MachineClient::class]);
-        $config->set('auth.guards.machines', ['driver' => 'jwt', 'provider' => 'machines', 'audience' => ['methods' => ['password', 'proven']]]);
+        $config->set('auth.guards.machines', ['driver' => 'jwt', 'provider' => 'machines', 'application' => ['methods' => ['password', 'proven']]]);
     }
 
     /**

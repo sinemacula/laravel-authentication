@@ -19,8 +19,10 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
+use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
@@ -41,6 +43,7 @@ use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\InteractsWithTypedPrincipals;
 use Tests\Concerns\InteractsWithVerifiableIdentities;
+use Tests\Fixtures\Sessions\RefusingApplicationPolicy;
 use Tests\Integration\Fixtures\TypedIdentity;
 use Tests\Integration\Fixtures\TypedMembership;
 use Tests\Integration\Fixtures\TypedTenant;
@@ -50,9 +53,10 @@ use Tests\TestCase;
 
 /**
  * End-to-end tests of signing in, and refreshing, through the bindings the
- * package ships, on whichever engine the suite runs against: the guard audience
- * policy, the database attempt limiter, the identifier normalisers and the
- * verified-identifier gate, configured per guard as an application would.
+ * package ships, on whichever engine the suite runs against: the guard
+ * application policy, the database attempt limiter, the identifier normalisers
+ * and the verified-identifier gate, configured per guard as an application
+ * would.
  *
  * - `api`: identities with a designated email, the password and `sso` methods.
  * - `by_number`: the same identities, signing in by their `id` with a password.
@@ -60,9 +64,8 @@ use Tests\TestCase;
  * - `staff`: the same rows read as another model class, with a password.
  * - `loose`: the same identities, ten sign-ins per identifier a window.
  * - `verified`: the same identities, verified identifiers required.
- * - `members`: typed memberships; only `staff` and `client_staff` principals,
- *   with shorter lifetimes for `client_staff`, and at most three failed
- *   refreshes per IP address a minute.
+ * - `members`: memberships with a `type` column of the application's own, short
+ *   lifetimes, and at most three failed refreshes per IP address a minute.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -71,7 +74,7 @@ use Tests\TestCase;
  */
 #[CoversClass(SessionService::class)]
 #[CoversClass(SessionEstablishment::class)]
-#[CoversClass(GuardAudiencePolicy::class)]
+#[CoversClass(GuardApplicationPolicy::class)]
 #[CoversClass(DatabaseAttemptLimiter::class)]
 #[CoversClass(RefreshTokenExchange::class)]
 #[CoversClass(VerificationLinks::class)]
@@ -79,14 +82,14 @@ final class SignInPolicyEndToEndTest extends TestCase
 {
     use InteractsWithRateLimits, InteractsWithSessions, InteractsWithTypedPrincipals, InteractsWithVerifiableIdentities;
 
-    /** @var int Access lifetime of a `client_staff` principal, in minutes. */
-    private const int CLIENT_STAFF_ACCESS_MINUTES = 2;
+    /** @var int Access lifetime of the `members` guard, in minutes. */
+    private const int MEMBERS_ACCESS_MINUTES = 2;
 
-    /** @var int Idle lifetime of a `client_staff` session, in minutes. */
-    private const int CLIENT_STAFF_IDLE_MINUTES = 60;
+    /** @var int Idle lifetime of a `members` session, in minutes. */
+    private const int MEMBERS_IDLE_MINUTES = 60;
 
-    /** @var int Absolute lifetime of a `client_staff` session, in minutes. */
-    private const int CLIENT_STAFF_ABSOLUTE_MINUTES = 1440;
+    /** @var int Absolute lifetime of a `members` session, in minutes. */
+    private const int MEMBERS_ABSOLUTE_MINUTES = 1440;
 
     /**
      * Freeze the clocks twenty seconds into a minute, create the tables, and
@@ -110,7 +113,7 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         self::createTypedPrincipalTables();
 
-        Route::middleware('auth:members')->get('/type', static fn (): array => ['type' => Auth::type()]);
+        Route::middleware('auth:members')->get('/me', static fn (): array => ['principal' => Auth::principal()?->getPrincipalIdentifier()]);
 
         Route::post('/refresh', static function (Request $request): array {
 
@@ -538,68 +541,91 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * A session of a typed principal carries the type on its access token, not
-     * on its refresh token, and lasts as the guard sets for that type: the
-     * device's deadlines, the access token's expiry, and the refresh token's,
-     * which is the idle deadline. The bearer request reads the type from the
-     * bound principal. A `staff` principal, with no lifetimes of its own, gets
-     * the guard's.
+     * A sign-in waiting for a further factor when the application stops listing
+     * its method is spent and then refused: completing it is
+     * `method_not_allowed` and writes no device, and the token cannot be
+     * completed again (`pending_invalid`).
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testSessionsCarryThePrincipalTypeAndFollowItsLifetimes(): void
+    public function testAPendingSignInWhoseMethodIsRemovedIsSpentAndRefused(): void
     {
-        $now     = CarbonImmutable::now();
-        $session = $this->signedIn($this->sessions('members')->signIn('password', $this->seedMember('client@example.test', 'client_staff')));
-        $tokens  = $this->tokens();
-        $access  = $tokens->parse($session->tokens->accessToken, TokenType::ACCESS);
-        $refresh = $tokens->parse($session->tokens->refreshToken, TokenType::REFRESH);
+        $this->seedPasswordIdentity('ada@example.test');
 
-        self::assertNotNull($access);
-        self::assertNotNull($refresh);
-        self::assertSame('client_staff', $access[Claims::PRINCIPAL_TYPE->value]);
-        self::assertArrayNotHasKey(Claims::PRINCIPAL_TYPE->value, $refresh);
-        self::assertSame($now->addMinutes(self::CLIENT_STAFF_ACCESS_MINUTES)->getTimestamp(), $access[Claims::EXPIRES_AT->value]);
-        self::assertSame($now->addMinutes(self::CLIENT_STAFF_IDLE_MINUTES)->getTimestamp(), $session->device->getIdleExpiresAt()?->getTimestamp());
-        self::assertSame($now->addMinutes(self::CLIENT_STAFF_ABSOLUTE_MINUTES)->getTimestamp(), $session->device->getAbsoluteExpiresAt()?->getTimestamp());
-        self::assertSame($now->addMinutes(self::CLIENT_STAFF_IDLE_MINUTES)->getTimestamp(), $refresh[Claims::EXPIRES_AT->value]);
+        self::requireAFurtherFactor();
 
-        $this->bearer($session->tokens->accessToken)->assertOk()->assertExactJson(['type' => 'client_staff']);
+        $pending = $this->sessions()->signIn('password', self::credentials())->pending;
 
-        $staff       = $this->signedIn($this->sessions('members')->signIn('password', $this->seedMember('staff@example.test', 'staff')));
-        $staffAccess = $tokens->parse($staff->tokens->accessToken, TokenType::ACCESS);
-        $lifetimes   = $tokens->lifetimes();
+        self::assertNotNull($pending);
 
-        self::assertNotNull($staffAccess);
-        self::assertSame('staff', $staffAccess[Claims::PRINCIPAL_TYPE->value]);
-        self::assertSame($now->addMinutes($lifetimes->accessTtlMinutes)->getTimestamp(), $staffAccess[Claims::EXPIRES_AT->value]);
-        self::assertSame($now->addMinutes($lifetimes->refreshIdleTtlMinutes)->getTimestamp(), $staff->device->getIdleExpiresAt()?->getTimestamp());
+        config()->set('auth.guards.api.application.methods', []);
+
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->complete($pending->token)->reason);
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->complete($pending->token)->reason);
+        self::assertSame(0, PendingSignIn::query()->count());
+        self::assertSame(0, Device::query()->count());
     }
 
     /**
-     * The guard admits only the principal types it lists: another type, or a
-     * principal with no type at all, is refused before anything is written.
-     * When the guard stops listing a type, a session of that type no longer
-     * refreshes, and the device is kept.
+     * A session lasts as the guard sets, whatever its principal: the device's
+     * deadlines, the access token's expiry, and the refresh token's, which is
+     * the idle deadline, are the guard's for two memberships whose own `type`
+     * columns differ, and neither token carries anything of that type. The
+     * bearer request authenticates as the principal.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testTheGuardAdmitsOnlyTheListedPrincipalTypesOnSignInAndRefresh(): void
+    public function testSessionsFollowTheGuardsLifetimesWhateverThePrincipal(): void
     {
-        $contractor = $this->seedMember('contractor@example.test', 'contractor');
-        $untyped    = $this->seedMember('untyped@example.test', null);
+        $now    = CarbonImmutable::now();
+        $tokens = $this->tokens();
 
-        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions('members')->signIn('password', $contractor)->reason);
-        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions('members')->signIn('password', $untyped)->reason);
+        foreach (['client@example.test' => 'client_staff', 'staff@example.test' => 'staff'] as $email => $type) {
+
+            $session = $this->signedIn($this->sessions('members')->signIn('password', $this->seedMember($email, $type)));
+            $access  = $tokens->parse($session->tokens->accessToken, TokenType::ACCESS);
+            $refresh = $tokens->parse($session->tokens->refreshToken, TokenType::REFRESH);
+
+            self::assertNotNull($access);
+            self::assertNotNull($refresh);
+            self::assertNotContains($type, $access);
+            self::assertArrayNotHasKey('pty', $access);
+            self::assertSame($now->addMinutes(self::MEMBERS_ACCESS_MINUTES)->getTimestamp(), $access[Claims::EXPIRES_AT->value]);
+            self::assertSame($now->addMinutes(self::MEMBERS_IDLE_MINUTES)->getTimestamp(), $session->device->getIdleExpiresAt()?->getTimestamp());
+            self::assertSame($now->addMinutes(self::MEMBERS_ABSOLUTE_MINUTES)->getTimestamp(), $session->device->getAbsoluteExpiresAt()?->getTimestamp());
+            self::assertSame($now->addMinutes(self::MEMBERS_IDLE_MINUTES)->getTimestamp(), $refresh[Claims::EXPIRES_AT->value]);
+
+            $this->bearer($session->tokens->accessToken)->assertOk()->assertExactJson(['principal' => $session->principal->getPrincipalIdentifier()]);
+        }
+    }
+
+    /**
+     * An application that decides which principals may use a guard rebinds the
+     * application policy: a principal it refuses is refused as
+     * `principal_ineligible` before anything is written, and once it refuses a
+     * principal whose session already exists, that session no longer refreshes,
+     * and the device is kept.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReboundPolicyRefusesThePrincipalOnSignInAndRefresh(): void
+    {
+        $package = app(ApplicationPolicy::class);
+
+        self::refuseMembersOfType($package, 'contractor');
+
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions('members')->signIn('password', $this->seedMember('contractor@example.test', 'contractor'))->reason);
         self::assertSame(0, Device::query()->count());
 
         $session = $this->signedIn($this->sessions('members')->signIn('password', $this->seedMember('client@example.test', 'client_staff')));
 
-        config()->set('auth.guards.members.audience.principal_types', ['staff']);
+        self::refuseMembersOfType($package, 'client_staff');
 
         $this->recordEvents([AuthenticationFailed::class]);
 
@@ -705,33 +731,39 @@ final class SignInPolicyEndToEndTest extends TestCase
         $config->set('auth.providers.typed', ['driver' => 'model', 'model' => TypedIdentity::class]);
         $config->set('auth.providers.verifiable_staff', ['driver' => 'model', 'model' => VerifiableStaffIdentity::class]);
 
-        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'verifiable', 'audience' => ['methods' => ['password', 'sso']]]);
-        $config->set('auth.guards.by_number', ['driver' => 'jwt', 'provider' => 'verifiable', 'sign_in' => ['password_identifier' => 'id']]);
-        $config->set('auth.guards.staff', ['driver' => 'jwt', 'provider' => 'verifiable_staff']);
+        $config->set('auth.guards.api', [
+            'driver'      => 'jwt',
+            'provider'    => 'verifiable',
+            'application' => ['methods' => ['password', 'sso']],
+        ]);
+        $config->set('auth.guards.by_number', [
+            'driver'      => 'jwt',
+            'provider'    => 'verifiable',
+            'application' => ['methods' => ['password']],
+            'sign_in'     => ['password_identifier' => 'id'],
+        ]);
+        $config->set('auth.guards.staff', ['driver' => 'jwt', 'provider' => 'verifiable_staff', 'application' => ['methods' => ['password']]]);
         $config->set('auth.guards.loose', [
             'driver'      => 'jwt',
             'provider'    => 'verifiable',
+            'application' => ['methods' => ['password']],
             'rate_limits' => ['sign_in' => ['per_identifier' => ['max' => 10, 'decay_seconds' => 300]]],
         ]);
-        $config->set('auth.guards.sso_only', ['driver' => 'jwt', 'provider' => 'verifiable', 'audience' => ['methods' => ['sso']]]);
+        $config->set('auth.guards.sso_only', ['driver' => 'jwt', 'provider' => 'verifiable', 'application' => ['methods' => ['sso']]]);
         $config->set('auth.guards.verified', [
-            'driver'   => 'jwt',
-            'provider' => 'verifiable',
-            'audience' => ['methods' => ['password', 'sso'], 'require_verified_identifier' => true],
+            'driver'      => 'jwt',
+            'provider'    => 'verifiable',
+            'application' => ['methods' => ['password', 'sso'], 'require_verified_identifier' => true],
         ]);
         $config->set('auth.guards.members', [
             'driver'      => 'jwt',
             'provider'    => 'typed',
-            'audience'    => ['principal_types' => ['staff', 'client_staff']],
+            'application' => ['methods' => ['password']],
             'rate_limits' => ['refresh' => ['per_ip' => ['max' => 3, 'decay_seconds' => 60]]],
             'jwt'         => [
-                'by_principal_type' => [
-                    'client_staff' => [
-                        'access_ttl_minutes'           => self::CLIENT_STAFF_ACCESS_MINUTES,
-                        'refresh_idle_ttl_minutes'     => self::CLIENT_STAFF_IDLE_MINUTES,
-                        'refresh_absolute_ttl_minutes' => self::CLIENT_STAFF_ABSOLUTE_MINUTES,
-                    ],
-                ],
+                'access_ttl_minutes'           => self::MEMBERS_ACCESS_MINUTES,
+                'refresh_idle_ttl_minutes'     => self::MEMBERS_IDLE_MINUTES,
+                'refresh_absolute_ttl_minutes' => self::MEMBERS_ABSOLUTE_MINUTES,
             ],
         ]);
 
@@ -754,6 +786,22 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
+     * Rebind the application policy around the given one so the `members` guard
+     * refuses every membership whose `type` is the one given.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy  $inner
+     * @param  string  $type
+     * @return void
+     */
+    private static function refuseMembersOfType(ApplicationPolicy $inner, string $type): void
+    {
+        app()->instance(ApplicationPolicy::class, new RefusingApplicationPolicy(
+            $inner,
+            static fn (string $guard, Principal $principal): bool => $guard === 'members' && $principal instanceof TypedMembership && $principal->type === $type,
+        ));
+    }
+
+    /**
      * Persist an identity with a designated email and the shared password.
      *
      * @param  string  $email
@@ -765,8 +813,8 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
-     * Persist a typed identity with one membership of the type, in a tenant of
-     * no type, and return its password credentials.
+     * Persist an identity with one membership whose `type` column is the one
+     * given, in a tenant, and return its password credentials.
      *
      * @param  string  $email
      * @param  ?string  $type
@@ -843,6 +891,6 @@ final class SignInPolicyEndToEndTest extends TestCase
     {
         Auth::forgetGuards();
 
-        return $this->withHeaders(['Authorization' => 'Bearer ' . $token])->getJson('/type');
+        return $this->withHeaders(['Authorization' => 'Bearer ' . $token])->getJson('/me');
     }
 }

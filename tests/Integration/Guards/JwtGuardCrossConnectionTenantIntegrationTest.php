@@ -182,10 +182,10 @@ final class JwtGuardCrossConnectionTenantIntegrationTest extends TestCase
         $this->configureLaggingReplica($config);
         $this->configureLaggingLandlordReplica($config);
 
-        $config->set('auth.guards.lazy', ['driver' => 'jwt', 'provider' => 'lazy']);
+        $config->set('auth.guards.lazy', ['driver' => 'jwt', 'provider' => 'lazy', 'application' => ['methods' => ['password']]]);
         $config->set('auth.providers.lazy', ['driver' => 'model', 'model' => LandlordTenantMember::class]);
 
-        $config->set('auth.guards.eager', ['driver' => 'jwt', 'provider' => 'eager']);
+        $config->set('auth.guards.eager', ['driver' => 'jwt', 'provider' => 'eager', 'application' => ['methods' => ['password']]]);
         $config->set('auth.providers.eager', ['driver' => 'model', 'model' => EagerLandlordTenantMember::class]);
 
         // Failed attempts wait out the timebox; keep it short.

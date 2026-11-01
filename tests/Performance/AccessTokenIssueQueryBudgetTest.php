@@ -7,7 +7,6 @@ namespace Tests\Performance;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Audience\PrincipalType;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use Tests\Concerns\InteractsWithTypedPrincipals;
@@ -16,17 +15,17 @@ use Tests\Integration\Fixtures\TypedMembership;
 use Tests\Integration\Fixtures\TypedTenant;
 
 /**
- * Query-budget contracts for reading a principal's type: a principal with a
- * type of its own never loads its tenant, and one without loads it once.
+ * Query-budget contracts for issuing an access token: issuing reads nothing,
+ * not even the tenant a 3D principal acts within, and the bearer request the
+ * token then authenticates pays only its own reads.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversClass(PrincipalType::class)]
 #[CoversClass(JwtTokenService::class)]
-final class PrincipalTypeQueryBudgetTest extends PerformanceContractTestCase
+final class AccessTokenIssueQueryBudgetTest extends PerformanceContractTestCase
 {
     use InteractsWithTypedPrincipals;
 
@@ -34,7 +33,7 @@ final class PrincipalTypeQueryBudgetTest extends PerformanceContractTestCase
     private const string GUARD = 'typed_api';
 
     /**
-     * Create the typed tables.
+     * Create the tables.
      *
      * @return void
      */
@@ -47,7 +46,7 @@ final class PrincipalTypeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Drop the typed tables.
+     * Drop the tables.
      *
      * @return void
      */
@@ -60,14 +59,14 @@ final class PrincipalTypeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Issuing an access token for a principal with a type of its own adds no
-     * query, even though its tenant is not loaded.
+     * Issuing an access token for a 3D principal whose tenant is not loaded
+     * runs no query and leaves the tenant unloaded.
      *
      * @return void
      */
-    public function testIssuingForATypedPrincipalReadsNothing(): void
+    public function testIssuingForAPrincipalInATenantReadsNothing(): void
     {
-        [$identity, $membership] = $this->seedMembership('client_admin');
+        [$identity, $membership] = $this->seedMembership();
 
         $token = $this->assertQueryBudget(0, 0, fn (): string => $this->tokens()->issueAccessToken($identity, $membership, null));
 
@@ -76,43 +75,29 @@ final class PrincipalTypeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Issuing for a principal without a type reads its tenant once, and the
-     * loaded tenant then serves `type()` again without a query.
-     *
-     * @return void
-     */
-    public function testIssuingForAnUntypedPrincipalReadsItsTenantOnce(): void
-    {
-        [$identity, $membership] = $this->seedMembership(null);
-
-        $this->assertQueryBudget(1, 0, fn (): string => $this->tokens()->issueAccessToken($identity, $membership, null));
-
-        self::assertSame('staff', $this->assertQueryBudget(0, 0, static fn (): ?string => PrincipalType::of($membership)));
-    }
-
-    /**
-     * On a bearer request for a principal with a type of its own, `type()` adds
-     * no query to the authentication's reads.
+     * The bearer request for that token authenticates in its own reads, the
+     * identity, the principal and the tenant the activity check loads, and
+     * writes nothing: the read the token's issue skipped is not moved to it.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testTypeOfATypedPrincipalAddsNoQueryToTheBearerPath(): void
+    public function testTheIssuedTokenAuthenticatesInThreeReads(): void
     {
-        [$identity, $membership] = $this->seedMembership('client_admin', false);
+        [$identity, $membership] = $this->seedMembership();
 
         $this->bindRequestWithBearer('/perf/typed', $this->tokens()->issueAccessToken($identity, $membership, null));
 
         $guard = $this->freshJwtGuard(self::GUARD);
 
-        self::assertTrue($this->assertQueryBudget(2, 0, static fn (): bool => $guard->check()));
-        self::assertSame('client_admin', $this->assertQueryBudget(0, 0, static fn (): ?string => $guard->type()));
+        self::assertTrue($this->assertQueryBudget(3, 0, static fn (): bool => $guard->check()));
+        self::assertSame($membership->getKey(), $guard->principal()?->getPrincipalIdentifier());
     }
 
     /**
-     * Configure the typed guard.
+     * Configure the guard.
      *
      * @param  mixed  $app
      * @return void
@@ -134,23 +119,16 @@ final class PrincipalTypeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Persist an identity and one membership of the given type, in a `staff`
-     * tenant unless told otherwise, returned without its tenant loaded.
+     * Persist an identity and one membership of a tenant, returned without its
+     * tenant loaded.
      *
-     * @param  ?string  $type
-     * @param  bool  $inTenant
      * @return array{0: \Tests\Integration\Fixtures\TypedIdentity, 1: \Tests\Integration\Fixtures\TypedMembership}
      */
-    private function seedMembership(?string $type, bool $inTenant = true): array
+    private function seedMembership(): array
     {
-        $identity = TypedIdentity::query()->create(['email' => 'typed@example.test', 'password' => 'unused']);
-        $tenant   = $inTenant ? TypedTenant::query()->create(['category' => 'staff']) : null;
-
-        $membership = TypedMembership::query()->create([
-            'identity_id' => $identity->getKey(),
-            'tenant_id'   => $tenant?->getKey(),
-            'type'        => $type,
-        ]);
+        $identity   = TypedIdentity::query()->create(['email' => 'typed@example.test', 'password' => 'unused']);
+        $tenant     = TypedTenant::query()->create(['category' => 'staff']);
+        $membership = TypedMembership::query()->create(['identity_id' => $identity->getKey(), 'tenant_id' => $tenant->getKey(), 'type' => 'client_admin']);
 
         $membership->setRelation('identity', $identity);
 

@@ -190,8 +190,9 @@ final class DeviceModelOverrideTest extends TestCase
         parent::defineEnvironment($app);
 
         config()->set('auth.guards.custom-jwt', [
-            'driver'   => 'jwt',
-            'provider' => 'principals',
+            'driver'      => 'jwt',
+            'provider'    => 'principals',
+            'application' => ['methods' => ['password']],
         ]);
 
         config()->set('auth.providers.principals', [

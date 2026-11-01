@@ -4,15 +4,15 @@ declare(strict_types = 1);
 
 namespace Tests\Fixtures\Sessions;
 
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 
 /**
- * Audience policy double that allows every method and admits every principal,
- * with the same lifetimes for every guard and principal, for guard tests whose
+ * Application policy double that allows every method and admits every
+ * principal, with the same lifetimes for every guard, for guard tests whose
  * guards no configuration describes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -20,7 +20,7 @@ use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
  *
  * @internal
  */
-final readonly class PermissiveAudiencePolicy implements AudiencePolicy
+final readonly class PermissiveApplicationPolicy implements ApplicationPolicy
 {
     /**
      * Constructor.
@@ -29,7 +29,7 @@ final readonly class PermissiveAudiencePolicy implements AudiencePolicy
      */
     public function __construct(
 
-        /** Lifetimes for every guard and principal. */
+        /** Lifetimes for every guard. */
         private TokenLifetimes $lifetimes,
     ) {}
 
@@ -82,16 +82,15 @@ final readonly class PermissiveAudiencePolicy implements AudiencePolicy
     }
 
     /**
-     * The given lifetimes, whatever the guard and principal.
+     * The given lifetimes, whatever the guard.
      *
      * @param  string  $guard
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes
      */
     #[\Override]
-    public function lifetimes(string $guard, Principal $principal): TokenLifetimes
+    public function lifetimes(string $guard): TokenLifetimes
     {
-        unset($guard, $principal);
+        unset($guard);
 
         return $this->lifetimes;
     }

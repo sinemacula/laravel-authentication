@@ -262,29 +262,6 @@ trait InteractsWithAuthenticationContext
     }
 
     /**
-     * Assert the type of the principal the guard (the default guard when none
-     * is named) has bound, its own or else its tenant's: `null` for none.
-     *
-     * @param  ?string  $expected
-     * @param  ?string  $guard
-     * @return static
-     *
-     * @throws \InvalidArgumentException
-     * @throws \LogicException
-     * @throws \PHPUnit\Framework\ExpectationFailedException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
-     */
-    public function assertBoundType(?string $expected, ?string $guard = null): static
-    {
-        $resolved = ActingContext::guard($guard);
-
-        Assert::assertSame($expected, $resolved->type(), sprintf('Unexpected principal type bound to guard [%s].', $resolved->getName()));
-
-        return $this;
-    }
-
-    /**
      * Act as the context on the guard and make it the default guard.
      *
      * @param  \SineMacula\Laravel\Authentication\Guards\AbstractGuard  $guard

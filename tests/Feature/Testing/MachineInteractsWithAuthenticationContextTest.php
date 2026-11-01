@@ -47,7 +47,6 @@ final class MachineInteractsWithAuthenticationContextTest extends TestCase
                 'identity'  => Auth::identity()?->getAuthIdentifier(),
                 'principal' => Auth::principal()?->getPrincipalIdentifier(),
                 'tenant'    => Auth::tenant()?->getTenantIdentifier(),
-                'type'      => Auth::type(),
                 'scopes'    => Auth::scopes(),
             ]);
         }
@@ -111,11 +110,11 @@ final class MachineInteractsWithAuthenticationContextTest extends TestCase
     }
 
     /**
-     * A service account's membership acted as carries its type and tenant.
+     * A service account's membership acted as carries its tenant.
      *
      * @return void
      */
-    public function testAServiceAccountsMembershipCarriesItsTypeAndTenant(): void
+    public function testAServiceAccountsMembershipCarriesItsTenant(): void
     {
         [$account, $membership, $tenant] = $this->seedAccount();
 
@@ -123,14 +122,12 @@ final class MachineInteractsWithAuthenticationContextTest extends TestCase
             ->assertBoundIdentity($account)
             ->assertBoundPrincipal($membership)
             ->assertBoundTenant($tenant)
-            ->assertBoundType('service')
             ->assertBoundScopes([]);
 
         $this->getJson('/accounts/me')->assertOk()->assertExactJson([
             'identity'  => $account->getKey(),
             'principal' => $membership->getKey(),
             'tenant'    => $tenant->getKey(),
-            'type'      => 'service',
             'scopes'    => [],
         ]);
     }

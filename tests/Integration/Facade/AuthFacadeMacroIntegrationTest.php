@@ -72,16 +72,6 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
     }
 
     /**
-     * `Auth::type()` returns null for an unauthenticated request.
-     *
-     * @return void
-     */
-    public function testAuthTypeReturnsNullForUnauthenticatedRequest(): void
-    {
-        self::assertNull(IlluminateAuth::type());
-    }
-
-    /**
      * After binding an identity + principal via the contextual guard's
      * `login()`, `Auth::principal()` forwards to the guard and returns the
      * resolved principal.
@@ -145,7 +135,6 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
         self::assertNull(IlluminateAuth::principal());
         self::assertNull(IlluminateAuth::device());
         self::assertNull(IlluminateAuth::tenant());
-        self::assertNull(IlluminateAuth::type());
     }
 
     /**

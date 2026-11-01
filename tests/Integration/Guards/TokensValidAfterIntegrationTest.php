@@ -237,9 +237,9 @@ final class TokensValidAfterIntegrationTest extends TestCase
         $config = $app->make(ConfigRepository::class);
 
         $config->set('auth.providers.cutoff', ['driver' => 'model', 'model' => CutoffIdentity::class]);
-        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'cutoff']);
+        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'cutoff', 'application' => ['methods' => ['password']]]);
         $config->set('auth.providers.access_only_members', ['driver' => 'model', 'model' => AccessOnlyMember::class]);
-        $config->set('auth.guards.members', ['driver' => 'jwt', 'provider' => 'access_only_members']);
+        $config->set('auth.guards.members', ['driver' => 'jwt', 'provider' => 'access_only_members', 'application' => ['methods' => ['password']]]);
         $config->set('hashing.bcrypt.rounds', 4);
         $config->set('authentication.timebox.credentials_microseconds', 1);
     }

@@ -150,15 +150,31 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
+     * Rows of `[the guard's application block]`: an application that lists
+     * other methods, and one that takes the package default, which lists none.
+     *
+     * @return iterable<string, array{0: ?array<string, mixed>}>
+     */
+    public static function provideApplicationsWithoutTheMethod(): iterable
+    {
+        yield 'one listing other methods' => [['methods' => ['sso']]];
+        yield 'none, so the shipped default that lists nothing' => [null];
+    }
+
+    /**
      * A guard that does not allow the method refuses the request before
      * anything is counted or issued, and reports it with the number as given.
      *
+     * @param  ?array<string, mixed>  $application
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAGuardThatDoesNotAllowTheMethodRefuses(): void
+    #[DataProvider('provideApplicationsWithoutTheMethod')]
+    public function testAGuardThatDoesNotAllowTheMethodRefuses(?array $application): void
     {
+        config()->set('auth.guards.web.application', $application);
+
         $this->recordEvents([AuthenticationFailed::class]);
 
         $request = $this->codeService('web')->send('phone_code', ['phone' => self::PHONE]);

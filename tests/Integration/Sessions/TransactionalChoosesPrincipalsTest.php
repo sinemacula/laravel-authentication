@@ -254,7 +254,7 @@ final class TransactionalChoosesPrincipalsTest extends TestCase
         self::configureSessionGuards($config);
 
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
-        $config->set('auth.guards.' . self::CHOOSERS, ['driver' => 'jwt', 'provider' => 'choosers', 'audience' => ['methods' => ['password']]]);
+        $config->set('auth.guards.' . self::CHOOSERS, ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password']]]);
         $config->set('database.connections.' . self::COUNTERS, $config->array('database.connections.testing'));
         $config->set('authentication.rate_limits.connection', self::COUNTERS);
     }

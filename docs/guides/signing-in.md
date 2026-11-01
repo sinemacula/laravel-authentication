@@ -22,13 +22,12 @@ Auth::identity();       // Identity|null   - the authenticated subject
 Auth::principal();      // Principal|null  - the acting principal
 Auth::device();         // Device|null     - the issuing device
 Auth::tenant();         // Tenant|null     - the tenant the principal acts within
-Auth::type();           // string|null     - the principal's type, else its tenant's
 Auth::scopes();         // list<string>|null - the credential's scope ceiling (null: no credential limits the request)
 ```
 
 Like `Auth::user()` and `Auth::id()`, each accessor authenticates the request on first access, so they also work on
 routes without `auth` middleware. A request is authenticated at most once, whether its token is accepted or rejected,
-and after `Auth::logout()` it stays signed out for the rest of the request. `Auth::tenant()` and `Auth::type()` throw a
+and after `Auth::logout()` it stays signed out for the rest of the request. `Auth::tenant()` throws a
 `TenantUnavailableException` for a principal whose opted-in tenant cannot be loaded, and a `LogicException` for one
 loaded without that tenant's key (or polymorphic type). Sign-in, bearer requests and refresh reject such a principal, so
 that only happens for one bound through `login()`, `setUser()` or `setPrincipal()`, which skip the activity check.
@@ -47,7 +46,7 @@ Sign in with credentials through `attempt()`, optionally pinning the principal a
 $guard->attempt(['email' => $email, 'password' => $password], $membership, $device);
 ```
 
-`attempt()` signs in through the password sign-in method and the guard's sign-in policies: the audience policy must
+`attempt()` signs in through the password sign-in method and the guard's sign-in policies: the application policy must
 allow the `password` method for the guard, the attempt takes a slot from the sign-in limits of the identifier (the
 guard's `sign_in.password_identifier` key of the credentials, whatever else they hold) and of the request's IP address,
 and only then are the credentials checked, inside the timebox. The identifier key may hold a string, a `Stringable`, an
@@ -57,13 +56,13 @@ lookup, so request input passed straight through cannot reach accounts the ident
 `signIn('password', ...)` takes the same strings, `Stringable`s and integers, and refuses anything else as
 `invalid_credentials` without a lookup. The password check itself is counted against the account it is made for (see
 [Rate limits](configuration.md#rate-limits)). After the password, the identity, the principal and its tenant must be
-active, the pins must hold, the audience policy must admit the identity as that principal, the password is rehashed when
-its stored hash no longer matches the hasher's algorithm or cost (unless Laravel's `hashing.rehash_on_login` is off),
-and the additional-factor policy must not ask for a further factor: `attempt()` cannot hand out a pending sign-in, so a
-guard whose policy requires a factor fails it with `additional_factor_required`. A successful attempt gives its slots
-back; a failed one keeps them. Every failure fires Laravel's `Failed` and then `AuthenticationFailed` with a reason (see
-[Events](events.md#events)). `validate()` checks only the credentials and never rehashes, as with Laravel's own guards;
-neither does a bearer request or a refresh, which never see a password.
+active, the pins must hold, the application policy must admit the identity as that principal, the password is rehashed
+when its stored hash no longer matches the hasher's algorithm or cost (unless Laravel's `hashing.rehash_on_login` is
+off), and the additional-factor policy must not ask for a further factor: `attempt()` cannot hand out a pending sign-in,
+so a guard whose policy requires a factor fails it with `additional_factor_required`. A successful attempt gives its
+slots back; a failed one keeps them. Every failure fires Laravel's `Failed` and then `AuthenticationFailed` with a
+reason (see [Events](events.md#events)). `validate()` checks only the credentials and never rehashes, as with Laravel's
+own guards; neither does a bearer request or a refresh, which never see a password.
 
 The pins are verified rather than trusted, because they often come from request input: the principal must be one the
 resolver returns for that identifier on the authenticated identity (same class, same identifier) and must belong to that
@@ -145,11 +144,11 @@ return [
 ```
 
 `signIn()` runs, in order: Laravel's `Attempting` (with only the identifier the method names, never the input); the
-guard's audience policy must allow the method (`method_not_allowed`, nothing counted); the identifier and the client's
-IP address must have attempts left (`rate_limited`, with the wait); then, inside the credential timebox, the method must
+application policy must allow the method (`method_not_allowed`, nothing counted); the identifier and the client's IP
+address must have attempts left (`rate_limited`, with the wait); then, inside the credential timebox, the method must
 verify the input, the identity, the principal (the one the context names, verified like an `attempt()` pin, or the
-resolver's default) and its tenant must be active, and the audience policy must admit the identity as that principal; a
-password is rehashed when its hash is outdated; and the additional-factor policy is asked whether a further factor is
+resolver's default) and its tenant must be active, and the application policy must admit the identity as that principal;
+a password is rehashed when its hash is outdated; and the additional-factor policy is asked whether a further factor is
 required (see [Additional factors](#additional-factors)). Failures are results, not exceptions: Laravel's `Failed` and
 then `AuthenticationFailed` report them, with the reason. A method name that is not registered (exactly: `Password` is
 not `password`), a method that refuses with any reason but `invalid_credentials`, a misconfigured model and database
@@ -163,18 +162,18 @@ attempt limit or timebox applies. The principal is given as the argument or on t
 
 A session starts on a new device that records the identity, the principal, the guard, the method, the client's name and
 platform (from the context, cleaned as the user agent is), the client's IP address and user agent at creation and as its
-last use, the digest of the first rotation id, and both deadlines from the guard's lifetimes for the principal. The
-device is written and the pair issued in one transaction on the device's connection, so a failure while issuing leaves
-no device behind. `DeviceCreated` and `SignedIn` are then scheduled for the device's commit on its own connection before
-the guard is bound (`Validated`, `Login`, `Authenticated`, `PrincipalAssigned` and `DeviceAuthenticated` fire at once).
-Outside a transaction the device is already committed, so `DeviceCreated` and `SignedIn` are dispatched before the bind
-events: a listener on them reads the event's context, not the guard. Inside your transaction they wait for it to commit,
-after the bind events, and are never dispatched when it is rolled back. Do not roll back around a sign-in: the guard
-stays bound, and unless `rate_limits.connection` names a connection of its own the sign-in's attempt counts are rolled
-back too, so it goes uncounted (see [Rate limits](configuration.md#rate-limits)). A listener that throws on a bind event
-fails the call, so the pair is lost, but cannot keep the session from being reported: outside a transaction `SignedIn`
-has already been dispatched, and inside one it follows your commit (a rollback discards the device with it). Keep those
-listeners from throwing or queue them.
+last use, the digest of the first rotation id, and both deadlines from the guard's lifetimes. The device is written and
+the pair issued in one transaction on the device's connection, so a failure while issuing leaves no device behind.
+`DeviceCreated` and `SignedIn` are then scheduled for the device's commit on its own connection before the guard is
+bound (`Validated`, `Login`, `Authenticated`, `PrincipalAssigned` and `DeviceAuthenticated` fire at once). Outside a
+transaction the device is already committed, so `DeviceCreated` and `SignedIn` are dispatched before the bind events: a
+listener on them reads the event's context, not the guard. Inside your transaction they wait for it to commit, after the
+bind events, and are never dispatched when it is rolled back. Do not roll back around a sign-in: the guard stays bound,
+and unless `rate_limits.connection` names a connection of its own the sign-in's attempt counts are rolled back too, so
+it goes uncounted (see [Rate limits](configuration.md#rate-limits)). A listener that throws on a bind event fails the
+call, so the pair is lost, but cannot keep the session from being reported: outside a transaction `SignedIn` has already
+been dispatched, and inside one it follows your commit (a rollback discards the device with it). Keep those listeners
+from throwing or queue them.
 
 A client that signs in again with its current refresh token in the context continues on the same device instead of
 creating another: the token proves the client holds that session, even when it has expired. It counts only when it is
@@ -197,16 +196,17 @@ and issue access tokens with `Auth::jwt('api')->issueAccessToken()`.
 
 The package registers `phone_code`, a numeric code sent to a verified phone number, and `email_code`, the same sent to a
 verified email address: either signs in with no password, as a primary method or a fallback. Allow it in the guard's
-audience, bind a `OneTimeCodeSender` (see [One-time codes](configuration.md#one-time-codes)), and give the identity a
-normalised `phone` or `email` column with `HasVerifiableIdentifiers` (see [Identifiers](identity-models.md#identifiers)
-and [Identifier verification](identity-models.md#identifier-verification)). The input carries the identifier under its
-type's name (`phone`, `email`) and the code under `code`:
+`application.methods`, bind a `OneTimeCodeSender` (see [One-time codes](configuration.md#one-time-codes)), and give the
+identity a normalised `phone` or `email` column with `HasVerifiableIdentifiers` (see
+[Identifiers](identity-models.md#identifiers) and [Identifier
+verification](identity-models.md#identifier-verification)). The input carries the identifier under its type's name
+(`phone`, `email`) and the code under `code`:
 
 ```php
 'mobile' => [
-    'driver'   => 'jwt',
-    'provider' => 'staff',
-    'audience' => ['methods' => ['phone_code']],
+    'driver'      => 'jwt',
+    'provider'    => 'staff',
+    'application' => ['methods' => ['phone_code']],
 ],
 ```
 
@@ -266,7 +266,7 @@ used before, a code for another guard, purpose or number, and the right code for
 `invalid_credentials`; an expired code and one that used up its attempts are refused as `code_expired` and
 `code_exhausted`, which only `AuthenticationFailed` says: the result says `invalid_credentials`. The right code for an
 identity whose number is not verified is `identifier_unverified` (the code proved the number is held, so this tells a
-guesser nothing). Then the session service does the rest, as for a password: activity, the principal, the audience
+guesser nothing). Then the session service does the rest, as for a password: activity, the principal, the application
 policy, a further factor and the device, which records `phone_code`. The code's attempts are counted on its row, on the
 storage connection, so a transaction you open there and roll back around a sign-in gives the attempt back; the sign-in
 limits on `rate_limits.connection` still count it.
@@ -294,8 +294,8 @@ is two calls, options and then the browser's answer: the options carry a single-
 party (and, for a registration or a factor, the same identity), whatever it then proves. The routes and responses are
 yours.
 
-Allow the method in each guard's audience (`'methods' => ['password', 'passkey']`). A signed-in identity registers a
-passkey:
+Allow the method in each application's `application.methods` (`'methods' => ['password', 'passkey']`). A signed-in
+identity registers a passkey:
 
 ```php
 use SineMacula\Laravel\Authentication\Facades\Auth;
@@ -456,14 +456,14 @@ It ends every session of the identity with `factor_removed`; to keep the current
 ## Writing a sign-in method
 
 A sign-in method verifies input the client sends to your sign-in route and answers with the identity it proves, or why
-it does not; the session service does everything else (the audience policy, the limits, activity, the principal, a
+it does not; the session service does everything else (the application policy, the limits, activity, the principal, a
 further factor, the device and the tokens). Use a method for input the package verifies, such as a password, a code
 your application issued, or an identity provider's signed assertion the method checks itself. Use `start()` instead
 when something outside the session service has already proven the identity, such as an SSO callback your identity
 provider's package handles: `start()` runs the same checks after the proof, but no `Attempting`, attempt limit or
 timebox, since nothing is guessed there. A method signed in through `signIn()` gets all three. `start()` refuses the
 machine credential kinds (`api_key`, `client_credentials`) as the method with an `InvalidArgumentException`, even when
-the guard's audience lists them: they authenticate requests and exchanges, never sessions.
+the application lists them: they authenticate requests and exchanges, never sessions.
 
 ```php
 use Illuminate\Contracts\Hashing\Hasher;
@@ -538,7 +538,7 @@ Register the method under a lower-case name of its own (a letter, then letters, 
 refuses anything else, the package's own `password`, `phone_code`, `email_code` and `passkey`, and the machine
 credential kinds `api_key` and `client_credentials`; see [Extensibility](extending.md#extensibility)), from a service
 provider once the registry resolves (see [Binding order](extending.md#binding-order)), and allow that exact name in each
-guard's audience:
+application's `application.methods`:
 
 ```php
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
@@ -551,9 +551,9 @@ $this->callAfterResolving(SignInMethodManager::class, static function (SignInMet
 
 ```php
 'kiosk' => [
-    'driver'   => 'jwt',
-    'provider' => 'staff',
-    'audience' => ['methods' => ['badge']],
+    'driver'      => 'jwt',
+    'provider'    => 'staff',
+    'application' => ['methods' => ['badge']],
 ],
 ```
 
@@ -620,7 +620,7 @@ sign-in of this guard and, when it did, reports the failure of the sign-in that 
 `pending()` never uses the pending sign-in up, and returns `null` for any token that does not name a live one of this
 guard whose identity and principal still resolve as it recorded them. `complete()` uses it up whatever the outcome,
 with a delete only one completion can make, checks it again in the same transaction (the method still allowed, the
-identity, principal and tenant active, and the audience policy admitting them with the identifier type the sign-in
+identity, principal and tenant active, and the application policy admitting them with the identifier type the sign-in
 used; the factor policy is not asked again), and starts the session on the device the client proved it holds when that
 is unchanged, otherwise on a new one, which records the client the sign-in came from as its creation and the completing
 request's client as its last use. The events of a completion, `AuthenticationFailed` included, carry the completing
@@ -636,13 +636,13 @@ waits for the identity to choose one when it may sign in as any: the result `req
 `PrincipalChoice` with a single-use `token`, the guard, the identity, the method, the expiry
 (`sign_in.pending_ttl_seconds`, as for a factor) and the `principals` it may choose from. Those are the identity's
 `principals()`, read on the write connection, that are active, act within an active tenant (or none), and are admitted
-by the guard's audience policy (for an identity that is its own principal, the resolver's default).
+by the application policy (for an identity that is its own principal, the resolver's default).
 `Auth::sessions('api')->principals($identity, $identifierType)` lists them the same way; a switch screen passes the
 type of identifier its session's sign-in used, `Auth::guard('api')->device()?->getSignInIdentifierType()`, so it lists
-only the targets the audience policy lets that session switch to (without a type, the list ignores the identifier and
+only the targets the application policy lets that session switch to (without a type, the list ignores the identifier and
 may hold targets a switch refuses). An identity with none fails as
 `principal_unresolved`, as before. The choice itself, and every later look-up of it, is admitted with the identifier
-type the sign-in used, as a sign-in naming a principal would be, so a principal your audience policy refuses to that
+type the sign-in used, as a sign-in naming a principal would be, so a principal your application policy refuses to that
 identifier is neither offered nor listed, and a guard with `require_verified_identifier` offers no choice, and lists no
 principal, to an identity whose identifier is unverified: the sign-in fails as `identifier_unverified` with nothing
 stored or reported. `attempt()` never waits for a choice.
@@ -674,7 +674,7 @@ $result = $sessions->choose($token, $principal);
 `choice()` never uses the choice up. `choose()` uses it up whatever the outcome, with a delete only one call can make,
 then admits the chosen principal as any sign-in would: the method still allowed, the principal resolved through the
 resolver's hinted path as the very one named and the identity's own (`principal_mismatch`), active, in an active tenant,
-and admitted by the audience policy with the identifier type the sign-in used. The additional-factor policy is then
+and admitted by the application policy with the identifier type the sign-in used. The additional-factor policy is then
 asked: a required factor turns the choice into a pending factor for the chosen principal, carrying the same attempt
 slots (complete it as above). Otherwise the session starts, on the device the client proved when that device records the
 chosen principal and is unchanged, else on a new one, and the slots are given back once committed. A token that

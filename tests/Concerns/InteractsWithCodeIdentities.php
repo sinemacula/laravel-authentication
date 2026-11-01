@@ -91,12 +91,12 @@ trait InteractsWithCodeIdentities
         $codes    = ['methods' => ['phone_code', 'email_code']];
         $verified = ['methods' => ['email_code', 'password'], 'require_verified_identifier' => true];
 
-        $config->set('auth.guards.mobile', ['driver' => 'jwt', 'provider' => 'code_identities', 'audience' => ['methods' => ['phone_code', 'email_code', 'password']]]);
-        $config->set('auth.guards.kiosk', ['driver' => 'jwt', 'provider' => 'code_identities', 'audience' => $codes]);
-        $config->set('auth.guards.console', ['driver' => 'jwt', 'provider' => 'code_identities', 'audience' => $verified]);
-        $config->set('auth.guards.web', ['driver' => 'jwt', 'provider' => 'code_identities', 'audience' => ['methods' => ['password']]]);
-        $config->set('auth.guards.machines', ['driver' => 'jwt', 'provider' => 'code_machines', 'audience' => $codes]);
-        $config->set('auth.guards.unverifiable', ['driver' => 'jwt', 'provider' => 'unverifiable', 'audience' => $codes]);
+        $config->set('auth.guards.mobile', ['driver' => 'jwt', 'provider' => 'code_identities', 'application' => ['methods' => ['phone_code', 'email_code', 'password']]]);
+        $config->set('auth.guards.kiosk', ['driver' => 'jwt', 'provider' => 'code_identities', 'application' => $codes]);
+        $config->set('auth.guards.console', ['driver' => 'jwt', 'provider' => 'code_identities', 'application' => $verified]);
+        $config->set('auth.guards.web', ['driver' => 'jwt', 'provider' => 'code_identities', 'application' => ['methods' => ['password']]]);
+        $config->set('auth.guards.machines', ['driver' => 'jwt', 'provider' => 'code_machines', 'application' => $codes]);
+        $config->set('auth.guards.unverifiable', ['driver' => 'jwt', 'provider' => 'unverifiable', 'application' => $codes]);
 
         $config->set('queue.default', 'sync');
         $config->set('queue.connections.sync', ['driver' => 'sync']);
@@ -117,7 +117,7 @@ trait InteractsWithCodeIdentities
         Auth::provider('look-alike', static fn (Application $app): LookAlikeModelProvider => new LookAlikeModelProvider($app->make(Hasher::class), CodeIdentity::class));
 
         config()->set('auth.providers.look_alike', ['driver' => 'look-alike']);
-        config()->set('auth.guards.lookalike', ['driver' => 'jwt', 'provider' => 'look_alike', 'audience' => ['methods' => ['phone_code', 'email_code']]]);
+        config()->set('auth.guards.lookalike', ['driver' => 'jwt', 'provider' => 'look_alike', 'application' => ['methods' => ['phone_code', 'email_code']]]);
     }
 
     /**

@@ -102,15 +102,15 @@ trait InteractsWithChangeableIdentities
      */
     protected static function configureChangeGuards(ConfigRepository $config): void
     {
-        $audience = ['methods' => ['password', 'email_code', 'phone_code']];
+        $application = ['methods' => ['password', 'email_code', 'phone_code']];
 
         $config->set('auth.providers.changeables', ['driver' => 'model', 'model' => ChangeableIdentity::class]);
         $config->set('auth.providers.changeable_machines', ['driver' => 'model', 'model' => ChangeableMachine::class]);
         $config->set('auth.providers.verifiables', ['driver' => 'model', 'model' => VerifiableIdentity::class]);
-        $config->set('auth.guards.web', ['driver' => 'jwt', 'provider' => 'changeables', 'audience' => $audience]);
-        $config->set('auth.guards.admin', ['driver' => 'jwt', 'provider' => 'changeables', 'audience' => $audience]);
-        $config->set('auth.guards.machines', ['driver' => 'jwt', 'provider' => 'changeable_machines', 'audience' => $audience]);
-        $config->set('auth.guards.verifiable', ['driver' => 'jwt', 'provider' => 'verifiables', 'audience' => $audience]);
+        $config->set('auth.guards.web', ['driver' => 'jwt', 'provider' => 'changeables', 'application' => $application]);
+        $config->set('auth.guards.admin', ['driver' => 'jwt', 'provider' => 'changeables', 'application' => $application]);
+        $config->set('auth.guards.machines', ['driver' => 'jwt', 'provider' => 'changeable_machines', 'application' => $application]);
+        $config->set('auth.guards.verifiable', ['driver' => 'jwt', 'provider' => 'verifiables', 'application' => $application]);
 
         $config->set('queue.default', 'sync');
         $config->set('queue.connections.sync', ['driver' => 'sync']);

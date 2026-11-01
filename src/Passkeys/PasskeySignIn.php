@@ -35,7 +35,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
  * `invalid_credentials`. A verified passkey records its new count and last use
  * and dispatches `PasskeyUsed`, whether or not the session service then admits
  * the sign-in; the session service decides the rest (a machine identity,
- * activity, the principal, the audience, a further factor, the device).
+ * activity, the principal, the application, a further factor, the device).
  *
  * @api
  *

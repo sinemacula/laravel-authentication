@@ -10,14 +10,21 @@ use Illuminate\Database\DatabaseManager;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyAdmission;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyLookup;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyService;
+use SineMacula\Laravel\Authentication\ApiKeys\IssuedApiKey;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
+use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsResult;
 use SineMacula\Laravel\Authentication\Events\ApiKeyRevoked;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithApplicationGrants;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Concerns\InteractsWithMachineCredentials;
+use Tests\Fixtures\Sessions\GrantedApplicationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\Integration\Fixtures\MachineMembership;
@@ -29,7 +36,8 @@ use Tests\TestCase;
  * accepted or refused as the primary says by the `api_key` guard, the client
  * credentials exchange and the bearer path of the tokens it issues, and the
  * service finds it; a principal's tenant changed moments ago is the one a new
- * key records.
+ * key records; and an application policy of the application's own decides from
+ * the rows the primary holds.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -39,9 +47,10 @@ use Tests\TestCase;
 #[CoversClass(ApiKeyLookup::class)]
 #[CoversClass(ApiKeyService::class)]
 #[CoversClass(ClientCredentialsExchange::class)]
+#[CoversClass(ApiKeyAdmission::class)]
 final class ReplicaApiKeysTest extends TestCase
 {
-    use InteractsWithLaggingReplica, InteractsWithMachineCredentials;
+    use InteractsWithApplicationGrants, InteractsWithLaggingReplica, InteractsWithMachineCredentials;
 
     /** @var \Tests\Integration\Fixtures\MachineClient The machine client, as both copies hold it. */
     private MachineClient $machine;
@@ -217,6 +226,46 @@ final class ReplicaApiKeysTest extends TestCase
     }
 
     /**
+     * An application policy of the application's own is asked on the primary: a
+     * grant only the primary holds lets keys be issued for the machine, its
+     * requests authenticate and the exchange grants a token; once the primary
+     * withdraws the grant, while the replica still holds it, its requests are
+     * refused as `principal_ineligible`, the exchange answers
+     * `unauthorized_client`, and no key is issued.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheApplicationPolicyIsAskedOnThePrimary(): void
+    {
+        $this->bindGrantedApplicationPolicy();
+
+        $grant  = $this->grant($this->machine);
+        $issued = $this->apiKeys()->issue($this->machine, $this->machine, ['read']);
+        $client = $this->apiKeys('m2m')->issue($this->machine, $this->machine, ['read']);
+
+        self::assertTrue($this->authenticates('machine', $issued->key()));
+        self::assertTrue($this->exchange($client)->isGranted());
+
+        $this->withdrawOnThePrimary(GrantedApplicationPolicy::GRANTS, $grant);
+        $this->recordMachineEvents([AuthenticationFailed::class]);
+
+        self::assertFalse($this->authenticates('machine', $issued->key()));
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->machineEventsOf(AuthenticationFailed::class)[0]->reason);
+
+        $refused = $this->exchange($client);
+
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $refused->reason);
+        self::assertSame(ClientCredentialsResult::UNAUTHORIZED_CLIENT, $refused->error);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('The application [machine] does not admit the principal an API key was to be issued for (principal_ineligible).');
+
+        $this->apiKeys()->issue($this->machine, $this->machine);
+    }
+
+    /**
      * Configure the guards over a lagging read/write split.
      *
      * @param  mixed  $app
@@ -255,6 +304,21 @@ final class ReplicaApiKeysTest extends TestCase
         }
 
         $manager->setDefaultConnection(self::SPLIT_CONNECTION);
+    }
+
+    /**
+     * Exchange the client's key for an access token on the `m2m` guard.
+     *
+     * @param  \SineMacula\Laravel\Authentication\ApiKeys\IssuedApiKey  $client
+     * @return \SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsResult
+     *
+     * @throws \Throwable
+     */
+    private function exchange(IssuedApiKey $client): ClientCredentialsResult
+    {
+        $this->startMachineRequest();
+
+        return Auth::clientCredentials('m2m')->exchange($client->summary->publicId, substr($client->key(), 20));
     }
 
     /**

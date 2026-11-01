@@ -17,8 +17,8 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
@@ -44,7 +44,7 @@ use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 use Tests\Concerns\InteractsWithSessions;
-use Tests\Fixtures\Sessions\InvitedTenantAudiencePolicy;
+use Tests\Fixtures\Sessions\InvitedTenantApplicationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\ChoosingMembership;
@@ -633,7 +633,7 @@ final class PrincipalSwitchTest extends TestCase
     {
         [, $second, $member] = $this->seedMemberships();
 
-        app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy(app(AudiencePolicy::class), $second->tenant_id));
+        app()->instance(ApplicationPolicy::class, new InvitedTenantApplicationPolicy(app(ApplicationPolicy::class), $second->tenant_id));
 
         $session = $this->signIn();
         $row     = (array) DB::table('devices')->sole();
@@ -655,6 +655,36 @@ final class PrincipalSwitchTest extends TestCase
     }
 
     /**
+     * Once the guard's application no longer lists the method the session
+     * signed in with, or lists nothing, a switch is refused as
+     * `method_not_allowed` and the session is left as it was, neither revoked
+     * nor rotated; listed again, the same refresh token switches.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchIsRefusedOnceTheSessionsMethodIsNoLongerAllowed(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+        $row     = (array) DB::table('devices')->sole();
+
+        foreach ([['sso'], []] as $methods) {
+            config()->set('auth.guards.' . self::GUARD . '.application.methods', $methods);
+
+            $this->assertSwitchFails(FailureReason::METHOD_NOT_ALLOWED, $session, $second);
+
+            self::assertEquals($row, (array) DB::table('devices')->sole());
+        }
+
+        config()->set('auth.guards.' . self::GUARD . '.application.methods', ['password']);
+
+        self::assertSame($second->getKey(), $this->switched($session, $second)->principal->getPrincipalIdentifier());
+    }
+
+    /**
      * A device loaded without the type of identifier its session's sign-in used
      * is reported rather than switched as if the sign-in used none, which would
      * skip the policy's refusal of the target to that identifier, and the
@@ -668,7 +698,7 @@ final class PrincipalSwitchTest extends TestCase
     {
         [, $second] = $this->seedMemberships();
 
-        app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy(app(AudiencePolicy::class), $second->tenant_id));
+        app()->instance(ApplicationPolicy::class, new InvitedTenantApplicationPolicy(app(ApplicationPolicy::class), $second->tenant_id));
 
         $session = $this->signIn();
         $row     = (array) DB::table('devices')->sole();
@@ -699,7 +729,7 @@ final class PrincipalSwitchTest extends TestCase
     {
         [$first, $second, $member] = $this->seedMemberships();
 
-        app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy(app(AudiencePolicy::class), $second->tenant_id));
+        app()->instance(ApplicationPolicy::class, new InvitedTenantApplicationPolicy(app(ApplicationPolicy::class), $second->tenant_id));
 
         $session = $this->signIn();
         $guard   = Auth::manager()->guard(self::GUARD);
@@ -716,11 +746,11 @@ final class PrincipalSwitchTest extends TestCase
     }
 
     /**
-     * A switch asks the audience policy about the identity with the session's
-     * identifier type before the target, as its sign-in was asked, so a policy
-     * that now refuses that identifier for the identity as a whole refuses the
-     * switch for its reason without being asked about the target, and leaves
-     * the session as it was.
+     * A switch asks the application policy about the identity with the
+     * session's identifier type before the target, as its sign-in was asked, so
+     * a policy that now refuses that identifier for the identity as a whole
+     * refuses the switch for its reason without being asked about the target,
+     * and leaves the session as it was.
      *
      * @return void
      *
@@ -732,18 +762,18 @@ final class PrincipalSwitchTest extends TestCase
 
         $session = $this->signIn();
         $row     = (array) DB::table('devices')->sole();
-        $package = app(AudiencePolicy::class);
+        $package = app(ApplicationPolicy::class);
 
-        $audience = \Mockery::mock(AudiencePolicy::class);
-        $audience->shouldReceive('allowsMethod')->andReturnUsing($package->allowsMethod(...));
-        $audience->shouldReceive('lifetimes')->andReturnUsing($package->lifetimes(...));
-        $audience->shouldReceive('admit')->with(self::GUARD, \Mockery::any(), \Mockery::any(), null)->andReturnNull();
-        $audience->shouldReceive('admitIdentifier')
+        $policy = \Mockery::mock(ApplicationPolicy::class);
+        $policy->shouldReceive('allowsMethod')->andReturnUsing($package->allowsMethod(...));
+        $policy->shouldReceive('lifetimes')->andReturnUsing($package->lifetimes(...));
+        $policy->shouldReceive('admit')->with(self::GUARD, \Mockery::any(), \Mockery::any(), null)->andReturnNull();
+        $policy->shouldReceive('admitIdentifier')
             ->once()
             ->with(self::GUARD, \Mockery::on(static fn (Identity $identity): bool => $identity->getAuthIdentifier() === $member->getKey()), 'email')
             ->andReturn(FailureReason::IDENTIFIER_UNVERIFIED);
 
-        app()->instance(AudiencePolicy::class, $audience);
+        app()->instance(ApplicationPolicy::class, $policy);
 
         $this->assertSwitchFails(FailureReason::IDENTIFIER_UNVERIFIED, $session, $second);
 
@@ -849,28 +879,28 @@ final class PrincipalSwitchTest extends TestCase
     }
 
     /**
-     * The switched session's absolute deadline is held to the target type's
-     * absolute lifetime counted from the sign-in, and a session already past it
-     * fails as `session_expired`.
+     * The switched session's absolute deadline is held to the guard's absolute
+     * lifetime counted from the sign-in, so one the guard shortened after the
+     * session started applies and a switch never extends the session, and a
+     * session already past it fails as `session_expired`.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testTheTargetTypesLifetimeBoundsTheSwitchedSession(): void
+    public function testTheGuardsLifetimeBoundsTheSwitchedSession(): void
     {
         [, $second] = $this->seedMemberships();
 
-        $guard    = app(JwtTokenServiceFactory::class)->forGuard(self::GUARD)->lifetimes();
-        $short    = new TokenLifetimes(5, 60, 10, 30);
-        $audience = \Mockery::mock(AudiencePolicy::class);
-        $audience->shouldReceive('allowsMethod')->andReturnTrue();
-        $audience->shouldReceive('admitIdentifier')->andReturnNull();
-        $audience->shouldReceive('admit')->andReturnNull();
-        $audience->shouldReceive('lifetimes')
-            ->andReturnUsing(static fn (string $name, Principal $principal): TokenLifetimes => $principal->is($second) ? $short : $guard); // @phpstan-ignore method.notFound
+        $policy = \Mockery::mock(ApplicationPolicy::class);
+        $policy->shouldReceive('allowsMethod')->andReturnTrue();
+        $policy->shouldReceive('admitIdentifier')->andReturnNull();
+        $policy->shouldReceive('admit')->andReturnNull();
+        $policy->shouldReceive('lifetimes')
+            ->with(self::GUARD)
+            ->andReturn(app(JwtTokenServiceFactory::class)->forGuard(self::GUARD)->lifetimes(), new TokenLifetimes(5, 60, 10, 30));
 
-        app()->instance(AudiencePolicy::class, $audience);
+        app()->instance(ApplicationPolicy::class, $policy);
 
         $session = $this->signIn();
         $signIn  = $this->now;

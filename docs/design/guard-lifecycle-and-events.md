@@ -50,8 +50,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   that reads the guard mid-bind never resolves the request's own token and leaves its device bound to the identity
   signing in. Nothing is persisted: there is no cross-request cache, and every bearer and refresh request reads the
   identity, principal, tenant, and device live, from the write connection.
-- `id()`, `identity()`, `principal()`, `device()`, `tenant()`, and `type()` go through `user()`, so the first access on
-  a request authenticates it even on a route without `auth` middleware, as Laravel's own guards do. `setPrincipal()` and
+- `id()`, `identity()`, `principal()`, `device()`, and `tenant()` go through `user()`, so the first access on a request
+  authenticates it even on a route without `auth` middleware, as Laravel's own guards do. `setPrincipal()` and
   `setDevice()` resolve the request first too, so a principal or device set before the first access replaces the one the
   request's token binds instead of being replaced by it. They are trusted binds, like `login()`: they check neither
   ownership nor activity, nor a device's revocation or session deadlines, so a caller verifies what it passes them
@@ -131,10 +131,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   the password check is `account_rate_limited` on `AuthenticationFailed`, with the wait, while the caller sees only a
   failure (the session service's result says `invalid_credentials`).
 - `attempt()` runs on the password sign-in method and the sign-in policies, resolved from the container when it runs:
-  after `Attempting`, the audience policy must allow the `password` method (`method_not_allowed`, nothing counted, no
+  after `Attempting`, the application policy must allow the `password` method (`method_not_allowed`, nothing counted, no
   timebox) and the attempt limiter must grant a slot for the configured identifier and the request's IP address
   (`rate_limited`, with the wait). Then, inside the credential timebox: the password (`invalid_credentials`),
-  `Validated`, the identity, the principal and its tenant (activity and pins), the audience policy's admission, the
+  `Validated`, the identity, the principal and its tenant (activity and pins), the application policy's admission, the
   pinned device (`device_mismatch`), the password rehash (`PasswordSignIn::rehash()`, honouring
   `hashing.rehash_on_login`; no other path writes a password), and the additional-factor policy, which `attempt()` can
   only refuse (`additional_factor_required`) and is never told of a pinned device. Only a success gives its slot back.
@@ -202,7 +202,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `signInWithCredentials()`, `admitVerifiedIdentity()`; `src/Sessions/CredentialAttempt.php`: the steps it shares with
   the session service's `signIn()`.
 - `src/Sessions/Methods/PasswordSignIn.php` and `src/Admission/SignInAdmission.php`: the credential check and the
-  activity, principal, tenant and audience checks every sign-in shares.
+  activity, principal, tenant and application checks every sign-in shares.
 - `src/Admission/ActivationPolicy.php`: the opt-in identity, principal, and tenant activation checks.
 - `src/Guards/Concerns/BindsContextualState.php`: the resolving accessors, `setPrincipal()`, `setDevice()`,
   `bindContext()`, `clearContextualState()`.

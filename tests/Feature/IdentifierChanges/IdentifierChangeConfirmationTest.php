@@ -625,7 +625,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     public function testAnInactiveIdentityConfirmsNothing(): void
     {
         config()->set('auth.providers.suspendables', ['driver' => 'model', 'model' => SuspendableChangeableIdentity::class]);
-        config()->set('auth.guards.suspendable', ['driver' => 'jwt', 'provider' => 'suspendables', 'audience' => ['methods' => ['password', 'phone_code']]]);
+        config()->set('auth.guards.suspendable', ['driver' => 'jwt', 'provider' => 'suspendables', 'application' => ['methods' => ['password', 'phone_code']]]);
 
         self::seedChangeable(self::EMAIL, self::PHONE);
 
@@ -697,7 +697,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     public function testAnIdentityDeactivatedAfterItWasLoadedConfirmsNothing(): void
     {
         config()->set('auth.providers.suspendables', ['driver' => 'model', 'model' => SuspendableChangeableIdentity::class]);
-        config()->set('auth.guards.suspendable', ['driver' => 'jwt', 'provider' => 'suspendables', 'audience' => ['methods' => ['password', 'phone_code']]]);
+        config()->set('auth.guards.suspendable', ['driver' => 'jwt', 'provider' => 'suspendables', 'application' => ['methods' => ['password', 'phone_code']]]);
 
         self::seedChangeable(self::EMAIL, self::PHONE);
 

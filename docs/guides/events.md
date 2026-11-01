@@ -69,8 +69,7 @@ a passkey) in `credentialId` with the scopes it grants in `scopes` (`null` for a
 credential limits); what was not established is `null`. It also snapshots, when the event is built, when it happened
 (`occurredAt`), the identity, the principal and the tenant each by morph class and identifier (`identityMorphClass` and
 `identityId`, `principalMorphClass` and `principalId`, `tenantMorphClass` and `tenantId`; the morph class is an Eloquent
-model's `getMorphClass()`, else its class name, as it is for a model an enforced morph map leaves out), the principal's
-categorical type as `Auth::type()` reports it (`principalCategory`: its own type, else its tenant's), and the device's
+model's `getMorphClass()`, else its class name, as it is for a model an enforced morph map leaves out), and the device's
 identifier (`deviceId`, which keeps the device id a token named even when no device was found). An event about a device
 row itself (every `DeviceRevoked`, and a refresh or switch refused on the row's own state before its owner was read,
 such as a revoked or ended device or a replay) names the owner and principal the row records in `identityMorphClass`,
@@ -142,7 +141,7 @@ not told: a refusal by the account's own limit is `account_rate_limited` on the 
 | `principal_mismatch`         | The requested principal (or a token's `pid`) is not the identity's                |
 | `principal_inactive`         | The principal reported inactive                                                   |
 | `tenant_inactive`            | The principal's tenant inactive, or opted in and missing                          |
-| `principal_ineligible`       | The guard's audience policy does not admit the identity as principal              |
+| `principal_ineligible`       | The application policy does not admit the identity as principal                   |
 | `identifier_unverified`      | The guard requires a verified identifier and it is not                            |
 | `device_mismatch`            | The pinned device is not a live device of the identity and principal              |
 | `additional_factor_required` | A further factor is required, which only `signIn()` can ask                       |

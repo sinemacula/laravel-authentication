@@ -50,7 +50,6 @@ final class EventContextTest extends TestCase
         self::assertSame('7', $context->identityId);
         self::assertSame('member', $context->principalMorphClass);
         self::assertSame('12', $context->principalId);
-        self::assertNull($context->principalCategory);
         self::assertNull($context->tenantMorphClass);
         self::assertNull($context->tenantId);
 

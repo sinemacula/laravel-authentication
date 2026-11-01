@@ -12,8 +12,8 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Admission\SignInAdmission;
-use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
@@ -38,11 +38,11 @@ final class SignInAdmissionTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
 
-    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\AudiencePolicy The guards' audience policy. */
-    private MockInterface $audience;
+    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy The guards' application policy. */
+    private MockInterface $policy;
 
     /**
-     * Build a fresh audience policy mock.
+     * Build a fresh application policy mock.
      *
      * @return void
      */
@@ -51,14 +51,14 @@ final class SignInAdmissionTest extends TestCase
     {
         parent::setUp();
 
-        $this->audience = \Mockery::mock(AudiencePolicy::class);
+        $this->policy = \Mockery::mock(ApplicationPolicy::class);
 
-        $this->audience->shouldReceive('admitIdentifier')->byDefault()->andReturnNull();
+        $this->policy->shouldReceive('admitIdentifier')->byDefault()->andReturnNull();
     }
 
     /**
-     * An active identity, principal and tenant the audience policy admits are
-     * admitted together, and the policy is asked with the guard and the
+     * An active identity, principal and tenant the application policy admits
+     * are admitted together, and the policy is asked with the guard and the
      * identifier type.
      *
      * @return void
@@ -69,8 +69,8 @@ final class SignInAdmissionTest extends TestCase
         $tenant    = $this->tenant(true);
         $principal = $this->principal(true, $tenant);
 
-        $this->audience->shouldReceive('admitIdentifier')->once()->with('api', $identity, 'email')->andReturnNull();
-        $this->audience->shouldReceive('admit')->once()->with('api', $identity, $principal, 'email')->andReturnNull();
+        $this->policy->shouldReceive('admitIdentifier')->once()->with('api', $identity, 'email')->andReturnNull();
+        $this->policy->shouldReceive('admit')->once()->with('api', $identity, $principal, 'email')->andReturnNull();
 
         $admitted = $this->admission()->admit('api', $identity, static fn (): Principal => $principal, FailureReason::PRINCIPAL_UNRESOLVED, 'email');
 
@@ -91,8 +91,8 @@ final class SignInAdmissionTest extends TestCase
         $identity = $this->inactiveIdentity();
         $resolved = false;
 
-        $this->audience->shouldNotReceive('admitIdentifier');
-        $this->audience->shouldNotReceive('admit');
+        $this->policy->shouldNotReceive('admitIdentifier');
+        $this->policy->shouldNotReceive('admit');
 
         $refused = $this->admission()->admit('api', $identity, static function () use (&$resolved): ?Principal {
             $resolved = true;
@@ -120,8 +120,8 @@ final class SignInAdmissionTest extends TestCase
         $identity->shouldNotReceive('isActive');
         $resolved = false;
 
-        $this->audience->shouldNotReceive('admitIdentifier');
-        $this->audience->shouldNotReceive('admit');
+        $this->policy->shouldNotReceive('admitIdentifier');
+        $this->policy->shouldNotReceive('admit');
 
         $refused = $this->admission()->admit('api', $identity, static function () use (&$resolved): ?Principal {
             $resolved = true;
@@ -148,8 +148,8 @@ final class SignInAdmissionTest extends TestCase
         $identity = \Mockery::mock(Identity::class);
         $resolved = false;
 
-        $this->audience->shouldReceive('admitIdentifier')->once()->with('api', $identity, 'phone')->andReturn(FailureReason::IDENTIFIER_UNVERIFIED);
-        $this->audience->shouldNotReceive('admit');
+        $this->policy->shouldReceive('admitIdentifier')->once()->with('api', $identity, 'phone')->andReturn(FailureReason::IDENTIFIER_UNVERIFIED);
+        $this->policy->shouldNotReceive('admit');
 
         $refused = $this->admission()->admit('api', $identity, static function () use (&$resolved): ?Principal {
             $resolved = true;
@@ -216,7 +216,7 @@ final class SignInAdmissionTest extends TestCase
     {
         $identity = \Mockery::mock(Identity::class);
 
-        $this->audience->shouldNotReceive('admit');
+        $this->policy->shouldNotReceive('admit');
 
         foreach ([FailureReason::PRINCIPAL_UNRESOLVED, FailureReason::PRINCIPAL_MISMATCH] as $reason) {
 
@@ -241,7 +241,7 @@ final class SignInAdmissionTest extends TestCase
         $principal->shouldReceive('isActive')->once()->andReturnFalse();
         $principal->shouldNotReceive('getTenant');
 
-        $this->audience->shouldNotReceive('admit');
+        $this->policy->shouldNotReceive('admit');
 
         $refused = $this->admission()->admit('api', $identity, static fn (): Principal => $principal, FailureReason::PRINCIPAL_UNRESOLVED, null);
 
@@ -261,7 +261,7 @@ final class SignInAdmissionTest extends TestCase
         $identity  = \Mockery::mock(Identity::class);
         $principal = $this->principal(true, $this->tenant(false));
 
-        $this->audience->shouldNotReceive('admit');
+        $this->policy->shouldNotReceive('admit');
 
         $refused = $this->admission()->admit('api', $identity, static fn (): Principal => $principal, FailureReason::PRINCIPAL_UNRESOLVED, null);
 
@@ -273,18 +273,18 @@ final class SignInAdmissionTest extends TestCase
     }
 
     /**
-     * The audience policy's refusal is reported with its own reason and the
+     * The application policy's refusal is reported with its own reason and the
      * whole context: identity, principal and tenant.
      *
      * @return void
      */
-    public function testRefusesWithTheAudiencePolicysReason(): void
+    public function testRefusesWithTheApplicationPolicysReason(): void
     {
         $identity  = \Mockery::mock(Identity::class);
         $tenant    = \Mockery::mock(Tenant::class);
         $principal = $this->principal(true, $tenant);
 
-        $this->audience->shouldReceive('admit')
+        $this->policy->shouldReceive('admit')
             ->once()
             ->with('admin', $identity, $principal, null)
             ->andReturn(FailureReason::PRINCIPAL_INELIGIBLE);
@@ -301,29 +301,29 @@ final class SignInAdmissionTest extends TestCase
     }
 
     /**
-     * The package's audience policy over a configuration whose `api` guard
+     * The package's application policy over a configuration whose `api` guard
      * requires a verified identifier; it needs no token service to admit.
      *
-     * @return \SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy
+     * @return \SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy
      */
-    private function packagePolicy(): GuardAudiencePolicy
+    private function packagePolicy(): GuardApplicationPolicy
     {
         $config = new Repository([
-            'auth'           => ['guards' => ['api' => ['driver' => 'jwt', 'audience' => ['require_verified_identifier' => true]]]],
-            'authentication' => ['audience' => ['methods' => ['password'], 'principal_types' => null, 'require_verified_identifier' => false]],
+            'auth'           => ['guards' => ['api' => ['driver' => 'jwt', 'application' => ['require_verified_identifier' => true]]]],
+            'authentication' => ['application' => ['methods' => ['password'], 'require_verified_identifier' => false]],
         ]);
 
-        return new GuardAudiencePolicy($config, (new \ReflectionClass(JwtTokenServiceFactory::class))->newInstanceWithoutConstructor());
+        return new GuardApplicationPolicy($config, (new \ReflectionClass(JwtTokenServiceFactory::class))->newInstanceWithoutConstructor());
     }
 
     /**
-     * Build the admission over the audience policy mock.
+     * Build the admission over the application policy mock.
      *
      * @return \SineMacula\Laravel\Authentication\Admission\SignInAdmission
      */
     private function admission(): SignInAdmission
     {
-        return new SignInAdmission($this->audience);
+        return new SignInAdmission($this->policy);
     }
 
     /**

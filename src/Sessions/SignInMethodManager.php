@@ -14,12 +14,12 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 
 /**
  * The registry of sign-in methods, keyed by the name each is recorded under on
- * the devices it signs in and allowed under in a guard's audience policy.
+ * the devices it signs in and allowed by a guard's application policy.
  *
  * The package registers its own methods (`password`, which `attempt()` and
  * `validate()` also use directly, `phone_code`, `email_code` and `passkey`), so
  * their names are reserved: `extend('password', ...)` throws. So are the
- * machine credential kinds an audience may list beside them (`api_key`,
+ * machine credential kinds an application may list beside them (`api_key`,
  * `client_credentials`), which are not sign-in methods and never resolve to
  * one. Other methods register themselves with `extend()` under a lower-case
  * name (a letter, then letters, digits or underscores), for example from a
@@ -33,14 +33,14 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * each request's sandbox builds its own), which is why methods must be
  * stateless. There is no default method: every sign-in names the method it
  * uses, exactly as it was registered, since the name is what the device records
- * and the audience policy allows.
+ * and the application policy allows.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
 final class SignInMethodManager extends Manager
 {
-    /** @var list<string> Credential kinds an audience may list in `methods` that are not sign-in methods; `extend()` refuses them. */
+    /** @var list<string> Credential kinds an application may list in `methods` that are not sign-in methods; `extend()` refuses them. */
     public const array CREDENTIAL_METHODS = ['api_key', 'client_credentials'];
 
     /** @var string Pattern a registered method's name must match. */
@@ -112,7 +112,7 @@ final class SignInMethodManager extends Manager
      * password sign-in rely on `password`, so a replacement would change
      * `signIn()` but not them, and the others hold the package's guarantees for
      * codes and passkeys. The machine credential kinds cannot be registered
-     * either, since an audience that lists one allows a credential, not a
+     * either, since an application that lists one allows a credential, not a
      * sign-in.
      *
      * @param  mixed  $driver

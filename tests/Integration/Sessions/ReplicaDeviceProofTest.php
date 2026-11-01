@@ -192,7 +192,7 @@ final class ReplicaDeviceProofTest extends TestCase
 
         $this->configureLaggingReplica($config);
 
-        $config->set('auth.guards.' . self::GUARD, ['driver' => 'jwt', 'provider' => self::GUARD]);
+        $config->set('auth.guards.' . self::GUARD, ['driver' => 'jwt', 'provider' => self::GUARD, 'application' => ['methods' => ['password']]]);
         $config->set('auth.providers.' . self::GUARD, ['driver' => 'model', 'model' => RevocationLogIdentity::class]);
         $config->set('authentication.device.model', RevocationLogDevice::class);
         $config->set('hashing.bcrypt.rounds', 4);

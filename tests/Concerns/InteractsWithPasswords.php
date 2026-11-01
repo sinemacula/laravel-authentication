@@ -76,14 +76,14 @@ trait InteractsWithPasswords
      */
     protected static function configurePasswordGuards(ConfigRepository $config): void
     {
-        $audience = ['methods' => ['password']];
+        $application = ['methods' => ['password']];
 
         $config->set('auth.providers.password_identities', ['driver' => 'model', 'model' => PasswordIdentity::class]);
         $config->set('auth.providers.password_machines', ['driver' => 'model', 'model' => PasswordMachine::class]);
-        $config->set('auth.guards.web', ['driver' => 'jwt', 'provider' => 'password_identities', 'audience' => $audience]);
-        $config->set('auth.guards.admin', ['driver' => 'jwt', 'provider' => 'password_identities', 'audience' => $audience]);
-        $config->set('auth.guards.machines', ['driver' => 'jwt', 'provider' => 'password_machines', 'audience' => $audience]);
-        $config->set('auth.guards.console', ['driver' => 'jwt', 'provider' => 'password_identities', 'audience' => [...$audience, 'require_verified_identifier' => true]]);
+        $config->set('auth.guards.web', ['driver' => 'jwt', 'provider' => 'password_identities', 'application' => $application]);
+        $config->set('auth.guards.admin', ['driver' => 'jwt', 'provider' => 'password_identities', 'application' => $application]);
+        $config->set('auth.guards.machines', ['driver' => 'jwt', 'provider' => 'password_machines', 'application' => $application]);
+        $config->set('auth.guards.console', ['driver' => 'jwt', 'provider' => 'password_identities', 'application' => [...$application, 'require_verified_identifier' => true]]);
         $config->set('hashing.bcrypt.rounds', 4);
         $config->set('authentication.timebox.credentials_microseconds', 1);
     }

@@ -17,13 +17,9 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Testing\Concerns\InteractsWithAuthenticationContext;
 use Tests\Concerns\InteractsWithSessions;
-use Tests\Concerns\InteractsWithTypedPrincipals;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
-use Tests\Integration\Fixtures\TypedIdentity;
-use Tests\Integration\Fixtures\TypedMembership;
-use Tests\Integration\Fixtures\TypedTenant;
 use Tests\TestCase;
 
 /**
@@ -41,7 +37,7 @@ use Tests\TestCase;
 #[CoversTrait(InteractsWithAuthenticationContext::class)]
 final class InteractsWithAuthenticationContextTest extends TestCase
 {
-    use InteractsWithAuthenticationContext, InteractsWithSessions, InteractsWithTypedPrincipals;
+    use InteractsWithAuthenticationContext, InteractsWithSessions;
 
     /**
      * Create the tables and register routes behind each guard's `auth`
@@ -56,9 +52,8 @@ final class InteractsWithAuthenticationContextTest extends TestCase
         parent::setUp();
 
         $this->createSessionTables();
-        self::createTypedPrincipalTables();
 
-        foreach (['api', 'admin', 'members', 'typed'] as $guard) {
+        foreach (['api', 'admin', 'members'] as $guard) {
             Route::middleware('auth:' . $guard)->get('/' . $guard . '/me', self::context(...));
         }
 
@@ -80,7 +75,6 @@ final class InteractsWithAuthenticationContextTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
-        self::dropTypedPrincipalTables();
         $this->dropSessionTables();
 
         parent::tearDown();
@@ -247,8 +241,7 @@ final class InteractsWithAuthenticationContextTest extends TestCase
             ->assertBoundPrincipal($membership)
             ->assertBoundTenant($tenant)
             ->assertBoundDevice($device)
-            ->assertBoundScopes(null)
-            ->assertBoundType(null);
+            ->assertBoundScopes(null);
     }
 
     /**
@@ -339,7 +332,7 @@ final class InteractsWithAuthenticationContextTest extends TestCase
                 EloquentDevice&Model $device,
             ): void {
                 $test->actingAsIdentity($member, guard: 'members')->assertBoundIdentity($member)->assertBoundTenant($tenant);
-                $test->actingAsPrincipal($membership)->assertBoundPrincipal($membership)->assertBoundScopes(null)->assertBoundType(null);
+                $test->actingAsPrincipal($membership)->assertBoundPrincipal($membership)->assertBoundScopes(null);
                 $test->actingOnDevice($device)->assertBoundDevice($device);
                 $test->stopActing()->assertBoundIdentity(null);
             }
@@ -411,8 +404,7 @@ final class InteractsWithAuthenticationContextTest extends TestCase
             ->assertBoundPrincipal(null)
             ->assertBoundTenant(null)
             ->assertBoundDevice(null)
-            ->assertBoundScopes(null)
-            ->assertBoundType(null);
+            ->assertBoundScopes(null);
 
         $this->getJson('/api/me')->assertUnauthorized();
     }
@@ -501,25 +493,6 @@ final class InteractsWithAuthenticationContextTest extends TestCase
     }
 
     /**
-     * The principal's type is asserted from the principal, else its tenant.
-     *
-     * @return void
-     */
-    public function testTheBoundTypeIsThePrincipalsOrItsTenants(): void
-    {
-        $identity = TypedIdentity::query()->create(['email' => 'typed@example.test', 'password' => 'irrelevant']);
-        $tenant   = TypedTenant::query()->create(['category' => 'agency']);
-        $typed    = TypedMembership::query()->create(['identity_id' => $identity->getKey(), 'tenant_id' => $tenant->getKey(), 'type' => 'staff']);
-        $untyped  = TypedMembership::query()->create(['identity_id' => $identity->getKey(), 'tenant_id' => $tenant->getKey(), 'type' => null]);
-
-        $this->actingAsPrincipal($typed, guard: 'typed')->assertBoundType('staff')->assertBoundTenant($tenant);
-
-        $this->getJson('/typed/me')->assertOk()->assertJsonPath('type', 'staff');
-
-        $this->actingAsPrincipal($untyped, guard: 'typed')->assertBoundType('agency');
-    }
-
-    /**
      * Each assertion fails, naming the guard and what it found, when the bound
      * context is not the one expected.
      *
@@ -556,12 +529,10 @@ final class InteractsWithAuthenticationContextTest extends TestCase
         }
 
         self::assertStringStartsWith('Unexpected scopes bound to guard [members].', $this->failureOf(fn () => $this->assertBoundScopes([])));
-        self::assertStringStartsWith('Unexpected principal type bound to guard [members].', $this->failureOf(fn () => $this->assertBoundType('staff')));
     }
 
     /**
-     * Configure the session guards, a guard over the typed principals, and a
-     * session guard of Laravel's.
+     * Configure the session guards and a session guard of Laravel's.
      *
      * @param  mixed  $app
      * @return void
@@ -578,9 +549,6 @@ final class InteractsWithAuthenticationContextTest extends TestCase
         $config = $app->make(ConfigRepository::class);
 
         self::configureSessionGuards($config);
-
-        $config->set('auth.providers.typed', ['driver' => 'model', 'model' => TypedIdentity::class]);
-        $config->set('auth.guards.typed', ['driver' => 'jwt', 'provider' => 'typed']);
     }
 
     /**
@@ -596,7 +564,6 @@ final class InteractsWithAuthenticationContextTest extends TestCase
             'tenant'    => Auth::tenant()?->getTenantIdentifier(),
             'device'    => Auth::device()?->getDeviceIdentifier(),
             'scopes'    => Auth::scopes(),
-            ...(Auth::type() === null ? [] : ['type' => Auth::type()]),
         ];
     }
 

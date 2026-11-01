@@ -31,7 +31,7 @@ use Tests\Integration\Fixtures\MachineClient;
  * Runtime benchmark fixtures for machine credentials: a request authenticated
  * by the `api_key` guard, and a request bearing an access token a client
  * credentials exchange granted, which the `jwt` guard checks against the API
- * key it names. Both run on the package's own audience policy and scope
+ * key it names. Both run on the package's own application policy and scope
  * registry, resolved from the container as in an application.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -103,8 +103,8 @@ final class MachineCredentialBenchHarness
         JWT::$timestamp = $now->getTimestamp();
 
         $this->app = PackageBenchApplication::create([
-            self::KEY_GUARD   => ['driver' => 'api_key', 'provider' => 'machines', 'audience' => ['methods' => ['api_key']]],
-            self::TOKEN_GUARD => ['driver' => 'jwt', 'provider' => 'machines', 'audience' => ['methods' => ['client_credentials']]],
+            self::KEY_GUARD   => ['driver' => 'api_key', 'provider' => 'machines', 'application' => ['methods' => ['api_key']]],
+            self::TOKEN_GUARD => ['driver' => 'jwt', 'provider' => 'machines', 'application' => ['methods' => ['client_credentials']]],
         ]);
 
         $this->provider = new ModelProvider($this->app->make('hash'), MachineClient::class);

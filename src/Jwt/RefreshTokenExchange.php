@@ -11,8 +11,8 @@ use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\Refused;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -43,13 +43,13 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * The device's owner is reloaded through the guard's identity provider, so the
  * provider's scopes apply and an owner the guard does not serve is rejected. A
  * token is honoured only for a device of the guard exchanging it, and only
- * while the guard's audience policy still lets the method that started the
- * session start one and still admits the owner as the principal; none of these
- * failures revokes the device. The principal the token names must be the one
- * the device records: after the session switched principal, the refresh tokens
- * of the principal it left fail as `device_principal_mismatch`, without
- * revoking the device. The next idle deadline follows the lifetimes the policy
- * gives the principal's type.
+ * while the application policy still lets the method that started the session
+ * start one and still admits the owner as the principal; none of these failures
+ * revokes the device. The principal the token names must be the one the device
+ * records: after the session switched principal, the refresh tokens of the
+ * principal it left fail as `device_principal_mismatch`, without revoking the
+ * device. The next idle deadline follows the lifetimes the policy gives the
+ * guard.
  *
  * Failed exchanges are counted against the token's device and the client's IP
  * address; once either count is full the exchange is refused as `rate_limited`
@@ -172,8 +172,8 @@ final readonly class RefreshTokenExchange
     /**
      * Run the exchange for the parsed claims: the device the token names, its
      * guard, the rotation id against it, its owner and principal, and the
-     * guard's audience policy, then the rotation or the grace reissue. Returns
-     * the `AuthenticationFailed` event of the first check that fails.
+     * application policy, then the rotation or the grace reissue. Returns the
+     * `AuthenticationFailed` event of the first check that fails.
      *
      * @param  ?array<string, mixed>  $claims
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -368,8 +368,8 @@ final readonly class RefreshTokenExchange
 
     /**
      * Hydrate identity + principal from a verified device row, and hold them to
-     * the guard's audience policy (see `RefreshAdmission`); the principal must
-     * be the one the device records (`device_principal_mismatch`). Returns the
+     * the application policy (see `RefreshAdmission`); the principal must be
+     * the one the device records (`device_principal_mismatch`). Returns the
      * admitted session (the identity, the principal, the tenant its activity
      * check loaded, and the device), or the failure with as much of it as was
      * resolved.
@@ -401,8 +401,8 @@ final readonly class RefreshTokenExchange
      * Rotate the presented current rotation id to its successor and issue the
      * pair for it.
      *
-     * The new idle deadline is the idle lifetime the audience policy gives the
-     * principal's type, from `$now`, never past the absolute deadline, which a
+     * The new idle deadline is the idle lifetime the application policy gives
+     * the guard, from `$now`, never past the absolute deadline, which a
      * rotation never moves. Both tokens are issued at `$now`, the time the
      * device was judged at, before anything is written, so a failure while
      * issuing (signing, randomness, an identifier that cannot be read) leaves
@@ -440,7 +440,7 @@ final readonly class RefreshTokenExchange
         ClientContext $client,
     ): AuthenticationFailed|ExchangedRefresh {
         $next = RefreshTokenHasher::successor($rotationId);
-        $idle = Container::getInstance()->make(AudiencePolicy::class)->lifetimes($this->context->name(), $session->principal)->idleDeadline($now, $absolute);
+        $idle = Container::getInstance()->make(ApplicationPolicy::class)->lifetimes($this->context->name())->idleDeadline($now, $absolute);
 
         $device->setAttribute($device->getIdleExpiresAtName(), $idle);
 

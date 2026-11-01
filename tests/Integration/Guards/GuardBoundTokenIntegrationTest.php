@@ -255,11 +255,11 @@ final class GuardBoundTokenIntegrationTest extends TestCase
         $config->set('auth.defaults.guard', self::STAFF_GUARD);
 
         foreach ([self::STAFF_GUARD, self::SUPPORT_GUARD] as $guard) {
-            $config->set('auth.guards.' . $guard, ['driver' => 'jwt', 'provider' => 'principals']);
+            $config->set('auth.guards.' . $guard, ['driver' => 'jwt', 'provider' => 'principals', 'application' => ['methods' => ['password']]]);
         }
 
-        $config->set('auth.guards.' . self::PARTNER_GUARD, ['driver' => 'jwt', 'provider' => 'partners']);
-        $config->set('auth.guards.' . self::CUSTOMER_GUARD, ['driver' => 'jwt', 'provider' => 'customers']);
+        $config->set('auth.guards.' . self::PARTNER_GUARD, ['driver' => 'jwt', 'provider' => 'partners', 'application' => ['methods' => ['password']]]);
+        $config->set('auth.guards.' . self::CUSTOMER_GUARD, ['driver' => 'jwt', 'provider' => 'customers', 'application' => ['methods' => ['password']]]);
 
         $config->set('auth.providers.principals', ['driver' => 'model', 'model' => StubPrincipal::class]);
         $config->set('auth.providers.partners', ['driver' => 'model', 'model' => Coexist2dIdentity::class]);

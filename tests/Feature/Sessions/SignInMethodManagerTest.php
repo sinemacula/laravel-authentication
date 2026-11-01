@@ -305,7 +305,7 @@ final class SignInMethodManagerTest extends TestCase
     }
 
     /**
-     * Rows of `[name]`: the machine credential kinds an audience may list.
+     * Rows of `[name]`: the machine credential kinds an application may list.
      *
      * @return iterable<string, array{0: string}>
      */
@@ -470,7 +470,7 @@ final class SignInMethodManagerTest extends TestCase
     }
 
     /**
-     * The name check the audience policy shares accepts exactly the names a
+     * The name check the application policy shares accepts exactly the names a
      * method can be registered under.
      *
      * @return void

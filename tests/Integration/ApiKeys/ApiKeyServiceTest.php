@@ -221,16 +221,18 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * A key is only issued for a principal the guard's audience admits.
+     * A key is only issued for a principal the application admits.
      *
      * @return void
      */
-    public function testRefusesAPrincipalTheAudienceDoesNotAdmit(): void
+    public function testRefusesAPrincipalTheApplicationDoesNotAdmit(): void
     {
         [$account, $membership] = $this->seedAccount(type: 'robot');
 
+        $this->refuseMembershipsOfType('robot');
+
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('The audience of guard [accounts] does not admit the principal an API key was to be issued for (principal_ineligible).');
+        $this->expectExceptionMessage('The application [accounts] does not admit the principal an API key was to be issued for (principal_ineligible).');
 
         $this->apiKeys('accounts')->issue($account, $membership);
     }

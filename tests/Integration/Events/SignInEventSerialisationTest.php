@@ -229,7 +229,8 @@ final class SignInEventSerialisationTest extends TestCase
 
     /**
      * The identifiers an event snapshots when it is built come back unchanged
-     * after a queue, beside the models that are loaded again.
+     * after a queue, beside the models that are loaded again, and the snapshot
+     * of a real sign-in holds exactly the documented keys.
      *
      * @return void
      *
@@ -245,7 +246,13 @@ final class SignInEventSerialisationTest extends TestCase
 
         $context = self::roundTrip($this->recordedEvent(SignedIn::class))->context;
 
+        $keys = [
+            'occurred_at', 'guard', 'method', 'ip', 'user_agent', 'identity_morph_class', 'identity_id', 'principal_morph_class', 'principal_id',
+            'tenant_morph_class', 'tenant_id', 'device_id', 'credential_id', 'scopes',
+        ];
+
         self::assertSame($this->recordedEvent(SignedIn::class)->context->toArray(), $context->toArray());
+        self::assertSame($keys, array_keys($context->toArray()));
         self::assertSame($this->member->getMorphClass(), $context->identityMorphClass);
         self::assertSame((string) $this->member->getKey(), $context->identityId); // @phpstan-ignore cast.string
         self::assertSame($this->membership->getMorphClass(), $context->principalMorphClass);

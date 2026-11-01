@@ -35,7 +35,8 @@ use Tests\TestCase;
  * as an application would and driven over HTTP: `Auth::sessions('api')` signs
  * in, a pending sign-in is looked up, discarded on a wrong code and completed
  * on the right one, and the access tokens the routes return authenticate
- * through `auth:api`, against the shipped audience policy and attempt limiter.
+ * through `auth:api`, against the shipped application policy and attempt
+ * limiter.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

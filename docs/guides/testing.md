@@ -36,7 +36,6 @@ final class ProfileTest extends TestCase
 | `stopActing(?$guard)`                                                   | Ends acting: signed out for the rest of the request, and the next request uses its own credential, if any |
 | `assertBoundIdentity()`, `Principal()`, `Tenant()`, `Device()`          | What the guard has bound: `null` for nothing, otherwise the same class with the same identifier           |
 | `assertBoundScopes(?array $scopes)`                                     | The scopes, exactly and in order: `null` for no ceiling (a human's session), `[]` for none (a machine)    |
-| `assertBoundType(?string $type)`                                        | The principal's type: its own, else its tenant's                                                          |
 
 `actingAsIdentity()` without a principal throws an `InvalidArgumentException` when the identity has no default one, as
 `setUser()` does. `actingOnDevice()` finds the owner through the guard's provider and the principal through the guard's

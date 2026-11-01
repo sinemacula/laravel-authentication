@@ -383,17 +383,31 @@ final class ApiKeyGuardTest extends TestCase
     }
 
     /**
-     * A guard whose audience does not allow `api_key` refuses every key as
+     * Rows of `[the guard's application block]`: an application that lists
+     * other methods, and one that takes the package default, which lists none.
+     *
+     * @return iterable<string, array{0: ?array<string, mixed>}>
+     */
+    public static function provideApplicationsWithoutApiKeys(): iterable
+    {
+        yield 'one listing other methods' => [['methods' => ['sso']]];
+        yield 'none, so the shipped default that lists nothing' => [null];
+    }
+
+    /**
+     * A guard whose application does not allow `api_key` refuses every key as
      * `method_not_allowed`.
      *
+     * @param  ?array<string, mixed>  $application
      * @return void
      */
-    public function testAGuardThatDoesNotAllowApiKeysRefusesThem(): void
+    #[DataProvider('provideApplicationsWithoutApiKeys')]
+    public function testAGuardThatDoesNotAllowApiKeysRefusesThem(?array $application): void
     {
         $machine = $this->seedMachine();
         $issued  = $this->apiKeys()->issue($machine, $machine);
 
-        config()->set('auth.guards.machine.audience.methods', ['password']);
+        config()->set('auth.guards.machine.application', $application);
 
         $this->getWithKey('/machine/me', $issued->key())->assertUnauthorized();
 
@@ -471,7 +485,7 @@ final class ApiKeyGuardTest extends TestCase
      * A 3D key's membership must still resolve for its account
      * (`principal_mismatch`), be active (`principal_inactive`), act within an
      * active tenant (`tenant_inactive`) and the tenant the key recorded
-     * (`principal_mismatch`), and be admitted by the audience
+     * (`principal_mismatch`), and be admitted by the application
      * (`principal_ineligible`).
      *
      * @return void
@@ -482,6 +496,7 @@ final class ApiKeyGuardTest extends TestCase
 
         $issued = $this->apiKeys('accounts')->issue($account, $membership);
 
+        $this->refuseMembershipsOfType('robot');
         $membership->forceFill(['type' => 'robot'])->save();
         $this->getWithKey('/accounts/me', $issued->key())->assertUnauthorized();
         $this->assertRefused(FailureReason::PRINCIPAL_INELIGIBLE, $issued->id);

@@ -134,7 +134,7 @@ only duplicate them.
    `InvalidArgumentException`. The code settings, the code key, the delivery queue and the link lifetime fail closed,
    and the provider's configured model must be on the storage connection (`SharedConnection::assertForGuard()`, a
    `LogicException`), since a reset could never spend what the request issues. Nothing is counted yet.
-2. The audience must allow `password` (`method_not_allowed`); the identifier must canonicalise to a non-empty string
+2. The application must allow `password` (`method_not_allowed`); the identifier must canonicalise to a non-empty string
    (`identifier_invalid`, reported as `invalid_credentials`).
 3. `AttemptLimiter::acquire()` on `password_reset_request` for the identifier in normal form and the IP address, never
    released (`rate_limited`).
@@ -153,9 +153,9 @@ the context that issued it, so one requested through another driver that builds 
 `jwt` guard. The job then returns unless the issuance is still current, and finds the recipient through `ResetRecipient`
 (given the guard's name and its context's provider): the identity the provider returns (on the writer) that is an
 Eloquent model, not a `MachineIdentity`, holds exactly the bound identifier (canonical, `hash_equals`; through
-`HasVerifiableIdentifiers` when implemented, else the attribute named by the type), is active, and passes the audience
-policy's `admitIdentifier()` when it can report verification. A link goes to `PasswordResetLinkSender`, a code to
-`OneTimeCodeSender` with the purpose `password_reset`; anyone else gets nothing.
+`HasVerifiableIdentifiers` when implemented, else the attribute named by the type), is active, and passes the
+application policy's `admitIdentifier()` when it can report verification. A link goes to `PasswordResetLinkSender`, a
+code to `OneTimeCodeSender` with the purpose `password_reset`; anyone else gets nothing.
 
 ## Reset submissions (`reset()`, `resetWithCode()`)
 

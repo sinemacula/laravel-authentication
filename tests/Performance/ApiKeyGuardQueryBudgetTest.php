@@ -104,7 +104,8 @@ final class ApiKeyGuardQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A malformed key costs nothing; an unknown key and a wrong secret cost the
-     * one lookup each; a revoked key stops after it.
+     * one lookup each; a revoked key, and a valid one on a guard whose
+     * application no longer allows `api_key`, stop after it.
      *
      * @return void
      */
@@ -129,6 +130,12 @@ final class ApiKeyGuardQueryBudgetTest extends PerformanceContractTestCase
 
             self::assertFalse($this->assertQueryBudget(1, 0, static fn (): bool => PackageAuth::guard('machine')->check()));
         }
+
+        config()->set('auth.guards.machine.application.methods', []);
+
+        $this->startMachineRequest($issued->key());
+
+        self::assertFalse($this->assertQueryBudget(1, 0, static fn (): bool => PackageAuth::guard('machine')->check()));
 
         self::assertSame(2, DB::table('api_keys')->count());
     }

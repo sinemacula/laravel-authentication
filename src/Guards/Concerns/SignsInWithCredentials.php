@@ -43,12 +43,12 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 trait SignsInWithCredentials
 {
     /**
-     * Run an `attempt()` sign-in up to the bind: the audience policy's method
-     * check and the attempt limits, then, inside the credential timebox, the
-     * password check (refused before any lookup when the identifier key holds
-     * anything a lookup could not count, and counted against the account the
-     * credentials find) and everything after it. The slots the attempt took,
-     * the account's included, are given back only when it succeeds.
+     * Run an `attempt()` sign-in up to the bind: the application policy's
+     * method check and the attempt limits, then, inside the credential timebox,
+     * the password check (refused before any lookup when the identifier key
+     * holds anything a lookup could not count, and counted against the account
+     * the credentials find) and everything after it. The slots the attempt
+     * took, the account's included, are given back only when it succeeds.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn  $password
      * @param  array<string, mixed>  $credentials
@@ -66,17 +66,17 @@ trait SignsInWithCredentials
         ?Device $device,
         ClientContext $client,
     ): Admitted|Refused {
-        $guard    = $this->context->name();
-        $audience = CredentialAttempt::checkMethod(Container::getInstance(), $guard, PasswordSignIn::NAME);
+        $guard  = $this->context->name();
+        $policy = CredentialAttempt::checkMethod(Container::getInstance(), $guard, PasswordSignIn::NAME);
 
-        if ($audience instanceof Refused) {
-            return $audience;
+        if ($policy instanceof Refused) {
+            return $policy;
         }
 
         $type    = $password->identifierType($guard);
         $limiter = self::signInCollaborator(AttemptLimiter::class);
         $subject = new AttemptSubject($guard, AttemptFlow::SIGN_IN, $password->identifier($guard, $credentials), $type, $client->ip);
-        $attempt = CredentialAttempt::begin($limiter, $audience, $subject);
+        $attempt = CredentialAttempt::begin($limiter, $policy, $subject);
 
         if ($attempt instanceof Refused) {
             return $attempt;
@@ -93,7 +93,7 @@ trait SignsInWithCredentials
 
                 $this->fireValidatedEvent($user);
 
-                $outcome = $this->admitVerifiedIdentity(new SignInAdmission($attempt->audience), $user, $principal, $device, $type);
+                $outcome = $this->admitVerifiedIdentity(new SignInAdmission($attempt->policy), $user, $principal, $device, $type);
 
                 if ($outcome instanceof Admitted) {
 
@@ -149,8 +149,8 @@ trait SignsInWithCredentials
 
     /**
      * Admit an identity whose password was accepted: activity, the principal
-     * (the pinned one, or the resolver's default), the audience policy, and the
-     * pinned device.
+     * (the pinned one, or the resolver's default), the application policy, and
+     * the pinned device.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\SignInAdmission  $admission
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
