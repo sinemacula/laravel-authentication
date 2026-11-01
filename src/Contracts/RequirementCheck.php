@@ -23,6 +23,13 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementSubject;
  * since the oldest time a part's maximum age allows) rather than the whole
  * history.
  *
+ * The package asks it inside `WriteConnection::during()` for the identity, so a
+ * model read it makes of its own state (an identity's factors, how a factor is
+ * classified), and a query-builder read on the identity's own connection, sees
+ * the primary rather than a replica that may lag behind a factor removed or
+ * reclassified; any other query-builder read pins itself with
+ * `WriteConnection::query()`.
+ *
  * @api
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

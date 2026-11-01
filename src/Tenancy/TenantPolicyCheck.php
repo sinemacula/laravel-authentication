@@ -25,11 +25,12 @@ use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
  * The policy is asked inside `WriteConnection::during()` for the tenant. A
  * session falls short as `SSO_REQUIRED` when the answer names connections and
  * it was not established through one of them, else as `FACTOR_REQUIRED` when
- * the answer requires a further factor that `RequirementCheck` does not find
- * met; otherwise it meets the policy. The evidence is the sign-in's own, in
- * memory, or the session's provenance and proofs, read on the write connection
- * only when the answer needs them, so the default policy costs no query. With
- * neither a session nor evidence, no connection and no further factor is met. A
+ * the answer requires a further factor that `RequirementCheck`, asked inside
+ * `WriteConnection::during()` for the identity, does not find met; otherwise it
+ * meets the policy. The evidence is the sign-in's own, in memory, or the
+ * session's provenance and proofs, read on the write connection only when the
+ * answer needs them, so the default policy costs no query. With neither a
+ * session nor evidence, no connection and no further factor is met. A
  * destination of no tenant has no policy: it is met, with no version, and
  * nothing is asked.
  *
@@ -154,7 +155,8 @@ final class TenantPolicyCheck
 
     /**
      * Whether the further factor the answer requires, if any, is met, as the
-     * bound `RequirementCheck` judges it.
+     * bound `RequirementCheck` judges it, asked inside
+     * `WriteConnection::during()` for the identity.
      *
      * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement  $requirement
      * @param  string  $guard
@@ -190,8 +192,9 @@ final class TenantPolicyCheck
         }
 
         $subject = new RequirementSubject($identity, $guard, $session, $firstFactor, $now, self::reader($session, $evidence));
+        $check   = Container::getInstance()->make(RequirementCheck::class);
 
-        return Container::getInstance()->make(RequirementCheck::class)->evaluate($subject, $requirement->factor)->isMet();
+        return WriteConnection::during($identity, static fn (): bool => $check->evaluate($subject, $requirement->factor)->isMet());
     }
 
     /**
