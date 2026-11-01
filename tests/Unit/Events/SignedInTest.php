@@ -53,7 +53,7 @@ final class SignedInTest extends TestCase
      *
      * @return void
      */
-    public function testSerialisesItsModelsAndDispatchesWhenTheSenderSays(): void
+    public function testSerializesItsModelsAndDispatchesWhenTheSenderSays(): void
     {
         $context = self::context();
         $event   = new SignedIn($context, true, false);

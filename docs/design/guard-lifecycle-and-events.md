@@ -303,7 +303,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testAttemptingAndFailedEventsCarryNoPasswordLikeCredentials`
 - `tests/Integration/Http/UnauthenticatedResponseIntegrationTest.php`
   `testGuestOnPackageGuardGetsUnauthorized`, `testGuestOnSessionGuardKeepsLaravelsResponse`
-- `tests/Feature/Http/LocalisedMessagesTest.php`
+- `tests/Feature/Http/LocalizedMessagesTest.php`
   `testThePackageMiddlewaresUnauthorizedIsInTheLocale`, `testLaravelsMiddlewaresUnauthorizedIsInTheLocale`
 - `tests/Integration/Guards/PinnedContextOwnershipIntegrationTest.php`
   `testPrincipalOfAnotherClassWithTheSameIdentifierFailsTheAttempt`, `testAnotherMembersDeviceFailsTheAttempt`

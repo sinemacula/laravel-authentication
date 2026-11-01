@@ -146,7 +146,7 @@ final readonly class WebAuthn
             $timeout,
         );
 
-        return $this->normalise($options);
+        return $this->normalize($options);
     }
 
     /**
@@ -172,7 +172,7 @@ final readonly class WebAuthn
             $timeout,
         );
 
-        return $this->normalise($options);
+        return $this->normalize($options);
     }
 
     /**
@@ -299,7 +299,7 @@ final readonly class WebAuthn
      *
      * @throws \Symfony\Component\Serializer\Exception\ExceptionInterface
      */
-    private function normalise(PublicKeyCredentialCreationOptions|PublicKeyCredentialRequestOptions $options): array
+    private function normalize(PublicKeyCredentialCreationOptions|PublicKeyCredentialRequestOptions $options): array
     {
         /** @var array<string, mixed> */
         return $this->serializer->normalize($options, 'json', [AbstractObjectNormalizer::SKIP_NULL_VALUES => true]);

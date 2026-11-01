@@ -9,7 +9,7 @@ use Illuminate\Contracts\Auth\CanResetPassword as CanResetPasswordContract;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Notifications\Notifiable;
-use SineMacula\Laravel\Authentication\Casts\NormalisedIdentifier;
+use SineMacula\Laravel\Authentication\Casts\NormalizedIdentifier;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
@@ -78,9 +78,9 @@ final class PasswordIdentity extends Model implements CanBeActive, CanResetPassw
     protected function casts(): array
     {
         return [
-            'email'              => NormalisedIdentifier::using('email'),
+            'email'              => NormalizedIdentifier::using('email'),
             'email_verified_at'  => 'datetime',
-            'phone'              => NormalisedIdentifier::using('phone'),
+            'phone'              => NormalizedIdentifier::using('phone'),
             'phone_verified_at'  => 'datetime',
             'is_active'          => 'boolean',
             'tokens_valid_after' => 'datetime',

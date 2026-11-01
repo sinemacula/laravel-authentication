@@ -134,7 +134,7 @@ package's.
 
 - `tests/Feature/Passkeys/PasskeyServiceTest.php`, `tests/Feature/Passkeys/PasskeySignInTest.php`,
   `tests/Feature/Passkeys/PasskeyAssertionsTest.php`, `tests/Feature/Passkeys/PasskeyRoutesTest.php` (over HTTP).
-- `tests/Feature/Http/LocalisedMessagesTest.php` `testThrottledSignInOptionsAreInTheLocale`
+- `tests/Feature/Http/LocalizedMessagesTest.php` `testThrottledSignInOptionsAreInTheLocale`
 - `tests/Feature/Passkeys/WebAuthnTest.php`, `tests/Unit/Passkeys/RelyingPartyTest.php`,
   `tests/Unit/Passkeys/SignCounterTest.php`, with the software authenticator
   `tests/Fixtures/Passkeys/VirtualAuthenticator.php`.

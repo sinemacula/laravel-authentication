@@ -6,7 +6,7 @@ namespace SineMacula\Laravel\Authentication\RateLimiting;
 
 use Carbon\CarbonImmutable;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
+use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 
 /**
  * The package's attempt limiter: per guard and flow, one counter per identifier
@@ -50,7 +50,7 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
      *
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptLimits  $limits
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\RateLimitStore  $store
-     * @param  \SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers  $normalisers
+     * @param  \SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers  $normalizers
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\CounterKeys  $keys
      */
     public function __construct(
@@ -62,7 +62,7 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
         private RateLimitStore $store,
 
         /** Normalisers that give identifiers their canonical form. */
-        private IdentifierNormalisers $normalisers,
+        private IdentifierNormalizers $normalizers,
 
         /** The keys the counters are stored under. */
         private CounterKeys $keys,
@@ -212,9 +212,9 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
      */
     private function canonicalIdentifier(#[\SensitiveParameter] string $identifier, ?string $type): string
     {
-        $normalised = $type !== null && $this->normalisers->has($type) ? $this->normalisers->get($type)->normalise($identifier) : null;
+        $normalized = $type !== null && $this->normalizers->has($type) ? $this->normalizers->get($type)->normalize($identifier) : null;
 
-        return $normalised ?? mb_strtolower(trim(mb_scrub($identifier, 'UTF-8')), 'UTF-8');
+        return $normalized ?? mb_strtolower(trim(mb_scrub($identifier, 'UTF-8')), 'UTF-8');
     }
 
     /**

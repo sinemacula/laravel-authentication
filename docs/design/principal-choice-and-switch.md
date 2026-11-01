@@ -42,7 +42,7 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   the same windows. The proven device is continued only when it records the chosen principal and is unchanged.
 - The attempt slots a sign-in took stay counted while it waits for a choice and are given back only once a session
   started from it commits.
-- A switch is proven by the session's refresh token, never an access token, and judged by `RefreshJudgement::classify()`
+- A switch is proven by the session's refresh token, never an access token, and judged by `RefreshJudgment::classify()`
   as a refresh is: the refresh limits (counted against the token's device and the client's IP address), the guard, a
   live session, and the rotation id. A replayed id revokes the device as `rotation_reuse`.
 - Every path of a switch, the retry included, runs every live check: the owner reloaded through the guard's provider
@@ -115,7 +115,7 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
 - `src/Sessions/PrincipalSwitch.php`: one switch, built per call; `switch()` (the limiter), `switchOn()`, `admit()`,
   `isTarget()`, `switchCurrent()`, `rotateTo()`, `retry()`, `afterLostSwitch()`, `deadlines()`.
 - `src/Jwt/RefreshRotationStore.php`: `switchPrincipal()` and `reload()`.
-- `src/Jwt/RefreshJudgement.php`: `classify()`, shared with the refresh exchange.
+- `src/Jwt/RefreshJudgment.php`: `classify()`, shared with the refresh exchange.
 - `src/Sessions/PendingSignIns.php`: `issueChoice()`, `live()` (by purpose), `delete()`, `provenDevice()`.
 - `src/Sessions/DeviceProof.php`: `provenDeviceOf()`, which proves a device without a principal for a choice.
 - `src/Sessions/SessionService.php`: `signInWith()`, `startFor()` and `discard()`, which route a sign-in to a choice

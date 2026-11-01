@@ -138,10 +138,10 @@ rebind `ApplicationPolicy` to refuse some (see
 ## Identifiers
 
 Designate the attributes people sign in with as identifiers, so each is stored and looked up in one normal form. Cast
-the attribute with `NormalisedIdentifier`, naming its identifier type:
+the attribute with `NormalizedIdentifier`, naming its identifier type:
 
 ```php
-use SineMacula\Laravel\Authentication\Casts\NormalisedIdentifier;
+use SineMacula\Laravel\Authentication\Casts\NormalizedIdentifier;
 
 class AppUser extends User implements Identity, Principal
 {
@@ -150,7 +150,7 @@ class AppUser extends User implements Identity, Principal
     protected function casts(): array
     {
         return [
-            'email' => NormalisedIdentifier::using('email'),
+            'email' => NormalizedIdentifier::using('email'),
         ];
     }
 }
@@ -165,15 +165,15 @@ element by element for an array, and a value the normaliser rejects finds nobody
 attributes that are not designated are applied as given.
 
 Normalisers are registered by identifier type in the published config, as container abstracts resolving to a
-`Contracts\IdentifierNormaliser`. A type is a lower-case letter followed by lower-case letters, digits and
+`Contracts\IdentifierNormalizer`. A type is a lower-case letter followed by lower-case letters, digits and
 underscores:
 
 ```php
 'identifiers' => [
-    'normalisers' => [
-        'email'         => SineMacula\Laravel\Authentication\Identifiers\EmailNormaliser::class,
-        'phone'         => SineMacula\Laravel\Authentication\Identifiers\E164PhoneNormaliser::class,
-        'member_number' => App\Auth\MemberNumberNormaliser::class,
+    'normalizers' => [
+        'email'         => SineMacula\Laravel\Authentication\Identifiers\EmailNormalizer::class,
+        'phone'         => SineMacula\Laravel\Authentication\Identifiers\E164PhoneNormalizer::class,
+        'member_number' => App\Auth\MemberNumberNormalizer::class,
     ],
 ],
 ```
@@ -193,11 +193,11 @@ use libphonenumber\NumberParseException;
 use libphonenumber\PhoneNumberFormat;
 use libphonenumber\PhoneNumberType;
 use libphonenumber\PhoneNumberUtil;
-use SineMacula\Laravel\Authentication\Contracts\IdentifierNormaliser;
+use SineMacula\Laravel\Authentication\Contracts\IdentifierNormalizer;
 
-final readonly class MobileNumberNormaliser implements IdentifierNormaliser
+final readonly class MobileNumberNormalizer implements IdentifierNormalizer
 {
-    public function normalise(string $identifier): ?string
+    public function normalize(string $identifier): ?string
     {
         $numbers = PhoneNumberUtil::getInstance();
 
@@ -215,7 +215,7 @@ final readonly class MobileNumberNormaliser implements IdentifierNormaliser
 ```
 
 ```php
-'identifiers' => ['normalisers' => ['email' => EmailNormaliser::class, 'phone' => App\Auth\MobileNumberNormaliser::class]],
+'identifiers' => ['normalizers' => ['email' => EmailNormalizer::class, 'phone' => App\Auth\MobileNumberNormalizer::class]],
 ```
 
 It must return E.164 (so normalising its own output returns it unchanged), and existing rows must be normalised to it

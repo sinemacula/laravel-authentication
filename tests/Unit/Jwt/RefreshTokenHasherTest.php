@@ -130,7 +130,7 @@ final class RefreshTokenHasherTest extends TestCase
      *
      * @return void
      */
-    public function testSuccessorIsTheLabelledHmacOfTheRotationId(): void
+    public function testSuccessorIsTheLabeledHmacOfTheRotationId(): void
     {
         $expected = rtrim(strtr(base64_encode(hash_hmac('sha256', 'sinemacula.laravel-authentication.refresh-rotation.v1', 'rotation-id', true)), '+/', '-_'), '=');
 

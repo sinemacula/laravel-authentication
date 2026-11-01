@@ -66,7 +66,7 @@ final class PasskeyTest extends TestCase
      *
      * @return void
      */
-    public function testSerialisationLeavesTheKeyMaterialOut(): void
+    public function testSerializationLeavesTheKeyMaterialOut(): void
     {
         $passkey = (new Passkey)->forceFill([
             'id'                 => '0192f6b2-0000-7000-8000-000000000001',

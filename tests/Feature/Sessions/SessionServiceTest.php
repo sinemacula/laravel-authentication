@@ -70,7 +70,7 @@ use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ChoosingMember;
 use Tests\Integration\Fixtures\ChoosingMembership;
 use Tests\Integration\Fixtures\IntegrationIdentity;
-use Tests\Integration\Fixtures\NormalisedEmailIdentity;
+use Tests\Integration\Fixtures\NormalizedEmailIdentity;
 use Tests\TestCase;
 
 /**
@@ -1321,7 +1321,7 @@ final class SessionServiceTest extends TestCase
 
         self::configureSessionGuards($config);
 
-        $config->set('auth.providers.plain', ['driver' => 'model', 'model' => NormalisedEmailIdentity::class]);
+        $config->set('auth.providers.plain', ['driver' => 'model', 'model' => NormalizedEmailIdentity::class]);
         $config->set('auth.guards.plain', ['driver' => 'jwt', 'provider' => 'plain', 'application' => ['methods' => ['password']]]);
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
         $config->set('auth.guards.choosers', ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password', 'sso']]]);
@@ -1331,11 +1331,11 @@ final class SessionServiceTest extends TestCase
      * Create the table of identities without devices, dropped with the
      * application, and seed one.
      *
-     * @return \Tests\Integration\Fixtures\NormalisedEmailIdentity
+     * @return \Tests\Integration\Fixtures\NormalizedEmailIdentity
      */
-    private function seedIdentityWithoutDevices(): NormalisedEmailIdentity
+    private function seedIdentityWithoutDevices(): NormalizedEmailIdentity
     {
-        Schema::create('normalised_email_identities', static function (Blueprint $blueprint): void {
+        Schema::create('normalized_email_identities', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');
             $blueprint->string('email')->nullable()->unique();
             $blueprint->string('name');
@@ -1344,10 +1344,10 @@ final class SessionServiceTest extends TestCase
         });
 
         $this->beforeApplicationDestroyed(static function (): void {
-            Schema::dropIfExists('normalised_email_identities');
+            Schema::dropIfExists('normalized_email_identities');
         });
 
-        return NormalisedEmailIdentity::query()->create(['email' => 'ada@example.test', 'name' => 'Ada', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
+        return NormalizedEmailIdentity::query()->create(['email' => 'ada@example.test', 'name' => 'Ada', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
     }
 
     /**
@@ -1358,7 +1358,7 @@ final class SessionServiceTest extends TestCase
     private function expectRefusalOfIdentitiesWithoutDevices(): void
     {
         $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage(sprintf('identities that implement %s; %s does not.', HasDevices::class, NormalisedEmailIdentity::class));
+        $this->expectExceptionMessage(sprintf('identities that implement %s; %s does not.', HasDevices::class, NormalizedEmailIdentity::class));
     }
 
     /**

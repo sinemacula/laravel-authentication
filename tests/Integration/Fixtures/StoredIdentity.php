@@ -6,7 +6,7 @@ namespace Tests\Integration\Fixtures;
 
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use SineMacula\Laravel\Authentication\Casts\NormalisedIdentifier;
+use SineMacula\Laravel\Authentication\Casts\NormalizedIdentifier;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesIdentifierChanges;
@@ -73,7 +73,7 @@ final class StoredIdentity extends Model implements HasChangeableIdentifiers, Ha
     protected function casts(): array
     {
         return [
-            'email'              => NormalisedIdentifier::using('email'),
+            'email'              => NormalizedIdentifier::using('email'),
             'email_verified_at'  => 'datetime',
             'tokens_valid_after' => 'datetime',
         ];

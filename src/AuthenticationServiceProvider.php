@@ -44,7 +44,7 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Http\UnauthenticatedResponse;
-use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
+use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
@@ -104,7 +104,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
 
         $this->app->singletonIf(PrincipalResolver::class, DefaultPrincipalResolver::class);
         $this->app->singletonIf(ApplicationPolicy::class, GuardApplicationPolicy::class);
-        $this->app->singletonIf(IdentifierNormalisers::class);
+        $this->app->singletonIf(IdentifierNormalizers::class);
         $this->app->singletonIf(AttemptLimiter::class, DatabaseAttemptLimiter::class);
         $this->app->singletonIf(SignInMethodManager::class);
         $this->app->scopedIf(Rehashing::class);

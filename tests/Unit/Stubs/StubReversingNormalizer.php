@@ -4,7 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Stubs;
 
-use SineMacula\Laravel\Authentication\Contracts\IdentifierNormaliser;
+use SineMacula\Laravel\Authentication\Contracts\IdentifierNormalizer;
 
 /**
  * Normaliser fixture that reverses the identifier, so a test can tell it was
@@ -15,7 +15,7 @@ use SineMacula\Laravel\Authentication\Contracts\IdentifierNormaliser;
  *
  * @internal
  */
-final readonly class StubReversingNormaliser implements IdentifierNormaliser
+final readonly class StubReversingNormalizer implements IdentifierNormalizer
 {
     /**
      * Reverse the identifier.
@@ -24,7 +24,7 @@ final readonly class StubReversingNormaliser implements IdentifierNormaliser
      * @return string
      */
     #[\Override]
-    public function normalise(#[\SensitiveParameter] string $identifier): string
+    public function normalize(#[\SensitiveParameter] string $identifier): string
     {
         return strrev($identifier);
     }

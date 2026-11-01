@@ -230,7 +230,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @throws \Random\RandomException
      */
-    public function testAuthFacadeJwtHonoursGuardKidOverride(): void
+    public function testAuthFacadeJwtHonorsGuardKidOverride(): void
     {
         $service = PackageAuth::jwt('rotating');
 
@@ -689,7 +689,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @throws \Random\RandomException
      */
-    public function testForGuardHonoursPerGuardIntegerOverride(): void
+    public function testForGuardHonorsPerGuardIntegerOverride(): void
     {
         config()->set('auth.guards.int_override', [
             'driver'   => 'jwt',

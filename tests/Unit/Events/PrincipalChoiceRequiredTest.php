@@ -51,7 +51,7 @@ final class PrincipalChoiceRequiredTest extends TestCase
      *
      * @return void
      */
-    public function testSerialisesItsModelsAndDispatchesWhenTheSenderSays(): void
+    public function testSerializesItsModelsAndDispatchesWhenTheSenderSays(): void
     {
         $event = new PrincipalChoiceRequired(self::context(), CarbonImmutable::parse('2027-01-15 10:05:00'));
 

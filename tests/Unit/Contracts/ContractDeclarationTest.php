@@ -25,7 +25,7 @@ use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
-use SineMacula\Laravel\Authentication\Contracts\IdentifierNormaliser;
+use SineMacula\Laravel\Authentication\Contracts\IdentifierNormalizer;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -302,16 +302,16 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `IdentifierNormaliser` declares only `normalise()`, which may refuse a
+     * `IdentifierNormalizer` declares only `normalize()`, which may refuse a
      * value by returning `null`.
      *
      * @return void
      */
-    public function testIdentifierNormaliserDeclaresOnlyNormalise(): void
+    public function testIdentifierNormalizerDeclaresOnlyNormalize(): void
     {
-        $method = new \ReflectionMethod(IdentifierNormaliser::class, 'normalise');
+        $method = new \ReflectionMethod(IdentifierNormalizer::class, 'normalize');
 
-        self::assertSame(['normalise'], self::declaredMethods(IdentifierNormaliser::class));
+        self::assertSame(['normalize'], self::declaredMethods(IdentifierNormalizer::class));
         self::assertSame('?string', (string) $method->getReturnType());
     }
 

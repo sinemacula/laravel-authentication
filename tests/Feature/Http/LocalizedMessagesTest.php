@@ -39,7 +39,7 @@ use Tests\TestCase;
 #[CoversClass(UnauthenticatedResponse::class)]
 #[CoversClass(Authenticate::class)]
 #[CoversClass(PasskeyService::class)]
-final class LocalisedMessagesTest extends TestCase
+final class LocalizedMessagesTest extends TestCase
 {
     use InteractsWithPasskeys, InteractsWithSessions;
 

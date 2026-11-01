@@ -12,7 +12,7 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  * `ben@example.com` name the same account on every database, whatever its
  * collation. A normaliser is registered under the name of the identifier type
  * it serves (`email`, later `phone`) in `authentication.identifiers`, and is
- * applied when a designated identifier is set (`Casts\NormalisedIdentifier`),
+ * applied when a designated identifier is set (`Casts\NormalizedIdentifier`),
  * when the `model` provider looks one up, and when attempts are counted.
  *
  * Implementations must be stateless and deterministic: the same input always
@@ -22,7 +22,7 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-interface IdentifierNormaliser
+interface IdentifierNormalizer
 {
     /**
      * Return the identifier in its normal form, or `null` when the value cannot
@@ -31,5 +31,5 @@ interface IdentifierNormaliser
      * @param  string  $identifier
      * @return ?string
      */
-    public function normalise(#[\SensitiveParameter] string $identifier): ?string;
+    public function normalize(#[\SensitiveParameter] string $identifier): ?string;
 }

@@ -11,8 +11,8 @@ use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use Tests\Fixtures\Auth\CustomisedAuthManager;
-use Tests\Fixtures\Providers\BindsCustomisedAuthManager;
+use Tests\Fixtures\Auth\CustomizedAuthManager;
+use Tests\Fixtures\Providers\BindsCustomizedAuthManager;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 
 /**
@@ -26,7 +26,7 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
  * @internal
  */
 #[CoversClass(AuthenticationServiceProvider::class)]
-final class AuthManagerCustomisationTest extends TestCase
+final class AuthManagerCustomizationTest extends TestCase
 {
     /**
      * The application's manager is the one `auth` and the facade resolve, with
@@ -38,8 +38,8 @@ final class AuthManagerCustomisationTest extends TestCase
     {
         $manager = app('auth');
 
-        self::assertInstanceOf(CustomisedAuthManager::class, $manager);
-        self::assertSame(CustomisedAuthManager::ANSWER, $manager->customised());
+        self::assertInstanceOf(CustomizedAuthManager::class, $manager);
+        self::assertSame(CustomizedAuthManager::ANSWER, $manager->customized());
         self::assertSame($manager, IlluminateAuth::getFacadeRoot());
         self::assertInstanceOf(JwtGuard::class, $manager->guard('api'));
     }
@@ -53,7 +53,7 @@ final class AuthManagerCustomisationTest extends TestCase
     #[\Override]
     protected function getPackageProviders(mixed $app): array
     {
-        return [AuthenticationServiceProvider::class, BindsCustomisedAuthManager::class];
+        return [AuthenticationServiceProvider::class, BindsCustomizedAuthManager::class];
     }
 
     /**

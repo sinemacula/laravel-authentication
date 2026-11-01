@@ -215,7 +215,7 @@ final class DeviceTest extends TestCase
      *
      * @return void
      */
-    public function testDigestsAreHiddenFromSerialisation(): void
+    public function testDigestsAreHiddenFromSerialization(): void
     {
         $device = new Device;
         $device->forceFill([
@@ -224,11 +224,11 @@ final class DeviceTest extends TestCase
             'previous_refresh_key' => 'previous-digest',
         ])->save();
 
-        $serialised = Device::query()->findOrFail($device->id)->toArray();
+        $serialized = Device::query()->findOrFail($device->id)->toArray();
 
-        self::assertSame('Work laptop', $serialised['client_name']);
-        self::assertArrayNotHasKey('refresh_key', $serialised);
-        self::assertArrayNotHasKey('previous_refresh_key', $serialised);
+        self::assertSame('Work laptop', $serialized['client_name']);
+        self::assertArrayNotHasKey('refresh_key', $serialized);
+        self::assertArrayNotHasKey('previous_refresh_key', $serialized);
     }
 
     /**

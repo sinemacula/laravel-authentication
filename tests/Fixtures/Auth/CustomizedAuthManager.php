@@ -15,17 +15,17 @@ use SineMacula\Laravel\Authentication\AuthManager;
  *
  * @internal
  */
-final class CustomisedAuthManager extends AuthManager
+final class CustomizedAuthManager extends AuthManager
 {
-    /** @var string What `customised()` answers. */
-    public const string ANSWER = 'customised';
+    /** @var string What `customized()` answers. */
+    public const string ANSWER = 'customized';
 
     /**
      * The application's own method.
      *
      * @return string
      */
-    public function customised(): string
+    public function customized(): string
     {
         return self::ANSWER;
     }

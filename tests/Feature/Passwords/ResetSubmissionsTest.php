@@ -662,7 +662,7 @@ final class ResetSubmissionsTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testACodeResetNeedsANormalisedType(): void
+    public function testACodeResetNeedsANormalizedType(): void
     {
         try {
             $this->passwords()->resetWithCode('username', ['username' => 'ada', 'code' => '123456', 'password' => self::NEW_PASSWORD]);

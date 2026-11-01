@@ -6,7 +6,7 @@ namespace Tests\Integration\Fixtures;
 
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use SineMacula\Laravel\Authentication\Casts\NormalisedIdentifier;
+use SineMacula\Laravel\Authentication\Casts\NormalizedIdentifier;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
@@ -69,9 +69,9 @@ final class CodeIdentity extends Model implements CanBeActive, HasDevices, HasVe
     protected function casts(): array
     {
         return [
-            'phone'             => NormalisedIdentifier::using('phone'),
+            'phone'             => NormalizedIdentifier::using('phone'),
             'phone_verified_at' => 'datetime',
-            'email'             => NormalisedIdentifier::using('email'),
+            'email'             => NormalizedIdentifier::using('email'),
             'email_verified_at' => 'datetime',
             'is_active'         => 'boolean',
         ];

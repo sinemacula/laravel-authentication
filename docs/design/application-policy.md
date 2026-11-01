@@ -150,7 +150,7 @@ normalisers meet that policy, since a sign-in passes through all three.
   and `src/Guards/Concerns/VerifiesPinnedContext.php` (`resolveDeviceFromHint()`).
 - `src/Contracts/AttemptLimiter.php`, `src/RateLimiting/DatabaseAttemptLimiter.php`,
   `src/RateLimiting/AttemptLimits.php`, `src/RateLimiting/RateLimitStore.php`.
-- `src/Identifiers/IdentifierNormalisers.php`, `src/Casts/NormalisedIdentifier.php`, `src/Providers/ModelProvider.php`.
+- `src/Identifiers/IdentifierNormalizers.php`, `src/Casts/NormalizedIdentifier.php`, `src/Providers/ModelProvider.php`.
 - `src/Verification/IdentifierVerifier.php` (`verifiable()`) and `src/Verification/VerificationLinks.php`.
 
 ## Authoritative Tests

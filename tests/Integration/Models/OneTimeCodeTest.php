@@ -75,7 +75,7 @@ final class OneTimeCodeTest extends TestCase
      *
      * @return void
      */
-    public function testKeepsTheDigestsOutOfSerialisation(): void
+    public function testKeepsTheDigestsOutOfSerialization(): void
     {
         self::insertCode('a', '2026-04-06 12:10:00');
 

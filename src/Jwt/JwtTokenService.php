@@ -276,7 +276,7 @@ final class JwtTokenService
             return null;
         }
 
-        $claims = $this->normaliseClaims($decoded);
+        $claims = $this->normalizeClaims($decoded);
 
         return $this->matchesExpectedClaims($claims, $expectedType) ? $claims : null;
     }
@@ -464,7 +464,7 @@ final class JwtTokenService
      * @param  object  $decoded
      * @return array<string, mixed>
      */
-    private function normaliseClaims(object $decoded): array
+    private function normalizeClaims(object $decoded): array
     {
         return array_filter((array) $decoded, fn ($key) => is_string($key), ARRAY_FILTER_USE_KEY);
     }

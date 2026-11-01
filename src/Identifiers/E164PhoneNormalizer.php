@@ -4,7 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Identifiers;
 
-use SineMacula\Laravel\Authentication\Contracts\IdentifierNormaliser;
+use SineMacula\Laravel\Authentication\Contracts\IdentifierNormalizer;
 
 /**
  * The default normaliser for phone numbers: accepts only a number already in
@@ -22,7 +22,7 @@ use SineMacula\Laravel\Authentication\Contracts\IdentifierNormaliser;
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final readonly class E164PhoneNormaliser implements IdentifierNormaliser
+final readonly class E164PhoneNormalizer implements IdentifierNormalizer
 {
     /**
      * The number trimmed, when it is in E.164 form; otherwise `null`.
@@ -31,7 +31,7 @@ final readonly class E164PhoneNormaliser implements IdentifierNormaliser
      * @return ?string
      */
     #[\Override]
-    public function normalise(#[\SensitiveParameter] string $identifier): ?string
+    public function normalize(#[\SensitiveParameter] string $identifier): ?string
     {
         $trimmed = trim($identifier);
 

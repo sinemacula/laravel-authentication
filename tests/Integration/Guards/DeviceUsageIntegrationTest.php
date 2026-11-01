@@ -376,7 +376,7 @@ final class DeviceUsageIntegrationTest extends TestCase
      *
      * @throws \Random\RandomException
      */
-    public function testBoundDeviceSerialisesWithoutItsDigests(): void
+    public function testBoundDeviceSerializesWithoutItsDigests(): void
     {
         [$identity, $device] = $this->seedIdentityWithDevice();
 

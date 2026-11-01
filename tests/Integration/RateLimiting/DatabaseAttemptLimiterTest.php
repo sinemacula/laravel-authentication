@@ -21,7 +21,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\RateLimiting\RateLimitStore;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\TestCase;
-use Tests\Unit\Stubs\StubReversingNormaliser;
+use Tests\Unit\Stubs\StubReversingNormalizer;
 
 /**
  * Integration tests for the database attempt limiter against the shipped
@@ -528,9 +528,9 @@ final class DatabaseAttemptLimiterTest extends TestCase
      *
      * @return void
      */
-    public function testTheTypesNormaliserGivesTheCanonicalForm(): void
+    public function testTheTypesNormalizerGivesTheCanonicalForm(): void
     {
-        config()->set('authentication.identifiers.normalisers.reversed', StubReversingNormaliser::class);
+        config()->set('authentication.identifiers.normalizers.reversed', StubReversingNormalizer::class);
 
         $this->limiter()->acquire($this->signIn('Abc', type: 'reversed'));
 

@@ -128,7 +128,7 @@ final class CodeSignInTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testTheNumberIsNormalisedAndOnlyE164IsAccepted(): void
+    public function testTheNumberIsNormalizedAndOnlyE164IsAccepted(): void
     {
         self::seedCodeIdentity();
 
@@ -564,7 +564,7 @@ final class CodeSignInTest extends TestCase
             $blueprint->string('whatsapp')->nullable();
         });
 
-        config()->set('authentication.identifiers.normalisers.whatsapp', config('authentication.identifiers.normalisers.phone'));
+        config()->set('authentication.identifiers.normalizers.whatsapp', config('authentication.identifiers.normalizers.phone'));
         config()->set('auth.guards.mobile.application.methods', ['whatsapp_code']);
 
         $manager->extend('whatsapp_code', fn (Application $app): CodeSignIn => $app->make(CodeSignIn::class, ['type' => 'whatsapp']));

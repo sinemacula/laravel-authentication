@@ -31,7 +31,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
-use SineMacula\Laravel\Authentication\Jwt\RefreshJudgement;
+use SineMacula\Laravel\Authentication\Jwt\RefreshJudgment;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
@@ -170,7 +170,7 @@ final readonly class PrincipalSwitch
     {
         $now     = CarbonImmutable::now()->startOfSecond();
         $verdict = WriteConnection::during($device, static fn (): ?string => $device->getGuard()) === $this->context->name()
-            ? RefreshJudgement::classify($device, $presented[0], $now, $this->tokens->lifetimes())
+            ? RefreshJudgment::classify($device, $presented[0], $now, $this->tokens->lifetimes())
             : FailureReason::DEVICE_GUARD_MISMATCH;
 
         if ($verdict instanceof FailureReason) {
@@ -394,10 +394,10 @@ final readonly class PrincipalSwitch
      */
     private function retry(EloquentDevice&Model $device, Admitted $admitted, #[\SensitiveParameter] array $presented): AuthenticationFailed|SwitchedPrincipal
     {
-        $honoured = PrincipalReference::isRecordedOn($device, $admitted->principal)
+        $honored = PrincipalReference::isRecordedOn($device, $admitted->principal)
             && (self::isLastRotationASwitch($device) || IdentifierCoercion::matches($admitted->principal->getPrincipalIdentifier(), $presented[1]));
 
-        if (!$honoured) {
+        if (!$honored) {
             return self::refused(FailureReason::ROTATION_CONFLICT, $this->eventContext($device, $admitted));
         }
 
@@ -440,7 +440,7 @@ final readonly class PrincipalSwitch
             ));
         }
 
-        $verdict = RefreshJudgement::classify($fresh, $presented[0], $now, $this->tokens->lifetimes());
+        $verdict = RefreshJudgment::classify($fresh, $presented[0], $now, $this->tokens->lifetimes());
 
         if ($verdict instanceof FailureReason) {
             return $this->fail($fresh, $verdict, $now);

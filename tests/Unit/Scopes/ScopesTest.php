@@ -35,15 +35,15 @@ final class ScopesTest extends TestCase
      *
      * @return void
      */
-    public function testNormaliseKeepsOrderAndRemovesDuplicates(): void
+    public function testNormalizeKeepsOrderAndRemovesDuplicates(): void
     {
         self::assertSame(
             ['invoices:read', 'Invoices:Read', 'https://api.example.test/reports', 'a'],
-            Scopes::normalise(['invoices:read', 'Invoices:Read', 'invoices:read', 'https://api.example.test/reports', 'a', 'a']),
+            Scopes::normalize(['invoices:read', 'Invoices:Read', 'invoices:read', 'https://api.example.test/reports', 'a', 'a']),
         );
 
-        self::assertSame(['b', 'a'], Scopes::normalise([5 => 'b', 'x' => 'a']));
-        self::assertSame([], Scopes::normalise([]));
+        self::assertSame(['b', 'a'], Scopes::normalize([5 => 'b', 'x' => 'a']));
+        self::assertSame([], Scopes::normalize([]));
     }
 
     /**
@@ -56,8 +56,8 @@ final class ScopesTest extends TestCase
     {
         $characters = implode('', array_map('chr', [0x21, ...range(0x23, 0x5B), ...range(0x5D, 0x7E)]));
 
-        self::assertSame([$characters], Scopes::normalise([$characters]));
-        self::assertSame([str_repeat('a', 255)], Scopes::normalise([str_repeat('a', 255)]));
+        self::assertSame([$characters], Scopes::normalize([$characters]));
+        self::assertSame([str_repeat('a', 255)], Scopes::normalize([str_repeat('a', 255)]));
     }
 
     /**
@@ -72,10 +72,10 @@ final class ScopesTest extends TestCase
         $scopes = self::longestScopes();
 
         self::assertSame(Scopes::MAX_LIST_LENGTH, strlen(Scopes::format($scopes)));
-        self::assertSame($scopes, Scopes::normalise([...$scopes, $scopes[0]]));
+        self::assertSame($scopes, Scopes::normalize([...$scopes, $scopes[0]]));
 
         try {
-            Scopes::normalise([...$scopes, 'x']);
+            Scopes::normalize([...$scopes, 'x']);
 
             self::fail('Expected the list to be refused.');
         } catch (InvalidScopeException $exception) {
@@ -84,7 +84,7 @@ final class ScopesTest extends TestCase
         }
 
         try {
-            Scopes::normalise([...array_slice($scopes, 0, -1), end($scopes) . '/']);
+            Scopes::normalize([...array_slice($scopes, 0, -1), end($scopes) . '/']);
 
             self::fail('Expected a list one byte too long to be refused.');
         } catch (InvalidScopeException $exception) {
@@ -92,7 +92,7 @@ final class ScopesTest extends TestCase
         }
 
         try {
-            Scopes::normalise(['x', ...$scopes]);
+            Scopes::normalize(['x', ...$scopes]);
 
             self::fail('Expected the list to be refused.');
         } catch (InvalidScopeException $exception) {
@@ -134,10 +134,10 @@ final class ScopesTest extends TestCase
      * @return void
      */
     #[DataProvider('provideMalformedScopes')]
-    public function testNormaliseRefusesAMalformedScope(mixed $scope, string $reported): void
+    public function testNormalizeRefusesAMalformedScope(mixed $scope, string $reported): void
     {
         try {
-            Scopes::normalise(['ok', $scope, 'fine']);
+            Scopes::normalize(['ok', $scope, 'fine']);
 
             self::fail('Expected the scope to be refused.');
         } catch (InvalidScopeException $exception) {
@@ -152,10 +152,10 @@ final class ScopesTest extends TestCase
      *
      * @return void
      */
-    public function testNormaliseReportsEveryMalformedScope(): void
+    public function testNormalizeReportsEveryMalformedScope(): void
     {
         try {
-            Scopes::normalise(['a b', 'ok', '', 7]);
+            Scopes::normalize(['a b', 'ok', '', 7]);
 
             self::fail('Expected the scopes to be refused.');
         } catch (InvalidScopeException $exception) {

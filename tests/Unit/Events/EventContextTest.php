@@ -332,7 +332,7 @@ final class EventContextTest extends TestCase
      *
      * @return void
      */
-    public function testSurvivesASerialiseRoundTrip(): void
+    public function testSurvivesASerializeRoundTrip(): void
     {
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-06 12:00:00.654321', 'UTC'));
 
