@@ -83,7 +83,7 @@ JWT settings are read once and kept (see [Configuration lifetimes](operations.md
 | `freshness.password_establishment.max_age_seconds`  | `900`                                                                        | `AUTHENTICATION_FRESHNESS_PASSWORD_ESTABLISHMENT_SECONDS` | yes       | [Freshness](#freshness)                                               |
 | `freshness.password_establishment.proofs`           | every proof kind                                                             |                                                           | yes       | [Freshness](#freshness)                                               |
 | `freshness.factor_change.max_age_seconds`           | `900`                                                                        | `AUTHENTICATION_FRESHNESS_FACTOR_CHANGE_SECONDS`          | yes       | [Freshness](#freshness)                                               |
-| `freshness.factor_change.proofs`                    | every proof kind                                                             |                                                           | yes       | [Freshness](#freshness)                                               |
+| `freshness.factor_change.proofs`                    | `additional_factor`, `recovery_code`                                         |                                                           | yes       | [Freshness](#freshness)                                               |
 | `codes.table`                                       | `one_time_codes`                                                             | `AUTHENTICATION_CODES_TABLE`                              |           | [One-time codes](#one-time-codes)                                     |
 | `codes.key`                                         | `null`                                                                       | `AUTHENTICATION_CODES_KEY`                                |           | [One-time codes](#one-time-codes)                                     |
 | `codes.length`                                      | `6`                                                                          | `AUTHENTICATION_CODES_LENGTH`                             |           | [One-time codes](#one-time-codes)                                     |
@@ -477,7 +477,10 @@ short. They are pruned with their sessions (see [Pruning](operations.md#pruning)
         'proofs'          => ['first_factor', 'first_factor_reauthentication', 'external_reauthentication', 'additional_factor', 'recovery_code'],
     ],
     'password_establishment' => [/* the same */],
-    'factor_change'          => [/* the same */],
+    'factor_change'          => [
+        'max_age_seconds' => 900,
+        'proofs'          => ['additional_factor', 'recovery_code'],
+    ],
 ],
 ```
 
@@ -491,9 +494,11 @@ a strong one (see [Freshness](sessions.md#freshness)).
 The package names three operations (`Freshness\Operations`): `identifier_change`, which an identifier change checks for
 a session proof (see [Changing identifiers](identifier-changes.md)), and `password_establishment` and `factor_change`,
 which nothing in the package checks yet: they are configured for whatever gates establishing a password or changing a
-factor. The application or another package names its own (`mfa.add_factor`, `sso.reauthenticate`): lower-case segments
-separated by dots, read as array keys, never as configuration paths. An operation with no entry, and no requirement
-passed by its caller, is never fresh.
+factor. Adding, replacing or removing a factor and generating recovery codes take a fresh step-up, so `factor_change`
+takes only a further factor or a recovery code: a sign-in or a reauthentication, which never renews the evidence of a
+further factor, does not make a session fresh for it. The application or another package names its own
+(`mfa.add_factor`, `sso.reauthenticate`): lower-case segments separated by dots, read as array keys, never as
+configuration paths. An operation with no entry, and no requirement passed by its caller, is never fresh.
 
 A guard overrides any operation in a `freshness` block on its `config/auth.php` entry; an entry it sets wins whole, and
 `null` removes the operation for that guard:

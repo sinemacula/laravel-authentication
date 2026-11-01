@@ -590,7 +590,10 @@ return [
     | applies; an operation with neither is never fresh. A guard overrides any
     | operation in a `freshness` block on its `config/auth.php` entry, where
     | `null` removes it. A malformed entry fails closed when it is read, and
-    | `authentication:check` reports it.
+    | `authentication:check` reports it. Changing a factor or generating
+    | recovery codes takes a fresh step-up, so `factor_change` takes only a
+    | further factor or a recovery code: neither a sign-in nor a
+    | reauthentication renews the evidence of a further factor.
     |
     */
 
@@ -605,7 +608,7 @@ return [
         ],
         'factor_change' => [
             'max_age_seconds' => env('AUTHENTICATION_FRESHNESS_FACTOR_CHANGE_SECONDS', 900),
-            'proofs'          => ['first_factor', 'first_factor_reauthentication', 'external_reauthentication', 'additional_factor', 'recovery_code'],
+            'proofs'          => ['additional_factor', 'recovery_code'],
         ],
     ],
 

@@ -170,8 +170,9 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
-     * A requirement that takes only further factors ignores a fresh first
-     * factor, and takes a step-up.
+     * The shipped `factor_change` requirement takes only further factors and
+     * recovery codes, as changing a factor needs a fresh step-up: it ignores a
+     * fresh first factor and a fresh reauthentication, and takes a step-up.
      *
      * @return void
      *
@@ -181,7 +182,9 @@ final class ConfiguredFreshnessTest extends TestCase
     {
         $record = $this->signedIn();
 
-        config()->set('authentication.freshness.factor_change', ['max_age_seconds' => 900, 'proofs' => ['additional_factor', 'recovery_code']]);
+        self::assertNull(self::policy()->freshProof($record, Operations::FACTOR_CHANGE));
+
+        self::recordProof($record, ProofKind::FIRST_FACTOR_REAUTHENTICATION, $this->now, ['pwd']);
 
         self::assertNull(self::policy()->freshProof($record, Operations::FACTOR_CHANGE));
 
