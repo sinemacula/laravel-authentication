@@ -207,8 +207,7 @@ final class ProofTablesSchemaTest extends TestCase
     /**
      * The proofs are indexed by session, kind and time, for the claims and the
      * freshness reads, and the provenance by connection and by tenant and
-     * connection, for finding a connection's or a tenant's sessions; each index
-     * is named after the configured table.
+     * connection; each index is named after the configured table.
      *
      * @return void
      */

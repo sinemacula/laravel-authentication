@@ -51,9 +51,9 @@ return new class extends Migration {
             $blueprint->string('policy_version', 64)->nullable();
             $blueprint->dateTime('created_at', 0)->nullable();
 
-            // The sessions of a connection, and those of a tenant's
-            // connections, are found by these. Named short, so a configured
-            // table name of up to 47 characters still fits.
+            // Indexes for finding the sessions of a connection or of a tenant's
+            // connections; nothing queries them yet. Named short, so a
+            // configured table name of up to 47 characters still fits.
             $blueprint->index('connection_id', $table . '_connection_index');
             $blueprint->index(['tenant_id', 'connection_id'], $table . '_tenant_index');
         });

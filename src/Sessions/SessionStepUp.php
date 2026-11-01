@@ -31,14 +31,9 @@ use SineMacula\Laravel\Authentication\Runtime\GuardContext;
  *
  * The session is the one the proof's binding names, locked and checked as
  * `ProofIssuance` describes, and the proof must be one `ProofAcceptance`
- * accepts for a step-up: a further factor or a recovery code, made for
- * `step_up`, accepted by its adapter, made no later than now and no earlier
- * than the session started (`proof_invalid`), by the session's owner, on this
- * guard, for that session (`proof_binding_mismatch`). Once committed,
- * `SteppedUp` reports it; a refusal reports `AuthenticationFailed` (flow
- * `step_up`) and is answered, never thrown. Both name the method the adapter
- * verified the proof with, as a reauthentication's events name the method it
- * used.
+ * accepts for a step-up. Once committed, `SteppedUp` reports it; a refusal
+ * reports `AuthenticationFailed` (flow `step_up`) and is answered, never
+ * thrown.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

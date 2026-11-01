@@ -126,14 +126,13 @@ final class JwtTokenService
      * token to match. `$issuedAt` (default now, cut to the whole second) sets
      * `iat` and the start of the lifetime, so a caller that has just judged the
      * session at a given time issues at that same time. Issuing reads nothing
-     * from the principal beyond its identifier.
+     * from the principal beyond its identifier and, when a tenant is given, its
+     * tenant (`getTenant()`), to check the tenant is its own.
      *
      * The token's subject type is `person`. `$tenant` is the tenant the
      * caller's admission loaded for the principal, written to `tenant_id`; the
      * claim is carried for the token's readers and not checked by the package
-     * on a request. A principal acts only within its own tenant, so a tenant
-     * given must be the one the principal's `getTenant()` returns, by
-     * identifier. A token for a session carries the session's latest
+     * on a request. A token for a session carries the session's latest
      * authentication time in `auth_time` (never after the issue time: an
      * authentication another server recorded with its clock ahead is carried as
      * the issue time) and its authentication method references in `amr`, both
@@ -143,11 +142,11 @@ final class JwtTokenService
      * part of its context: the identity and principal, the tenant when one is
      * given, and the session when one is given, must each have an identifier
      * that can be written into its claim (a saved model's scalar key), and a
-     * tenant given must be the principal's own (a principal whose tenant cannot
-     * be loaded throws the `TenantUnavailableException` its `getTenant()`
-     * does). Refuses, too, a session that has ended or that has no idle
-     * deadline, and a non-human identity: a machine gets tokens only from a
-     * client credentials exchange.
+     * tenant given must be the principal's own, by identifier (a principal
+     * whose tenant cannot be loaded throws the `TenantUnavailableException` its
+     * `getTenant()` does). Refuses, too, a session that has ended or that has
+     * no idle deadline, and a non-human identity: a machine gets tokens only
+     * from a client credentials exchange.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal

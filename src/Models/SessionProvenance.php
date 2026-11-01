@@ -11,14 +11,14 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
 /**
  * How a session established through an external identity provider began, one
  * row per such session, keyed by the session's key: the connection and its
- * tenant, the provider's authentication time and session deadline, the evidence
- * accepted for it, and the policy version the caller checked.
+ * tenant, the provider's authentication time and session deadline (no evidence:
+ * nothing accepts any yet), and the policy version the caller checked.
  *
  * Kept on the storage connection with the sessions, in the table named by
  * `authentication.proofs.provenance_table`, written once with the session and
  * never rewritten by a later reauthentication. Indexed by connection and by
- * tenant, so the sessions of a connection or a tenant are found by an indexed
- * query. The session model's pruning deletes it with its session.
+ * tenant; nothing queries those indexes yet. The session model's pruning
+ * deletes it with its session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

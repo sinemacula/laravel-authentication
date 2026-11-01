@@ -26,7 +26,7 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 /**
  * Records a proof on an active session and issues it a new access token, in one
  * transaction on the session's connection: the shared step of a step-up and a
- * reauthentication, and of any later reauthentication handoff.
+ * reauthentication.
  *
  * In order, with the session's row locked until the transaction ends, so a
  * revocation either commits first (and the proof is refused) or after (and the
