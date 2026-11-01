@@ -14,6 +14,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
@@ -1654,6 +1655,76 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
+     * A bind listener that throws fails a switch after it was written, but
+     * `PrincipalSwitched` was scheduled before the bind, so the switch is
+     * reported; inside a caller's transaction it waits for the commit, and a
+     * rollback withdraws it and leaves the session as it was.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchWhoseBindListenerThrowsIsStillReported(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+        $before  = (array) DB::table('authentication_sessions')->sole();
+
+        Event::listen(PrincipalAssigned::class, static function (): never {
+            throw new \RuntimeException('listener failed');
+        });
+
+        $this->recordEvents([PrincipalSwitched::class]);
+
+        DB::beginTransaction();
+
+        self::assertSame('listener failed', $this->failedSwitch($session->tokens->refreshToken, $second));
+        self::assertSame([], $this->recordedClasses());
+
+        DB::rollBack();
+
+        self::assertSame([], $this->recordedClasses());
+        self::assertEquals($before, (array) DB::table('authentication_sessions')->sole());
+
+        self::assertSame('listener failed', $this->failedSwitch($session->tokens->refreshToken, $second));
+        self::assertSame([PrincipalSwitched::class], $this->recordedClasses());
+        self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify(DB::table('authentication_sessions')->value('principal_id')));
+    }
+
+    /**
+     * Inside a caller's transaction that catches a switch's throwing bind
+     * listener and commits, `PrincipalSwitched` follows the commit, once, and
+     * the session stays switched.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchWhoseBindListenerThrowsIsReportedOnTheCallersCommit(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+
+        Event::listen(PrincipalAssigned::class, static function (): never {
+            throw new \RuntimeException('listener failed');
+        });
+
+        $this->recordEvents([PrincipalSwitched::class]);
+
+        DB::beginTransaction();
+
+        self::assertSame('listener failed', $this->failedSwitch($session->tokens->refreshToken, $second));
+        self::assertSame([], $this->recordedClasses());
+
+        DB::commit();
+
+        self::assertSame([PrincipalSwitched::class], $this->recordedClasses());
+        self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify(DB::table('authentication_sessions')->value('principal_id')));
+    }
+
+    /**
      * Register the guards.
      *
      * @param  mixed  $app
@@ -1854,6 +1925,27 @@ final class SessionSwitchTest extends TestCase
         Auth::forgetGuards();
 
         return $this->postJson('/switch', ['refresh' => $refreshToken, 'membership' => $target->getKey()]);
+    }
+
+    /**
+     * Switch the session the refresh token proves to the principal through the
+     * session service, expecting a listener to throw, and return its message.
+     *
+     * @param  string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return string
+     *
+     * @throws \Throwable
+     */
+    private function failedSwitch(#[\SensitiveParameter] string $refreshToken, Principal $principal): string
+    {
+        try {
+            $this->sessions(self::GUARD)->switchTo($refreshToken, SwitchTarget::principal($principal));
+        } catch (\RuntimeException $exception) {
+            return $exception->getMessage();
+        }
+
+        self::fail('Expected the listener to throw.');
     }
 
     /**

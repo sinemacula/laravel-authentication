@@ -397,8 +397,8 @@ final class RefreshRotationStoreTest extends TestCase
 
     /**
      * A revocation of the session as it was loaded records the time and reason,
-     * clears both digests, and mirrors them on the in-memory session, while
-     * the row is still as it was loaded.
+     * clears both digests, and mirrors them on the in-memory session, while the
+     * row is still as it was loaded.
      *
      * @return void
      */

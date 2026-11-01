@@ -9,6 +9,7 @@ use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -866,6 +867,43 @@ final class PendingSessionsTest extends TestCase
         config()->set('auth.guards.api.application.methods', ['password']);
 
         self::assertNotNull($this->sessions()->pending($credential, PendingAction::SEND_CODE));
+    }
+
+    /**
+     * Under an enforced morph map, a choice records the principal by its alias,
+     * and its `SignedIn` names the identity and principal by their aliases and
+     * the tenant the map leaves out by its class, with its identifier.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChoiceUnderAnEnforcedMorphMapRecordsAnUnmappedTenantByItsClass(): void
+    {
+        [, $first] = $this->seedChooser();
+
+        $this->factorRequired = false;
+
+        Relation::enforceMorphMap(['chooser' => ChoosingMember::class, 'membership' => ChoosingMembership::class]);
+
+        try {
+            [$credential] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
+
+            $this->recordEvents([SignedIn::class]);
+
+            self::assertTrue($this->sessions(self::CHOOSERS)->choose($credential, $first)->isSignedIn());
+
+            $context = $this->recordedEvent(SignedIn::class)->context;
+
+            self::assertSame('chooser', $context->identityMorphClass);
+            self::assertSame('membership', $context->principalMorphClass);
+            self::assertSame(ActivatableTenant::class, $context->tenantMorphClass);
+            self::assertSame(IdentifierCoercion::stringify($first->tenant_id), $context->tenantId);
+            self::assertSame('membership', DB::table('authentication_sessions')->value('principal_type'));
+        } finally {
+            Relation::requireMorphMap(false);
+            Relation::morphMap([], false);
+        }
     }
 
     /**
