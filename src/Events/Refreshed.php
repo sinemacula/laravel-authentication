@@ -13,8 +13,8 @@ namespace SineMacula\Laravel\Authentication\Events;
  *
  * The context carries the guard, the client, the identity, principal and tenant
  * bound on the refreshed guard, the session whose rotation id was rotated, and
- * the method its session records, so activity-log consumers can attribute the
- * refresh without a second round trip through the guard.
+ * the method it records, so activity-log consumers can attribute the refresh
+ * without a second round trip through the guard.
  *
  * @api
  *

@@ -48,8 +48,8 @@ assertions compare, and the fakes the package ships for its delivery contracts.
 3. Each request the test sends rebinds `request`: the guard resets, then the callback binds the context again
    (`Authenticated`, `PrincipalAssigned` and, with a session, `SessionAuthenticated`, as a bearer request).
 4. `actingOnSession()` reads the session's owner key and principal columns without a query, loads the owner through the
-   guard's provider and checks it is the exact owner (`SessionOwnership::isOwner()`), and resolves the recorded principal
-   through the guard's resolver with the recorded identifier as the hint, checking it is the one recorded
+   guard's provider and checks it is the exact owner (`SessionOwnership::isOwner()`), and resolves the recorded
+   principal through the guard's resolver with the recorded identifier as the hint, checking it is the one recorded
    (`PrincipalReference::isRecordedOn()`); a session recording no principal acts as the owner's default one. The guard
    is the one the session records unless the test names it.
 

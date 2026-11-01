@@ -9,9 +9,9 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Concerns\SerializesLiveModels;
 
 /**
- * Dispatched when a session switches the principal it acts as on the same
- * session (`switchPrincipal()`): the session records the new principal, its
- * refresh credential was rotated, and the access tokens issued for the previous
+ * Dispatched when a session switches the principal it acts as
+ * (`switchPrincipal()`): the session records the new principal, its refresh
+ * credential was rotated, and the access tokens issued for the previous
  * principal stopped working.
  *
  * Dispatched once the switch is committed on the session's own connection: at

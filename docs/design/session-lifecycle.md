@@ -24,9 +24,9 @@ deleted. Starting a session is in
 - A `SessionSummary` never holds a digest, the rotation time, a revocation column, the owner or the principal; `current`
   compares the listed session with the guard's bound session by class and identifier.
 - Revoking marks the session (`revoked_at`, `revoked_reason`, both digests cleared) with one conditional `UPDATE ...
-  WHERE pk AND revoked_at IS NULL` on the session's own connection (`RefreshRotationStore::revoke()`), mirrored in memory
-  only when it changed the row. It is idempotent, the first revocation's time and reason are kept, and only the call
-  that changed the row reports `SessionRevoked`, through `AfterCommit` on the session's connection.
+  WHERE pk AND revoked_at IS NULL` on the session's own connection (`RefreshRotationStore::revoke()`), mirrored in
+  memory only when it changed the row. It is idempotent, the first revocation's time and reason are kept, and only the
+  call that changed the row reports `SessionRevoked`, through `AfterCommit` on the session's connection.
 - Sign-out, revocation and the security changes are `Sessions\SessionRevocations`, on the guard's context; the session
   service's methods delegate to it, and `JwtGuard::logout()` and the password writer use it without a session service.
   Only `signOut()` and `signOutEverywhere()` read or change the guard's bound state, through the
@@ -34,8 +34,9 @@ deleted. Starting a session is in
 - `signOut()` (and `JwtGuard::logout()`) revokes the guard's bound persisted session as `signed_out`, then dispatches
   `Logout` when an identity was bound, then `forgetUser()`. A session that is not an Eloquent `EloquentSession` is only
   forgotten.
-- `revokeSession()` reads the session through the owner's `sessions()` relation on the writer (`IdentitySessions::find()`),
-  with the key-shape check first, so another identity's session is "not found" (`false`) and never revealed.
+- `revokeSession()` reads the session through the owner's `sessions()` relation on the writer
+  (`IdentitySessions::find()`), with the key-shape check first, so another identity's session is "not found" (`false`)
+  and never revealed.
 - A bulk revocation (`revokeSessions()`, `revokePrincipalSessions()`, `signOutEverywhere()`, and the security-change
   methods) is a list of `RevocationScope`s: (1) each scope's `HasTokensValidAfter` cutoff moved to `$now` on its own
   connection; (2) one transaction on the storage connection, which the session model must live on, that reads each
@@ -43,8 +44,8 @@ deleted. Starting a session is in
   the scope's pending sign-ins (by owner, or by principal) and, for an identity's scope whose identity implements
   `HasChangeableIdentifiers`, its pending identifier changes (by key, every type with a registered normaliser: a change
   link needs no session, so one requested from a session that ends must end with it); (3) once committed,
-  `SessionRevoked` per revoked session, then `SignedOutEverywhere` per scope, also when it revoked none. A failure in (2)
-  leaves (1) in place: fail-safe, and a retry is idempotent.
+  `SessionRevoked` per revoked session, then `SignedOutEverywhere` per scope, also when it revoked none. A failure in
+  (2) leaves (1) in place: fail-safe, and a retry is idempotent.
 - An identity's scope is every session its `sessions()` relation returns, of every guard; a principal's is every session
   of the configured model whose principal columns record it. An identity without `HasSessions` can hold neither a
   session nor a pending sign-in (no session starts for it), so its scope, and that of a principal whose owner (read
@@ -52,9 +53,9 @@ deleted. Starting a session is in
   an identity, reads and deletes nothing and only moves the cutoff: access-only mode needs none of the package's tables
   to revoke. A principal whose owner cannot be read has its sessions looked for anyway; an unsaved principal has neither
   sessions nor pending sign-ins. A principal scope's events carry that owner as their identity.
-- `signOutEverywhere(keepCurrentSession: true)` keeps the request's session; a request without one (a session-less token)
-  is kept by leaving the identity's cutoff unmoved, so the identity's other session-less tokens survive too, until they
-  expire.
+- `signOutEverywhere(keepCurrentSession: true)` keeps the request's session; a request without one (a session-less
+  token) is kept by leaving the identity's cutoff unmoved, so the identity's other session-less tokens survive too,
+  until they expire.
 - The security-change methods (`passwordChanged()`, `passwordReset()`, `factorRemoved()`, `identityDeactivated()`,
   `principalDeactivated()`, `tenantDeactivated()`) are bulk revocations with their own reason. `tenantDeactivated()`
   checks every listed principal acts within the tenant (`getTenant()` on the writer, through
@@ -153,8 +154,8 @@ deleted. Starting a session is in
 
 - `src/Sessions/ActiveSessions.php`, `src/Sessions/SessionSummary.php`, `src/Sessions/Concerns/EndsSessions.php`
   (`sessions()`)
-- `src/Concerns/ScopesActiveSessions.php` (`scopeActive()`, composed by `ActsAsSession`), `src/Concerns/PrunesSessions.php`,
-  `src/Database/SessionRetention.php`, `src/Models/Session.php`
+- `src/Concerns/ScopesActiveSessions.php` (`scopeActive()`, composed by `ActsAsSession`),
+  `src/Concerns/PrunesSessions.php`, `src/Database/SessionRetention.php`, `src/Models/Session.php`
 - `src/Sessions/SessionRevocations.php` (the security changes), `src/Listeners/RevokeSessionsOn*.php`,
   `src/Listeners/Concerns/RevokesOnceCommitted.php`, `src/Sessions/Methods/Rehashing.php`,
   `src/Listeners/TrackCredentialAttempts.php`
@@ -166,7 +167,8 @@ deleted. Starting a session is in
 
 - `tests/Feature/Sessions/ActiveSessionsTest.php`: the session list over HTTP behind `auth:api`;
   `tests/Feature/Sessions/ScopesActiveSessionsTest.php`: the `active()` scope
-- `tests/Integration/Sessions/SessionListingIntegrationTest.php`, `tests/Integration/Sessions/ReplicaSessionListingTest.php`
+- `tests/Integration/Sessions/SessionListingIntegrationTest.php`,
+  `tests/Integration/Sessions/ReplicaSessionListingTest.php`
 - `tests/Unit/Sessions/SessionSummaryTest.php`
 - `tests/Feature/Sessions/ManagesSessionsTest.php`: logout, sign out everywhere and a session list's revoke over HTTP
 - `tests/Feature/Sessions/SessionRevocationsTest.php`: the revocations without a session service, the binding they are

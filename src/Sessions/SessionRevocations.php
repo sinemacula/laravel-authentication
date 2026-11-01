@@ -250,7 +250,7 @@ final readonly class SessionRevocations
 
     /**
      * The identity's password was changed: end its sessions
-     * (`password_changed`), except on the given session.
+     * (`password_changed`), except the given session.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
@@ -285,7 +285,7 @@ final readonly class SessionRevocations
 
     /**
      * A factor the identity signs in with was removed: end its sessions
-     * (`factor_removed`), except on the given session.
+     * (`factor_removed`), except the given session.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except

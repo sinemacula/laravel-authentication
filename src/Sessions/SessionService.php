@@ -59,8 +59,9 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * be active, and the additional-factor policy must not ask for a further
  * factor. Every sign-in creates a new session. A client that proves, with its
  * refresh token, that it holds a session of this guard for the same identity
- * and principal has that session revoked (`superseded`) in the same transaction;
- * nothing else is revoked, however alike the IP address or user agent are.
+ * and principal has that session revoked (`superseded`) in the same
+ * transaction; nothing else is revoked, however alike the IP address or user
+ * agent are.
  *
  * The session is established by `SessionEstablishment`, which writes it and
  * schedules what reports it but never binds; the service binds the guard only
@@ -274,10 +275,10 @@ final readonly class SessionService
      * give them back to the exception handler. In the same transaction it is
      * checked again (the method still allowed, the identity, principal and
      * tenant active, and the application policy admitting them with the
-     * identifier type the sign-in used) and the session is written on a new
-     * session, replacing the proven session when it is unchanged. The factor
-     * policy is not asked again. Every token that does not complete a live
-     * pending sign-in of this guard fails as `pending_invalid`.
+     * identifier type the sign-in used) and a new session is written, replacing
+     * the proven session when it is unchanged. The factor policy is not asked
+     * again. Every token that does not complete a live pending sign-in of this
+     * guard fails as `pending_invalid`.
      *
      * @param  string  $token
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult

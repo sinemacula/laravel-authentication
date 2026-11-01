@@ -3,10 +3,9 @@
 ## Purpose
 
 This note records how a session comes to act as one principal of an identity that may act as several: a sign-in that
-names none waits for the identity to choose (`choice()`, `choose()`), and a live session moves to another principal on
-the same session (`switchPrincipal()`). Starting a session is in `session-service.md`; the refresh judgement both paths
-share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old principal's tokens are in
-`fail-closed-pid-did.md`.
+names none waits for the identity to choose (`choice()`, `choose()`), and a live session moves to another principal
+(`switchPrincipal()`). Starting a session is in `session-service.md`; the refresh judgement both paths share is in
+`refresh-rotation-and-replay.md`; the bearer checks that end the old principal's tokens are in `fail-closed-pid-did.md`.
 
 ## Invariants
 

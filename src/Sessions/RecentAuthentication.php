@@ -33,15 +33,15 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * including, the second the window after it: a time in the future proves
  * nothing. A session proof is read again by its key on the write connection, so
  * the instance the caller holds cannot stand in for the stored row; it must be
- * the identity's own (its recorded owner), of the guard, not revoked, with its
- * session not ended, and signed in within the window. A password proof is
- * accepted only on a guard whose application allows the password method (one
- * that signs in only by code or passkey takes none); it is checked inside the
- * guard's credential timebox, against the identity read again through the
- * guard's identity provider on the write connection (it must still be the same
- * row), and counted first against the identity's account and the IP address
- * under the guard's `sign_in` limits, as a sign-in's password is; a correct one
- * gives its slot back. A confirmation time is trusted as given.
+ * the identity's own (its recorded owner), of the guard, not revoked, not
+ * ended, and signed in within the window. A password proof is accepted only on
+ * a guard whose application allows the password method (one that signs in only
+ * by code or passkey takes none); it is checked inside the guard's credential
+ * timebox, against the identity read again through the guard's identity
+ * provider on the write connection (it must still be the same row), and counted
+ * first against the identity's account and the IP address under the guard's
+ * `sign_in` limits, as a sign-in's password is; a correct one gives its slot
+ * back. A confirmation time is trusted as given.
  *
  * `refusal()` counts a password's attempt, so it runs before the transaction
  * that acts on the proof: inside it, the counters' rows would stay locked until

@@ -193,15 +193,14 @@ sessions:
 | `refresh_grace_seconds`        | 30      | 0 to 300     | `AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS`        |
 | `leeway_seconds`               | 30      | 0 to 300     | `AUTHENTICATION_JWT_LEEWAY_SECONDS`               |
 
-A session ends at its idle deadline unless a refresh moves that deadline forward, and at its absolute
-deadline however often it is refreshed: each refresh sets the idle deadline to the idle lifetime from now, never past
-the absolute deadline, and never moves the absolute deadline. Tokens mirror the session: a refresh token expires at the
-session's idle deadline, and an access token after the access lifetime but never after the session's idle or absolute
-deadline. With an idle lifetime shorter than the access lifetime, access tokens therefore expire at the idle deadline,
-together with the refresh token, so clients must refresh before their access token expires. A session past either
-deadline, or without one, is over everywhere: its access tokens are rejected (with no leeway), it cannot be pinned on
-sign-in, it cannot be refreshed (`session_expired`), and no token can be issued for it. Ending a session this way does
-not revoke the session.
+A session ends at its idle deadline unless a refresh moves that deadline forward, and at its absolute deadline however
+often it is refreshed: each refresh sets the idle deadline to the idle lifetime from now, never past the absolute
+deadline, and never moves the absolute deadline. Tokens mirror the session: a refresh token expires at the session's
+idle deadline, and an access token after the access lifetime but never after the session's idle or absolute deadline.
+With an idle lifetime shorter than the access lifetime, access tokens therefore expire at the idle deadline, together
+with the refresh token, so clients must refresh before their access token expires. A session past either deadline, or
+without one, is over everywhere: its access tokens are rejected (with no leeway), it cannot be pinned on sign-in, it
+cannot be refreshed (`session_expired`), and no token can be issued for it. It is ended, not revoked.
 
 A guard override that is present and not `null` wins; otherwise the package value applies. Each value must be an integer
 or a string of digits (as `env()` returns it) within its range. A value that is missing, malformed, or out of range
@@ -370,11 +369,11 @@ method it records, and a switch of principal admits its target with the identifi
 sign-in that used none, which is held to no type), so a session written outside the session service must record all
 three.
 
-Subclass the model or swap `session.model` entirely - custom models must implement the `EloquentSession` contract and live
-on the storage connection (see [Storage](#storage)). A session's identifier is always its primary key: tokens carry it in
-`did`, and the bearer path and refresh find the session by primary key, whatever the key column is called. Other column
-names come from the contract's accessors (`getRefreshKeyName()`, `getRevokedAtName()`, and so on); the shipped migration
-creates the default names, so a model that renames a column needs its own migration.
+Subclass the model or swap `session.model` entirely - custom models must implement the `EloquentSession` contract and
+live on the storage connection (see [Storage](#storage)). A session's identifier is always its primary key: tokens carry
+it in `did`, and the bearer path and refresh find the session by primary key, whatever the key column is called. Other
+column names come from the contract's accessors (`getRefreshKeyName()`, `getRevokedAtName()`, and so on); the shipped
+migration creates the default names, so a model that renames a column needs its own migration.
 
 A session with `revoked_at` set is rejected everywhere: an access token naming it fails exactly as if the session were
 missing, and its refresh token fails with `session_revoked`. Revoking a session therefore ends it at once rather
@@ -385,13 +384,13 @@ signs out, when the application revokes it or signs an identity or principal out
 client holds it replaces it (`superseded`, see [Signing in](signing-in.md#signing-in-the-session-service)), and when
 the refresh exchange detects a replay. Revoking is idempotent, so a session that is already revoked keeps its first
 revocation, and `SessionRevoked` reports each revocation the package makes. A session that has ended, past its idle or
-absolute deadline, is rejected the same way on the bearer path and as a sign-in pin, and fails refresh with `session_expired`
-(see [Token and session lifetimes](#token-and-session-lifetimes)). An access token that names a session is accepted only
-for the principal the session records (`principal_type`, `principal_id`), and only when it was issued no
-earlier than the second of the session's last principal switch (`principal_switched_at`); otherwise it fails with
-`session_principal_mismatch`. A switch therefore ends the access tokens of the principal it switched from at once, and
-switching back does not revive the ones issued before it. A session that records no principal accepts no token, and a
-session pinned on `attempt()` must record the principal being bound. Both checks read the row already loaded, with no
+absolute deadline, is rejected the same way on the bearer path and as a sign-in pin, and fails refresh with
+`session_expired` (see [Token and session lifetimes](#token-and-session-lifetimes)). An access token that names a
+session is accepted only for the principal the session records (`principal_type`, `principal_id`), and only when it was
+issued no earlier than the second of the session's last principal switch (`principal_switched_at`); otherwise it fails
+with `session_principal_mismatch`. A switch therefore ends the access tokens of the principal it switched from at once,
+and switching back does not revive the ones issued before it. A session that records no principal accepts no token, and
+a session pinned on `attempt()` must record the principal being bound. Both checks read the row already loaded, with no
 extra query. `ActsAsSession` reads any stored timestamp as a value, with or without a `datetime` cast on the column, and
 throws a `LogicException` when the session was loaded without one of its refresh or revocation state columns (both
 digests, the rotation time, the session's start, the principal switch time, both deadlines, and the revocation time) or

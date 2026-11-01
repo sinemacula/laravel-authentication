@@ -19,10 +19,10 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * The sessions a bulk revocation ends: an identity's, or a principal's, with
- * the sessions that hold them, the pending sign-ins that could still start one,
- * the "tokens valid after" cutoff that ends its access tokens issued without a
- * session, and, for an identity whose identifiers can be changed, its pending
- * identifier changes, which end with them.
+ * the pending sign-ins that could still start one, the "tokens valid after"
+ * cutoff that ends its access tokens issued without a session, and, for an
+ * identity whose identifiers can be changed, its pending identifier changes,
+ * which end with them.
  *
  * An identity's sessions are those its `sessions()` relation returns, of every
  * guard; a principal's are the configured session model's sessions that record
@@ -111,9 +111,9 @@ final readonly class RevocationScope
      * read on the write connection, with the tenant whose deactivation ends
      * them when that is why, and the principal's owning identity, read afresh
      * on the write connection (a 2D principal is its own). When that identity
-     * does not implement `HasSessions`, no session acting as the principal can
-     * hold a session or a pending sign-in, so none is looked for; when the
-     * owner cannot be read, they are.
+     * does not implement `HasSessions`, the principal can have no session or
+     * pending sign-in, so none is looked for; when the owner cannot be read,
+     * they are.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant

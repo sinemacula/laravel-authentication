@@ -120,8 +120,8 @@ final readonly class SessionEstablishment
      * session changed before it could be replaced, the sign-in is reconsidered
      * without it, factor policy included; it never retries the session. A
      * session that completes a spent pending sign-in (a choice of principal)
-     * gives back the slots that sign-in took once committed, and its session
-     * records the client the sign-in began from.
+     * gives back the slots that sign-in took once committed, and records the
+     * client the sign-in began from.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $proven

@@ -151,13 +151,13 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   sign-in's slots, reported by `PrincipalChoiceRequired`. `pending()` and `complete()` never take a choice token. See
   `principal-choice-and-switch.md`.
 - Inside a caller's transaction the service's transaction is a savepoint: the guard is bound at once, the lifecycle
-  events wait for the caller's commit, and a rollback withdraws them with the session while the guard stays bound. Do not
-  roll back around a sign-in.
-- A listener that throws on a bind event propagates after the session committed: the session exists and the pair is lost,
-  but `SessionCreated` and `SignedIn` were already dispatched (or, inside a caller's transaction, wait for its commit)
-  and a completion's slots are given back. A listener that throws on `SessionCreated` or `SignedIn` with no transaction
-  open propagates before the bind: the session stands, the guard is not bound, and `SignedIn` is not dispatched after a
-  throwing `SessionCreated`.
+  events wait for the caller's commit, and a rollback withdraws them with the session while the guard stays bound. Do
+  not roll back around a sign-in.
+- A listener that throws on a bind event propagates after the session committed: the session exists and the pair is
+  lost, but `SessionCreated` and `SignedIn` were already dispatched (or, inside a caller's transaction, wait for its
+  commit) and a completion's slots are given back. A listener that throws on `SessionCreated` or `SignedIn` with no
+  transaction open propagates before the bind: the session stands, the guard is not bound, and `SignedIn` is not
+  dispatched after a throwing `SessionCreated`.
 - A session replaced by a sign-in is revoked: its access tokens stop at once and its refresh tokens are refused as
   `session_revoked`, so they cannot touch the new session (see `refresh-rotation-and-replay.md`). A listener on its
   `SessionRevoked` that throws stops `SessionCreated` and `SignedIn` and reaches the caller, while both rows stand.
@@ -182,7 +182,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - `src/Sessions/SignInRequest.php` (`reserveAccountAttempt()`) and `src/RateLimiting/AccountAttempts.php`: the slots a
   sign-in's method takes on the accounts it checks, held with the sign-in's own.
 - `src/Sessions/SessionWriter.php`: `create()`, `replace()` and the compare-and-swap.
-- `src/Sessions/ProvenSessions.php`, `src/Jwt/JwtTokenService.php` (`parseRefreshProof()`), `src/SessionRecords/SessionLookup.php`.
+- `src/Sessions/ProvenSessions.php`, `src/Jwt/JwtTokenService.php` (`parseRefreshProof()`),
+  `src/SessionRecords/SessionLookup.php`.
 - `src/Sessions/PendingSignIns.php` and `src/Models/PendingSignIn.php`: issuing, finding and consuming pending sign-ins.
 - `src/Sessions/SessionPreconditions.php`: the `HasSessions` refusal, and `start()`'s one-principal rule and
   reloaded-identity check.

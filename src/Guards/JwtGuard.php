@@ -105,7 +105,7 @@ final class JwtGuard extends AbstractGuard
      * as the session service's `signOut()` does: the session the guard is bound
      * to is revoked (`signed_out`) and `SessionRevoked` reported once
      * committed, Laravel's `Logout` fires when an identity was bound, and the
-     * guard stays signed out for the rest of the request. A session without a
+     * guard stays signed out for the rest of the request. A request without a
      * persisted session is only forgotten.
      *
      * @return void

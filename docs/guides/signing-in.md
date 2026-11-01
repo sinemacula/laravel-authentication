@@ -20,7 +20,7 @@ Auth::user();           // Identity|null - same as Laravel
 
 Auth::identity();       // Identity|null   - the authenticated subject
 Auth::principal();      // Principal|null  - the acting principal
-Auth::session();         // Session|null     - the issuing session
+Auth::session();        // Session|null    - the bound session
 Auth::tenant();         // Tenant|null     - the tenant the principal acts within
 Auth::scopes();         // list<string>|null - the credential's scope ceiling (null: no credential limits the request)
 ```
@@ -34,8 +34,8 @@ that only happens for one bound through `login()`, `setUser()` or `setPrincipal(
 
 `setUser()`, which Laravel's `actingAs()` uses, replaces the whole context: it binds the identity with its default
 principal (and no session), and throws an `InvalidArgumentException` when the identity has none. Use the guard's
-`login($identity, $principal, $session)` to bind a specific principal or a session. `actingAs()` binds the guard for code
-that runs in the test itself only: a request the test sends through the HTTP kernel, such as
+`login($identity, $principal, $session)` to bind a specific principal or a session. `actingAs()` binds the guard for
+code that runs in the test itself only: a request the test sends through the HTTP kernel, such as
 `$this->actingAs($user, 'api')->getJson('/me')`, rebinds the guard to its own request and starts the context over. In
 tests, act through `InteractsWithAuthenticationContext` instead (see [Testing](testing.md)), whose context survives
 those requests.
@@ -68,12 +68,12 @@ The pins are verified rather than trusted, because they often come from request 
 resolver returns for that identifier on the authenticated identity (same class, same identifier) and must belong to that
 identity (its `getIdentity()` is the authenticated identity), and the session must be one of the identity's own sessions
 (through `HasSessions`, looked up the way a bearer `did` is), of this guard (a session of another guard, or of none,
-counts as missing), not revoked, with a session that has not ended, and acting as the principal being bound. A pin that
-fails either check fails the attempt. `login()` is the trusted entry point: it binds exactly what it is given, so only
-pass it a principal and session you have already proven belong to the identity. `setPrincipal()` and `setSession()` are
-trusted binds in the same way: they do not check ownership, activity, revocation or session deadlines, so a principal or
-session taken from request input (a header that switches the acting membership, say) must be verified first, as
-`attempt()` verifies its pins.
+counts as missing), not revoked, not ended, and acting as the principal being bound. A pin that fails either check fails
+the attempt. `login()` is the trusted entry point: it binds exactly what it is given, so only pass it a principal and
+session you have already proven belong to the identity. `setPrincipal()` and `setSession()` are trusted binds in the
+same way: they do not check ownership, activity, revocation or session deadlines, so a principal or session taken from
+request input (a header that switches the acting membership, say) must be verified first, as `attempt()` verifies its
+pins.
 
 Pinning a principal therefore needs a principal that can report its owner. With `ActsAsPrincipal`, declare the
 `identity` relation, as `AppMembership` does above (or override `getIdentityRelationName()`). The owner is read again
@@ -175,20 +175,20 @@ fails the call, so the pair is lost, but cannot keep the session from being repo
 has already been dispatched, and inside one it follows your commit (a rollback discards the session with it). Keep those
 listeners from throwing or queue them.
 
-Every sign-in starts a new session, with a new id and a new rotation id. A client that signs in again
-with its current refresh token in the context proves it holds its previous session, even when that has expired, and the
-sign-in then revokes the previous session as `superseded` in the same transaction that creates the new one. Passing the
-refresh token is how an application opts in: without it nothing is revoked, however alike the IP address, user agent,
-client name or platform are, and the previous session lives on until it expires or is revoked. The token counts only
-when it is the session's current refresh token, validly signed for this guard, for a session the identity owns, of this
-guard, for the same principal, and not revoked; anything else proves nothing and revokes nothing. The previous session's
-access tokens stop working at once and its refresh token is refused as `session_revoked`; the new session keeps the
-client name and platform the previous one recorded when the sign-in gives none. Once committed, `SessionRevoked`
-(`superseded`) is dispatched for the previous session before the new session's `SessionCreated` and `SignedIn`. If the
-session changes before it can be revoked (a parallel refresh, say), the sign-in is reconsidered without it and revokes
-nothing: it starts on a new session, or hands out a pending sign-in when the additional-factor policy now asks for a
-further factor without the session's trust. The additional-factor policy is told of the session the client proved; the
-new session has a new id, so nothing a factor package kept about the previous session carries over to it.
+Every sign-in starts a new session, with a new id and a new rotation id. A client that signs in again with its current
+refresh token in the context proves it holds its previous session, even when that has expired, and the sign-in then
+revokes the previous session as `superseded` in the same transaction that creates the new one. Passing the refresh token
+is how an application opts in: without it nothing is revoked, however alike the IP address, user agent, client name or
+platform are, and the previous session lives on until it expires or is revoked. The token counts only when it is the
+session's current refresh token, validly signed for this guard, for a session the identity owns, of this guard, for the
+same principal, and not revoked; anything else proves nothing and revokes nothing. The previous session's access tokens
+stop working at once and its refresh token is refused as `session_revoked`; the new session keeps the client name and
+platform the previous one recorded when the sign-in gives none. Once committed, `SessionRevoked` (`superseded`) is
+dispatched for the previous session before the new session's `SessionCreated` and `SignedIn`. If the session changes
+before it can be revoked (a parallel refresh, say), the sign-in is reconsidered without it and revokes nothing: it
+starts on a new session, or hands out a pending sign-in when the additional-factor policy now asks for a further factor
+without the session's trust. The additional-factor policy is told of the session the client proved; the new session has
+a new id, so nothing a factor package kept about the previous session carries over to it.
 
 `attempt()` and `login()` remain for code that binds the guard itself; neither creates a session. A session is a stored
 row, so the session service signs in only identities that implement `HasSessions`: for any other identity `signIn()`,

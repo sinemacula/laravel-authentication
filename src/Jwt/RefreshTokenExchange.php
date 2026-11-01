@@ -369,9 +369,9 @@ final readonly class RefreshTokenExchange
     /**
      * Hydrate identity + principal from a verified session row, and hold them
      * to the application policy (see `RefreshAdmission`); the principal must be
-     * the one the session records (`session_principal_mismatch`). Returns the
-     * admitted session (the identity, the principal, the tenant its activity
-     * check loaded, and the session), or the failure with as much of it as was
+     * the one the session records (`session_principal_mismatch`). Returns what
+     * was admitted (the identity, the principal, the tenant its activity check
+     * loaded, and the session), or the failure with as much of it as was
      * resolved.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $record

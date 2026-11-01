@@ -28,11 +28,12 @@ outdates, and why the change stands when the notice to the old identifier fails.
   comparison of a secret or digest uses `hash_equals`. One `now` per operation; a deadline has passed from the second it
   names.
 - A request proves a recent authentication (`Sessions\Reauthentication`) within
-  `identifier_changes.recent_authentication_seconds`: a session of the identity's, of this guard, live, read again by key,
-  signed in within the window (a refresh or a switch does not move `signed_in_at`; a sign-in does); the current password,
-  on a guard whose application allows the `password` method only, checked in the guard's credential timebox against the
-  identity read again through the guard's provider, counted under `sign_in` against the account and the IP address and
-  given back when correct; or a trusted confirmation time, not in the future.
+  `identifier_changes.recent_authentication_seconds`: a session of the identity's, of this guard, live, read again by
+  key, signed in within the window (`signed_in_at` is the session's start: a refresh or a switch does not move it, and a
+  sign-in starts a new session); the current password, on a guard whose application allows the `password` method only,
+  checked in the guard's credential timebox against the identity read again through the guard's provider, counted under
+  `sign_in` against the account and the IP address and given back when correct; or a trusted confirmation time, not in
+  the future.
 - A request checks the proof, the new identifier and the limits first, on the identity's row read again by key on the
   write connection; the limiter never counts inside the transaction that follows, where a counter's row would stay
   locked until the commit and MySQL deadlocks two transactions that each create a counter in one gap of the index. Then,

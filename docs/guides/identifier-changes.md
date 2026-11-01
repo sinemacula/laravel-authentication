@@ -57,9 +57,9 @@ recently: within `identifier_changes.recent_authentication_seconds` (900 by defa
 never from the future.
 
 - `Reauthentication::session($session)`: the session the change is made from. Read again on the write connection, it
-  must be one of the identity's own live sessions of the guard (not revoked, deadlines not passed), signed in within
-  the window. A refresh or a principal switch does not renew it. A fresh sign-in starts a new session,
-  signed in now, and a session it replaced is revoked, so it no longer proves anything.
+  must be one of the identity's own live sessions of the guard (not revoked, deadlines not passed), signed in within the
+  window. A refresh or a principal switch does not renew it. A fresh sign-in starts a new session, signed in now, and a
+  session it replaced is revoked, so it no longer proves anything.
 - `Reauthentication::password($password)`: the identity's current password, checked in the guard's credential timebox
   against the identity read again through the guard's provider. It counts against the identity's account and the IP
   address under the `sign_in` limits, and a correct one is given back. A guard whose application does not allow the
@@ -69,9 +69,9 @@ never from the future.
 
 An identity that signs in only with codes or passkeys reauthenticates by signing in again and making the change from the
 new session. A token with no session (in [access-only mode](installation.md#access-only-mode-no-sessions-no-refresh), or
-any access token without a `did`) has no session to offer, so `Auth::session()` is `null` there and the request must ask
-for another proof. The first route below takes the password whenever one is sent, so a session signed in longer ago than
-the window can confirm it instead of signing in again, and the session's recent sign-in otherwise.
+any access token without a `did`) has none to offer, so `Auth::session()` is `null` there and the request must ask for
+another proof. The first route below takes the password whenever one is sent, so a session signed in longer ago than the
+window can confirm it instead of signing in again, and the session's recent sign-in otherwise.
 
 **Requesting.** `requestByCode()` sends a code to the new identifier, delivered after commit by a queued job through
 your `OneTimeCodeSender` with the purpose `change_identifier` (the message's `identifier` is the new one);
@@ -96,11 +96,11 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeRe
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 
 Route::middleware('auth:api')->post('/email/change', function (Request $request) {
-    $input  = $request->validate(['email' => ['required', 'email'], 'password' => ['nullable', 'string']]);
+    $input   = $request->validate(['email' => ['required', 'email'], 'password' => ['nullable', 'string']]);
     $session = Auth::session();
-    $proof  = match (true) {
+    $proof   = match (true) {
         isset($input['password']) => Reauthentication::password($input['password']),
-        $session !== null          => Reauthentication::session($session),
+        $session !== null         => Reauthentication::session($session),
         default                   => null,
     };
 

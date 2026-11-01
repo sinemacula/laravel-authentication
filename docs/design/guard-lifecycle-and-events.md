@@ -141,14 +141,14 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   steps of `Sessions\CredentialAttempt`, which the session service's `signIn()` takes too, in its own order; what runs
   in the timebox, `Validated`, the pins, the rehash and the factor refusal are `attempt()`'s own (see
   `session-service.md`). `validate()` checks the credentials only, and still fires `Validated` when it accepts them.
-- A principal or session pinned on `attempt()` is verified, not trusted: the principal goes through the resolver's hinted
-  path and must come back as the same class with the same identifier (the bearer `pid` exact-match check) and be owned
-  by the authenticated identity (its `getIdentity()` is that identity), and the session must be found among the
-  identity's own `HasSessions` sessions, of the same class, of this guard (a session of another guard, or of none, counts
-  as missing), not revoked, with a session that has not ended, and acting as the principal being bound. The owner
-  is read from the principal's stored key, ignoring an identity relation the resolver set and even when lazy loading is
-  prevented, and an owner that cannot be read fails the check. The resolved instances are bound; a failed check fails
-  the attempt. `login()`, `setPrincipal()`, and `setSession()` stay trusted binds.
+- A principal or session pinned on `attempt()` is verified, not trusted: the principal goes through the resolver's
+  hinted path and must come back as the same class with the same identifier (the bearer `pid` exact-match check) and be
+  owned by the authenticated identity (its `getIdentity()` is that identity), and the session must be found among the
+  identity's own `HasSessions` sessions, of the same class, of this guard (a session of another guard, or of none,
+  counts as missing), not revoked, not ended, and acting as the principal being bound. The owner is read from the
+  principal's stored key, ignoring an identity relation the resolver set and even when lazy loading is prevented, and an
+  owner that cannot be read fails the check. The resolved instances are bound; a failed check fails the attempt.
+  `login()`, `setPrincipal()`, and `setSession()` stay trusted binds.
 - A successful credential check can still end in `Failed` if principal resolution later returns `null` or resolves a
   principal that is inactive or acts within an inactive tenant. That is why `Validated` is not the same thing as
   "fully bound".
@@ -172,10 +172,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   rolled-back revocation is never reported. When that connection has no open transaction the revocation is committed at
   once, and the order is `SessionRevoked`, `Failed`, `AuthenticationFailed`, even if a transaction is open on another
   connection, whose rollback does not withdraw it. Inside a transaction on the session's connection, `Failed` and
-  `AuthenticationFailed` come first and `SessionRevoked` follows when that transaction commits. The transaction Laravel's
-  testing traits wrap around each test is not counted, as it never commits. `SessionRevoked` reports only the revocations
-  the package makes (replay detection, sign-out, and the session service's revocations, see `session-lifecycle.md`): a
-  session an application revokes by writing `revoked_at` itself fires no event.
+  `AuthenticationFailed` come first and `SessionRevoked` follows when that transaction commits. The transaction
+  Laravel's testing traits wrap around each test is not counted, as it never commits. `SessionRevoked` reports only the
+  revocations the package makes (replay detection, sign-out, and the session service's revocations, see
+  `session-lifecycle.md`): a session an application revokes by writing `revoked_at` itself fires no event.
 - A rate-limited refresh emits `Attempting`, `Failed` and `AuthenticationFailed` (`rate_limited`, with `retryAfter`),
   and is returned as `rate_limited` with the same `retryAfter`, never thrown; the route answers it with a 429.
 - Verifying an identifier (`IdentifierVerifier::verify()`, behind `VerificationLinks::consume()`) never binds a guard or
@@ -185,11 +185,11 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   once, on the `identifier_verification` flow, and nothing else.
 - A grace retry (the previous rotation id, inside the grace window) is a successful refresh: it emits the same events
   as one that rotates, `Refreshed` included.
-- `SessionAuthenticated` is coupled to the shipped `RecordSessionUsage` listener, which records the time, IP address, and
-  user agent of the use, at most once per `authentication.session.last_used_throttle_seconds`. Only persisted
-  `EloquentSession` instances participate in that write path. It records the client the event carries, the request
-  being served when the session was bound, so a long-running worker records the request it is serving, and the client
-  values are cleaned by `ClientContext` before they are stored.
+- `SessionAuthenticated` is coupled to the shipped `RecordSessionUsage` listener, which records the time, IP address,
+  and user agent of the use, at most once per `authentication.session.last_used_throttle_seconds`. Only persisted
+  `EloquentSession` instances participate in that write path. It records the client the event carries, the request being
+  served when the session was bound, so a long-running worker records the request it is serving, and the client values
+  are cleaned by `ClientContext` before they are stored.
 
 ## Implementation Anchors
 

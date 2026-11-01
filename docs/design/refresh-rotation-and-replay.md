@@ -56,8 +56,8 @@ other rotated token as a replay that revokes the session.
   connection.
 - Refresh applies the same opt-in activation checks as sign-in and bearer requests: the reloaded owner, the resolved
   principal, and the tenant it acts within must each be active when they implement `CanBeActive`.
-- A session belongs to one guard (its `guard` column, stamped by the session service). Refresh honours a token only for a
-  session of the guard exchanging it, checked right after the lookup and before anything else is judged, so a token of
+- A session belongs to one guard (its `guard` column, stamped by the session service). Refresh honours a token only for
+  a session of the guard exchanging it, checked right after the lookup and before anything else is judged, so a token of
   one guard can never revoke, rotate, or even classify another guard's session; the bearer path and sign-in pins treat
   such a session as missing. A session that records no guard belongs to none.
 - Refresh holds every session to the guard's current application policy (`ApplicationPolicy`, resolved from the
@@ -73,9 +73,9 @@ other rotated token as a replay that revokes the session.
   token.
 - A refresh is accepted only for the principal its session records (`PrincipalReference::isRecordedOn()`), on the
   current, the grace and the lost-rotation paths alike: after a switch of principal, the refresh token of the principal
-  switched from fails with `session_principal_mismatch` and is not a replay, so the session is left alone, while the same
-  token after the grace window is judged a replay as any rotated token is. The switch itself runs the same judgement
-  (`RefreshJudgment::classify()`) with its own retry rule; see `principal-choice-and-switch.md`.
+  switched from fails with `session_principal_mismatch` and is not a replay, so the session is left alone, while the
+  same token after the grace window is judged a replay as any rotated token is. The switch itself runs the same
+  judgement (`RefreshJudgment::classify()`) with its own retry rule; see `principal-choice-and-switch.md`.
 - The package opens no transaction around a refresh.
 
 ## Success Path
@@ -138,11 +138,11 @@ other rotated token as a replay that revokes the session.
   token for it cannot be classified as a replay, and the session is not revoked.
 - A replay (an older id, the previous id after the window or with a grace window of 0, the previous id when the current
   digest is not its successor, or any id the session never held) revokes the session with reason `rotation_reuse` and
-  dispatches `SessionRevoked`, the refresh's `Failed`, and `AuthenticationFailed` (`rotation_reuse`). With no transaction
-  open on the session's connection they come in that order; inside one, `Failed` and `AuthenticationFailed` come first
-  and `SessionRevoked` follows the commit (the transaction Laravel's testing traits wrap around each test is not counted,
-  as it never commits). Nothing is hydrated. Every token of the session then fails: access tokens on the bearer path,
-  refresh tokens with `session_revoked`.
+  dispatches `SessionRevoked`, the refresh's `Failed`, and `AuthenticationFailed` (`rotation_reuse`). With no
+  transaction open on the session's connection they come in that order; inside one, `Failed` and `AuthenticationFailed`
+  come first and `SessionRevoked` follows the commit (the transaction Laravel's testing traits wrap around each test is
+  not counted, as it never commits). Nothing is hydrated. Every token of the session then fails: access tokens on the
+  bearer path, refresh tokens with `session_revoked`.
 - "Any id the session never held" covers every validly signed token for the row with an id it never held. A session is
   given a refresh credential outside a rotation only by the session service, when it creates the session: every sign-in
   creates one (D15), and a session is never given a second credential. A client that proved it holds its previous
@@ -163,8 +163,8 @@ other rotated token as a replay that revokes the session.
     the exchange returns the current credential as above, after confirming the fresh row still belongs to the hydrated
     identity (`identity_unknown` otherwise);
   - a replay (for example with a grace window of 0): the session is revoked, `rotation_reuse`;
-  - revoked, deleted, ended, or credential cleared meanwhile: `session_revoked`, `session_unknown`, `session_expired`, or
-    `refresh_key_missing`;
+  - revoked, deleted, ended, or credential cleared meanwhile: `session_revoked`, `session_unknown`, `session_expired`,
+    or `refresh_key_missing`;
   - the presented id is still current, so other security state changed (a deadline moved): `rotation_conflict`, with
     no revocation and no second swap. That proves nothing about theft, so the session is not revoked, and a client retry
     is judged against the new state.
@@ -185,8 +185,8 @@ other rotated token as a replay that revokes the session.
   before it binds the new context (`Validated`, `Login` and the bind events), so a listener that throws on a bind event
   cannot withhold `Refreshed`. With no transaction open there they are dispatched at once, before the bind events;
   inside a caller's transaction the bind events come first, and they follow the commit or are dropped on a rollback.
-  Such an exception (on `Validated`, `Login`, `Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`, including the
-  package's own last-use write, or on `Refreshed` or `SignedIn`) still propagates after the presented token has been
+  Such an exception (on `Validated`, `Login`, `Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`, including
+  the package's own last-use write, or on `Refreshed` or `SignedIn`) still propagates after the presented token has been
   rotated and the new pair is lost. A retry with the presented token inside the grace window gets the current
   credential; after the window it is a replay and revokes the session. Listeners on these events should not throw, or
   should be queued.
@@ -208,8 +208,8 @@ other rotated token as a replay that revokes the session.
   before anything is written), and a rotation stored there leaves no grace window (at most 300 seconds, less than any
   shift), so a retry of the previous token is a replay and revokes the session. Storing UTC whatever the application
   timezone would remove the ambiguity, but the application's own queries against these columns (Laravel binds a date in
-  its own timezone) and any custom session model that keeps Laravel's `datetime` cast would then disagree with the stored
-  values whenever the timezone's offset is not zero.
+  its own timezone) and any custom session model that keeps Laravel's `datetime` cast would then disagree with the
+  stored values whenever the timezone's offset is not zero.
 - Refresh does not rely on Eloquent observers. The swap and the revocation are query-builder updates that deliberately
   bypass them; consumers should hang side effects off `AuthenticationFailed`, `Refreshed`, and `SessionRevoked` instead.
 

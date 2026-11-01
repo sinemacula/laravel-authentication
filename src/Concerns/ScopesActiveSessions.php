@@ -10,8 +10,8 @@ use SineMacula\Laravel\Authentication\Sessions\ActiveSessions;
 
 /**
  * The `ActsAsSession` query scope `active()`: sessions that are live, neither
- * revoked nor past its idle or absolute deadline, by the same rule the session
- * list applies, so `Session::query()->active()` and
+ * revoked nor past their idle or absolute deadline, by the same rule the
+ * session list applies, so `Session::query()->active()` and
  * `Auth::sessions()->sessions()` agree.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -27,7 +27,7 @@ trait ScopesActiveSessions
 {
     /**
      * Keep the query to sessions that are live now: not revoked, and before
-     * both its idle and its absolute deadline.
+     * both their idle and absolute deadlines.
      *
      * @param  \Illuminate\Database\Eloquent\Builder<static>  $query
      * @return void

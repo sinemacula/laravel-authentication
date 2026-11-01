@@ -251,8 +251,9 @@ with the time of the rotation. A validly signed refresh token for a live session
   lost the response, or a second tab that refreshed at the same moment, keeps its session, and retries never extend the
   window;
 - any other id: the token was rotated before, so it has been replayed, perhaps stolen. The session is revoked at once
-  (`revoked_at` and `revoked_reason = rotation_reuse`, both digests cleared), `SessionRevoked` and `AuthenticationFailed`
-  (`rotation_reuse`) are dispatched, and every token of the session stops working, access tokens included.
+  (`revoked_at` and `revoked_reason = rotation_reuse`, both digests cleared), `SessionRevoked` and
+  `AuthenticationFailed` (`rotation_reuse`) are dispatched, and every token of the session stops working, access tokens
+  included.
 
 Only the immediately previous id is honoured: after two quick refreshes, a delayed retry of the first token is a
 replay. With `refresh_grace_seconds` set to 0 the previous id is a replay too. A session that holds no refresh

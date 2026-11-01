@@ -88,10 +88,10 @@ normalisers meet that policy, since a sign-in passes through all three.
 - `complete()` and `choose()`: the pending row is consumed first, then `allowsMethod()` for the stored method, and
   `admitIdentifier()` and `admit()` with the stored identifier type, rechecked when the pending sign-in is used, so a
   policy change while a factor is verified or a principal chosen still applies.
-- Refresh: right after the session lookup, the session must record this guard (`session_guard_mismatch`); after the owner
-  and principal are reloaded, the recorded method must still be allowed (`method_not_allowed`, also when the session
-  records none) and `admit()` must pass with no identifier type (`principal_ineligible`, whatever reason the policy
-  gives); a rotation's idle deadline comes from `lifetimes($guard)`.
+- Refresh: right after the session lookup, the session must record this guard (`session_guard_mismatch`); after the
+  owner and principal are reloaded, the recorded method must still be allowed (`method_not_allowed`, also when the
+  session records none) and `admit()` must pass with no identifier type (`principal_ineligible`, whatever reason the
+  policy gives); a rotation's idle deadline comes from `lifetimes($guard)`.
 - Bearer requests and `attempt()`'s session pin treat a session of another guard, or of none, as missing.
 
 ## Failure / Edge Cases
@@ -99,12 +99,12 @@ normalisers meet that policy, since a sign-in passes through all three.
 - Attempt limits: a sign-in reserves a slot on its identifier's and its IP address's counters before the method runs
   (`rate_limited` with the wait, the method never asked); a success gives its own slots back, a pending sign-in only
   when it completes, and failures keep theirs until the window ends. A refresh counts only its failures, against the
-  session and the IP address, and is refused as `rate_limited`, with the wait, once either is full. Counters are kept per
-  guard, flow and scope as HMAC-SHA256 digests keyed from `app.key` (an enumerable IP address or identifier cannot be
-  recovered from the table alone), on `rate_limits.connection`. They are written outside the session's own transaction,
-  but a caller transaction on the same connection holds them: with the default (`null`, the storage connection) a
-  sign-in its caller rolls back takes its counts with it and is not counted. Counters on a connection of their own still
-  count it.
+  session and the IP address, and is refused as `rate_limited`, with the wait, once either is full. Counters are kept
+  per guard, flow and scope as HMAC-SHA256 digests keyed from `app.key` (an enumerable IP address or identifier cannot
+  be recovered from the table alone), on `rate_limits.connection`. They are written outside the session's own
+  transaction, but a caller transaction on the same connection holds them: with the default (`null`, the storage
+  connection) a sign-in its caller rolls back takes its counts with it and is not counted. Counters on a connection of
+  their own still count it.
 - An identifier is counted in its canonical form: through the normaliser registered for the method's identifier type
   when there is one (the form `ModelProvider` looks it up in), otherwise trimmed and lower-cased. Every casing of an
   address therefore shares one counter, and a lookup by a designated identifier normalises the credential before it
@@ -126,12 +126,11 @@ normalisers meet that policy, since a sign-in passes through all three.
   integer nor a query closure before any lookup, and an IPv6 client is counted per /64 network, except that an address
   carrying an IPv4 client's address (IPv4-mapped, or the NAT64 well-known prefix `64:ff9b::/96`) is counted as that IPv4
   address.
-- A custom `ApplicationPolicy` decides the session's deadlines (the session's on sign-in, the idle deadline on each
-  rotation) through `lifetimes($guard)`; the access token's expiry is still computed by the guard's token service from
-  the guard's `jwt` lifetimes, and is capped at the session's end, and the refresh grace window and its leeway are
-  always the guard's token service's, whatever lifetimes the policy returns. A policy that returns lifetimes the
-  guard's configuration does not describe therefore shortens or lengthens sessions, not access tokens or the grace
-  window.
+- A custom `ApplicationPolicy` decides the session's deadlines (both on sign-in, the idle deadline on each rotation)
+  through `lifetimes($guard)`; the access token's expiry is still computed by the guard's token service from the guard's
+  `jwt` lifetimes, and is capped at the session's end, and the refresh grace window and its leeway are always the
+  guard's token service's, whatever lifetimes the policy returns. A policy that returns lifetimes the guard's
+  configuration does not describe therefore shortens or lengthens sessions, not access tokens or the grace window.
 - The policy is resolved from the container on every call, on every path, so a binding an application makes at any
   time is the one used.
 - A switch of principal asks `admitIdentifier()` and `admit()` with the identifier type its session's sign-in used

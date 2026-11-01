@@ -52,11 +52,11 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * an issue time after the identity's and the principal's "tokens valid after"
  * time (`issued_before_cutoff`); and, for a token that names a session, that
  * session among the identity's own (`session_unknown`), of this guard
- * (`session_guard_mismatch`), not revoked (`session_revoked`), with a session
- * that has not ended (`session_expired`), and acting as the token's principal
- * with no principal switch after the token was issued
- * (`session_principal_mismatch`). Fail closed: a token that names a principal
- * or session that does not resolve exactly is rejected rather than downgraded.
+ * (`session_guard_mismatch`), not revoked (`session_revoked`), not ended
+ * (`session_expired`), and acting as the token's principal with no principal
+ * switch after the token was issued (`session_principal_mismatch`). Fail
+ * closed: a token that names a principal or session that does not resolve
+ * exactly is rejected rather than downgraded.
  *
  * Built for one request with the guard's current collaborators, so it keeps
  * nothing between requests.

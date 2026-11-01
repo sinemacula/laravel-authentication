@@ -153,19 +153,19 @@ interface Session
     public function getGuard(): ?string;
 
     /**
-     * Return the name of the sign-in method that started the session (or last
-     * restarted it on the same client), or `null` when none was recorded.
+     * Return the name of the sign-in method that started the session, or `null`
+     * when none was recorded.
      *
      * @return ?string
      */
     public function getSignInMethod(): ?string;
 
     /**
-     * Return the type of identifier the sign-in that started the session's
-     * session (or last restarted it on the same client) used, such as `email`,
-     * or `null` when it used none or none was recorded. A switch of principal
-     * admits its target with it, as that sign-in admitted its principal, so a
-     * value that cannot be read throws rather than reading as `null`.
+     * Return the type of identifier the sign-in that started the session used,
+     * such as `email`, or `null` when it used none or none was recorded. A
+     * switch of principal admits its target with it, as that sign-in admitted
+     * its principal, so a value that cannot be read throws rather than reading
+     * as `null`.
      *
      * @return ?string
      *

@@ -60,8 +60,8 @@ The current note set is:
 - `provider-composition.md`: why every binding the provider makes is a default another provider's binding is never
   replaced by, in either order, and why the package owns the `auth` binding and what it takes over from the manager it
   replaces.
-- `testing-helpers.md`: how a test acts as an identity, principal or session on a package guard, how that
-  survives the requests it sends and ends on a sign-out, what the bound-context assertions compare, and the fakes.
+- `testing-helpers.md`: how a test acts as an identity, principal or session on a package guard, how that survives the
+  requests it sends and ends on a sign-out, what the bound-context assertions compare, and the fakes.
 
 These documents are secondary to the code and tests, not a replacement for them. If a note and a cited test disagree,
 the test should be treated as authoritative until the mismatch is resolved.

@@ -14,9 +14,9 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
  *
  * - `session($session)`: the session it is making the change from, which must
  *   be one of the identity's own live sessions of the guard, signed in within
- *   the window (a refresh or a principal switch does not renew it; a fresh
- *   sign-in
- *   does, so an identity with no password reauthenticates that way);
+ *   the window (a refresh or a principal switch does not renew it; an identity
+ *   with no password signs in again and proves the change with the new
+ *   session);
  * - `password($password)`: the identity's current password, checked when the
  *   change is requested and counted against its sign-in limits;
  * - `confirmedAt($at)`: when a further factor, or any other proof the

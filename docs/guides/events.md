@@ -74,9 +74,10 @@ session's identifier (`sessionId`, which keeps the session id a token named even
 about a session row itself (every `SessionRevoked`, and a refresh or switch refused on the row's own state before its
 owner was read, such as a revoked or ended session or a replay) names the owner and principal the row records in
 `identityMorphClass`, `identityId`, `principalMorphClass` and `principalId` when the flow did not load them; a session
-records no tenant, so a revocation's `tenantId` is known only when the tenant's deactivation or the request's own
-session is why. Other events name only what they hold, even when they carry a session: an identity's
-`SignedOutEverywhere`, `PrincipalChoiceRequired` and a switch refused for its target have no principal.
+records no tenant, so a revocation's `tenantId` is known only when the tenant's deactivation, the request's own session
+or a sign-in that replaced the session (the tenant it admitted) is why. Other events name only what they hold, even when
+they carry a session: an identity's `SignedOutEverywhere`, `PrincipalChoiceRequired` and a switch refused for its target
+have no principal.
 
 Everything but the four models is the snapshot, fixed when the event is built: record it, not the models. `toArray()`
 gives it as scalars, with `occurred_at` as an ISO 8601 UTC string to the microsecond, ready to store or to queue on its
@@ -121,15 +122,15 @@ and identifier change request or confirmation, after Laravel's `Failed` where th
 `code_request`, `identifier_verification`, `password_reset`, `identifier_change`; see [Failure
 outcomes](#failure-outcomes) for what each answers), a `FailureReason`, the identifier a sign-in's input named (as
 given), and the wait for `rate_limited` and `account_rate_limited`. Its context carries the identity only once a sign-in
-method verified it, a refresh reloaded the session's owner or a token's subject was found (a wrong password or an unknown
-identifier carries none), the principal and tenant once resolved, and the session once found, else the `did` a token
-named. A bearer token is checked in this order, so its reason is the first that applies: `token_invalid`, for a client
-credentials token `credential_invalid`, `credential_revoked` and `credential_expired`, then `identity_unknown`,
+method verified it, a refresh reloaded the session's owner or a token's subject was found (a wrong password or an
+unknown identifier carries none), the principal and tenant once resolved, and the session once found, else the `did` a
+token named. A bearer token is checked in this order, so its reason is the first that applies: `token_invalid`, for a
+client credentials token `credential_invalid`, `credential_revoked` and `credential_expired`, then `identity_unknown`,
 `machine_identity`, `identity_inactive`, `principal_mismatch`, `principal_inactive`, `tenant_inactive`, then for a token
-that names no session `issued_before_cutoff`, and for one that names a session `session_unknown`, `session_guard_mismatch`,
-`session_revoked`, `session_expired`, `session_principal_mismatch`. It says why a sign-in failed even where the client is
-not told: a refusal by the account's own limit is `account_rate_limited` on the event, while the sign-in's result says
-`invalid_credentials`:
+that names no session `issued_before_cutoff`, and for one that names a session `session_unknown`,
+`session_guard_mismatch`, `session_revoked`, `session_expired`, `session_principal_mismatch`. It says why a sign-in
+failed even where the client is not told: a refusal by the account's own limit is `account_rate_limited` on the event,
+while the sign-in's result says `invalid_credentials`:
 
 | Reason                       | Meaning                                                                           |
 |------------------------------|-----------------------------------------------------------------------------------|

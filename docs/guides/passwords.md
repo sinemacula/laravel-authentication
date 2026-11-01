@@ -159,9 +159,9 @@ current password is checked against the row the transaction locked, not against 
 then another identity may hold the address the session was opened with. Take and give back the slot outside the
 transaction: inside it, the counters' rows would stay locked until the commit, and on MySQL two transactions that each
 create a counter in the same gap of the index deadlock. A change ends every session of the identity, through every
-guard, but the session in `$except` (the request's own session, to keep it signed in; `null` ends them all); a reset ends
-every session. Both move the identity's "tokens valid after" cutoff when it keeps one and end its pending sign-ins (see
-[Revoking on security changes](sessions.md#revoking-on-security-changes)), and report each revoked session with
+guard, but the session in `$except` (the request's own session, to keep it signed in; `null` ends them all); a reset
+ends every session. Both move the identity's "tokens valid after" cutoff when it keeps one and end its pending sign-ins
+(see [Revoking on security changes](sessions.md#revoking-on-security-changes)), and report each revoked session with
 `SessionRevoked` and then `SignedOutEverywhere`. `$except` is for a change only. Whatever the flow, the same transaction
 invalidates every password reset link and code still waiting for the identity's identifiers, through every guard whose
 provider returns the identity (a provider whose configuration names no model, a custom `Auth::provider()` driver, is
@@ -175,27 +175,27 @@ its links and codes to the identities there, so they are left alone.
 
 A stored identity gets one query-builder update of its password column (and `updated_at` when the model keeps
 timestamps) on its own row, without its scopes: nothing else you changed on the model is saved or discarded, and no
-model event fires, so an observer neither cancels the write nor revokes again behind it (`RevokeSessionsOnPasswordChange`
-does not undo the session a change kept). The model then holds the new hash. The hash is bound into that update as any
-Eloquent write binds it: every query listener sees it, and a failed update's `QueryException` carries it in
-`getBindings()` and in the SQL its message quotes, unless the connection sets `mask_bindings_in_exception_messages` (an
-option of recent Laravel versions). That option masks only the SQL: the driver's own message, which PostgreSQL's
-`DETAIL` can fill with the failing row, is kept. Keep query logs and error reports as you keep the hashes themselves.
-Only a registration may set the password of an identity not stored yet, which is then inserted with `save()`; a model
-event that cancels that save throws a `LogicException`. A registration sets only a first password: given a stored
-identity, it updates the row only while its password column is `null` or empty, in the same statement, and throws a
-`LogicException` otherwise, since replacing a password without ending any session would be a change that leaves a stolen
-session signed in. So does a change or a reset of an identity not stored, or one whose row is gone, and an identity that
-is not an Eloquent model; a non-human identity (`MachineIdentity`) has no password and throws an
-`InvalidArgumentException`.
+model event fires, so an observer neither cancels the write nor revokes again behind it
+(`RevokeSessionsOnPasswordChange` does not undo the session a change kept). The model then holds the new hash. The hash
+is bound into that update as any Eloquent write binds it: every query listener sees it, and a failed update's
+`QueryException` carries it in `getBindings()` and in the SQL its message quotes, unless the connection sets
+`mask_bindings_in_exception_messages` (an option of recent Laravel versions). That option masks only the SQL: the
+driver's own message, which PostgreSQL's `DETAIL` can fill with the failing row, is kept. Keep query logs and error
+reports as you keep the hashes themselves. Only a registration may set the password of an identity not stored yet, which
+is then inserted with `save()`; a model event that cancels that save throws a `LogicException`. A registration sets only
+a first password: given a stored identity, it updates the row only while its password column is `null` or empty, in the
+same statement, and throws a `LogicException` otherwise, since replacing a password without ending any session would be
+a change that leaves a stolen session signed in. So does a change or a reset of an identity not stored, or one whose row
+is gone, and an identity that is not an Eloquent model; a non-human identity (`MachineIdentity`) has no password and
+throws an `InvalidArgumentException`.
 
 `PasswordSet` reports the password set, with the flow, once the transaction commits on the identity's connection, and
-never for one rolled back; its context names the guard, the client and the identity, and, for a change, the session kept.
-Called inside a transaction of yours, the hash, the cutoff and the revocations are part of it, and every event waits for
-its commit. When the identity lives on another connection than the sessions (the storage connection), the sessions are
-revoked in their own transaction, which commits inside the identity's: a failure after it leaves the sessions revoked and
-the password unchanged, so more is ended, never less, and calling again finishes the job. The automatic rehash on
-sign-in never fires `PasswordSet`.
+never for one rolled back; its context names the guard, the client and the identity, and, for a change, the session
+kept. Called inside a transaction of yours, the hash, the cutoff and the revocations are part of it, and every event
+waits for its commit. When the identity lives on another connection than the sessions (the storage connection), the
+sessions are revoked in their own transaction, which commits inside the identity's: a failure after it leaves the
+sessions revoked and the password unchanged, so more is ended, never less, and calling again finishes the job. The
+automatic rehash on sign-in never fires `PasswordSet`.
 
 ## Password reset
 
@@ -305,11 +305,11 @@ stays unspent; a proof accepted for an eligible identity is spent with the new p
 identity ended, its cutoff moved, its pending sign-ins and identifier changes ended, every other reset link and code and
 every sign-in code for its identifiers invalidated, through every guard whose provider returns it (a provider whose
 configuration names no model is assumed to), and `PasswordSet` reported once that commits. Only a reset returns before
-the timebox ends. The result is a `ResetResult`: `reset` with how many sessions were `revoked`, `invalid`, `rate_limited`
-with `retryAfter`, or `password_rejected` with `violations`. `AuthenticationFailed` (flow `password_reset`) says why a
-reset failed: `rate_limited`, `invalid_credentials`, `code_expired`, `code_exhausted`, `link_expired`,
-`machine_identity`, `identity_inactive` or `identifier_unverified`; the result never does. A reset signs no one in and
-verifies no identifier.
+the timebox ends. The result is a `ResetResult`: `reset` with how many sessions were `revoked`, `invalid`,
+`rate_limited` with `retryAfter`, or `password_rejected` with `violations`. `AuthenticationFailed` (flow
+`password_reset`) says why a reset failed: `rate_limited`, `invalid_credentials`, `code_expired`, `code_exhausted`,
+`link_expired`, `machine_identity`, `identity_inactive` or `identifier_unverified`; the result never does. A reset signs
+no one in and verifies no identifier.
 
 Spending the proof with the password and the revocation needs one transaction, so the identity must live on the session
 model's connection (which the codes' table shares): a guard whose provider's model is on another throws a

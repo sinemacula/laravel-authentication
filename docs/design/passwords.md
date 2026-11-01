@@ -104,8 +104,8 @@ only duplicate them.
    - a stored identity: one query-builder `UPDATE` of the password column (and `updated_at` when the model keeps
      timestamps) on its row by key without scopes, and for a registration only while the column is `null` or empty; 0
      rows is a `LogicException`. No other dirty attribute is saved or
-     discarded and no model event fires, so `RevokeSessionsOnPasswordChange` neither sees the write nor undoes the session
-     a change kept. The model is given the hash with `forceFill()` and `syncOriginalAttributes()`.
+     discarded and no model event fires, so `RevokeSessionsOnPasswordChange` neither sees the write nor undoes the
+     session a change kept. The model is given the hash with `forceFill()` and `syncOriginalAttributes()`.
    - an unsaved identity (registration only): `forceFill()->save()`; a save a model event cancels is a `LogicException`.
    - `OutdatedProofs::invalidate()`: one `DELETE` on the codes' table of the reset link and code bindings, and for a
      change or a reset the sign-in code bindings, of every `jwt` guard whose provider can return the identity (its

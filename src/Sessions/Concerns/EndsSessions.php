@@ -171,7 +171,7 @@ trait EndsSessions
 
     /**
      * The identity's password was changed: end its sessions
-     * (`password_changed`), except on the given session, the one the change was
+     * (`password_changed`), except the given session, the one the change was
      * made from when the application keeps it signed in. Never call it for an
      * automatic rehash.
      *
@@ -208,8 +208,8 @@ trait EndsSessions
 
     /**
      * A factor the identity signs in with was removed: end its sessions
-     * (`factor_removed`), except on the given session. The seam a
-     * further-factor package calls when a factor is removed.
+     * (`factor_removed`), except the given session. The seam a further-factor
+     * package calls when a factor is removed.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except

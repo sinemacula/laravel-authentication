@@ -66,9 +66,9 @@ specific principal or session and the runtime cannot prove that claim, authentic
   result still falls through to the existing default resolver path and is therefore subject to the same fail-closed
   `pid` re-check.
 - A resolver that returns an unsaved principal with a `null` identifier is rejected for the same reason.
-- On the bearer path, `did` resolution is identity-scoped through `HasSessions`; a token that claims a session against an
-  identity with no session capability fails closed instead of silently binding no session, and a `sessions()` relation
-  over a model that is not an `EloquentSession` throws a `LogicException` before it is queried.
+- On the bearer path, `did` resolution is identity-scoped through `HasSessions`; a token that claims a session against
+  an identity with no session capability fails closed instead of silently binding no session, and a `sessions()`
+  relation over a model that is not an `EloquentSession` throws a `LogicException` before it is queried.
 - On the refresh path, `did` resolution is global through the configured session model, and the session's owner is
   reloaded through the guard's identity provider (see `guard-bound-tokens.md`).
 - When bearer auth rejects a token after the identity has already been loaded, the `AuthenticationFailed` event still
@@ -85,13 +85,14 @@ specific principal or session and the runtime cannot prove that claim, authentic
 - `src/Guards/Concerns/VerifiesPinnedContext.php`: `resolvePinnedPrincipal()`, `resolvePinnedSession()` and
   `resolveSessionFromHint()`, the pinned-context checks in `attempt()`.
 - `src/Jwt/RefreshTokenExchange.php`: `extractRefreshClaims()`; `src/Jwt/RefreshJudgment.php`: `classify()`;
-  `src/Jwt/RefreshAdmission.php`: `principal()`; the session is found by `src/SessionRecords/SessionLookup.php`'s `find()`.
+  `src/Jwt/RefreshAdmission.php`: `principal()`; the session is found by `src/SessionRecords/SessionLookup.php`'s
+  `find()`.
 - `src/Support/IdentifierCoercion.php`: `stringify()` and `matches()`, the exact-match rule behind the bearer and
   refresh `pid` checks.
 - `src/Jwt/Enums/TokenType.php`: `requiredClaims()`, enforced by `JwtTokenService::parse()`.
 - `src/SessionRecords/SessionKeyShape.php`: `matches()`, the `did` shape check shared by the bearer and refresh paths.
-- `src/SessionRecords/SessionDeadlines.php`: `hasEnded()`, the one deadline rule the bearer path, pins, refresh, and issuance
-  share.
+- `src/SessionRecords/SessionDeadlines.php`: `hasEnded()`, the one deadline rule the bearer path, pins, refresh, and
+  issuance share.
 - `src/Database/WriteConnection.php`: `query()` and `during()`, which pin the identity, principal, tenant, and session
   reads to the write connection; `src/Database/PinningConnectionResolver.php` carries the pin to every connection a
   model resolves inside `during()`.

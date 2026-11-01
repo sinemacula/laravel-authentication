@@ -38,9 +38,9 @@ final class OwnedSession
     /**
      * Why the guard may not authenticate on the session at the given time, or
      * `null` when it may: a session of another guard (or of none), a revoked
-     * one, and one whose session has ended (past its idle or absolute deadline,
-     * or without deadlines), in that order. The revocation and the deadlines
-     * are read whatever the guard, so a session loaded without one of them is
+     * one, and one that has ended (past its idle or absolute deadline, or
+     * without deadlines), in that order. The revocation and the deadlines are
+     * read whatever the guard, so a session loaded without one of them is
      * reported as the misconfiguration it is. The deadlines are checked with no
      * leeway, so a token cannot outlive its session.
      *

@@ -22,8 +22,8 @@ and how the runtime models and the published migrations are kept choosing the sa
   connection and follow the migrator's, as `--database` chooses it; the `migrations` table always stays on the
   migrator's connection.
 - The tables share the storage connection because the flows that write several of them are single transactions on one
-  model's connection: a session (the session, then both tokens), the completion of a pending sign-in (its delete with the
-  session, on the pending row's connection), a bulk revocation (sessions, pending sign-ins and pending identifier
+  model's connection: a sign-in (the session, then both tokens), the completion of a pending sign-in (its delete with
+  the session, on the pending row's connection), a bulk revocation (sessions, pending sign-ins and pending identifier
   changes), a password reset and an identifier change (the proof with the identity, its cutoff and its sessions). Two
   connections cannot commit as one.
 - The session model must therefore live there: `SessionRecords\SessionLookup::model()`, which every session path and

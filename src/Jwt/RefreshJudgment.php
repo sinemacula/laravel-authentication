@@ -15,9 +15,9 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionDeadlines;
 
 /**
  * Judges a presented refresh rotation id against the session it names, the way
- * both a refresh and a switch of principal do: whether the session still holds
- * a live session, and whether the id is its current one, the one the current
- * one replaced inside the grace window, or a replay.
+ * both a refresh and a switch of principal do: whether the session is still
+ * live, and whether the id is its current one, the one the current one replaced
+ * inside the grace window, or a replay.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

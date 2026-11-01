@@ -11,7 +11,7 @@ use SineMacula\Laravel\Authentication\Database\SessionRetention;
 
 /**
  * Lets Laravel's `model:prune` delete sessions that are over: revoked, or past
- * its idle or absolute deadline, longer ago than the retention in
+ * their idle or absolute deadline, longer ago than the retention in
  * `authentication.session.prune_after_days`.
  *
  * Retention is counted from the time the session ended (the revocation or the

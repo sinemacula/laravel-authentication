@@ -66,13 +66,13 @@ trait VerifiesPinnedContext
      * Resolve a session for the identity from a pinned session's identifier.
      * Returns null when the identity does not implement `HasSessions`, the hint
      * cannot be a key of the session model (no query is made), or the session
-     * is not found (`IdentitySessions::find()`), belongs to another guard's
-     * sessions (or to none), has been revoked, or has ended (past its idle or
-     * absolute deadline, or without deadlines): such a session is treated
-     * exactly like a missing one, from the row already loaded, on the write
-     * connection (see `OwnedSession`). The deadlines are checked against the
-     * current time with no leeway, so a pin cannot outlive its session. A
-     * `sessions()` relation over a model that is not an `EloquentSession` is a
+     * is not found (`IdentitySessions::find()`), belongs to another guard (or
+     * to none), has been revoked, or has ended (past its idle or absolute
+     * deadline, or without deadlines): such a session is treated exactly like a
+     * missing one, from the row already loaded, on the write connection (see
+     * `OwnedSession`). The deadlines are checked against the current time with
+     * no leeway, so a session past its end is never pinned. A `sessions()`
+     * relation over a model that is not an `EloquentSession` is a
      * misconfiguration, and throws.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity

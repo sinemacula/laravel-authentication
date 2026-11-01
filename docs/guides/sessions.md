@@ -2,8 +2,8 @@
 
 ## Switching principal
 
-An identity that may act as several principals (memberships of several tenants, say) switches the session it is signed
-in with to another one, in the same session, proven by the session's refresh token:
+An identity that may act as several principals (memberships of several tenants, say) switches the principal it acts as
+to another one, in the same session, proven by the session's refresh token:
 
 ```php
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
@@ -48,13 +48,13 @@ refresh cookie.
 A switch is judged as a refresh is: counted against the same refresh limits (`rate_limited`, with the wait in the
 result's `retryAfter`: a switch returns its refusal, as a refresh does, so answer it with `Retry-After` as above), the
 token parsed for this guard, the session found, of this guard, live, and the rotation id current, or the previous one
-inside the grace window; any other id is a replay and revokes the session (`rotation_reuse`). On every path the session's
-owner must still be returned by the guard's provider and be active, the target must resolve through the resolver's
-hinted path as the very principal named, of its class, owned by that identity (read from the principal's own key, not
-trusted to the resolver), active, in an active tenant and admitted by the application policy, also with the type of
-identifier the session's sign-in used (which the session records), so a principal your policy refuses to that identifier
-cannot be reached by switching to it, the session's sign-in method must still be allowed, and the additional-factor
-policy must not ask for a further factor (`additional_factor_required`: sign in again as the target).
+inside the grace window; any other id is a replay and revokes the session (`rotation_reuse`). On every path the
+session's owner must still be returned by the guard's provider and be active, the target must resolve through the
+resolver's hinted path as the very principal named, of its class, owned by that identity (read from the principal's own
+key, not trusted to the resolver), active, in an active tenant and admitted by the application policy, also with the
+type of identifier the session's sign-in used (which the session records), so a principal your policy refuses to that
+identifier cannot be reached by switching to it, the session's sign-in method must still be allowed, and the
+additional-factor policy must not ask for a further factor (`additional_factor_required`: sign in again as the target).
 
 With the current rotation id, the token's principal must be the one the session records (`session_principal_mismatch`).
 The switch keeps the session's absolute deadline, held to the guard's absolute lifetime counted from the sign-in
@@ -67,16 +67,16 @@ like a refresh and reports no switch.
 With the previous rotation id inside the grace window, the current credential for the target is handed back, writing
 nothing, only when the session records the target and either its last rotation was the switch to it (a lost switch
 response, retried) or the token's own principal is the target; anything else is `rotation_conflict`, without revoking,
-and the client retries with its current token. When another request changes the session between the switch's read and its
-write, the row is read again with a lock and judged once more under the same rules; the swap is never tried twice.
+and the client retries with its current token. When another request changes the session between the switch's read and
+its write, the row is read again with a lock and judged once more under the same rules; the swap is never tried twice.
 
 A switch schedules `PrincipalSwitched` for its commit on the session's connection, with the new principal and tenant in
-its context, and the previous principal as the session recorded it (`previousPrincipalMorphClass`, `previousPrincipalId`)
-and, when it still resolves for the identity, the principal itself (`previousPrincipal`), before it binds the guard to
-the target (`Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`, no `Login`), so a listener that throws on those
-cannot withhold the report. Outside a transaction `PrincipalSwitched` is therefore dispatched before the bind events,
-and a listener on it reads the event's context, not the guard, which still holds the previous principal; inside your
-transaction it follows the commit, after the bind events, and a rollback drops it.
+its context, and the previous principal as the session recorded it (`previousPrincipalMorphClass`,
+`previousPrincipalId`) and, when it still resolves for the identity, the principal itself (`previousPrincipal`), before
+it binds the guard to the target (`Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`, no `Login`), so a
+listener that throws on those cannot withhold the report. Outside a transaction `PrincipalSwitched` is therefore
+dispatched before the bind events, and a listener on it reads the event's context, not the guard, which still holds the
+previous principal; inside your transaction it follows the commit, after the bind events, and a rollback drops it.
 
 ## Signing out and revoking sessions
 
@@ -141,13 +141,13 @@ bulk call skips it) and the new session is revoked by the bulk call if its read 
 
 ### Signing in again
 
-Every sign-in starts a new session; the previous session of the same client is not reused. A sign-in
-revokes the client's previous session only when the client proves it holds it, with that session's current refresh token
-in the `SignInContext` (see [Signing in](signing-in.md#signing-in-the-session-service)); the session is then revoked
-with the reason `superseded` in the same transaction, and `SessionRevoked` reports it before the new session's
-`SessionCreated`. The IP address and user agent never count, so an application that does not pass the refresh token
-keeps every earlier session of the client until it expires, is signed out or is revoked. A refresh and a switch of
-principal keep their session.
+Every sign-in starts a new session; the previous session of the same client is not reused. A sign-in revokes the
+client's previous session only when the client proves it holds it, with that session's current refresh token in the
+`SignInContext` (see [Signing in](signing-in.md#signing-in-the-session-service)); the session is then revoked with the
+reason `superseded` in the same transaction, and `SessionRevoked` reports it before the new session's `SessionCreated`.
+The IP address and user agent never count, so an application that does not pass the refresh token keeps every earlier
+session of the client until it expires, is signed out or is revoked. A refresh and a switch of principal keep their
+session.
 
 ### Listing sessions
 

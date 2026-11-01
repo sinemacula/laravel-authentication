@@ -29,8 +29,8 @@ principal auth without session tracking or refresh rotation.
 
 ## Success Path
 
-- Leave the `authentication_sessions` table out (or empty); keep the `rate_limits` table only for a guard that signs in with
-  `attempt()`.
+- Leave the `authentication_sessions` table out (or empty); keep the `rate_limits` table only for a guard that signs in
+  with `attempt()`.
 - Do not implement `HasSessions` on the identity model.
 - Issue access tokens with `Auth::jwt('api')->issueAccessToken($identity, $principal, null)`.
 - On the bearer path, the guard binds identity and principal normally and leaves session unset.
@@ -43,8 +43,8 @@ principal auth without session tracking or refresh rotation.
   has no `authentication_sessions` table.
 - This mode is intentionally bearer-only. `JwtTokenService::issueRefreshToken()` still requires a `Session`, and the
   refresh exchange still depends on an `EloquentSession` model plus persisted session state. The session service refuses
-  to start a session (`signIn()`, `start()`) for an identity without `HasSessions` with a `LogicException`: every session
-  it starts lives on a session, and the access token it would issue names one this identity can never resolve.
+  to start a session (`signIn()`, `start()`) for an identity without `HasSessions` with a `LogicException`: every
+  session it starts is a persisted one, and the access token it would issue names one this identity can never resolve.
 - Its revocation methods work, and are how session-less tokens end early: for an identity without `HasSessions`, or a
   principal whose owner is one, a bulk revocation (`revokeSessions()`, `signOutEverywhere()`, the security-change
   methods, `principalDeactivated()`, `revokePrincipalSessions()`) only moves the scope's "tokens valid after" cutoff and
