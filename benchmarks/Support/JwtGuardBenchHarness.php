@@ -142,6 +142,7 @@ final class JwtGuardBenchHarness
         $container = new Container;
         $container->instance('config', $config);
         Facade::setFacadeApplication($container);
+        JwtBenchSetup::bindPackageDefaults($container);
 
         $this->resolver = new DefaultPrincipalResolver;
         $this->events   = new Dispatcher($container);

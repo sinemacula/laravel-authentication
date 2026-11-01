@@ -35,6 +35,7 @@ use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 use Tests\Fixtures\Sessions\PermissiveApplicationPolicy;
 use Tests\Fixtures\Sessions\UnlimitedAttemptLimiter;
@@ -152,7 +153,7 @@ final class RefreshTokenExchangeBenchHarness
         $container->instance('config', $config);
         $container->instance(Repository::class, $config);
         Facade::setFacadeApplication($container);
-        Container::setInstance($container);
+        JwtBenchSetup::bindPackageDefaults($container);
 
         $this->resolver = new DefaultPrincipalResolver;
         $this->events   = new Dispatcher($container);
@@ -345,7 +346,8 @@ final class RefreshTokenExchangeBenchHarness
 
     /**
      * Pre-issue a pool of refresh tokens, each bound to its own session row,
-     * which records the principal the token acts as, as a sign-in records it.
+     * which records the principal the token acts as and the principal's own
+     * tenant, as a sign-in records them.
      *
      * @param  string  $prefix
      * @param  class-string  $ownerClass
@@ -356,7 +358,8 @@ final class RefreshTokenExchangeBenchHarness
      */
     private function issueRefreshTokenPool(string $prefix, string $ownerClass, string $ownerId, Principal $principal, int $size = self::TOKEN_POOL_SIZE): array
     {
-        $pool = [];
+        $pool     = [];
+        $tenantId = IdentifierCoercion::stringify($principal->getTenant()?->getTenantIdentifier());
 
         for ($index = 0; $index < $size; $index++) {
 
@@ -364,7 +367,7 @@ final class RefreshTokenExchangeBenchHarness
 
             $session = new Session;
             $session->forceFill([
-                ...BenchSchema::signedIn('api'),
+                ...BenchSchema::signedIn('api', $tenantId),
                 'authenticatable_type' => $ownerClass,
                 'authenticatable_id'   => $ownerId,
                 'principal_type'       => PrincipalReference::type($principal),
