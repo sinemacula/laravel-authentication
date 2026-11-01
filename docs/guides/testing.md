@@ -40,10 +40,11 @@ final class ProfileTest extends TestCase
 
 `actingAsIdentity()` without a principal throws an `InvalidArgumentException` when the identity has no default one, as
 `setUser()` does. The active tenant (`Auth::tenant()`, `assertBoundTenant()`) is the one a session acted on records, the
-principal's own without a session, or the one `actingInTenant()` names, until the test acts again; `actingInTenant()`
-throws an `InvalidArgumentException` when the test does not act on the guard. `actingOnSession()` finds the owner
-through the guard's provider and the principal through the guard's resolver, and throws an `InvalidArgumentException`
-when either is not found or when a guard is named that the session does not record.
+principal's own without a session, or the one `actingInTenant()` names, until the test acts again, inactive or not; one
+that cannot be loaded makes it throw `TenantUnavailableException`. `actingInTenant()` throws an
+`InvalidArgumentException` when the test does not act on the guard. `actingOnSession()` finds the owner through the
+guard's provider and the principal through the guard's resolver, and throws an `InvalidArgumentException` when either is
+not found or when a guard is named that the session does not record.
 
 Every method takes the guard last and uses the default guard when it is left out; acting makes the guard the default,
 as `actingAs()` does. The context is bound through the guard's trusted `authenticateAs()`, so nothing is checked: a

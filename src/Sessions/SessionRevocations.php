@@ -126,7 +126,7 @@ final readonly class SessionRevocations
                     $this->context->client(),
                     $identity,
                     $binding->principal(),
-                    $binding->tenant(),
+                    self::boundTenant($binding),
                     $session,
                     $session->getSignInMethod(),
                     fromSession: true,
@@ -433,6 +433,24 @@ final readonly class SessionRevocations
                 $this->context->dispatch(new SignedOutEverywhere($context, $reason, $revoked, $cutoff));
             },
         );
+    }
+
+    /**
+     * The binding's active tenant, or `null` when there is none or, bound by a
+     * trusted bind, it cannot be loaded: a revocation is reported either way.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\GuardBinding  $binding
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    private static function boundTenant(GuardBinding $binding): ?Tenant
+    {
+        try {
+            return $binding->tenant();
+        } catch (TenantUnavailableException) {
+            return null;
+        }
     }
 
     /**

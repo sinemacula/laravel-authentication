@@ -31,8 +31,10 @@ and after `Auth::logout()` it stays signed out for the rest of the request. `Aut
 the request's session records, or the principal's own for a token without a session, read when the request is
 authenticated and held until the guard is bound again. For a principal bound through `login()`, `setUser()` or
 `setPrincipal()`, which skip the activity check, it is the bound session's recorded tenant, or with no session the
-principal's own, and `null` when that cannot be loaded; a principal loaded without its tenant's key (or polymorphic type)
-is a misconfiguration, and the bind throws its `LogicException`.
+principal's own, even when it is inactive. `null` only ever means the request acts in no tenant: when the tenant such a
+bind found cannot be loaded (deleted, or no longer resolving), `Auth::tenant()` throws `TenantUnavailableException`, so
+code that scopes by it never takes a tenanted context for a platform-wide one. A principal loaded without its tenant's
+key (or polymorphic type) is a misconfiguration, and the bind throws its `LogicException`.
 
 `setUser()`, which Laravel's `actingAs()` uses, replaces the whole context: it binds the identity with its default
 principal (and no session), and throws an `InvalidArgumentException` when the identity has none. Use the guard's
@@ -706,8 +708,11 @@ if ($pending === null) {
 `pending($credential, $action)` reads only, dispatching nothing; it answers `null` for a credential that names no live
 pending session of this guard, or whose session does not allow the action now (none given: any), and for a session that
 can never activate because the gate would refuse its identity (a machine identity, an inactive one, or an identifier
-type the application no longer admits) or its method, so no code is sent and no enrolment begun for it. Whether a
-bootstrap enrolment applies (a factor is required and the identity has none) is the factor package's to judge.
+type the application no longer admits), its method, or the principal and active tenant it records (the principal
+inactive or refused by `ApplicationAccess`, its own tenant inactive, or the active tenant unresolvable, inactive or
+refused by `TenantAccess`), so no code is sent and no enrolment begun for it. The tenant it describes is the one the gate
+admitted. Whether a bootstrap enrolment applies (a factor is required and the identity has none) is the factor
+package's to judge.
 
 ### Satisfying a further factor
 

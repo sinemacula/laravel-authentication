@@ -84,11 +84,14 @@ interface ContextualGuard extends Guard
      * resolving the request on first access: a session's is the one it records,
      * and a token without a session acts in the principal's own. A trusted bind
      * (`login()`, `setUser()`, `setPrincipal()`) binds the tenant the bound
-     * session records, or the principal's own without a session, and none when
-     * it cannot be loaded or no longer resolves.
+     * session records, or the principal's own without a session, unchecked.
+     * `null` only ever means the request acts in no tenant: a trusted bind's
+     * tenant that cannot be loaded or no longer resolves throws
+     * `TenantUnavailableException`.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function tenant(): ?Tenant;

@@ -329,10 +329,12 @@ class AuthManager extends IlluminateAuthManager
 
     /**
      * The active tenant, the one the request acts in, when the active guard is
-     * contextual.
+     * contextual: `null` when it acts in none, and `TenantUnavailableException`
+     * when a trusted bind's tenant cannot be loaded.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function tenant(): ?Tenant

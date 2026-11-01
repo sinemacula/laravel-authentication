@@ -39,7 +39,9 @@ session held back by the policy waits as `pending-sessions.md` describes; the pe
   is resolved once. No access contract and no tenant policy is asked per request.
 - `Auth::tenant()` is the active tenant the guard bound with the request's admission, held as guard state and cleared
   with it, so it never outlives the request under Octane. A trusted bind with a session takes the tenant the session
-  records (none when it no longer resolves or is inactive); one without takes the principal's own.
+  records, unchecked (an inactive one included); one without takes the principal's own. A tenant such a bind cannot
+  load (no longer resolving, or the principal's own deleted) makes `Auth::tenant()` throw `TenantUnavailableException`,
+  and its events carry none, so `null` from `Auth::tenant()` only ever means no tenant.
 - A switch names its destination with a `SwitchTarget` (another principal of the identity, with its default tenant or
   one named; or another tenant for the principal the session records). It admits the destination as a sign-in would,
   asks the destination tenant's policy, and rotates the session in place with one compare-and-swap that moves

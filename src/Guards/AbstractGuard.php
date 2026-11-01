@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\EventContext;
+use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
 use SineMacula\Laravel\Authentication\Guards\Concerns\ExposesCollaborators;
 use SineMacula\Laravel\Authentication\Guards\Concerns\RebindsCollaborators;
@@ -391,9 +392,9 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * afterwards. A non-human identity (`MachineIdentity`) is limited to the
      * scopes given, as if a credential granted them (`[]`, none, when no list
      * is given); only a machine identity takes scopes. The active tenant is the
-     * one given, as given; with none given, the one the session records (none
-     * when it no longer resolves or is inactive), or the principal's own
-     * without a session.
+     * one given, as given; with none given, the one the session records, or the
+     * principal's own without a session, unchecked, as for `login()` (see
+     * `tenant()`).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -564,7 +565,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant|\SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException|null  $tenant
      * @param  ?string  $method
      * @param  bool  $signIn
      * @param  ?string  $credentialId
@@ -575,7 +576,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
         Identity $identity,
         Principal $principal,
         ?Session $session,
-        ?Tenant $tenant,
+        Tenant|TenantUnavailableException|null $tenant,
         ?string $method,
         bool $signIn,
         #[\SensitiveParameter]

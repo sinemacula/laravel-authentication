@@ -10,6 +10,7 @@ use Illuminate\Auth\Events\Validated;
 use Illuminate\Contracts\Events\Dispatcher;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
@@ -243,14 +244,18 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
 
     /**
      * A principal whose tenant cannot be loaded is bound, and reported with no
-     * tenant, rather than failing the bind.
+     * tenant, rather than failing the bind; `tenant()` then throws the reason
+     * instead of answering as for a principal acting in no tenant, until the
+     * guard is forgotten.
      *
      * @return void
      */
     public function testATenantThatCannotBeLoadedIsBoundAsNone(): void
     {
+        $unavailable = new TenantUnavailableException('The tenant is not available.');
+
         $principal = $this->mockPrincipal();
-        $principal->shouldReceive('getTenant')->andThrow(new TenantUnavailableException('The tenant is not available.'));
+        $principal->shouldReceive('getTenant')->andThrow($unavailable);
 
         $events = $this->recordEvents();
         $guard  = $this->makeGuard();
@@ -259,6 +264,11 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
 
         self::assertNull($this->contextsOf($events, PrincipalAssigned::class)[0]->tenant);
         self::assertSame($principal, $guard->principal());
+        self::assertSame($unavailable, self::unavailableTenantOf($guard));
+
+        $guard->forgetUser();
+
+        self::assertNull($guard->tenant());
     }
 
     /**
@@ -284,8 +294,9 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
 
     /**
      * A trusted bind of a session acts in the tenant the session records: the
-     * principal's own when the identifiers match, none when the session acts in
-     * a tenant that no longer resolves (the shipped resolver finds none); a
+     * principal's own when the identifiers match, and none when it records
+     * none; a session acting in a tenant that no longer resolves (the shipped
+     * resolver finds none) makes `tenant()` throw rather than answer none; a
      * trusted bind without a session acts in the principal's own.
      *
      * @return void
@@ -303,11 +314,62 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
 
         $guard->authenticateAs($this->identity, $this->principal, $elsewhere);
 
+        self::assertStringContainsString('tenant-2', self::unavailableTenantOf($guard)->getMessage());
+
+        $guard->authenticateAs($this->identity, $this->principal, $this->mockSession());
+
         self::assertNull($guard->tenant());
 
         $guard->authenticateAs($this->identity, $this->principal);
 
         self::assertSame($this->tenant, $guard->tenant());
+    }
+
+    /**
+     * A trusted bind checks no activity: the inactive tenant a session records
+     * is bound as the active tenant, as a principal's inactive tenant is
+     * without a session.
+     *
+     * @return void
+     */
+    public function testATrustedBindKeepsAnInactiveTenant(): void
+    {
+        $inactive = \Mockery::mock(Tenant::class, CanBeActive::class);
+        $inactive->shouldReceive('getTenantIdentifier')->andReturn('tenant-1');
+        $inactive->shouldReceive('isActive')->andReturnFalse();
+
+        $principal = $this->mockPrincipal();
+        $principal->shouldReceive('getTenant')->andReturn($inactive);
+
+        $guard = $this->makeGuard();
+
+        $guard->login($this->identity, $principal, $this->session);
+
+        self::assertSame($inactive, $guard->tenant());
+
+        $guard->authenticateAs($this->identity, $principal);
+
+        self::assertSame($inactive, $guard->tenant());
+    }
+
+    /**
+     * A session's tenant that names the principal's own when that cannot be
+     * loaded makes `tenant()` throw the principal's own reason.
+     *
+     * @return void
+     */
+    public function testASessionsTenantThatCannotBeLoadedThrowsItsReason(): void
+    {
+        $unavailable = new TenantUnavailableException('The tenant is not available.');
+
+        $principal = $this->mockPrincipal();
+        $principal->shouldReceive('getTenant')->andThrow($unavailable);
+
+        $guard = $this->makeGuard();
+
+        $guard->login($this->identity, $principal, $this->session);
+
+        self::assertSame($unavailable, self::unavailableTenantOf($guard));
     }
 
     /**
@@ -352,7 +414,11 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
 
         $guard->setSession($elsewhere);
 
-        self::assertNull($guard->tenant());
+        self::unavailableTenantOf($guard);
+
+        $guard->setSession($this->session);
+
+        self::assertSame($this->tenant, $guard->tenant());
     }
 
     /**
@@ -645,5 +711,23 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
         }
 
         return $contexts;
+    }
+
+    /**
+     * The `TenantUnavailableException` the guard's `tenant()` throws, failing
+     * the test when it answers instead.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Guards\AbstractGuard  $guard
+     * @return \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     */
+    private static function unavailableTenantOf(AbstractGuard $guard): TenantUnavailableException
+    {
+        try {
+            $guard->tenant();
+        } catch (TenantUnavailableException $exception) {
+            return $exception;
+        }
+
+        self::fail('Expected tenant() to throw TenantUnavailableException.');
     }
 }

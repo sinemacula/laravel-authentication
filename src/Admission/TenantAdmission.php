@@ -107,6 +107,32 @@ final class TenantAdmission
     }
 
     /**
+     * The tenant the identifier names, with no access or activity check: the
+     * principal's own when its identifier matches, otherwise the resolver's
+     * answer, asked on the write connection for the principal, when that answer
+     * has the identifier asked for, else `null`. For a trusted bind, which
+     * binds the tenant a session records without checking it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $own
+     * @param  string  $tenantId
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public static function named(Principal $principal, ?Tenant $own, string $tenantId): ?Tenant
+    {
+        if ($own !== null && IdentifierCoercion::matches($own->getTenantIdentifier(), $tenantId)) {
+            return $own;
+        }
+
+        $resolver = Container::getInstance()->make(TenantResolver::class);
+        $resolved = WriteConnection::during($principal, static fn (): ?Tenant => $resolver->resolve($tenantId));
+
+        return $resolved !== null && IdentifierCoercion::matches($resolved->getTenantIdentifier(), $tenantId) ? $resolved : null;
+    }
+
+    /**
      * The principal's own tenant, read on the write connection, `null` for a
      * platform principal, or `tenant_inactive` when it opts into activation and
      * cannot be loaded.
@@ -123,30 +149,6 @@ final class TenantAdmission
         } catch (TenantUnavailableException) {
             return FailureReason::TENANT_INACTIVE;
         }
-    }
-
-    /**
-     * The tenant the identifier names: the principal's own when its identifier
-     * matches, otherwise the resolver's answer when that answer has the
-     * identifier asked for, else `null`.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $own
-     * @param  string  $tenantId
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     */
-    private static function named(Principal $principal, ?Tenant $own, string $tenantId): ?Tenant
-    {
-        if ($own !== null && IdentifierCoercion::matches($own->getTenantIdentifier(), $tenantId)) {
-            return $own;
-        }
-
-        $resolver = Container::getInstance()->make(TenantResolver::class);
-        $resolved = WriteConnection::during($principal, static fn (): ?Tenant => $resolver->resolve($tenantId));
-
-        return $resolved !== null && IdentifierCoercion::matches($resolved->getTenantIdentifier(), $tenantId) ? $resolved : null;
     }
 
     /**

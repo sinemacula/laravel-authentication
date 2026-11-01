@@ -155,6 +155,37 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
+     * Signing out a trusted bind whose session acts in a tenant that no longer
+     * resolves still revokes and reports it: the event carries no tenant model,
+     * and the tenant the row records as its snapshot.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSigningOutATrustedBindWhoseTenantNoLongerResolvesReportsTheRowsTenant(): void
+    {
+        $identity    = $this->seedIdentity();
+        $session     = $this->signIn();
+        $guard       = $this->freshGuard();
+        $revocations = SessionRevocations::forContext($guard->context(), app());
+
+        DB::table('authentication_sessions')->update(['tenant_id' => 'gone']);
+
+        $guard->login($identity, $identity, SessionModel::query()->findOrFail(self::idOf($session)));
+
+        $this->recordEvents([SessionRevoked::class]);
+
+        self::assertTrue($revocations->signOut($guard));
+
+        $context = $this->recordedEvent(SessionRevoked::class)->context;
+
+        self::assertNull($context->tenant);
+        self::assertSame('gone', $context->tenantId);
+        self::assertSame('signed_out', DB::table('authentication_sessions')->value('revoked_reason'));
+    }
+
+    /**
      * Signing out a binding whose session is an Eloquent model but not a
      * package session only forgets it: nothing is revoked, and only `Logout`
      * reports the sign-out.

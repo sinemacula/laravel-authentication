@@ -57,6 +57,7 @@ interface GuardBinding
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function tenant(): ?Tenant;
