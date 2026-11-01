@@ -67,12 +67,7 @@ final class TokenProfileTest extends TestCase
     {
         parent::setUp();
 
-        $now = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
-
-        Carbon::setTestNow($now);
-        CarbonImmutable::setTestNow($now);
-
-        JWT::$timestamp = $now->getTimestamp();
+        $this->clockAt(CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0));
 
         $this->createSessionTables();
 
@@ -205,6 +200,42 @@ final class TokenProfileTest extends TestCase
         $this->expectExceptionMessage('Cannot issue a token naming a tenant the principal does not act within');
 
         $tokens->issueAccessToken($member, $membership, $other, null);
+    }
+
+    /**
+     * A grace retry, the refresh token a refresh replaced presented again
+     * inside the grace window, is handed an access token that names the tenant
+     * the session's principal acts within, as the refresh's own does.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheAccessTokenOfAGraceRetryCarriesTheTenant(): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+
+        self::assertNotNull($session);
+
+        $this->clockAt(CarbonImmutable::now()->addMinute());
+
+        $refreshed = $this->sessions('members')->refresh($session->tokens->refreshToken)->session;
+
+        self::assertNotNull($refreshed);
+
+        $this->clockAt(CarbonImmutable::now()->addSeconds(5));
+
+        $retried = $this->sessions('members')->refresh($session->tokens->refreshToken)->session;
+
+        self::assertNotNull($retried);
+
+        $current = $this->claims($refreshed->tokens->refreshToken, TokenType::REFRESH, 'members');
+        $handed  = $this->claims($retried->tokens->refreshToken, TokenType::REFRESH, 'members');
+
+        self::assertSame($current['jti'] ?? null, $handed['jti'] ?? null);
+        self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $this->claims($retried->tokens->accessToken, TokenType::ACCESS, 'members')['tenant_id'] ?? null);
     }
 
     /**
@@ -369,6 +400,20 @@ final class TokenProfileTest extends TestCase
         self::assertInstanceOf(Session::class, $stored);
 
         return $stored;
+    }
+
+    /**
+     * Move every clock to the time given.
+     *
+     * @param  \Carbon\CarbonImmutable  $time
+     * @return void
+     */
+    private function clockAt(CarbonImmutable $time): void
+    {
+        Carbon::setTestNow($time);
+        CarbonImmutable::setTestNow($time);
+
+        JWT::$timestamp = $time->getTimestamp();
     }
 
     /**

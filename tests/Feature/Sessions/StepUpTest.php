@@ -245,7 +245,9 @@ final class StepUpTest extends TestCase
      * A refresh and a switch of principal after a step-up carry the session's
      * authentication as it stands and never renew it: each new access token's
      * `auth_time` is the step-up's, ten minutes before its own issue time, and
-     * its `amr` keeps the step-up's values and `mfa`.
+     * its `amr` keeps the step-up's values and `mfa`. Each names the tenant its
+     * principal acts within: the refreshed token the first membership's, and
+     * the switched token the tenant of the membership switched to.
      *
      * @return void
      *
@@ -253,7 +255,7 @@ final class StepUpTest extends TestCase
      */
     public function testARefreshAndASwitchKeepTheStepUpsAuthentication(): void
     {
-        [$member] = $this->seedMember();
+        [$member, , $tenant] = $this->seedMember();
 
         $other  = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
         $second = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $other->getKey()]);
@@ -279,13 +281,13 @@ final class StepUpTest extends TestCase
 
         self::assertNotNull($switched);
 
-        foreach ([$refreshed, $switched] as $carried) {
+        foreach ([[$refreshed, $tenant], [$switched, $other]] as [$carried, $actingWithin]) {
             $claims = Auth::manager()->jwt('members')->parse($carried->tokens->accessToken, TokenType::ACCESS);
 
             self::assertIsArray($claims);
             self::assertSame(
-                [$steppedUpAt->getTimestamp(), ['pwd', 'otp', 'mfa'], $issuedAt->getTimestamp()],
-                [$claims['auth_time'] ?? null, $claims['amr'] ?? null, $claims['iat'] ?? null],
+                [$steppedUpAt->getTimestamp(), ['pwd', 'otp', 'mfa'], $issuedAt->getTimestamp(), IdentifierCoercion::stringify($actingWithin->getKey())],
+                [$claims['auth_time'] ?? null, $claims['amr'] ?? null, $claims['iat'] ?? null, $claims['tenant_id'] ?? null],
             );
         }
     }

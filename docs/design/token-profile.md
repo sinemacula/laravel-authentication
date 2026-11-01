@@ -80,8 +80,8 @@ are told apart, which claims are checked on every parse, and which the bearer pa
 - `tests/Feature/Jwt/TokenProfileTest.php`
   `testASignInsTokensKeepTheProfile`, `testATokenNeverCarriesAnAuthenticationAfterItsIssueTime`,
   `testATenantPrincipalsTokenCarriesTheTenant`, `testATokenNeverNamesATenantThePrincipalIsNotIn`,
-  `testARequestRejectsATokenThatBreaksTheProfile`, `testARequestAcceptsTheMediaTypeOfTheHeaderType`,
-  `testAnExpiredRefreshTokenOfferedAsProofKeepsItsChecks`
+  `testTheAccessTokenOfAGraceRetryCarriesTheTenant`, `testARequestRejectsATokenThatBreaksTheProfile`,
+  `testARequestAcceptsTheMediaTypeOfTheHeaderType`, `testAnExpiredRefreshTokenOfferedAsProofKeepsItsChecks`
 - `tests/Unit/Jwt/JwtTokenServiceIssueTest.php`
   `testIssueAccessTokenRefusesATenantThePrincipalIsNotIn`, `testIssuingLetsATenantThatCannotBeLoadedPropagate`
 - `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
@@ -90,7 +90,8 @@ are told apart, which claims are checked on every parse, and which the bearer pa
   principal.
 - `tests/Feature/Sessions/StepUpTest.php` `testARefreshAndASwitchKeepTheStepUpsAuthentication`, and
   `tests/Feature/Proofs/SignInProofsTest.php` `testStartWithAProvenanceRecordsTheProvidersFirstFactorAndProvenance`:
-  `auth_time` is the authentication's time, never the token's issue time.
+  `auth_time` is the authentication's time, never the token's issue time; a refreshed token names the session's
+  tenant, and a switched one the tenant of the principal switched to.
 - `tests/Unit/Jwt/TokenProfileTest.php`
   `testHeaderTypeNamesItsTokenType`, `testAccessFailureNamesTheRuleTheClaimsBreak`,
   `testAccessFailureAppliesTheGivenLeeway`
