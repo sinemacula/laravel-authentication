@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Traits;
 
+use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -27,6 +28,22 @@ use Tests\Unit\Stubs\StubUncastSession;
 #[CoversTrait(RecordsSessionStanding::class)]
 final class RecordsSessionStandingTest extends TestCase
 {
+    /**
+     * Unset the facade application, so the shipped model is built with no
+     * application whatever ran before: one an earlier test left behind, already
+     * flushed, has no configuration to resolve.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Facade::clearResolvedInstances();
+        Facade::setFacadeApplication(null);
+    }
+
     /**
      * The standing is read as stored, on a model without casts.
      *
