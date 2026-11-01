@@ -7,6 +7,8 @@ namespace Tests\Feature\Sessions;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\DatabaseTransactionRecord;
+use Illuminate\Database\DatabaseTransactionsManager;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -30,12 +32,18 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
+use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
+use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Sessions\SessionActivation;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
+use Tests\Integration\Fixtures\ActivatableTenantMember;
+use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
 /**
@@ -271,6 +279,70 @@ final class SessionActivationTest extends TestCase
     }
 
     /**
+     * Rows of `[held]`: a sign-in that checked a credential, and so held
+     * attempt-limit slots, and one `start()` began, which held none.
+     *
+     * @return iterable<string, array{0: bool}>
+     */
+    public static function provideSignInsAndTheSlotsTheyHeld(): iterable
+    {
+        yield 'a credential sign-in, which held slots' => [true];
+        yield 'a started sign-in, which held none' => [false];
+    }
+
+    /**
+     * A first activation inside a transaction queues its reports and, only when
+     * its sign-in held slots, their give-back after them; nothing is reported
+     * or given back before the commit. Once committed, each slot held is given
+     * back as reserved: for the guard's sign-in flow, the identifier type and
+     * IP address the session records, with the windows stored; a sign-in that
+     * held none gives nothing back.
+     *
+     * @param  bool  $held
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideSignInsAndTheSlotsTheyHeld')]
+    public function testAFirstActivationGivesBackTheSlotsItsSignInHeldOnceCommitted(bool $held): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $pending = $held ? $this->pendingSession() : $this->startedPendingSession($member, $membership);
+        $stored  = $pending->getRawOriginal('attempt_windows');
+        $windows = is_string($stored) ? json_decode($stored, true, flags: JSON_THROW_ON_ERROR) : [];
+        $limiter = new RecordingAttemptLimiter;
+
+        self::assertIsArray($windows);
+        self::assertSame($held, $windows !== []);
+
+        app()->instance(AttemptLimiter::class, $limiter);
+
+        $this->recordEvents([SessionCreated::class, SignedIn::class]);
+
+        DB::beginTransaction();
+
+        self::assertNotNull($this->activation()->activate($pending, new Admitted($member, $membership, $tenant), null, self::client(), $this->now));
+        self::assertCount($held ? 2 : 1, $this->queuedCallbacks());
+        self::assertSame([], $this->recordedClasses());
+        self::assertCount(0, $limiter->released);
+
+        DB::commit();
+
+        $subject = new AttemptSubject(self::GUARD, AttemptFlow::SIGN_IN, null, 'email', self::CLIENT_IP);
+        $given   = [];
+
+        foreach ($windows as $window) {
+            self::assertIsArray($window);
+
+            $given[] = new AttemptReservation($subject, null, $window);
+        }
+
+        self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertEquals($given, $limiter->released);
+    }
+
+    /**
      * A first activation whose limiter cannot give the slots back reports the
      * failure instead of throwing it, and stops giving back at the failure: the
      * session stands active, and the sign-in was reported before it.
@@ -409,6 +481,47 @@ final class SessionActivationTest extends TestCase
         self::assertTrue($result->isPending());
 
         return Session::query()->whereKey($result->pending?->id)->firstOrFail();
+    }
+
+    /**
+     * Start the seeded member's session as the membership, by a method that
+     * checks no credential, waiting on a further factor, and return its pending
+     * session as stored.
+     *
+     * @param  \Tests\Integration\Fixtures\ActivatableTenantMember  $member
+     * @param  \Tests\Integration\Fixtures\ActivatableTenantMembership  $membership
+     * @return \SineMacula\Laravel\Authentication\Models\Session
+     *
+     * @throws \Throwable
+     */
+    private function startedPendingSession(ActivatableTenantMember $member, ActivatableTenantMembership $membership): Session
+    {
+        $this->factorRequired = true;
+
+        $result = $this->sessions(self::GUARD)->start($member, $membership, 'sso');
+
+        self::assertTrue($result->isPending());
+
+        return Session::query()->whereKey($result->pending?->id)->firstOrFail();
+    }
+
+    /**
+     * The after-commit callbacks queued on the innermost open transaction of
+     * the default connection.
+     *
+     * @return list<callable(): mixed>
+     */
+    private function queuedCallbacks(): array
+    {
+        $manager = app('db.transactions');
+
+        self::assertInstanceOf(DatabaseTransactionsManager::class, $manager);
+
+        $transaction = $manager->callbackApplicableTransactions()->last();
+
+        self::assertInstanceOf(DatabaseTransactionRecord::class, $transaction);
+
+        return array_values($transaction->getCallbacks());
     }
 
     /**
