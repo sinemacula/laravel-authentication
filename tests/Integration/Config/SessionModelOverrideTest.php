@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
@@ -47,7 +48,7 @@ use Tests\Unit\Stubs\StubTwoDPrincipalResolver;
 #[CoversClass(RefreshTokenExchange::class)]
 final class SessionModelOverrideTest extends TestCase
 {
-    use InteractsWithSessionRecords;
+    use InteractsWithProofs, InteractsWithSessionRecords;
 
     /** @var class-string<\SineMacula\Laravel\Authentication\Models\Session> */
     private string $customModel;
@@ -56,7 +57,9 @@ final class SessionModelOverrideTest extends TestCase
      * Configure the custom session model class and table name, then replay the
      * shipped migration body inline against the in-memory connection so the
      * custom table exists for the test, and run the shipped rate limits
-     * migration, whose table the refresh exchange counts failures in.
+     * migration, whose table the refresh exchange counts failures in, and the
+     * proofs and provenance migrations, whose proofs the refreshed tokens'
+     * `auth_time` and `amr` are derived from.
      *
      * @return void
      */
@@ -78,6 +81,7 @@ final class SessionModelOverrideTest extends TestCase
         self::createSessionRecordTable('custom_sessions');
 
         (include __DIR__ . '/../../../database/migrations/2026_04_06_000002_create_rate_limits_table.php')->up();
+        self::migrateProofTables();
 
         Schema::create('stub_principals', static function (Blueprint $blueprint): void {
             $blueprint->id();
@@ -97,6 +101,8 @@ final class SessionModelOverrideTest extends TestCase
         Schema::dropIfExists('custom_sessions');
         Schema::dropIfExists('stub_principals');
         Schema::dropIfExists('rate_limits');
+        Schema::dropIfExists('authentication_proofs');
+        Schema::dropIfExists('authentication_provenance');
 
         parent::tearDown();
     }

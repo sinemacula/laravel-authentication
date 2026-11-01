@@ -52,7 +52,9 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 use SineMacula\Laravel\Authentication\Runtime\CredentialTimebox;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessionRecords;
+use Tests\Fixtures\Sessions\FirstFactorRecorder;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
 use Tests\Unit\Stubs\StubBareSession;
 use Tests\Unit\Stubs\StubIdentity;
@@ -81,7 +83,7 @@ use Tests\Unit\Stubs\StubSession;
 #[CoversClass(IdentifierCoercion::class)]
 final class RefreshTokenExchangeTest extends TestCase
 {
-    use InteractsWithSessionRecords, MockeryPHPUnitIntegration;
+    use InteractsWithProofs, InteractsWithSessionRecords, MockeryPHPUnitIntegration;
 
     /** @var string Shared JWT secret for the test fixtures. */
     private const string SECRET = 'test-secret-key-with-at-least-32-bytes!';
@@ -193,6 +195,11 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->app?->instance(AttemptLimiter::class, $this->limiter);
 
         self::createSessionRecordTable('stub_sessions');
+        self::migrateProofTables();
+
+        // A session row a test saves records the first factor its sign-in
+        // would have, so the tokens issued for it carry `auth_time` and `amr`.
+        FirstFactorRecorder::listen(app(Dispatcher::class), static fn (): bool => true);
     }
 
     /**

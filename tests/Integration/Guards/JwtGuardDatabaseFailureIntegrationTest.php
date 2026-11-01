@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Integration\Guards;
 
+use Carbon\Carbon;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
@@ -14,6 +15,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\UnreachableSession;
@@ -37,7 +40,7 @@ use Tests\TestCase;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardDatabaseFailureIntegrationTest extends TestCase
 {
-    use InteractsWithSessionRecords;
+    use InteractsWithProofs, InteractsWithSessionRecords;
 
     /** @var string Connection whose database cannot be opened. */
     private const string UNREACHABLE_CONNECTION = 'unreachable';
@@ -121,7 +124,11 @@ final class JwtGuardDatabaseFailureIntegrationTest extends TestCase
         $identity->forceFill(['email' => 'outage@example.test', 'password' => 'irrelevant'])->save();
 
         $session = new UnreachableSession;
-        $session->forceFill([...self::liveSession(), 'id' => self::SESSION_ID]);
+        $session->forceFill([...self::liveSession(), 'id' => self::SESSION_ID, 'authenticatable_type' => $identity->getMorphClass(), 'authenticatable_id' => (string) $identity->getKey()]); // @phpstan-ignore cast.string
+
+        // Its sign-in's proof is on the storage connection; only its own row
+        // is out of reach.
+        self::recordProof($session, ProofKind::FIRST_FACTOR, Carbon::now(), ['pwd']);
 
         $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session);
 

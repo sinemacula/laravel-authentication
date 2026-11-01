@@ -7,12 +7,10 @@ namespace Tests;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Foundation\Application;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase as OrchestraTestCase;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
-use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Models\Session;
 use Tests\Fixtures\Sessions\FirstFactorRecorder;
@@ -241,16 +239,7 @@ abstract class TestCase extends OrchestraTestCase
     {
         assert($app instanceof Application);
 
-        $app->make(Dispatcher::class)->listen('eloquent.created: *', function (string $event, array $payload): void {
-
-            $session = $payload[0] ?? null;
-
-            if (!$this->recordsSessionProofs || !$session instanceof EloquentSession || !$session instanceof Model) {
-                return;
-            }
-
-            FirstFactorRecorder::record($session);
-        });
+        FirstFactorRecorder::listen($app->make(Dispatcher::class), fn (): bool => $this->recordsSessionProofs);
     }
 
     /**

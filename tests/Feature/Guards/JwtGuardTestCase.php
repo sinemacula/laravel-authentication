@@ -29,17 +29,20 @@ use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use Tests\Concerns\BindsSignInPolicyDoubles;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessionRecords;
+use Tests\Fixtures\Sessions\FirstFactorRecorder;
 use Tests\Unit\Stubs\StubInjectableSession;
 use Tests\Unit\Stubs\StubSession;
 
 /**
  * Shared base case for the JwtGuard split tests.
  *
- * Owns collaborator mocks, the in-memory `stub_sessions` schema, the frozen
- * Carbon and JWT clocks, and the helper factories used by every concrete
- * `JwtGuardTest` variant. Each subclass covers one slice of JwtGuard's
- * behaviour.
+ * Owns collaborator mocks, the in-memory `stub_sessions` schema with the
+ * shipped proofs and provenance tables (each saved session row given the
+ * first-factor proof its sign-in would record), the frozen Carbon and JWT
+ * clocks, and the helper factories used by every concrete `JwtGuardTest`
+ * variant. Each subclass covers one slice of JwtGuard's behaviour.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -48,7 +51,7 @@ use Tests\Unit\Stubs\StubSession;
  */
 abstract class JwtGuardTestCase extends TestCase
 {
-    use BindsSignInPolicyDoubles, InteractsWithSessionRecords, MockeryPHPUnitIntegration;
+    use BindsSignInPolicyDoubles, InteractsWithProofs, InteractsWithSessionRecords, MockeryPHPUnitIntegration;
 
     /** @var string The guard name forwarded to JwtGuard's constructor. */
     protected const string GUARD_NAME = 'jwt-test';
@@ -135,6 +138,11 @@ abstract class JwtGuardTestCase extends TestCase
             ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));
 
         self::createSessionRecordTable('stub_sessions');
+        self::migrateProofTables();
+
+        // A session row a test saves records the first factor its sign-in
+        // would have, so the tokens issued for it carry `auth_time` and `amr`.
+        FirstFactorRecorder::listen($this->app->make(Dispatcher::class), static fn (): bool => true);
     }
 
     /**

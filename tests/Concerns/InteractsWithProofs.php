@@ -69,6 +69,19 @@ trait InteractsWithProofs
     }
 
     /**
+     * Run the shipped proofs and provenance migrations, for a test that builds
+     * its own schema rather than running every shipped migration.
+     *
+     * @return void
+     */
+    protected static function migrateProofTables(): void
+    {
+        foreach (['2026_04_06_000008_create_authentication_proofs_table.php', '2026_04_06_000009_create_authentication_provenance_table.php'] as $file) {
+            (require __DIR__ . '/../../database/migrations/' . $file)->up();
+        }
+    }
+
+    /**
      * The proofs the session records, oldest first (then by kind), as stored.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
