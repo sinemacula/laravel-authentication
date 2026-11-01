@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
@@ -38,6 +39,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Passwords\RecordingTimebox;
 use Tests\Fixtures\Sessions\RefusalIgnoringSignIn;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\MachineClient;
@@ -63,6 +65,9 @@ use Tests\TestCase;
 final class SessionReauthenticationTest extends TestCase
 {
     use InteractsWithProofs, InteractsWithRateLimits, InteractsWithSessions;
+
+    /** @var int A credential timebox budget that leaves a wait after each check, in microseconds. */
+    private const int BUDGET = 400000;
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -356,6 +361,7 @@ final class SessionReauthenticationTest extends TestCase
      */
     public function testAnAccountOutOfAttemptsIsNotReauthenticated(): void
     {
+        $box      = $this->recordingTimebox();
         $signedIn = $this->signedIn();
 
         $limiter = \Mockery::mock(AttemptLimiter::class);
@@ -385,6 +391,76 @@ final class SessionReauthenticationTest extends TestCase
         }
 
         self::assertSame(0, SessionProof::query()->where('kind', 'first_factor_reauthentication')->count());
+        self::assertSame([true, false, false], $box->endedEarly);
+        self::assertCount(2, $box->waits);
+    }
+
+    /**
+     * A reauthentication runs in the guard's credential timebox and cuts it
+     * short only once the session's own owner's credential has verified: a
+     * wrong password and another identity's right one each wait the box out,
+     * after a sign-in on the same guard cut its own short, so a valid password
+     * for some other account takes as long as a wrong one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testOnlyTheOwnersVerifiedCredentialCutsTheTimeboxShort(): void
+    {
+        $box = $this->recordingTimebox();
+
+        $this->seedIdentity();
+        $this->seedIdentity('grace@example.test');
+
+        $sessions = $this->sessions();
+        $signedIn = $sessions->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($signedIn);
+
+        $wrong   = $sessions->reauthenticate($signedIn->record, 'password', ['email' => 'ada@example.test', 'password' => 'wrong']);
+        $foreign = $sessions->reauthenticate($signedIn->record, 'password', self::credentials('grace@example.test'));
+        $owner   = $sessions->reauthenticate($signedIn->record, 'password', self::credentials());
+
+        self::assertSame([FailureReason::INVALID_CREDENTIALS, FailureReason::INVALID_CREDENTIALS, true], [$wrong->reason, $foreign->reason, $owner->isIssued()]);
+        self::assertSame([true, false, false, true], $box->endedEarly);
+        self::assertCount(2, $box->waits);
+        self::assertGreaterThan(0, min($box->waits));
+    }
+
+    /**
+     * An identity deactivated since the sign-in is refused once its correct
+     * password has verified, when the session is admitted again under the lock:
+     * the result and `AuthenticationFailed` (flow `reauthentication`, about
+     * that identity) say `identity_inactive`, no proof is recorded, and the
+     * attempt's slots stay counted.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentityDeactivatedSinceTheSignInIsRefusedUnderTheLock(): void
+    {
+        $signedIn = $this->signedIn();
+
+        DB::table('integration_identities')->update(['is_active' => false]);
+
+        $this->recordEvents([Reauthenticated::class, AuthenticationFailed::class]);
+
+        $result  = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials());
+        $failure = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame([FailureReason::IDENTITY_INACTIVE, null], [$result->reason, $result->accessToken]);
+        self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame(
+            [AuthenticationFlow::REAUTHENTICATION, FailureReason::IDENTITY_INACTIVE, $signedIn->identity->getAuthIdentifier(), $signedIn->record->getKey()],
+            [$failure->flow, $failure->reason, $failure->context->identity?->getAuthIdentifier(), $failure->context->session?->getSessionIdentifier()],
+        );
+        self::assertSame(0, SessionProof::query()->where('kind', 'first_factor_reauthentication')->count());
+        self::assertSame(
+            [1, 1],
+            [self::counterHits('sign_in', 'per_account', AccountAttempts::account($signedIn->identity)), self::counterHits('api', 'sign_in', 'per_ip', self::CLIENT_IP)],
+        );
     }
 
     /**
@@ -555,6 +631,22 @@ final class SessionReauthenticationTest extends TestCase
         $columns = ['refresh_key', 'previous_refresh_key', 'refresh_rotated_at', 'signed_in_at', 'idle_expires_at', 'absolute_expires_at', 'revoked_at', 'principal_id'];
 
         return array_intersect_key(Session::query()->sole()->getAttributes(), array_flip($columns));
+    }
+
+    /**
+     * Give the guards a credential timebox with a real budget that records
+     * whether each check cut it short, instead of sleeping.
+     *
+     * @return \Tests\Fixtures\Passwords\RecordingTimebox
+     */
+    private function recordingTimebox(): RecordingTimebox
+    {
+        $box = new RecordingTimebox;
+
+        config()->set('authentication.timebox.credentials_microseconds', self::BUDGET);
+        app()->instance(Timebox::class, $box);
+
+        return $box;
     }
 
     /**
