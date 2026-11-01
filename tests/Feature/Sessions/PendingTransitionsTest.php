@@ -91,8 +91,9 @@ final class PendingTransitionsTest extends TestCase
      * The session returns to pending on `mfa` with a new pending credential of
      * the configured lifetime, its floor moved to now, keeping its principal
      * and tenant and recording the policy version the caller judged it
-     * against; the report follows, naming no previous principal or tenant,
-     * since neither changed.
+     * against, the session given holding what was written as stored; the
+     * report follows, naming no previous principal or tenant, since neither
+     * changed.
      *
      * @return void
      *
@@ -111,6 +112,11 @@ final class PendingTransitionsTest extends TestCase
         self::assertNotNull($returned);
         self::assertSame([PendingRequirement::MFA], $returned->pending->requires);
         self::assertSame($this->now->addSeconds(300)->getTimestamp(), $returned->pending->expiresAt->getTimestamp());
+        self::assertSame($session, $returned->pending->session);
+        self::assertSame(SessionStatus::PENDING, $session->getStatus());
+        self::assertSame([PendingRequirement::MFA], $session->getRequires());
+        self::assertSame('v3', $session->getTenantPolicyVersion());
+        self::assertFalse($session->isDirty());
 
         [$key, $secret] = explode('.', $returned->credential, 2);
 
@@ -130,6 +136,31 @@ final class PendingTransitionsTest extends TestCase
         self::assertNull($event->previousPrincipalId);
         self::assertNull($event->previousPrincipalType);
         self::assertNull($event->previousTenantId);
+    }
+
+    /**
+     * A session acting in no tenant returns to pending in none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionInNoTenantReturnsToPendingInNone(): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->sessions()->signIn('password', self::credentials())->session?->record;
+
+        self::assertInstanceOf(Session::class, $session);
+
+        $returned = $this->transitions('api')->returnToPending($session, new Admitted($identity, $identity, null), null, AuthenticationFlow::REFRESH, $this->now);
+
+        self::assertNotNull($returned);
+        self::assertNull($returned->pending->tenant);
+
+        $row = Session::query()->sole();
+
+        self::assertSame(SessionStatus::PENDING, $row->getStatus());
+        self::assertNull($row->getTenantId());
     }
 
     /**
@@ -261,13 +292,14 @@ final class PendingTransitionsTest extends TestCase
     }
 
     /**
-     * The transitions of the members' guard.
+     * The transitions of the guard, the members' unless another is named.
      *
+     * @param  string  $guard
      * @return \SineMacula\Laravel\Authentication\Sessions\PendingTransitions
      */
-    private function transitions(): PendingTransitions
+    private function transitions(string $guard = 'members'): PendingTransitions
     {
-        return new PendingTransitions($this->freshGuard('members')->context(), new AfterCommit(static fn (): mixed => app('db.transactions')), app(ConfigRepository::class));
+        return new PendingTransitions($this->freshGuard($guard)->context(), new AfterCommit(static fn (): mixed => app('db.transactions')), app(ConfigRepository::class));
     }
 
     /**

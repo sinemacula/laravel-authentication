@@ -142,8 +142,8 @@ final class SessionActivationTest extends TestCase
      * configured idle lifetime from the activation, the client as its last use,
      * the principal, tenant and policy version recorded, and the proven session
      * and slots forgotten; the pair authenticates, and the activation is
-     * reported as the sign-in (`SessionCreated`, then `SignedIn`), not as a
-     * reactivation.
+     * reported as the sign-in (`SessionCreated`, then `SignedIn`, which no
+     * refresh renewed), not as a reactivation.
      *
      * @return void
      *
@@ -162,6 +162,7 @@ final class SessionActivationTest extends TestCase
 
         self::assertNotNull($activated);
         self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertFalse($this->recordedEvent(SignedIn::class)->refresh);
         self::assertTrue($membership->is($activated->principal));
 
         $row = Session::query()->sole();
@@ -191,7 +192,8 @@ final class SessionActivationTest extends TestCase
     /**
      * A first activation supersedes the session its sign-in's client proved it
      * holds while that session is as it was proven, reporting the revocation
-     * before the sign-in.
+     * before the sign-in, with the session it was given now holding its
+     * revocation as stored.
      *
      * @return void
      *
@@ -209,6 +211,11 @@ final class SessionActivationTest extends TestCase
 
         self::assertSame([SessionRevoked::class, SessionCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertSame(RevocationReason::SUPERSEDED, $this->recordedEvent(SessionRevoked::class)->reason);
+        self::assertSame($proven, $this->recordedEvent(SessionRevoked::class)->context->session);
+        self::assertSame(RevocationReason::SUPERSEDED->value, $proven->getRevokedReason());
+        self::assertSame($this->now->getTimestamp(), $proven->getRevokedAt()?->getTimestamp());
+        self::assertNull($proven->getRefreshKey());
+        self::assertFalse($proven->isDirty());
         self::assertSame(RevocationReason::SUPERSEDED->value, DB::table('authentication_sessions')->where('id', $proven->getKey())->value('revoked_reason'));
         self::assertNull(DB::table('authentication_sessions')->where('id', $pending->getKey())->value('supersedes_session_id'));
         self::assertNull(DB::table('authentication_sessions')->where('id', $pending->getKey())->value('supersedes_refresh_key'));

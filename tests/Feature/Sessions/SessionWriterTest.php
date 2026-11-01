@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -35,11 +36,13 @@ use SineMacula\Laravel\Authentication\Sessions\PendingSessionDraft;
 use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\EncryptedDescriptionSession;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainTenantFixture;
+use Tests\Unit\Stubs\StubSession;
 
 /**
  * Feature tests for writing a session: creating a session, and replacing a
@@ -55,7 +58,7 @@ use Tests\Unit\Stubs\PlainTenantFixture;
 #[CoversClass(PendingSessionDraft::class)]
 final class SessionWriterTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithSessionRecords, InteractsWithSessions;
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -1056,6 +1059,43 @@ final class SessionWriterTest extends TestCase
         self::assertSame([], $row->getRequires());
         self::assertNull($row->getPendingKey());
         self::assertNull($row->getTenantId());
+    }
+
+    /**
+     * The session the writer hands back reads as active and waiting on nothing
+     * from what the writer set, also on a session model that gives its columns
+     * no defaults, as one an application writes itself may not.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testANewSessionReadsActiveOnAModelWithoutDefaults(): void
+    {
+        self::createSessionRecordTable('stub_sessions');
+
+        config()->set('authentication.session.model', StubSession::class);
+
+        try {
+            $identity = $this->seedIdentity();
+            $session  = $this->writer()->create(
+                $this->admitted($identity),
+                'email',
+                $this->context(),
+                $this->lifetimes(),
+                $this->now,
+                $this->context()->client,
+                SignInProof::unattested('password', $this->now),
+            );
+
+            self::assertInstanceOf(StubSession::class, $session->record);
+            self::assertSame(SessionStatus::ACTIVE, $session->record->getStatus());
+            self::assertSame([], $session->record->getRequires());
+            self::assertNull($session->record->getPendingKey());
+            self::assertNull($session->record->getSwitchedAt());
+        } finally {
+            Schema::dropIfExists('stub_sessions');
+        }
     }
 
     /**

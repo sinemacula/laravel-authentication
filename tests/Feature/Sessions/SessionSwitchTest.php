@@ -26,6 +26,7 @@ use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
@@ -41,6 +42,7 @@ use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
@@ -264,8 +266,9 @@ final class SessionSwitchTest extends TestCase
 
     /**
      * A switch dispatches the bind events for the target, then
-     * `PrincipalSwitched` with the previous principal and tenant and both
-     * changes, but no `Login`; it records the target, the target's own tenant
+     * `PrincipalSwitched` with the previous principal and tenant (their ids
+     * kept apart, so neither is taken for the other) and both changes, but no
+     * `Login`; it records the target, the target's own tenant
      * as the active one, the switch time and the rotation on the session, keeps
      * the session's absolute deadline and restarts its idle one, and the guard
      * acts in the target's tenant.
@@ -276,7 +279,11 @@ final class SessionSwitchTest extends TestCase
      */
     public function testASwitchRecordsTheTargetAndReportsTheSwitch(): void
     {
+        ActivatableTenant::query()->create(['name' => 'Unrelated', 'is_active' => true]);
+
         [$first, $second, $member, $tenant] = $this->seedMemberships();
+
+        self::assertNotEquals($first->getKey(), $tenant->getKey());
 
         $session  = $this->signIn();
         $absolute = DB::table('authentication_sessions')->value('absolute_expires_at');
@@ -528,8 +535,57 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * A token of the guard whose rotation id is not a string is refused as
-     * `token_invalid`, before any session is looked up.
+     * A member the application lets act in no tenant switches to none: the
+     * session records none, the switch reports the tenant it left, and a lost
+     * response to it is answered again inside the grace window, in none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchToNoTenantRecordsNoneAndIsAnsweredAgain(): void
+    {
+        [, , , $own] = $this->seedMemberships();
+
+        app()->instance(TenantAccess::class, new readonly class implements TenantAccess {
+            /**
+             * Let any principal act in any tenant, or in none.
+             *
+             * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+             * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+             * @return bool
+             */
+            #[\Override]
+            public function mayActIn(Principal $principal, ?Tenant $tenant): bool
+            {
+                return true;
+            }
+        });
+
+        $session = $this->signIn();
+
+        $this->advance(5);
+        $this->recordEvents([PrincipalSwitched::class]);
+
+        $switched = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::tenant(TenantSelection::none()));
+
+        self::assertTrue($switched->isSwitched());
+        self::assertNull(DB::table('authentication_sessions')->value('tenant_id'));
+        self::assertSame(IdentifierCoercion::stringify($own->getKey()), $this->recordedEvent(PrincipalSwitched::class)->previousTenantId);
+        self::assertNull($this->recordedEvent(PrincipalSwitched::class)->context->tenant);
+
+        $this->advance(5);
+
+        $retried = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::tenant(TenantSelection::none()));
+
+        self::assertTrue($retried->isSwitched());
+        self::assertNull(DB::table('authentication_sessions')->value('tenant_id'));
+    }
+
+    /**
+     * A token of the guard whose rotation id is not a string, though every
+     * other check of the token passes, is refused as `token_invalid`, before
+     * any session is looked up.
      *
      * @return void
      *
@@ -541,7 +597,9 @@ final class SessionSwitchTest extends TestCase
 
         $session = $this->signIn();
         $claims  = self::claimsOf($session->tokens->refreshToken);
-        $forged  = JWT::encode([...$claims, 'jti' => 42], 'test-secret-key-with-at-least-32-bytes!', 'HS256', 'test-kid');
+        $forged  = JWT::encode([...$claims, 'jti' => 42], 'test-secret-key-with-at-least-32-bytes!', 'HS256', 'test-kid', ['typ' => TokenType::REFRESH->value]);
+
+        self::assertNotNull(Auth::jwt(self::GUARD)->parse($forged, TokenType::REFRESH));
 
         $this->assertSwitchFails(FailureReason::TOKEN_INVALID, $session, $second, $forged);
     }
