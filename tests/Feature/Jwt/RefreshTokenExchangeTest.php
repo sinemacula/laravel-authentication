@@ -1137,9 +1137,9 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A session that holds no refresh credential and whose session has ended
-     * fails as `session_expired`, not `refresh_key_missing`: the session is
-     * judged before the credential, and nothing is written.
+     * A session that holds no refresh credential and has ended fails as
+     * `session_expired`, not `refresh_key_missing`: the session is judged
+     * before the credential, and nothing is written.
      *
      * @return void
      *

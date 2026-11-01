@@ -178,8 +178,8 @@ final class RefreshJudgmentTest extends TestCase
     }
 
     /**
-     * A session rotated from the previous id the given seconds ago, its session
-     * live for days.
+     * A session rotated from the previous id the given seconds ago, and live
+     * for days.
      *
      * @param  int  $rotatedSecondsAgo
      * @return \SineMacula\Laravel\Authentication\Models\Session

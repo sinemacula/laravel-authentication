@@ -154,8 +154,8 @@ abstract class AbstractGuardTestCase extends TestCase
 
     /**
      * Build a Mockery mock of the Session contract whose identifier is
-     * `session-1` and whose session records no sign-in method, unless a test
-     * says otherwise.
+     * `session-1` and that records no sign-in method, unless a test says
+     * otherwise.
      *
      * @return \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Session
      */
@@ -173,8 +173,8 @@ abstract class AbstractGuardTestCase extends TestCase
     }
 
     /**
-     * A live session of the guard, as a stored row would load, whose session
-     * acts as the principal (so it can be pinned for it).
+     * A live session of the guard, as a stored row would load, that acts as the
+     * principal (so it can be pinned for it).
      *
      * @param  string  $id
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal

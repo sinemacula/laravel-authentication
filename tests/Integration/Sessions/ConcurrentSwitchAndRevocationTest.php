@@ -166,9 +166,9 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
 
     /**
      * A switch waiting on a revocation of its session fails as
-     * `session_revoked`
-     * once the revocation commits, leaving the session revoked and unswitched;
-     * when the revocation rolls back, the switch goes ahead.
+     * `session_revoked` once the revocation commits, leaving the session
+     * revoked and unswitched; when the revocation rolls back, the switch goes
+     * ahead.
      *
      * @return void
      *

@@ -323,8 +323,8 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
     }
 
     /**
-     * The member's own live session fails the attempt when its session acts as
-     * another principal than the one being bound.
+     * The member's own live session fails the attempt when it acts as another
+     * principal than the one being bound.
      *
      * @return void
      *

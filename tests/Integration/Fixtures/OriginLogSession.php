@@ -7,9 +7,9 @@ namespace Tests\Integration\Fixtures;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * Session model that derives the guard and the sign-in method of its session
- * from a `session_origins` row naming it, falling back to its own columns, as
- * an application might record either outside the session row.
+ * Session model that derives its guard and sign-in method from a
+ * `session_origins` row naming it, falling back to its own columns, as an
+ * application might record either outside the session row.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -118,7 +118,7 @@ final class ActivationOptInIntegrationTest extends TestCase
     }
 
     /**
-     * A user with no activation column refreshes a session-backed session.
+     * A user with no activation column refreshes a persisted session.
      *
      * @return void
      *

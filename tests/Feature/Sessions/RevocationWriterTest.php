@@ -241,7 +241,7 @@ final class RevocationWriterTest extends TestCase
 
     /**
      * A bound session that is not an Eloquent model has nothing to revoke: the
-     * session is only forgotten, and the session is never asked anything.
+     * guard only forgets it, and the session is never asked anything.
      *
      * @return void
      */

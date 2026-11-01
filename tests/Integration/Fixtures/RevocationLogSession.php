@@ -8,10 +8,10 @@ use Carbon\CarbonInterface;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
- * Session model that derives its revocation and the end of its session from
- * other tables: it is revoked while a row in `session_revocations` names it,
- * and its session ends at the time a row in `session_ends` gives it, as an
- * application might record either outside the session row.
+ * Session model that derives its revocation and its end from other tables: it
+ * is revoked while a row in `session_revocations` names it, and it ends at the
+ * time a row in `session_ends` gives it, as an application might record either
+ * outside the session row.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -107,8 +107,8 @@ final class SwitchResultTest extends TestCase
     }
 
     /**
-     * A switched session keeps the exchanged session and what the session
-     * recorded before it.
+     * A switched principal keeps the exchanged session and the principal the
+     * session recorded before the switch.
      *
      * @return void
      */

@@ -22,7 +22,7 @@ use Tests\TestCase;
  * Feature tests holding the code sign-in methods to the rule that a non-human
  * identity has no interactive sign-in: a machine is never sent a code, but one
  * that holds the right code for its verified phone number or email address is
- * still refused at admission, with no session and no session.
+ * still refused at admission, and no session is started.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

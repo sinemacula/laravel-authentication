@@ -112,8 +112,8 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     /**
      * A bearer token that fails after a lookup is resolved once per request:
      * asking the guard again through every accessor costs no further query. A
-     * revoked or ended session, or one whose session switched to another
-     * principal, is rejected from the row the session lookup already loaded.
+     * revoked or ended session, or one that switched to another principal, is
+     * rejected from the row the session lookup already loaded.
      *
      * @param  string  $rejection
      * @param  int  $reads

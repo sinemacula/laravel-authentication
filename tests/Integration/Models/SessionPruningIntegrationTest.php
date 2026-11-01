@@ -95,8 +95,8 @@ final class SessionPruningIntegrationTest extends TestCase
 
     /**
      * The retention is read when pruning runs: with 0 days a session is pruned
-     * from the second its session ended, and a digit string, as `env()` returns
-     * one, counts as its number of days.
+     * from the second it ended, and a digit string, as `env()` returns one,
+     * counts as its number of days.
      *
      * @return void
      */
