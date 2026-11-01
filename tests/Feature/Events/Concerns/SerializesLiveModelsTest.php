@@ -135,7 +135,7 @@ final class SerializesLiveModelsTest extends TestCase
         self::assertInstanceOf(ActivatableTenant::class, $copy->tenant);
         self::assertTrue($copy->tenant->trashed());
         self::assertSame($context->toArray(), $copy->toArray());
-        self::assertSame(ActivatableTenantMember::class, $copy->identityMorphClass);
+        self::assertSame(ActivatableTenantMember::class, $copy->identityType);
         self::assertSame((string) $this->member->getKey(), $copy->identityId); // @phpstan-ignore cast.string
     }
 
@@ -160,7 +160,7 @@ final class SerializesLiveModelsTest extends TestCase
         self::assertInstanceOf(EventContext::class, $copy);
         self::assertInstanceOf(ActivatableTenantMember::class, $copy->identity);
         self::assertTrue($this->member->is($copy->identity));
-        self::assertSame('member', $copy->identityMorphClass);
+        self::assertSame('member', $copy->identityType);
     }
 
     /**
@@ -241,7 +241,7 @@ final class SerializesLiveModelsTest extends TestCase
 
         self::assertInstanceOf(PrincipalSwitched::class, $copy);
         self::assertNull($copy->previousPrincipal);
-        self::assertSame(ActivatableTenantMembership::class, $copy->previousPrincipalMorphClass);
+        self::assertSame(ActivatableTenantMembership::class, $copy->previousPrincipalType);
         self::assertSame((string) $previous->getKey(), $copy->previousPrincipalId); // @phpstan-ignore cast.string
         self::assertTrue($this->membership->is($copy->context->principal));
     }

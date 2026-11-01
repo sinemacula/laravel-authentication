@@ -42,7 +42,7 @@ final readonly class SessionReturnedToPending implements AuthenticationEvent
      * @param  list<string>  $requires
      * @param  \Carbon\CarbonImmutable  $expiresAt
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow  $flow
-     * @param  ?string  $previousPrincipalMorphClass
+     * @param  ?string  $previousPrincipalType
      * @param  ?string  $previousPrincipalId
      * @param  ?string  $previousTenantId
      */
@@ -61,7 +61,7 @@ final readonly class SessionReturnedToPending implements AuthenticationEvent
         public AuthenticationFlow $flow,
 
         /** The morph class of the principal the session acted as, when the destination changed it. */
-        public ?string $previousPrincipalMorphClass = null,
+        public ?string $previousPrincipalType = null,
 
         /** The id of the principal the session acted as, when the destination changed it. */
         public ?string $previousPrincipalId = null,

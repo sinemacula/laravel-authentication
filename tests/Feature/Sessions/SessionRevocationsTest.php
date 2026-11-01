@@ -150,7 +150,7 @@ final class SessionRevocationsTest extends TestCase
 
         self::assertNull($context->identity);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $context->identityId);
-        self::assertSame($identity->getMorphClass(), $context->principalMorphClass);
+        self::assertSame($identity->getMorphClass(), $context->principalType);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $context->principalId);
     }
 
@@ -264,7 +264,7 @@ final class SessionRevocationsTest extends TestCase
 
         self::assertSame(self::idOf($other), $revoked->sessionId);
         self::assertNull($revoked->principal);
-        self::assertSame($identity->getMorphClass(), $revoked->principalMorphClass);
+        self::assertSame($identity->getMorphClass(), $revoked->principalType);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $revoked->principalId);
         self::assertNull(DB::table('authentication_sessions')->where('id', self::idOf($current))->value('revoked_at'));
         self::assertSame('signed_out_everywhere', DB::table('authentication_sessions')->where('id', self::idOf($other))->value('revoked_reason'));
@@ -378,7 +378,7 @@ final class SessionRevocationsTest extends TestCase
         $context = $this->recordedEvent(SessionRevoked::class)->context;
 
         self::assertNull($context->principal);
-        self::assertSame($identity->getMorphClass(), $context->principalMorphClass);
+        self::assertSame($identity->getMorphClass(), $context->principalType);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $context->principalId);
         self::assertSame(1, $revocations->principalDeactivated($identity));
         self::assertSame('revoked', DB::table('authentication_sessions')->where('id', self::idOf($first))->value('revoked_reason'));
@@ -459,7 +459,7 @@ final class SessionRevocationsTest extends TestCase
 
         self::assertSame(1, $revocations->tenantDeactivated($tenant, [$membership, $membership, $eager]));
 
-        $principals = array_map(static fn (object $event): ?string => $event instanceof SignedOutEverywhere ? $event->context->principalMorphClass : null, $this->recorded);
+        $principals = array_map(static fn (object $event): ?string => $event instanceof SignedOutEverywhere ? $event->context->principalType : null, $this->recorded);
 
         self::assertSame([ActivatableTenantMembership::class, EagerTenantMembership::class], $principals);
         self::assertSame('tenant_deactivated', DB::table('authentication_sessions')->value('revoked_reason'));

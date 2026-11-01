@@ -44,7 +44,7 @@ final class PrincipalSwitchedTest extends TestCase
         self::assertSame($context, $event->context);
         self::assertSame($context, $event->context());
         self::assertSame($previous, $event->previousPrincipal);
-        self::assertSame(PlainPrincipalFixture::class, $event->previousPrincipalMorphClass);
+        self::assertSame(PlainPrincipalFixture::class, $event->previousPrincipalType);
         self::assertSame('p-1', $event->previousPrincipalId);
         self::assertSame('t-1', $event->previousTenantId);
         self::assertTrue($event->principalChanged);
@@ -74,7 +74,7 @@ final class PrincipalSwitchedTest extends TestCase
         self::assertSame('p-2', $copy->context->principalId);
         self::assertSame('switched-session', $copy->context->sessionId);
         self::assertNull($copy->previousPrincipal);
-        self::assertSame('membership', $copy->previousPrincipalMorphClass);
+        self::assertSame('membership', $copy->previousPrincipalType);
         self::assertSame('9', $copy->previousPrincipalId);
         self::assertNull($copy->previousTenantId);
         self::assertFalse($copy->principalChanged);

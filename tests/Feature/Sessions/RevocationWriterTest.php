@@ -379,7 +379,7 @@ final class RevocationWriterTest extends TestCase
         self::assertSame(self::idOf($revoked), $record->context->sessionId);
         self::assertSame($identity, $record->context->identity);
         self::assertNull($record->context->principal);
-        self::assertSame($identity->getMorphClass(), $record->context->principalMorphClass);
+        self::assertSame($identity->getMorphClass(), $record->context->principalType);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $record->context->principalId);
         self::assertSame(RevocationReason::PASSWORD_CHANGED, $record->reason);
 

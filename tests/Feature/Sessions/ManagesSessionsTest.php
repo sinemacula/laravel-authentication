@@ -171,7 +171,7 @@ final class ManagesSessionsTest extends TestCase
         self::assertNull($context->identity);
         self::assertNull($context->principal);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $context->identityId);
-        self::assertSame($identity->getMorphClass(), $context->principalMorphClass);
+        self::assertSame($identity->getMorphClass(), $context->principalType);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $context->principalId);
     }
 
@@ -205,7 +205,7 @@ final class ManagesSessionsTest extends TestCase
         self::assertSame(self::idOf($current), $everywhere->context->sessionId);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $everywhere->context->identityId);
         self::assertNull($everywhere->context->principal);
-        self::assertNull($everywhere->context->principalMorphClass);
+        self::assertNull($everywhere->context->principalType);
         self::assertNull($everywhere->context->principalId);
         self::assertNull($everywhere->tokensValidAfter);
 
@@ -214,7 +214,7 @@ final class ManagesSessionsTest extends TestCase
             assert($revoked instanceof SessionRevoked);
 
             self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $revoked->context->identityId);
-            self::assertSame($identity->getMorphClass(), $revoked->context->principalMorphClass);
+            self::assertSame($identity->getMorphClass(), $revoked->context->principalType);
             self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $revoked->context->principalId);
         }
 
@@ -293,7 +293,7 @@ final class ManagesSessionsTest extends TestCase
         self::assertSame(self::idOf($laptop), $revoked->context->sessionId);
         self::assertNull($revoked->context->principal);
         self::assertSame(IdentifierCoercion::stringify($current->identity->getAuthIdentifier()), $revoked->context->identityId);
-        self::assertSame(DB::table('authentication_sessions')->where('id', self::idOf($laptop))->value('principal_type'), $revoked->context->principalMorphClass);
+        self::assertSame(DB::table('authentication_sessions')->where('id', self::idOf($laptop))->value('principal_type'), $revoked->context->principalType);
         self::assertSame(IdentifierCoercion::stringify($current->identity->getAuthIdentifier()), $revoked->context->principalId);
         self::assertSame('revoked', DB::table('authentication_sessions')->where('id', self::idOf($laptop))->value('revoked_reason'));
 

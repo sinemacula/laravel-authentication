@@ -68,19 +68,19 @@ final readonly class EventContext implements Arrayable
     public CarbonImmutable $occurredAt;
 
     /** @var ?string The identity's morph class (an Eloquent model's morph class, or its class name) when the event was built. */
-    public ?string $identityMorphClass;
+    public ?string $identityType;
 
     /** @var ?string The identity's auth identifier when the event was built. */
     public ?string $identityId;
 
     /** @var ?string The principal's morph class (an Eloquent model's morph class, or its class name), as a session records it, when the event was built. */
-    public ?string $principalMorphClass;
+    public ?string $principalType;
 
     /** @var ?string The principal's identifier when the event was built. */
     public ?string $principalId;
 
     /** @var ?string The tenant's morph class (an Eloquent model's morph class, or its class name) when the event was built. */
-    public ?string $tenantMorphClass;
+    public ?string $tenantType;
 
     /** @var ?string The tenant's identifier when the event was built. */
     public ?string $tenantId;
@@ -143,14 +143,14 @@ final readonly class EventContext implements Arrayable
     ) {
         $recorded = $fromSession ? $session : null;
 
-        $this->occurredAt          = CarbonImmutable::now();
-        $this->identityMorphClass  = $identity  === null ? self::recordedOn($recorded, 'ownerType') : self::morphClassOf($identity);
-        $this->identityId          = $identity  === null ? self::recordedOn($recorded, 'owner') : IdentifierCoercion::stringify($identity->getAuthIdentifier());
-        $this->principalMorphClass = $principal === null ? self::recordedOn($recorded, 'type') : self::morphClassOf($principal);
-        $this->principalId         = $principal === null ? self::recordedOn($recorded, 'id') : PrincipalReference::id($principal);
-        $this->tenantMorphClass    = $tenant    === null ? null : self::morphClassOf($tenant);
-        $this->tenantId            = $tenant    === null ? self::recordedOn($recorded, 'tenant') : IdentifierCoercion::stringify($tenant->getTenantIdentifier());
-        $this->sessionId           = $session   === null ? $sessionId : IdentifierCoercion::stringify($session->getSessionIdentifier());
+        $this->occurredAt    = CarbonImmutable::now();
+        $this->identityType  = $identity  === null ? self::recordedOn($recorded, 'ownerType') : self::morphClassOf($identity);
+        $this->identityId    = $identity  === null ? self::recordedOn($recorded, 'owner') : IdentifierCoercion::stringify($identity->getAuthIdentifier());
+        $this->principalType = $principal === null ? self::recordedOn($recorded, 'type') : self::morphClassOf($principal);
+        $this->principalId   = $principal === null ? self::recordedOn($recorded, 'id') : PrincipalReference::id($principal);
+        $this->tenantType    = $tenant    === null ? null : self::morphClassOf($tenant);
+        $this->tenantId      = $tenant    === null ? self::recordedOn($recorded, 'tenant') : IdentifierCoercion::stringify($tenant->getTenantIdentifier());
+        $this->sessionId     = $session   === null ? $sessionId : IdentifierCoercion::stringify($session->getSessionIdentifier());
     }
 
     /**
@@ -164,20 +164,20 @@ final readonly class EventContext implements Arrayable
     public function toArray(): array
     {
         return [
-            'occurred_at'           => $this->occurredAt->utc()->format('Y-m-d\TH:i:s.u\Z'),
-            'guard'                 => $this->guard,
-            'method'                => $this->method,
-            'ip'                    => $this->client->ip,
-            'user_agent'            => $this->client->userAgent,
-            'identity_morph_class'  => $this->identityMorphClass,
-            'identity_id'           => $this->identityId,
-            'principal_morph_class' => $this->principalMorphClass,
-            'principal_id'          => $this->principalId,
-            'tenant_morph_class'    => $this->tenantMorphClass,
-            'tenant_id'             => $this->tenantId,
-            'session_id'            => $this->sessionId,
-            'credential_id'         => $this->credentialId,
-            'scopes'                => $this->scopes,
+            'occurred_at'    => $this->occurredAt->utc()->format('Y-m-d\TH:i:s.u\Z'),
+            'guard'          => $this->guard,
+            'method'         => $this->method,
+            'ip'             => $this->client->ip,
+            'user_agent'     => $this->client->userAgent,
+            'identity_type'  => $this->identityType,
+            'identity_id'    => $this->identityId,
+            'principal_type' => $this->principalType,
+            'principal_id'   => $this->principalId,
+            'tenant_type'    => $this->tenantType,
+            'tenant_id'      => $this->tenantId,
+            'session_id'     => $this->sessionId,
+            'credential_id'  => $this->credentialId,
+            'scopes'         => $this->scopes,
         ];
     }
 

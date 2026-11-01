@@ -283,17 +283,17 @@ final class SignInEventSerializationTest extends TestCase
         $context = self::roundTrip($this->recordedEvent(SignedIn::class))->context;
 
         $keys = [
-            'occurred_at', 'guard', 'method', 'ip', 'user_agent', 'identity_morph_class', 'identity_id', 'principal_morph_class', 'principal_id',
-            'tenant_morph_class', 'tenant_id', 'session_id', 'credential_id', 'scopes',
+            'occurred_at', 'guard', 'method', 'ip', 'user_agent', 'identity_type', 'identity_id', 'principal_type', 'principal_id',
+            'tenant_type', 'tenant_id', 'session_id', 'credential_id', 'scopes',
         ];
 
         self::assertSame($this->recordedEvent(SignedIn::class)->context->toArray(), $context->toArray());
         self::assertSame($keys, array_keys($context->toArray()));
-        self::assertSame($this->member->getMorphClass(), $context->identityMorphClass);
+        self::assertSame($this->member->getMorphClass(), $context->identityType);
         self::assertSame((string) $this->member->getKey(), $context->identityId); // @phpstan-ignore cast.string
-        self::assertSame($this->membership->getMorphClass(), $context->principalMorphClass);
+        self::assertSame($this->membership->getMorphClass(), $context->principalType);
         self::assertSame((string) $this->membership->getKey(), $context->principalId); // @phpstan-ignore cast.string
-        self::assertSame($this->tenant->getMorphClass(), $context->tenantMorphClass);
+        self::assertSame($this->tenant->getMorphClass(), $context->tenantType);
         self::assertSame((string) $this->tenant->getKey(), $context->tenantId); // @phpstan-ignore cast.string
         self::assertSame($session->record->getKey(), $context->sessionId);
         self::assertTrue(CarbonImmutable::now()->equalTo($context->occurredAt));

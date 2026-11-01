@@ -280,7 +280,7 @@ the switch's read and its write, the row is read again with a lock and judged on
 is never tried twice.
 
 A switch schedules `PrincipalSwitched` for its commit on the session's connection, with the new principal and tenant in
-its context, the previous principal as the session recorded it (`previousPrincipalMorphClass`, `previousPrincipalId`)
+its context, the previous principal as the session recorded it (`previousPrincipalType`, `previousPrincipalId`)
 and, when it still resolves for the identity, the principal itself (`previousPrincipal`), the previous tenant's
 identifier (`previousTenantId`) and which of the two changed (`principalChanged`, `tenantChanged`), before it binds the
 guard to the destination in the destination tenant (`Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`, no

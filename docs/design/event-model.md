@@ -21,9 +21,9 @@ to these events, so the shape and the timing are a contract.
 - A context snapshots, when it is built, when (`occurredAt`, a `CarbonImmutable` to the microsecond), and, as strings,
   the identity's morph class (an Eloquent model's morph class, else its class name; the class name too for a model an
   enforced morph map leaves out, so building a context never throws `ClassMorphViolationException` for a tenant that
-  never needed an alias) and auth identifier (`identityMorphClass`, `identityId`), the principal's morph class, as a
-  session row records it, and identifier (`principalMorphClass`, `principalId`), the tenant's morph class and identifier
-  (`tenantMorphClass`, `tenantId`) and the session's identifier (`sessionId`). A session id a token named is kept as the
+  never needed an alias) and auth identifier (`identityType`, `identityId`), the principal's morph class, as a
+  session row records it, and identifier (`principalType`, `principalId`), the tenant's morph class and identifier
+  (`tenantType`, `tenantId`) and the session's identifier (`sessionId`). A session id a token named is kept as the
   session snapshot when no session row was loaded. The morph class says which model a reference names, never what kind
   of principal it is: a caller's category is the application's to record, from the principal it is given.
 - An event about a session row itself is built with `fromSession`: every `SessionRevoked`, and a refresh or switch

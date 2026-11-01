@@ -488,7 +488,7 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame($session->id, $failure->context->sessionId);
         self::assertNull($failure->context->identity);
         self::assertSame('9', $failure->context->identityId);
-        self::assertSame(PlainPrincipalFixture::class, $failure->context->principalMorphClass);
+        self::assertSame(PlainPrincipalFixture::class, $failure->context->principalType);
         self::assertSame('p-9', $failure->context->principalId);
     }
 
@@ -788,7 +788,7 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $failure->reason);
         self::assertSame($session->id, $failure->context->sessionId);
         self::assertSame('15', $failure->context->identityId);
-        self::assertNull($failure->context->principalMorphClass);
+        self::assertNull($failure->context->principalType);
         self::assertNull($failure->context->principalId);
         self::assertSame(RefreshTokenHasher::hash($plainRotationId), $session->fresh()?->getRefreshKey());
     }
@@ -2097,7 +2097,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         foreach ([$revocations[0]->context, $this->failures[0]->context] as $context) {
             self::assertSame($session->getAttribute('authenticatable_id'), $context->identityId);
-            self::assertSame(PlainPrincipalFixture::class, $context->principalMorphClass);
+            self::assertSame(PlainPrincipalFixture::class, $context->principalType);
             self::assertSame($session->getAttribute('principal_id'), $context->principalId);
         }
     }

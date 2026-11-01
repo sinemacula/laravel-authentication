@@ -45,7 +45,7 @@ final readonly class PrincipalSwitched implements AuthenticationEvent
      *
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $previousPrincipal
-     * @param  ?string  $previousPrincipalMorphClass
+     * @param  ?string  $previousPrincipalType
      * @param  ?string  $previousPrincipalId
      * @param  ?string  $previousTenantId
      * @param  bool  $principalChanged
@@ -60,7 +60,7 @@ final readonly class PrincipalSwitched implements AuthenticationEvent
         public ?Principal $previousPrincipal,
 
         /** The morph class the session recorded for the previous principal. */
-        public ?string $previousPrincipalMorphClass,
+        public ?string $previousPrincipalType,
 
         /** The identifier the session recorded for the previous principal. */
         public ?string $previousPrincipalId,

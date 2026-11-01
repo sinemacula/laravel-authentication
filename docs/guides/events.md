@@ -71,14 +71,14 @@ session and the sign-in method (for a session's events, the method it records; f
 the method that proved it, such as `totp` or `passkey`, whether it succeeded or failed), and the credential (an API key
 or a passkey) in `credentialId` with the scopes it grants in `scopes` (`null` for a human identity's session, which no
 credential limits); what was not established is `null`. It also snapshots, when the event is built, when it happened
-(`occurredAt`), the identity, the principal and the tenant each by morph class and identifier (`identityMorphClass` and
-`identityId`, `principalMorphClass` and `principalId`, `tenantMorphClass` and `tenantId`; the morph class is an Eloquent
+(`occurredAt`), the identity, the principal and the tenant each by morph class and identifier (`identityType` and
+`identityId`, `principalType` and `principalId`, `tenantType` and `tenantId`; the morph class is an Eloquent
 model's `getMorphClass()`, else its class name, as it is for a model an enforced morph map leaves out), and the
 session's identifier (`sessionId`, which keeps the session id a token named even when no session was found). An event
 about a session row itself (every `SessionRevoked`, and a refresh or switch refused on the row's own state before its
 owner was read, such as a revoked or ended session or a replay) names the owner and principal the row records in
-`identityMorphClass`, `identityId`, `principalMorphClass` and `principalId` when the flow did not load them, and the
-active tenant the row records (its `tenant_id`) in `tenantId`, with no `tenantMorphClass`, when the flow did not load
+`identityType`, `identityId`, `principalType` and `principalId` when the flow did not load them, and the
+active tenant the row records (its `tenant_id`) in `tenantId`, with no `tenantType`, when the flow did not load
 the tenant. Other events name only what they hold, even when
 they carry a session: an identity's `SignedOutEverywhere`, a `SessionPending` waiting on a choice of principal and a
 switch refused for its target have no principal.

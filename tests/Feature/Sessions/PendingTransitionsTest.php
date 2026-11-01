@@ -128,7 +128,7 @@ final class PendingTransitionsTest extends TestCase
 
         self::assertSame(AuthenticationFlow::REFRESH, $event->flow);
         self::assertNull($event->previousPrincipalId);
-        self::assertNull($event->previousPrincipalMorphClass);
+        self::assertNull($event->previousPrincipalType);
         self::assertNull($event->previousTenantId);
     }
 
@@ -158,7 +158,7 @@ final class PendingTransitionsTest extends TestCase
         self::assertSame(IdentifierCoercion::stringify($elsewhere->getKey()), $row->principal_id);
         self::assertSame(IdentifierCoercion::stringify($other->getKey()), $row->getTenantId());
         self::assertSame(IdentifierCoercion::stringify($membership->getKey()), $event->previousPrincipalId);
-        self::assertSame($membership->getMorphClass(), $event->previousPrincipalMorphClass);
+        self::assertSame($membership->getMorphClass(), $event->previousPrincipalType);
         self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $event->previousTenantId);
     }
 

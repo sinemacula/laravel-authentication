@@ -187,9 +187,9 @@ final class EveryEventRestoresTest extends TestCase
         self::assertNull($restored->session);
         self::assertSame($context->toArray(), $restored->toArray());
         self::assertSame('2026-04-06T12:00:00.250000Z', $restored->toArray()['occurred_at']);
-        self::assertSame($member->getMorphClass(), $restored->identityMorphClass);
-        self::assertSame($membership->getMorphClass(), $restored->principalMorphClass);
-        self::assertSame($tenant->getMorphClass(), $restored->tenantMorphClass);
+        self::assertSame($member->getMorphClass(), $restored->identityType);
+        self::assertSame($membership->getMorphClass(), $restored->principalType);
+        self::assertSame($tenant->getMorphClass(), $restored->tenantType);
         self::assertSame($session->record->getKey(), $restored->sessionId);
         self::assertEquals(self::ownValues($event), self::ownValues($copy));
     }

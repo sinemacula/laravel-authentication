@@ -519,7 +519,7 @@ final class SessionStepUpTest extends TestCase
 
         $owner = IdentifierCoercion::stringify($signedIn->identity->getAuthIdentifier());
 
-        self::assertSame([IntegrationIdentity::class, $owner], [$context->identityMorphClass, $context->identityId]);
+        self::assertSame([IntegrationIdentity::class, $owner], [$context->identityType, $context->identityId]);
     }
 
     /**

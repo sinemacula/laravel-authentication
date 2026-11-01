@@ -202,7 +202,7 @@ trait RecordsEventSequences
     private function detailOf(AuthenticationEvent $event): ?string
     {
         return match (true) {
-            $event instanceof PrincipalSwitched    => 'from:' . $this->nameOf('principal', $event->previousPrincipalMorphClass, $event->previousPrincipalId),
+            $event instanceof PrincipalSwitched    => 'from:' . $this->nameOf('principal', $event->previousPrincipalType, $event->previousPrincipalId),
             $event instanceof AuthenticationFailed => $event->flow->value . ':' . $event->reason->value,
             $event instanceof SessionRevoked       => $event->reason->value,
             $event instanceof SignedOutEverywhere  => $event->reason->value . ':' . $event->revoked,
@@ -237,8 +237,8 @@ trait RecordsEventSequences
     private function nameOfContext(EventContext $context): string
     {
         return implode('/', [
-            $this->nameOf('identity', $context->identityMorphClass, $context->identityId),
-            $this->nameOf('principal', $context->principalMorphClass, $context->principalId),
+            $this->nameOf('identity', $context->identityType, $context->identityId),
+            $this->nameOf('principal', $context->principalType, $context->principalId),
             $this->nameOf('session', 'session', $context->sessionId),
         ]);
     }

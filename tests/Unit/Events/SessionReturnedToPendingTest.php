@@ -45,7 +45,7 @@ final class SessionReturnedToPendingTest extends TestCase
         self::assertSame($context, $event->context());
         self::assertSame(['mfa'], $event->requires);
         self::assertEquals(CarbonImmutable::parse('2026-01-01 00:05:00'), $event->expiresAt);
-        self::assertSame('membership', $event->previousPrincipalMorphClass);
+        self::assertSame('membership', $event->previousPrincipalType);
         self::assertSame('p-0', $event->previousPrincipalId);
         self::assertSame('tenant-0', $event->previousTenantId);
     }
@@ -61,7 +61,7 @@ final class SessionReturnedToPendingTest extends TestCase
         $event = new SessionReturnedToPending(self::context(), ['mfa'], CarbonImmutable::parse('2026-01-01 00:05:00'), AuthenticationFlow::REFRESH);
 
         self::assertSame(AuthenticationFlow::REFRESH, $event->flow);
-        self::assertNull($event->previousPrincipalMorphClass);
+        self::assertNull($event->previousPrincipalType);
         self::assertNull($event->previousPrincipalId);
         self::assertNull($event->previousTenantId);
     }

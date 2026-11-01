@@ -1226,9 +1226,9 @@ final class PendingSessionsTest extends TestCase
 
             $context = $this->recordedEvent(SignedIn::class)->context;
 
-            self::assertSame('chooser', $context->identityMorphClass);
-            self::assertSame('membership', $context->principalMorphClass);
-            self::assertSame(ActivatableTenant::class, $context->tenantMorphClass);
+            self::assertSame('chooser', $context->identityType);
+            self::assertSame('membership', $context->principalType);
+            self::assertSame(ActivatableTenant::class, $context->tenantType);
             self::assertSame(IdentifierCoercion::stringify($first->tenant_id), $context->tenantId);
             self::assertSame('membership', DB::table('authentication_sessions')->value('principal_type'));
         } finally {

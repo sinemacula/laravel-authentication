@@ -55,36 +55,36 @@ final class EventContextTest extends TestCase
 
         self::assertNull($context->identity);
         self::assertNull($context->principal);
-        self::assertSame('user', $context->identityMorphClass);
+        self::assertSame('user', $context->identityType);
         self::assertSame('7', $context->identityId);
-        self::assertSame('member', $context->principalMorphClass);
+        self::assertSame('member', $context->principalType);
         self::assertSame('12', $context->principalId);
         self::assertNull($context->tenant);
-        self::assertNull($context->tenantMorphClass);
+        self::assertNull($context->tenantType);
         self::assertSame('tenant-5', $context->tenantId);
 
         $known = new EventContext('api', new ClientContext(null, null), new PlainIdentityFixture(8), new PlainPrincipalFixture('p-1'), session: $session, fromSession: true);
 
-        self::assertSame(PlainIdentityFixture::class, $known->identityMorphClass);
+        self::assertSame(PlainIdentityFixture::class, $known->identityType);
         self::assertSame('8', $known->identityId);
-        self::assertSame(PlainPrincipalFixture::class, $known->principalMorphClass);
+        self::assertSame(PlainPrincipalFixture::class, $known->principalType);
         self::assertSame('p-1', $known->principalId);
 
         $principalOnly = new EventContext('api', new ClientContext(null, null), principal: new PlainPrincipalFixture('p-1'), session: $session, fromSession: true);
 
-        self::assertSame('user', $principalOnly->identityMorphClass);
+        self::assertSame('user', $principalOnly->identityType);
         self::assertSame('7', $principalOnly->identityId);
         self::assertSame('p-1', $principalOnly->principalId);
 
         $identityOnly = new EventContext('api', new ClientContext(null, null), new PlainIdentityFixture(8), session: $session, fromSession: true);
 
         self::assertSame('8', $identityOnly->identityId);
-        self::assertSame('member', $identityOnly->principalMorphClass);
+        self::assertSame('member', $identityOnly->principalType);
         self::assertSame('12', $identityOnly->principalId);
 
         $tenanted = new EventContext('api', new ClientContext(null, null), tenant: new PlainTenantFixture(9), session: $session, fromSession: true);
 
-        self::assertSame(PlainTenantFixture::class, $tenanted->tenantMorphClass);
+        self::assertSame(PlainTenantFixture::class, $tenanted->tenantType);
         self::assertSame('9', $tenanted->tenantId);
     }
 
@@ -111,9 +111,9 @@ final class EventContextTest extends TestCase
 
         $bare = new EventContext('api', new ClientContext(null, null), session: $session);
 
-        self::assertNull($bare->identityMorphClass);
+        self::assertNull($bare->identityType);
         self::assertNull($bare->identityId);
-        self::assertNull($bare->principalMorphClass);
+        self::assertNull($bare->principalType);
         self::assertNull($bare->principalId);
         self::assertNull($bare->tenantId);
         self::assertSame('session-1', $bare->sessionId);
@@ -121,7 +121,7 @@ final class EventContextTest extends TestCase
         $identityOnly = new EventContext('api', new ClientContext(null, null), new PlainIdentityFixture(8), session: $session);
 
         self::assertSame('8', $identityOnly->identityId);
-        self::assertNull($identityOnly->principalMorphClass);
+        self::assertNull($identityOnly->principalType);
         self::assertNull($identityOnly->principalId);
     }
 
@@ -140,9 +140,9 @@ final class EventContextTest extends TestCase
 
         $bare = new EventContext('api', new ClientContext(null, null), session: $session, fromSession: true);
 
-        self::assertNull($bare->identityMorphClass);
+        self::assertNull($bare->identityType);
         self::assertNull($bare->identityId);
-        self::assertNull($bare->principalMorphClass);
+        self::assertNull($bare->principalType);
         self::assertNull($bare->principalId);
 
         $declared = \Mockery::mock(EloquentSession::class);
@@ -152,9 +152,9 @@ final class EventContextTest extends TestCase
 
             $context = new EventContext('api', new ClientContext(null, null), session: $other, fromSession: true);
 
-            self::assertNull($context->identityMorphClass);
+            self::assertNull($context->identityType);
             self::assertNull($context->identityId);
-            self::assertNull($context->principalMorphClass);
+            self::assertNull($context->principalType);
             self::assertNull($context->principalId);
         }
     }
