@@ -28,12 +28,13 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  *
  * Each runs in one transaction on the session's connection. The session is
  * written first (after the revocation of the session it replaces) and the
- * tokens are issued after it, inside the transaction, so any failure while
- * issuing (signing, randomness, an identifier that cannot be read) rolls every
- * write back: no session is left without a client that holds its refresh token,
- * and no session is revoked for a replacement that was not written. Only the
- * digest of the new rotation id is stored. Every time is the one `$now` of the
- * sign-in, formatted with the session model's own date format.
+ * tokens are issued after it, inside the transaction, so a cancelled insert or
+ * any failure while issuing (signing, randomness, an identifier that cannot be
+ * read) rolls every write back: no session is left without a client that holds
+ * its refresh token, and no session is revoked for a replacement that was not
+ * written. Only the digest of the new rotation id is stored. Every time is the
+ * one `$now` of the sign-in, formatted with the session model's own date
+ * format.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -101,7 +102,7 @@ final readonly class SessionWriter
 
         return $session->getConnection()->transaction(function () use ($session, $admitted, $method, $rotationId, $now): SignedInSession {
 
-            $session->save();
+            self::insert($session);
 
             return $this->issue($session, $admitted, $method, $rotationId, $now);
         });
@@ -122,8 +123,8 @@ final readonly class SessionWriter
      * revoked, and records the owner, principal and guard it was proven for;
      * any concurrent refresh, revocation or change makes it affect no row, and
      * then nothing is written. The revocation, the new session and its pair are
-     * one transaction, so a failure while issuing leaves the proven session as
-     * it was.
+     * one transaction, so a cancelled insert or a failure while issuing leaves
+     * the proven session as it was.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  string  $method
@@ -165,7 +166,7 @@ final readonly class SessionWriter
                 return null;
             }
 
-            $session->save();
+            self::insert($session);
 
             return $this->issue($session, $admitted, $method, $rotationId, $now);
         });
@@ -227,6 +228,24 @@ final readonly class SessionWriter
         }
 
         return $session;
+    }
+
+    /**
+     * Insert the new session, or throw when a model event cancelled the insert:
+     * Eloquent reports that only by returning `false`, after the key is already
+     * set, so carrying on would issue a pair for a session that was never
+     * written and commit the revocation of the session it replaces.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @return void
+     *
+     * @throws \LogicException
+     */
+    private static function insert(EloquentSession&Model $session): void
+    {
+        if (!$session->save()) {
+            throw new \LogicException(sprintf('%s was not saved: a model event cancelled the new session, so the sign-in wrote nothing.', $session::class));
+        }
     }
 
     /**

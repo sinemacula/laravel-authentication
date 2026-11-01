@@ -31,6 +31,7 @@ use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\Sessions\FoundPendingSignIn;
 use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
@@ -235,6 +236,41 @@ final class SessionEstablishmentTest extends TestCase
         self::assertSame([], $this->recordedClasses());
         self::assertSame(1, DB::table('authentication_sessions')->count());
         self::assertNull(DB::table('authentication_sessions')->where('id', $first->record->getKey())->value('revoked_at'));
+    }
+
+    /**
+     * A replacement whose new session a model event cancels reports nothing,
+     * and its exception reaches the caller with the proven session still live
+     * at its digest and no new session written.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACanceledReplacementReportsNothing(): void
+    {
+        $identity     = $this->seedIdentity();
+        $establishing = $this->establishment($this->freshGuard());
+        $first        = $establishing->proceed(self::admitted($identity), 'password', 'email', $this->context())->session;
+
+        self::assertNotNull($first);
+
+        $before = (array) DB::table('authentication_sessions')->where('id', $first->record->getKey())->first();
+
+        $this->recordEvents([SessionRevoked::class, SessionCreated::class, SignedIn::class]);
+
+        Session::creating(static fn (): bool => false);
+
+        try {
+            $establishing->proceed(self::admitted($identity), 'password', 'email', $this->context($first->tokens->refreshToken));
+            self::fail('Expected the cancelled replacement to be refused.');
+        } catch (\LogicException $exception) {
+            self::assertSame(Session::class . ' was not saved: a model event cancelled the new session, so the sign-in wrote nothing.', $exception->getMessage());
+        }
+
+        self::assertSame([], $this->recordedClasses());
+        self::assertSame($before, (array) DB::table('authentication_sessions')->where('id', $first->record->getKey())->first());
+        self::assertSame(1, DB::table('authentication_sessions')->count());
     }
 
     /**

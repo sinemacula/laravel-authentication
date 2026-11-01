@@ -146,6 +146,30 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
+     * A session a model event cancels is refused rather than issued a pair for
+     * a row that was never written.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testCreateRefusesASessionAModelEventCancels(): void
+    {
+        $identity = $this->seedIdentity();
+
+        Session::creating(static fn (): bool => false);
+
+        try {
+            $this->writer()->create($this->admitted($identity), 'password', 'email', $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
+            self::fail('Expected a cancelled session to be refused.');
+        } catch (\LogicException $exception) {
+            self::assertSame(Session::class . ' was not saved: a model event cancelled the new session, so the sign-in wrote nothing.', $exception->getMessage());
+        }
+
+        self::assertSame(0, Session::query()->count());
+    }
+
+    /**
      * Replacing a proven session revokes it as `superseded`, forgetting both of
      * its digests, mirrors that on the in-memory session as persisted, and
      * writes a new session for the sign-in: a new key and rotation id, the new
@@ -439,6 +463,36 @@ final class SessionWriterTest extends TestCase
             self::assertSame($before, (array) Session::query()->whereKey($proven->getKey())->toBase()->first());
             self::assertSame(1, Session::query()->count());
         }
+    }
+
+    /**
+     * A replacement a model event cancels rolls back whole: the proven session
+     * is not revoked and keeps both digests, and no new session is left.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACanceledReplacementLeavesTheProvenSessionLive(): void
+    {
+        $identity = $this->seedIdentity();
+        $first    = $this->writer()->create($this->admitted($identity), 'password', 'email', $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
+        $proven   = Session::query()->whereKey($first->record->getKey())->firstOrFail();
+        $before   = (array) Session::query()->whereKey($proven->getKey())->toBase()->first();
+
+        Session::creating(static fn (): bool => false);
+
+        try {
+            $this->writer()->replace($this->admitted($identity)->on($proven), 'sso', null, $this->context(), $this->lifetimes(), $this->now->addHour(), $this->context()->client);
+            self::fail('Expected a cancelled replacement to be refused.');
+        } catch (\LogicException $exception) {
+            self::assertSame(Session::class . ' was not saved: a model event cancelled the new session, so the sign-in wrote nothing.', $exception->getMessage());
+        }
+
+        self::assertSame($before, (array) Session::query()->whereKey($proven->getKey())->toBase()->first());
+        self::assertNotNull($before['refresh_key']);
+        self::assertNull($before['revoked_at']);
+        self::assertSame(1, Session::query()->count());
     }
 
     /**
