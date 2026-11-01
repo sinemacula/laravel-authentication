@@ -54,9 +54,10 @@ return new class extends Migration {
             $blueprint->dateTime('created_at', 0)->nullable();
 
             // Indexes for finding the sessions of a connection or of a tenant's
-            // connections; nothing queries them yet. Named short, so a
-            // configured table name of up to 47 characters still fits.
-            $blueprint->index('connection_id', $table . '_connection_index');
+            // connections; nothing queries them yet. Named short (the
+            // connection's after the provider it configures), so a configured
+            // table name of up to 47 characters still fits PostgreSQL's 63.
+            $blueprint->index('connection_id', $table . '_provider_index');
             $blueprint->index(['tenant_id', 'connection_id'], $table . '_tenant_index');
         });
     }

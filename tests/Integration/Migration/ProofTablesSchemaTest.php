@@ -226,7 +226,7 @@ final class ProofTablesSchemaTest extends TestCase
     {
         self::assertSame([[self::PROOFS . '_session_index', ['session_id', 'kind', 'authenticated_at']]], self::secondaryIndexes(self::PROOFS));
         self::assertEqualsCanonicalizing(
-            [[self::PROVENANCE . '_connection_index', ['connection_id']], [self::PROVENANCE . '_tenant_index', ['tenant_id', 'connection_id']]],
+            [[self::PROVENANCE . '_provider_index', ['connection_id']], [self::PROVENANCE . '_tenant_index', ['tenant_id', 'connection_id']]],
             self::secondaryIndexes(self::PROVENANCE),
         );
     }
@@ -340,7 +340,7 @@ final class ProofTablesSchemaTest extends TestCase
             \call_user_func([self::load(self::PROVENANCE_MIGRATION), 'up']);
 
             self::assertSame([$proofs . '_session_index'], array_column(self::secondaryIndexes($proofs), 0));
-            self::assertEqualsCanonicalizing([$provenance . '_connection_index', $provenance . '_tenant_index'], array_column(self::secondaryIndexes($provenance), 0));
+            self::assertEqualsCanonicalizing([$provenance . '_provider_index', $provenance . '_tenant_index'], array_column(self::secondaryIndexes($provenance), 0));
         } finally {
             Schema::dropIfExists($proofs);
             Schema::dropIfExists($provenance);
