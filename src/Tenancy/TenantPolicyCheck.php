@@ -199,7 +199,9 @@ final class TenantPolicyCheck
 
     /**
      * How the subject reads its counting proofs: from the sign-in's evidence in
-     * memory, or the session's on the write connection.
+     * memory, or the session's on the write connection. In memory, as in the
+     * stored proofs' query, which binds the time to the second, a proof made in
+     * the second `$since` falls in counts.
      *
      * @formatter:off
      *
@@ -220,7 +222,7 @@ final class TenantPolicyCheck
 
             return static fn (?CarbonImmutable $since, ?array $kinds, int $limit): array => array_slice(array_values(array_filter(
                 $proofs,
-                static fn (RecordedProof $proof): bool => ($since === null || $proof->authenticatedAt->greaterThanOrEqualTo($since))
+                static fn (RecordedProof $proof): bool => ($since === null || $proof->authenticatedAt->greaterThanOrEqualTo($since->startOfSecond()))
                     && ($kinds === null || in_array($proof->kind, $kinds, true)),
             )), 0, $limit);
         }

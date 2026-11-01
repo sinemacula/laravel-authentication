@@ -239,8 +239,10 @@ final class TenantPolicyCheckTest extends TestCase
 
     /**
      * Judged against a sign-in's evidence, the check reads only the proofs in
-     * memory, filtered by time and kind and cut to the limit, and the session
-     * not at all.
+     * memory, filtered by time to the second, as the stored proofs' query binds
+     * it, and by kind and cut to the limit, and the session not at all: a
+     * sign-in half a second into its second proves its first factor in that
+     * second, which a requirement asking from the sign-in's own time counts.
      *
      * @return void
      *
@@ -250,7 +252,7 @@ final class TenantPolicyCheckTest extends TestCase
     {
         [$member, $membership, $tenant] = $this->seedMember();
 
-        $now      = CarbonImmutable::now();
+        $now      = CarbonImmutable::now()->startOfSecond()->addMilliseconds(500);
         $evidence = SessionEvidence::of(SignInProof::unattested('password', $now));
 
         $this->policy->requirement = new TenantRequirement(factor: new Requirement(new RequirementPart));
