@@ -111,11 +111,11 @@ final class TokensValidAfterIntegrationTest extends TestCase
     public function testATimeEndsTheSessionlessTokensIssuedUpToItsSecond(): void
     {
         $identity = $this->seedIdentity();
-        $earlier  = $this->tokens()->issueAccessToken($identity, $identity, null);
+        $earlier  = $this->tokens()->issueAccessToken($identity, $identity, null, null);
 
         $this->moveClocksTo($this->now->addMinute());
 
-        $current = $this->tokens()->issueAccessToken($identity, $identity, null);
+        $current = $this->tokens()->issueAccessToken($identity, $identity, null, null);
 
         $this->bearer($earlier)->assertOk();
 
@@ -126,7 +126,7 @@ final class TokensValidAfterIntegrationTest extends TestCase
 
         $this->moveClocksTo($this->now->addSecond());
 
-        $this->bearer($this->tokens()->issueAccessToken($identity, $identity, null))->assertOk();
+        $this->bearer($this->tokens()->issueAccessToken($identity, $identity, null, null))->assertOk();
 
         self::assertSame([FailureReason::ISSUED_BEFORE_CUTOFF, FailureReason::ISSUED_BEFORE_CUTOFF], $this->reasons);
     }
@@ -165,7 +165,7 @@ final class TokensValidAfterIntegrationTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        $this->bearer($this->tokens()->issueAccessToken($identity, $identity, null))->assertOk();
+        $this->bearer($this->tokens()->issueAccessToken($identity, $identity, null, null))->assertOk();
 
         self::assertSame([], $this->reasons);
     }
@@ -201,7 +201,7 @@ final class TokensValidAfterIntegrationTest extends TestCase
 
         self::assertNotNull($tokens);
 
-        $earlier = $tokens->issueAccessToken($member, $membership, null);
+        $earlier = $tokens->issueAccessToken($member, $membership, null, null);
 
         $this->bearer($earlier, '/membership')->assertOk()->assertJson(['principal' => $membership->id]);
 
@@ -213,7 +213,7 @@ final class TokensValidAfterIntegrationTest extends TestCase
 
         $this->moveClocksTo($this->now->addSecond());
 
-        $this->bearer($tokens->issueAccessToken($member, $membership, null), '/membership')->assertOk();
+        $this->bearer($tokens->issueAccessToken($member, $membership, null, null), '/membership')->assertOk();
 
         self::assertSame([FailureReason::ISSUED_BEFORE_CUTOFF], $this->reasons);
     }

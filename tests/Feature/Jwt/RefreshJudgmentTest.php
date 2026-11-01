@@ -81,7 +81,23 @@ final class RefreshJudgmentTest extends TestCase
 
         self::assertIsArray($verdict);
         self::assertSame(RotationMatch::CURRENT, $verdict[0]);
-        self::assertSame($this->now->addDays(180)->getTimestamp(), $verdict[1]->getTimestamp());
+        self::assertSame($this->now->addDays(180)->getTimestamp(), $verdict[1]?->getTimestamp());
+    }
+
+    /**
+     * A live session with no absolute deadline is judged as any other: its
+     * current id is current, with no absolute deadline for the rotation to
+     * keep.
+     *
+     * @return void
+     */
+    public function testTheCurrentIdOfASessionWithoutAnAbsoluteDeadlineIsCurrent(): void
+    {
+        $session = $this->rotatedSession(10);
+
+        $session->setAttribute('absolute_expires_at', null);
+
+        self::assertSame([RotationMatch::CURRENT, null], $this->judge($session, RefreshTokenHasher::successor(self::PREVIOUS)));
     }
 
     /**
@@ -96,7 +112,7 @@ final class RefreshJudgmentTest extends TestCase
 
         self::assertIsArray($verdict);
         self::assertSame(RotationMatch::PREVIOUS, $verdict[0]);
-        self::assertSame($this->now->addDays(180)->getTimestamp(), $verdict[1]->getTimestamp());
+        self::assertSame($this->now->addDays(180)->getTimestamp(), $verdict[1]?->getTimestamp());
     }
 
     /**
@@ -151,6 +167,7 @@ final class RefreshJudgmentTest extends TestCase
             'idle deadline reached'     => [['idle_expires_at' => '+0 seconds'], FailureReason::SESSION_EXPIRED],
             'absolute deadline reached' => [['absolute_expires_at' => '+0 seconds'], FailureReason::SESSION_EXPIRED],
             'no idle deadline'          => [['idle_expires_at' => null], FailureReason::SESSION_EXPIRED],
+            'no absolute, idle reached' => [['absolute_expires_at' => null, 'idle_expires_at' => '+0 seconds'], FailureReason::SESSION_EXPIRED],
             'ended with no credential'  => [['idle_expires_at' => '-1 second', 'refresh_key' => null], FailureReason::SESSION_EXPIRED],
             'no credential'             => [['refresh_key' => null], FailureReason::REFRESH_KEY_MISSING],
         ];
@@ -221,7 +238,7 @@ final class RefreshJudgmentTest extends TestCase
      * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @param  string  $presented
      * @param  int  $grace
-     * @return array{0: \SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch, 1: \Carbon\CarbonInterface}|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     * @return array{0: \SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch, 1: ?\Carbon\CarbonInterface}|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      */
     private function judge(Session $session, string $presented, int $grace = 30): array|FailureReason
     {

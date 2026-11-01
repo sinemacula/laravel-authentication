@@ -9,7 +9,7 @@ use Tests\Unit\Stubs\StubPrincipal;
 
 /**
  * 2D identity on the default connection whose sessions are `UnreachableSession`
- * rows, so the bearer `did` lookup fails while connecting.
+ * rows, so the bearer `sid` lookup fails while connecting.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

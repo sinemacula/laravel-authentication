@@ -243,8 +243,9 @@ otherwise the token grants exactly those asked for. Every failure dispatches `Au
 as the id never reaches a listener, and the key once found) and a grant `ClientCredentialsGranted`, with the key and the
 scopes granted.
 
-The token is an access token of the guard with no session, the key's id in `cid` and its scopes in `scope`; it lives the
-guard's access lifetime, never past the key's expiry, and no refresh token is issued. On every request the bearer path
+The token is an access token of the guard with no session: the client (the key's non-human identity) in `sub` with the
+subject type `machine` in `sub_type`, the key's id in `cid` and its scopes in `scope`; it lives the guard's access
+lifetime, never past the key's expiry, and no refresh token is issued. On every request the bearer path
 reads its key by primary key (one query more than any session-less token) and requires it to be the guard's
 (`credential_invalid`), not revoked (`credential_revoked`) and not expired (`credential_expired`); the subject must be a
 machine (`credential_invalid`), and the key's owner, principal and tenant must still be what loaded

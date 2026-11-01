@@ -7,6 +7,9 @@ namespace Tests\Fixtures\Sessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Proofs\Channel;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
 /**
@@ -50,14 +53,14 @@ final readonly class ProvenIdentitySignIn implements SignInMethod
      * Return the identity the email address finds.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
-     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Proofs\FirstFactor
      */
     #[\Override]
-    public function authenticate(SignInRequest $request): FailureReason|Identity
+    public function authenticate(SignInRequest $request): FailureReason|FirstFactor
     {
         $email    = $this->identifier($request->guard, $request->input);
         $identity = $email === null ? null : $request->provider->retrieveByCredentials(['email' => $email]);
 
-        return $identity instanceof Identity ? $identity : FailureReason::INVALID_CREDENTIALS;
+        return $identity instanceof Identity ? new FirstFactor($identity, new Channel(ChannelKind::UNKNOWN)) : FailureReason::INVALID_CREDENTIALS;
     }
 }

@@ -74,6 +74,8 @@ final class AuthManagerCustomizationTest extends TestCase
         $config->set('authentication.jwt.keys', ['default' => 'test-secret-key-with-at-least-32-bytes!']);
         $config->set('authentication.jwt.active_kid', 'default');
         $config->set('authentication.jwt.algorithm', 'HS256');
+        $config->set('authentication.jwt.issuer', 'https://issuer.example.test');
+        $config->set('authentication.jwt.audience', 'https://api.example.test');
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => StubAuthenticatableModel::class]);
         $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities']);
     }

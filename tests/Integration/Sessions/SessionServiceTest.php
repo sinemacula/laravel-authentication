@@ -347,10 +347,10 @@ final class SessionServiceTest extends TestCase
 
     /**
      * A refresh token proves a session only for its own owner, guard and
-     * principal: another identity, another guard (by its token's `grd`, or by
-     * the guard the session records), or another principal of the same identity
-     * gets a session of its own, and the proven session is untouched; only the
-     * same principal replaces it.
+     * principal: another identity, another guard (by its token's `client_id`,
+     * or by the guard the session records), or another principal of the same
+     * identity gets a session of its own, and the proven session is untouched;
+     * only the same principal replaces it.
      *
      * @return void
      *
@@ -492,7 +492,7 @@ final class SessionServiceTest extends TestCase
 
     /**
      * A failure while issuing the first pair (here a principal whose identifier
-     * cannot be written into `pid`) rolls the new session back.
+     * cannot be written into `principal`) rolls the new session back.
      *
      * @return void
      *
@@ -512,7 +512,7 @@ final class SessionServiceTest extends TestCase
             $this->sessions()->signIn('password', self::credentials());
             self::fail('Expected issuing to fail.');
         } catch (\InvalidArgumentException $exception) {
-            self::assertStringContainsString('`pid`', $exception->getMessage());
+            self::assertStringContainsString('`principal`', $exception->getMessage());
         }
 
         self::assertSame(0, Session::query()->count());

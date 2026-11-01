@@ -32,15 +32,18 @@ use SineMacula\Laravel\Authentication\Events\PasswordSet;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\PrincipalChoiceRequired;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
+use SineMacula\Laravel\Authentication\Events\Reauthenticated;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
+use SineMacula\Laravel\Authentication\Events\SteppedUp;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
@@ -129,12 +132,14 @@ final class EveryEventRestoresTest extends TestCase
             'PrincipalAssigned'         => [PrincipalAssigned::class, []],
             'PrincipalChoiceRequired'   => [PrincipalChoiceRequired::class, [$at]],
             'PrincipalSwitched'         => [PrincipalSwitched::class, [null, 'membership', '9']],
+            'Reauthenticated'           => [Reauthenticated::class, []],
             'Refreshed'                 => [Refreshed::class, []],
             'SessionAuthenticated'      => [SessionAuthenticated::class, []],
             'SessionCreated'            => [SessionCreated::class, []],
             'SessionRevoked'            => [SessionRevoked::class, [RevocationReason::SIGNED_OUT]],
             'SignedIn'                  => [SignedIn::class, [true, false]],
             'SignedOutEverywhere'       => [SignedOutEverywhere::class, [RevocationReason::SIGNED_OUT_EVERYWHERE, 3, $at]],
+            'SteppedUp'                 => [SteppedUp::class, [ProofKind::RECOVERY_CODE]],
         ];
     }
 

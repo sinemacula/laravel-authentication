@@ -36,7 +36,6 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\PresentedChangeLink;
 use SineMacula\Laravel\Authentication\IdentifierChanges\SendIdentifierChangeNotice;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\OutdatedProofs;
-use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 use Tests\Concerns\ChangesIdentifiers;
@@ -164,7 +163,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         $identity->refresh();
 
-        self::assertTrue($this->changes()->requestByCode($identity, 'phone', self::NEW_PHONE, Reauthentication::confirmedAt($this->now))->isSent());
+        self::assertTrue($this->changes()->requestByCode($identity, 'phone', self::NEW_PHONE, self::freshSession($identity))->isSent());
         self::assertSame([false], DB::table('identifier_changes')->pluck('previous_verified')->map(static fn (mixed $value): bool => (bool) $value)->all());
         self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'phone', self::CODE));
 
@@ -252,7 +251,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     {
         $identity = $this->requestedByCode();
 
-        $this->changes()->requestByCode($identity, 'email', 'ada@third.example.test', Reauthentication::confirmedAt($this->now));
+        $this->changes()->requestByCode($identity, 'email', 'ada@third.example.test', self::freshSession($identity));
 
         self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::CODE));
         self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', '246802'));
@@ -506,7 +505,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
         $this->recordEvents([IdentifierChangeRequested::class, IdentifierChanged::class]);
 
         DB::transaction(function () use ($identity, $changes, $guard, $swapped, $last): void {
-            self::assertTrue($changes->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now))->isSent());
+            self::assertTrue($changes->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity))->isSent());
 
             $guard->setDispatcher($swapped);
 
@@ -630,10 +629,10 @@ final class IdentifierChangeConfirmationTest extends TestCase
         self::seedChangeable(self::EMAIL, self::PHONE);
 
         $identity = SuspendableChangeableIdentity::query()->sole();
-        $link     = $this->changes('suspendable')->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now), 'email.confirm')->link();
+        $link     = $this->changes('suspendable')->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity, 'suspendable'), 'email.confirm')->link();
 
         self::assertIsString($link);
-        self::assertTrue($this->changes('suspendable')->requestByCode($identity, 'phone', self::NEW_PHONE, Reauthentication::confirmedAt($this->now))->isSent());
+        self::assertTrue($this->changes('suspendable')->requestByCode($identity, 'phone', self::NEW_PHONE, self::freshSession($identity, 'suspendable'))->isSent());
 
         DB::table('changeable_identities')->update(['is_active' => false]);
 
@@ -677,7 +676,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         $live = static fn (): int => DB::table('one_time_codes')->whereIn('id', array_map(self::bindingDigest(...), $proofs))->count();
 
-        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now))->isSent());
+        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity))->isSent());
         self::assertSame(2, $live());
         self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::CODE));
         self::assertSame(0, $live());
@@ -702,10 +701,10 @@ final class IdentifierChangeConfirmationTest extends TestCase
         self::seedChangeable(self::EMAIL, self::PHONE);
 
         $identity = SuspendableChangeableIdentity::query()->sole();
-        $link     = $this->changes('suspendable')->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now), 'email.confirm')->link();
+        $link     = $this->changes('suspendable')->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity, 'suspendable'), 'email.confirm')->link();
 
         self::assertIsString($link);
-        self::assertTrue($this->changes('suspendable')->requestByCode($identity, 'phone', self::NEW_PHONE, Reauthentication::confirmedAt($this->now))->isSent());
+        self::assertTrue($this->changes('suspendable')->requestByCode($identity, 'phone', self::NEW_PHONE, self::freshSession($identity, 'suspendable'))->isSent());
 
         $this->recordEvents([AuthenticationFailed::class]);
 
@@ -815,11 +814,11 @@ final class IdentifierChangeConfirmationTest extends TestCase
     {
         $identity = self::seedChangeable(self::EMAIL, self::PHONE);
         $other    = self::seedChangeable('grace@example.test');
-        $link     = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now), 'email.confirm')->link();
+        $link     = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), 'email.confirm')->link();
 
         self::assertIsString($link);
-        self::assertTrue($this->changes('admin')->requestByCode($identity, 'phone', self::NEW_PHONE, Reauthentication::confirmedAt($this->now))->isSent());
-        self::assertTrue($this->changes()->requestByCode($other, 'email', 'grace@new.example.test', Reauthentication::confirmedAt($this->now))->isSent());
+        self::assertTrue($this->changes('admin')->requestByCode($identity, 'phone', self::NEW_PHONE, self::freshSession($identity, 'admin'))->isSent());
+        self::assertTrue($this->changes()->requestByCode($other, 'email', 'grace@new.example.test', self::freshSession($other))->isSent());
 
         self::assertTrue(Auth::passwords('web')->set($identity, 'a brand new passphrase', $flow)->set);
         self::assertSame(1, self::rows('identifier_changes'));
@@ -881,7 +880,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         $this->recordEvents([IdentifierChanged::class]);
 
-        $this->changes()->requestByCode($identity, 'phone', self::NEW_PHONE, Reauthentication::confirmedAt($this->now));
+        $this->changes()->requestByCode($identity, 'phone', self::NEW_PHONE, self::freshSession($identity));
 
         self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'phone', self::CODE));
         self::assertSame(self::NEW_PHONE, $identity->fresh()?->phone);
@@ -1031,7 +1030,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes('admin')->confirmByLink(Request::create($link)));
 
-        $this->changes()->requestByLink($identity, 'email', 'ada@third.example.test', Reauthentication::confirmedAt($this->now), 'email.confirm');
+        $this->changes()->requestByLink($identity, 'email', 'ada@third.example.test', self::freshSession($identity), 'email.confirm');
 
         self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByLink(Request::create($link)));
         self::assertSame(self::EMAIL, $identity->fresh()?->email);
@@ -1065,7 +1064,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     {
         $identity = self::seedChangeable(self::EMAIL, self::PHONE);
 
-        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now))->isSent());
+        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity))->isSent());
 
         return $identity;
     }
@@ -1081,7 +1080,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     private function requestedByLink(): array
     {
         $identity = self::seedChangeable();
-        $link     = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now), 'email.confirm')->link();
+        $link     = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), 'email.confirm')->link();
 
         self::assertIsString($link);
 

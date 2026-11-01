@@ -63,7 +63,7 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
         $identity  = $this->mockIdentity('identity-7');
         $principal = $this->mockPrincipal('principal-3');
 
-        $token = $service->issueAccessToken($identity, $principal, null);
+        $token = $service->issueAccessToken($identity, $principal, null, null);
 
         self::assertSame(self::NEW_KID, $this->jwtHeader($token)['kid'] ?? null);
     }
@@ -96,7 +96,7 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
         $identity  = $this->mockIdentity('identity-7');
         $principal = $this->mockPrincipal('principal-3');
 
-        $token = $oldOnlyService->issueAccessToken($identity, $principal, null);
+        $token = $oldOnlyService->issueAccessToken($identity, $principal, null, null);
 
         $claims = $rotatedService->parse($token, TokenType::ACCESS);
 
@@ -128,7 +128,7 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
         $identity  = $this->mockIdentity('identity-7');
         $principal = $this->mockPrincipal('principal-3');
 
-        $token = $retiredOnlyService->issueAccessToken($identity, $principal, null);
+        $token = $retiredOnlyService->issueAccessToken($identity, $principal, null, null);
 
         self::assertNull($newOnlyService->parse($token, TokenType::ACCESS));
     }
@@ -148,7 +148,7 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
         $identity  = $this->mockIdentity('identity-7');
         $principal = $this->mockPrincipal('principal-3');
 
-        $token = $service->issueAccessToken($identity, $principal, null);
+        $token = $service->issueAccessToken($identity, $principal, null, null);
 
         self::assertSame(self::KID, $this->jwtHeader($token)['kid'] ?? null);
     }
@@ -163,14 +163,20 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
     {
         $token = JWT::encode(
             [
-                Claims::SUBJECT->value    => 'identity-7',
-                Claims::ISSUED_AT->value  => $this->now->getTimestamp(),
-                Claims::EXPIRES_AT->value => $this->now->getTimestamp() + 600,
-                Claims::TYPE->value       => TokenType::ACCESS->value,
-                Claims::GUARD->value      => self::GUARD,
+                Claims::ISSUER->value       => self::ISSUER,
+                Claims::AUDIENCE->value     => self::AUDIENCE,
+                Claims::CLIENT_ID->value    => self::GUARD,
+                Claims::SUBJECT->value      => 'identity-7',
+                Claims::SUBJECT_TYPE->value => 'person',
+                Claims::PRINCIPAL->value    => 'principal-3',
+                Claims::JWT_ID->value       => 'token-id',
+                Claims::ISSUED_AT->value    => $this->now->getTimestamp(),
+                Claims::EXPIRES_AT->value   => $this->now->getTimestamp() + 600,
             ],
             self::SECRET,
             self::ALGORITHM,
+            null,
+            ['typ' => TokenType::ACCESS->value],
         );
 
         self::assertNull($this->makeService()->parse($token, TokenType::ACCESS));
@@ -191,6 +197,8 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
             self::GUARD,
             new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
             30,
+            self::ISSUER,
+            self::AUDIENCE,
         );
     }
 }

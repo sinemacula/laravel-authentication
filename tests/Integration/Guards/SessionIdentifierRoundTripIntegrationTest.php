@@ -91,7 +91,7 @@ final class SessionIdentifierRoundTripIntegrationTest extends TestCase
     {
         [$identity, $session] = $this->seedIdentityWithSession();
 
-        $token = $this->tokens()->issueAccessToken($identity, $identity, $session);
+        $token = $this->tokens()->issueAccessToken($identity, $identity, null, $session);
 
         self::assertSame($session->getKey(), $this->tokens()->parse($token, TokenType::ACCESS)[Claims::SESSION_ID->value] ?? null);
 

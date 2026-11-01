@@ -26,7 +26,7 @@ use Tests\Integration\Fixtures\PrefixedKeySessionIdentity;
 use Tests\TestCase;
 
 /**
- * A session model that implements `ValidatesSessionKey` decides which `did`
+ * A session model that implements `ValidatesSessionKey` decides which `sid`
  * values the bearer and refresh paths look up: a stored session whose key the
  * model rejects is treated as unknown, although a plain string key would
  * otherwise be looked up.
@@ -72,6 +72,7 @@ final class SessionKeyValidationIntegrationTest extends TestCase
 
         Schema::create('prefixed_key_sessions', static function (Blueprint $blueprint): void {
             $blueprint->string('id')->primary();
+            $blueprint->uuid('generation');
             $blueprint->string('authenticatable_type');
             $blueprint->string('authenticatable_id');
             $blueprint->string('principal_type')->nullable();
@@ -123,12 +124,12 @@ final class SessionKeyValidationIntegrationTest extends TestCase
         $valid    = $this->seedSession($identity, self::VALID_KEY);
         $legacy   = $this->seedSession($identity, self::LEGACY_KEY);
 
-        $guard = $this->bearerGuard($this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $valid));
+        $guard = $this->bearerGuard($this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $valid));
 
         self::assertTrue($identity->is($guard->user()));
         self::assertSame(self::VALID_KEY, $guard->session()?->getSessionIdentifier());
 
-        self::assertNull($this->bearerGuard($this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $legacy))->user());
+        self::assertNull($this->bearerGuard($this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $legacy))->user());
     }
 
     /**

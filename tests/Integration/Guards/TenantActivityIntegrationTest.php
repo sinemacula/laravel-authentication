@@ -154,7 +154,7 @@ final class TenantActivityIntegrationTest extends TestCase
     {
         [$member, $membership, $tenant] = $this->seedMembership();
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($member, $membership, null);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($member, $membership, null, null);
 
         Route::middleware('auth:api')->get('/me', static function (): array {
 
@@ -249,7 +249,7 @@ final class TenantActivityIntegrationTest extends TestCase
     {
         [$member, $membership, $tenant] = $this->seedMembership();
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($member, $membership, null);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($member, $membership, null, null);
 
         $tenant->delete();
 
@@ -268,7 +268,7 @@ final class TenantActivityIntegrationTest extends TestCase
     {
         [$member, $membership, $tenant] = $this->seedMembership();
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($member, $membership, null);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($member, $membership, null, null);
 
         $tenant->forceDelete();
 
@@ -418,7 +418,7 @@ final class TenantActivityIntegrationTest extends TestCase
         $membership = $this->seedMorphMembership();
         $member     = ActivatableTenantMember::query()->findOrFail($membership->identity_id);
 
-        $token   = $this->authManager()->jwt('api')->issueAccessToken($member, $membership, null);
+        $token   = $this->authManager()->jwt('api')->issueAccessToken($member, $membership, null, null);
         $partial = MorphTenantMembership::query()->select(['id', 'identity_id', 'tenant_id'])->findOrFail($membership->getKey());
 
         $guard = $this->bearerGuard($token)->setPrincipalResolver(new StubFixedPrincipalResolver($partial));

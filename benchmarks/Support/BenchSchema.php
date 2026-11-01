@@ -5,7 +5,17 @@ declare(strict_types = 1);
 namespace Benchmarks\Support;
 
 use Carbon\Carbon;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Str;
+use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Proofs\Channel;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Proofs\NewProof;
+use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
+use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 
 /**
  * Shared benchmark schema builder.
@@ -112,6 +122,7 @@ final class BenchSchema
     public static function defineSessionColumns(Blueprint $blueprint): void
     {
         $blueprint->uuid('id')->primary();
+        $blueprint->uuid('generation');
         $blueprint->string('authenticatable_type')->nullable();
         $blueprint->string('authenticatable_id')->nullable();
         $blueprint->string('principal_type')->nullable();
@@ -132,7 +143,7 @@ final class BenchSchema
         $blueprint->dateTime('refresh_rotated_at', 0)->nullable();
         $blueprint->dateTime('signed_in_at', 0);
         $blueprint->dateTime('idle_expires_at', 0);
-        $blueprint->dateTime('absolute_expires_at', 0);
+        $blueprint->dateTime('absolute_expires_at', 0)->nullable();
         $blueprint->dateTime('revoked_at', 0)->nullable();
         $blueprint->string('revoked_reason', 64)->nullable();
         $blueprint->datetimes(0);
@@ -142,6 +153,56 @@ final class BenchSchema
         $blueprint->index('idle_expires_at');
         $blueprint->index('absolute_expires_at');
         $blueprint->index('revoked_at');
+    }
+
+    /**
+     * Create the proofs and provenance tables, as the shipped migrations do:
+     * every session the package writes records its proofs, and every access
+     * token for a session derives `auth_time` and `amr` from them.
+     *
+     * @return void
+     */
+    public static function ensureProofTables(): void
+    {
+        self::ensureTable('authentication_proofs', static function (Blueprint $blueprint): void {
+            $blueprint->uuid('id')->primary();
+            $blueprint->string('session_id');
+            $blueprint->string('kind', 40);
+            $blueprint->string('purpose', 32);
+            $blueprint->string('method');
+            $blueprint->string('channel_kind', 32);
+            $blueprint->string('channel_reference')->nullable();
+            $blueprint->string('factor_reference')->nullable();
+            $blueprint->boolean('user_presence')->nullable();
+            $blueprint->boolean('user_verification')->nullable();
+            $blueprint->boolean('backup_eligible')->nullable();
+            $blueprint->boolean('backup_state')->nullable();
+            $blueprint->boolean('phishing_resistant')->nullable();
+            $blueprint->string('key_protection', 16)->nullable();
+            $blueprint->boolean('accepted')->nullable();
+            $blueprint->boolean('multifactor')->nullable();
+            $blueprint->string('methods', 1024);
+            $blueprint->string('authenticatable_type');
+            $blueprint->string('authenticatable_id');
+            $blueprint->string('guard');
+            $blueprint->dateTime('authenticated_at', 0);
+            $blueprint->dateTime('voided_at', 0)->nullable();
+            $blueprint->dateTime('created_at', 0)->nullable();
+            $blueprint->index(['session_id', 'kind', 'authenticated_at'], 'authentication_proofs_session_index');
+        });
+
+        self::ensureTable('authentication_provenance', static function (Blueprint $blueprint): void {
+            $blueprint->string('session_id')->primary();
+            $blueprint->string('connection_id');
+            $blueprint->string('tenant_id')->nullable();
+            $blueprint->dateTime('provider_authenticated_at', 0)->nullable();
+            $blueprint->text('accepted_evidence')->nullable();
+            $blueprint->dateTime('provider_session_expires_at', 0)->nullable();
+            $blueprint->string('policy_version', 64)->nullable();
+            $blueprint->dateTime('created_at', 0)->nullable();
+            $blueprint->index('connection_id', 'authentication_provenance_provider_index');
+            $blueprint->index(['tenant_id', 'connection_id'], 'authentication_provenance_tenant_index');
+        });
     }
 
     /**
@@ -248,14 +309,16 @@ final class BenchSchema
     }
 
     /**
-     * The start and deadlines of a session that starts now, with the package's
-     * default lifetimes.
+     * The generation, start and deadlines of a session that starts now, with
+     * the package's default lifetimes: a new generation on every call, as the
+     * session service writes one for every session it inserts.
      *
-     * @return array{signed_in_at: \Carbon\CarbonInterface, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
+     * @return array{generation: string, signed_in_at: \Carbon\CarbonInterface, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
      */
     public static function liveSession(): array
     {
         return [
+            'generation'          => Str::uuid7()->toString(),
             'signed_in_at'        => Carbon::now(),
             'idle_expires_at'     => Carbon::now()->addDays(90),
             'absolute_expires_at' => Carbon::now()->addDays(180),
@@ -265,14 +328,43 @@ final class BenchSchema
     /**
      * A session the guard's password sign-in started now: the guard and method
      * a session records, which refresh and the bearer path check, with the
-     * deadlines of `liveSession()`.
+     * generation, start and deadlines of `liveSession()`.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  string  $guard
-     * @return array{idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface, guard: string, sign_in_method: string}
+     * @return array{generation: string, signed_in_at: \Carbon\CarbonInterface, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface, guard: string, sign_in_method: string}
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      */
     public static function signedIn(string $guard): array
     {
         return [...self::liveSession(), 'guard' => $guard, 'sign_in_method' => 'password'];
+    }
+
+    /**
+     * Record on a session a fixture saved itself the first-factor proof the
+     * password sign-in `signedIn()` describes would have recorded, at its
+     * `signed_in_at`, so the access tokens issued for it carry the `auth_time`
+     * and `amr` a real sign-in's would.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
+     * @return void
+     *
+     * @throws \LogicException
+     */
+    public static function recordFirstFactor(Session $session): void
+    {
+        $guard    = $session->getGuard()      ?? throw new \LogicException('A fixture session records the guard it was signed in to.');
+        $signedIn = $session->getSignedInAt() ?? throw new \LogicException('A fixture session records when it was signed in.');
+        $at       = CarbonImmutable::instance($signedIn);
+        $proof    = new NewProof(ProofKind::FIRST_FACTOR, Purpose::SIGN_IN, 'password', new Channel(ChannelKind::PASSWORD), null, new ObservedProperties, null, ['pwd'], $at);
+
+        ProofWriter::record($session, $guard, $proof);
     }
 
     /**

@@ -20,8 +20,11 @@ use SineMacula\Laravel\Authentication\Config\IntegerSetting;
  * `config/authentication.php`; nothing here falls back to a literal. A value
  * missing at both levels, of the wrong type, or out of range fails closed with
  * an `InvalidJwtConfigurationException`, at either level: a malformed guard
- * override is never ignored in favour of the package value. Only `issuer` and
- * `audience` may resolve to `null`, which turns that claim check off.
+ * override is never ignored in favour of the package value. Only the absolute
+ * session lifetime may be `null`, explicitly, at either level, for no absolute
+ * limit. `issuer` and `audience` are required too: every token carries them and
+ * every parse checks them, so a guard with neither set at either level fails
+ * closed.
  *
  * Each guard's service is built on first use and kept for the factory's life, a
  * container singleton's, so a later change to the configuration does not reach
@@ -90,8 +93,8 @@ final class JwtTokenServiceFactory
             $guard,
             $this->resolveLifetimes($guard, $guardJwtConfig),
             $this->resolveJwtInteger($guard, $guardJwtConfig, 'leeway_seconds', 0, self::MAX_LEEWAY_SECONDS),
-            $this->resolveJwtNullableString($guard, $guardJwtConfig, 'issuer'),
-            $this->resolveJwtNullableString($guard, $guardJwtConfig, 'audience'),
+            $this->resolveJwtRequiredString($guard, $guardJwtConfig, 'issuer'),
+            $this->resolveJwtRequiredString($guard, $guardJwtConfig, 'audience'),
             $this->resolveOptionalLogger(),
         );
     }
@@ -133,7 +136,7 @@ final class JwtTokenServiceFactory
         return new TokenLifetimes(
             $this->resolveJwtInteger($guard, $guardJwtConfig, 'access_ttl_minutes', TokenLifetimes::MIN_TTL_MINUTES, TokenLifetimes::MAX_ACCESS_TTL_MINUTES),
             $this->resolveJwtInteger($guard, $guardJwtConfig, 'refresh_idle_ttl_minutes', TokenLifetimes::MIN_TTL_MINUTES, TokenLifetimes::MAX_REFRESH_TTL_MINUTES),
-            $this->resolveJwtInteger($guard, $guardJwtConfig, 'refresh_absolute_ttl_minutes', TokenLifetimes::MIN_TTL_MINUTES, TokenLifetimes::MAX_REFRESH_TTL_MINUTES),
+            $this->resolveAbsoluteTtl($guard, $guardJwtConfig),
             $this->resolveJwtInteger($guard, $guardJwtConfig, 'refresh_grace_seconds', 0, TokenLifetimes::MAX_GRACE_SECONDS),
         );
     }
@@ -323,34 +326,71 @@ final class JwtTokenServiceFactory
     }
 
     /**
-     * Resolve a nullable string JWT config value (`issuer` / `audience`): a
-     * per-guard override that is present wins, `null` included, so a guard can
-     * turn off a check the package value sets; otherwise the package value. An
-     * empty string is normalised to `null`. Any other type, at either level,
-     * fails closed: read as `null`, it would silently turn the check off.
+     * Resolve the absolute session lifetime, which may be explicitly `null` for
+     * no absolute limit: a per-guard override that is present wins, `null`
+     * included, so a guard can lift a limit the package value sets; otherwise
+     * the package value, `null` included. A value missing at both levels fails
+     * closed rather than reading as no limit, and so does any other value that
+     * is not an integer (or a string of digits) within the range.
+     *
+     * @param  string  $guard
+     * @param  array<string, mixed>  $guardJwtConfig
+     * @return ?int
+     *
+     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
+     */
+    private function resolveAbsoluteTtl(string $guard, #[\SensitiveParameter] array $guardJwtConfig): ?int
+    {
+        $key     = 'refresh_absolute_ttl_minutes';
+        $package = $this->config->get('authentication.jwt');
+        $present = array_key_exists($key, $guardJwtConfig) || (is_array($package) && array_key_exists($key, $package));
+        $value   = array_key_exists($key, $guardJwtConfig) ? $guardJwtConfig[$key] : $this->config->get("authentication.jwt.{$key}");
+        $integer = IntegerSetting::parse($value);
+
+        if ($present && $value === null) {
+            return null;
+        }
+
+        if ($integer === null || $integer < TokenLifetimes::MIN_TTL_MINUTES || $integer > TokenLifetimes::MAX_REFRESH_TTL_MINUTES) {
+
+            $message = "JWT `{$key}` for guard [{$guard}] must be null (no absolute limit) or an integer from"
+                . ' ' . TokenLifetimes::MIN_TTL_MINUTES . ' to ' . TokenLifetimes::MAX_REFRESH_TTL_MINUTES
+                . ": set `authentication.jwt.{$key}` or the guard's `jwt.{$key}` override.";
+
+            throw new InvalidJwtConfigurationException($message);
+        }
+
+        return $integer;
+    }
+
+    /**
+     * Resolve a required string JWT config value (`issuer` / `audience`): a
+     * per-guard override that is present wins, otherwise the package value. It
+     * must be a non-empty string, at whichever level it comes from; a value
+     * missing at both levels, `null`, empty or of any other type fails closed.
      *
      * @param  string  $guard
      * @param  array<string, mixed>  $guardJwtConfig
      * @param  string  $key
-     * @return ?string
+     * @return string
      *
      * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
      */
-    private function resolveJwtNullableString(string $guard, #[\SensitiveParameter] array $guardJwtConfig, string $key): ?string
+    private function resolveJwtRequiredString(string $guard, #[\SensitiveParameter] array $guardJwtConfig, string $key): string
     {
         $value = array_key_exists($key, $guardJwtConfig)
             ? $guardJwtConfig[$key]
             : $this->config->get("authentication.jwt.{$key}");
 
-        if ($value !== null && !is_string($value)) {
+        if (!is_string($value) || $value === '') {
 
-            $message = "JWT `{$key}` for guard [{$guard}] must be a string or null:"
-                . " set `authentication.jwt.{$key}` or the guard's `jwt.{$key}` override.";
+            $message = "JWT `{$key}` for guard [{$guard}] is required: set `authentication.jwt.{$key}`"
+                . ' (AUTHENTICATION_JWT_' . strtoupper($key) . ") or the guard's `jwt.{$key}` override.";
 
             throw new InvalidJwtConfigurationException($message);
         }
 
-        return $value === '' ? null : $value;
+        return $value;
     }
 
     /**

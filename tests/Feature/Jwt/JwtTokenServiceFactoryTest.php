@@ -80,6 +80,12 @@ final class JwtTokenServiceFactoryTest extends TestCase
     /** @var string Guard whose lifetimes and leeway the resolution tests read. */
     private const string LIFETIME_GUARD = 'package_default';
 
+    /** @var string The package-wide issuer. */
+    private const string PACKAGE_ISSUER = 'package-default-issuer';
+
+    /** @var string The package-wide audience. */
+    private const string PACKAGE_AUDIENCE = 'package-default-audience';
+
     /** @var string Secret material long enough for HS384 (48 bytes). */
     private const string HS384_SECRET = 'hs384-secret-material-with-at-least-48-bytes!!!!';
 
@@ -137,7 +143,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
         $claims = $service->parse($token, TokenType::ACCESS);
 
         self::assertNotNull($claims);
-        self::assertSame('package-default-audience', $claims[Claims::AUDIENCE->value]);
+        self::assertSame(self::PACKAGE_AUDIENCE, $claims[Claims::AUDIENCE->value]);
         self::assertIsInt($claims[Claims::EXPIRES_AT->value]);
         self::assertIsInt($claims[Claims::ISSUED_AT->value]);
         self::assertSame(45 * 60, $claims[Claims::EXPIRES_AT->value] - $claims[Claims::ISSUED_AT->value]);
@@ -209,11 +215,11 @@ final class JwtTokenServiceFactoryTest extends TestCase
         $service = PackageAuth::jwt('package_default');
         $token   = $this->issueAccessToken($service);
 
-        $verifier = $this->makeVerifier('package_default', [self::PACKAGE_KID => self::PACKAGE_SECRET], 'package-default-audience');
+        $verifier = $this->makeVerifier('package_default', [self::PACKAGE_KID => self::PACKAGE_SECRET], self::PACKAGE_AUDIENCE);
         $claims   = $verifier->parse($token, TokenType::ACCESS);
 
         self::assertNotNull($claims);
-        self::assertSame('package-default-audience', $claims[Claims::AUDIENCE->value]);
+        self::assertSame(self::PACKAGE_AUDIENCE, $claims[Claims::AUDIENCE->value]);
         self::assertIsInt($claims[Claims::EXPIRES_AT->value]);
         self::assertIsInt($claims[Claims::ISSUED_AT->value]);
         self::assertSame(45 * 60, $claims[Claims::EXPIRES_AT->value] - $claims[Claims::ISSUED_AT->value]);
@@ -358,7 +364,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
         self::assertNotNull($service->parse($token, TokenType::ACCESS));
 
         $oldToken = $this->issueAccessToken(
-            $this->makeVerifier('numeric_kids', [self::NUMERIC_KID_OLD => self::KID_OLD_SECRET], 'package-default-audience'),
+            $this->makeVerifier('numeric_kids', [self::NUMERIC_KID_OLD => self::KID_OLD_SECRET], self::PACKAGE_AUDIENCE),
         );
 
         self::assertSame(self::NUMERIC_KID_OLD, $this->jwtHeader($oldToken)['kid'] ?? null);
@@ -481,8 +487,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
         $token = $this->issueAccessToken(PackageAuth::jwt('active_kid_only'));
 
-        $newKeyVerifier   = $this->makeVerifier('active_kid_only', [self::KID_NEW => self::KID_NEW_SECRET], 'package-default-audience');
-        $wrongKeyVerifier = $this->makeVerifier('active_kid_only', [self::KID_NEW => self::PACKAGE_SECRET], 'package-default-audience');
+        $newKeyVerifier   = $this->makeVerifier('active_kid_only', [self::KID_NEW => self::KID_NEW_SECRET], self::PACKAGE_AUDIENCE);
+        $wrongKeyVerifier = $this->makeVerifier('active_kid_only', [self::KID_NEW => self::PACKAGE_SECRET], self::PACKAGE_AUDIENCE);
 
         self::assertNotNull($newKeyVerifier->parse($token, TokenType::ACCESS));
         self::assertNull($wrongKeyVerifier->parse($token, TokenType::ACCESS));
@@ -514,7 +520,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
         $token = $this->issueAccessToken(PackageAuth::jwt('integer_active_kid'));
 
-        $verifier = $this->makeVerifier('integer_active_kid', [self::NUMERIC_KID_NEW => self::KID_NEW_SECRET], 'package-default-audience');
+        $verifier = $this->makeVerifier('integer_active_kid', [self::NUMERIC_KID_NEW => self::KID_NEW_SECRET], self::PACKAGE_AUDIENCE);
 
         self::assertSame(self::NUMERIC_KID_NEW, $this->jwtHeader($token)['kid'] ?? null);
         self::assertNotNull($verifier->parse($token, TokenType::ACCESS));
@@ -558,7 +564,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
         $token = $this->issueAccessToken(PackageAuth::jwt('null_active_kid'));
 
-        $verifier = $this->makeVerifier('null_active_kid', [self::PACKAGE_KID => self::PACKAGE_SECRET], 'package-default-audience');
+        $verifier = $this->makeVerifier('null_active_kid', [self::PACKAGE_KID => self::PACKAGE_SECRET], self::PACKAGE_AUDIENCE);
 
         self::assertSame(self::PACKAGE_KID, $this->jwtHeader($token)['kid'] ?? null);
         self::assertNotNull($verifier->parse($token, TokenType::ACCESS));
@@ -802,6 +808,24 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
+     * Rows of `[key, a valid value other than the default]` for every integer
+     * key a `null` cannot lift: all but the absolute lifetime.
+     *
+     * @return iterable<string, array{0: string, 1: int}>
+     */
+    public static function provideRequiredIntegerKeys(): iterable
+    {
+        foreach (self::provideIntegerKeys() as $name => [$key, $value]) {
+
+            if ($key === 'refresh_absolute_ttl_minutes') {
+                continue;
+            }
+
+            yield $name => [$key, $value];
+        }
+    }
+
+    /**
      * Without an override, or with a `null` one, the package value applies.
      *
      * @param  string  $key
@@ -810,7 +834,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @throws \Random\RandomException
      */
-    #[DataProvider('provideIntegerKeys')]
+    #[DataProvider('provideRequiredIntegerKeys')]
     public function testPackageValueAppliesWithoutAnOverride(string $key, int $value): void
     {
         config()->set("authentication.jwt.{$key}", $value);
@@ -820,6 +844,36 @@ final class JwtTokenServiceFactoryTest extends TestCase
         $this->setGuardOverrides([$key => null]);
 
         self::assertSame($value, $this->resolved($key));
+    }
+
+    /**
+     * The absolute lifetime may be `null`, explicitly, for no absolute limit: a
+     * package `null` applies to every guard without an override, a guard's
+     * `null` override lifts the package's limit for that guard alone, and a
+     * guard's number caps a package `null`.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testTheAbsoluteLifetimeMayBeExplicitlyNone(): void
+    {
+        $key = 'refresh_absolute_ttl_minutes';
+
+        config()->set("authentication.jwt.{$key}", null);
+
+        self::assertNull($this->resolved($key));
+
+        $this->setGuardOverrides([$key => 600]);
+
+        self::assertSame(600, $this->resolved($key));
+
+        config()->set("authentication.jwt.{$key}", 60 * 24 * 180);
+
+        $this->setGuardOverrides([$key => null]);
+
+        self::assertNull($this->resolved($key));
+        self::assertSame(60 * 24 * 180, PackageAuth::jwt('staff')->lifetimes()->refreshAbsoluteTtlMinutes);
     }
 
     /**
@@ -883,7 +937,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * A package value that is not an integer, `null` included, fails closed.
+     * A package value that is not an integer, `null` included, fails closed:
+     * only the absolute lifetime may be none.
      *
      * @param  mixed  $value
      * @return void
@@ -1049,14 +1104,16 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Rows of `[key, value]` for an issuer or audience that is set but neither
-     * a string nor `null`.
+     * Rows of `[key, value]` for an issuer or audience that is not a non-empty
+     * string.
      *
      * @return iterable<string, array{0: string, 1: mixed}>
      */
-    public static function provideNonStringClaimPolicies(): iterable
+    public static function provideInvalidClaimPolicies(): iterable
     {
         foreach (['issuer', 'audience'] as $key) {
+            yield "{$key} as null" => [$key, null];
+            yield "{$key} as an empty string" => [$key, ''];
             yield "{$key} as an array" => [$key, ['staff-api']];
             yield "{$key} as an integer" => [$key, 42];
             yield "{$key} as a boolean" => [$key, false];
@@ -1064,15 +1121,16 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * An issuer or audience override that is neither a string nor `null` fails
-     * closed: read as `null` it would turn the claim check off for the guard.
+     * An issuer or audience override that is not a non-empty string fails
+     * closed, `null` included: an override that is present wins, so it never
+     * falls back to the package value, and every token must carry both.
      *
      * @param  string  $key
      * @param  mixed  $value
      * @return void
      */
-    #[DataProvider('provideNonStringClaimPolicies')]
-    public function testNonStringClaimPolicyOverrideFailsClosed(string $key, mixed $value): void
+    #[DataProvider('provideInvalidClaimPolicies')]
+    public function testInvalidClaimPolicyOverrideFailsClosed(string $key, mixed $value): void
     {
         $this->setGuardOverrides([$key => $value]);
 
@@ -1082,15 +1140,15 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * A package issuer or audience that is neither a string nor `null` fails
-     * closed for every guard that does not override it.
+     * A package issuer or audience that is not a non-empty string fails closed
+     * for every guard that does not override it.
      *
      * @param  string  $key
      * @param  mixed  $value
      * @return void
      */
-    #[DataProvider('provideNonStringClaimPolicies')]
-    public function testNonStringClaimPolicyPackageValueFailsClosed(string $key, mixed $value): void
+    #[DataProvider('provideInvalidClaimPolicies')]
+    public function testInvalidClaimPolicyPackageValueFailsClosed(string $key, mixed $value): void
     {
         config()->set("authentication.jwt.{$key}", $value);
 
@@ -1100,21 +1158,46 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * A `null` or empty audience override turns the audience check off for the
-     * guard even when the package sets one, and a string override replaces it.
+     * Rows of `[key]` for the issuer and the audience.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideClaimPolicyKeys(): iterable
+    {
+        yield from ['issuer' => ['issuer'], 'audience' => ['audience']];
+    }
+
+    /**
+     * An issuer or audience missing at both levels fails closed: there is no
+     * default.
+     *
+     * @param  string  $key
+     * @return void
+     */
+    #[DataProvider('provideClaimPolicyKeys')]
+    public function testMissingClaimPolicyFailsClosed(string $key): void
+    {
+        $this->removePackageValue($key);
+
+        $this->expectInvalidClaimPolicy($key);
+
+        $this->lifetimeService();
+    }
+
+    /**
+     * Every token carries the package issuer and audience, and a guard's string
+     * override of either replaces it for that guard alone.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testAudienceOverrideReplacesOrTurnsOffThePackageAudience(): void
+    public function testClaimPolicyOverrideReplacesThePackageValue(): void
     {
-        foreach ([null, ''] as $off) {
+        $claims = $this->issuedClaims($this->lifetimeService());
 
-            $this->setGuardOverrides(['audience' => $off]);
-
-            self::assertArrayNotHasKey(Claims::AUDIENCE->value, $this->issuedClaims($this->lifetimeService()));
-        }
+        self::assertSame(self::PACKAGE_ISSUER, $claims[Claims::ISSUER->value]);
+        self::assertSame(self::PACKAGE_AUDIENCE, $claims[Claims::AUDIENCE->value]);
 
         $this->setGuardOverrides(['audience' => 'override-audience', 'issuer' => 'override-issuer']);
 
@@ -1122,6 +1205,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
         self::assertSame('override-audience', $claims[Claims::AUDIENCE->value]);
         self::assertSame('override-issuer', $claims[Claims::ISSUER->value]);
+        self::assertSame(self::PACKAGE_ISSUER, $this->issuedClaims(PackageAuth::jwt('staff'))[Claims::ISSUER->value]);
     }
 
     /**
@@ -1253,8 +1337,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
         $config->set('authentication.jwt.keys', [self::PACKAGE_KID => self::PACKAGE_SECRET]);
         $config->set('authentication.jwt.active_kid', self::PACKAGE_KID);
         $config->set('authentication.jwt.algorithm', 'HS256');
-        $config->set('authentication.jwt.issuer', null);
-        $config->set('authentication.jwt.audience', 'package-default-audience');
+        $config->set('authentication.jwt.issuer', self::PACKAGE_ISSUER);
+        $config->set('authentication.jwt.audience', self::PACKAGE_AUDIENCE);
         $config->set('authentication.jwt.access_ttl_minutes', 45);
     }
 
@@ -1264,17 +1348,17 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @param  string  $guard
      * @param  array<string, string>  $keys
-     * @param  ?string  $audience
+     * @param  string  $audience
      * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
      */
-    private function makeVerifier(string $guard, #[\SensitiveParameter] array $keys, ?string $audience = null): JwtTokenService
+    private function makeVerifier(string $guard, #[\SensitiveParameter] array $keys, string $audience = self::PACKAGE_AUDIENCE): JwtTokenService
     {
         return new JwtTokenService(
             JwtKeyring::fromKeyMap($keys, (string) array_key_first($keys), 'HS256'),
             $guard,
             new TokenLifetimes(15, 60 * 24 * 30, 60 * 24 * 180, 30),
             30,
-            null,
+            self::PACKAGE_ISSUER,
             $audience,
         );
     }
@@ -1299,12 +1383,12 @@ final class JwtTokenServiceFactoryTest extends TestCase
      * The value the resolved service uses for the given key.
      *
      * @param  string  $key
-     * @return int
+     * @return ?int
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    private function resolved(string $key): int
+    private function resolved(string $key): ?int
     {
         $service   = $this->lifetimeService();
         $lifetimes = $service->lifetimes();
@@ -1414,8 +1498,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Expect the factory to reject an issuer or audience that is neither a
-     * string nor `null`.
+     * Expect the factory to reject an issuer or audience that is not a
+     * non-empty string.
      *
      * @param  string  $key
      * @return void
@@ -1424,8 +1508,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     {
         $this->expectException(InvalidJwtConfigurationException::class);
         $this->expectExceptionMessage(
-            "JWT `{$key}` for guard [package_default] must be a string or null:"
-            . " set `authentication.jwt.{$key}` or the guard's `jwt.{$key}` override.",
+            "JWT `{$key}` for guard [package_default] is required: set `authentication.jwt.{$key}`"
+            . ' (AUTHENTICATION_JWT_' . strtoupper($key) . ") or the guard's `jwt.{$key}` override.",
         );
     }
 
@@ -1439,9 +1523,11 @@ final class JwtTokenServiceFactoryTest extends TestCase
      */
     private function expectInvalidKey(string $key, int $min, int $max): void
     {
+        $range = $key === 'refresh_absolute_ttl_minutes' ? 'null (no absolute limit) or an integer' : 'an integer';
+
         $this->expectException(InvalidJwtConfigurationException::class);
         $this->expectExceptionMessage(
-            "JWT `{$key}` for guard [package_default] must be an integer from {$min} to {$max}:"
+            "JWT `{$key}` for guard [package_default] must be {$range} from {$min} to {$max}:"
             . " set `authentication.jwt.{$key}` or the guard's `jwt.{$key}` override.",
         );
     }

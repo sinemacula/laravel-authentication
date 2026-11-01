@@ -18,7 +18,9 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
  * with it. It works once, for the guard that issued it, until `$expiresAt`.
  * Possessing it proves nothing about the factor: the code that verifies the
  * factor looks the sign-in up with `pending()`, verifies the factor for its
- * identity and principal, and only then calls `complete()`.
+ * identity and principal, and only then calls `complete()`, with the proof it
+ * verified bound to the pending sign-in's `$id`. The id grants nothing on its
+ * own: completing still takes the token.
  *
  * @api
  *
@@ -38,6 +40,7 @@ final readonly class PendingFactor
      * @param  string  $method
      * @param  \Carbon\CarbonImmutable  $expiresAt
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $provenSession
+     * @param  string  $id
      */
     public function __construct(
 
@@ -64,5 +67,8 @@ final readonly class PendingFactor
 
         /** Existing session the client proved it holds, which the new session will replace, if any. */
         public ?Session $provenSession,
+
+        /** The pending sign-in's id, which a further factor's proof is bound to. */
+        public string $id,
     ) {}
 }

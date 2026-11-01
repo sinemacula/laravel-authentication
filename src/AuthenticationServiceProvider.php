@@ -30,6 +30,7 @@ use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
+use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
@@ -37,6 +38,7 @@ use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
+use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -81,6 +83,8 @@ final class AuthenticationServiceProvider extends ServiceProvider
         '2026_04_06_000005_create_passkey_challenges_table.php',
         '2026_04_06_000006_create_api_keys_table.php',
         '2026_04_06_000007_create_identifier_changes_table.php',
+        '2026_04_06_000008_create_authentication_proofs_table.php',
+        '2026_04_06_000009_create_authentication_provenance_table.php',
     ];
 
     /**
@@ -109,6 +113,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $this->app->singletonIf(SignInMethodManager::class);
         $this->app->scopedIf(Rehashing::class);
         $this->app->singletonIf(AdditionalFactorPolicy::class, NeverRequireAdditionalFactor::class);
+        $this->app->singletonIf(FreshnessPolicy::class, ConfiguredFreshness::class);
         $this->app->singletonIf(WebAuthn::class);
         $this->app->singletonIf(ScopeRegistry::class, AcceptAnyScope::class);
         $this->app->singletonIf(BreachedPasswordChecker::class, NoBreachedPasswordCheck::class);

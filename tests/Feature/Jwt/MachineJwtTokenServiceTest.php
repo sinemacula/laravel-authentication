@@ -92,7 +92,7 @@ final class MachineJwtTokenServiceTest extends TestCase
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage(self::REFUSAL);
 
-        $this->tokens()->issueAccessToken($machine, $machine, null);
+        $this->tokens()->issueAccessToken($machine, $machine, null, null);
     }
 
     /**
@@ -138,7 +138,7 @@ final class MachineJwtTokenServiceTest extends TestCase
         $session = (new StubBareSession)->forceFill(['id' => 'bare']);
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Cannot issue a token for a session that has ended or that has no idle and absolute deadlines.');
+        $this->expectExceptionMessage('Cannot issue a token for a session that has ended or that has no idle deadline.');
 
         $this->tokens()->issueRefreshToken($session, 'rotation-id');
     }
@@ -159,19 +159,20 @@ final class MachineJwtTokenServiceTest extends TestCase
         $machine = self::machine();
         $now     = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
 
-        $claims = $tokens->parse($tokens->issueClientAccessToken($machine, $machine, self::KEY_ID, ['read', 'write', 'read'], null, $now->addMilliseconds(400)));
+        $claims = $tokens->parse($tokens->issueClientAccessToken($machine, $machine, null, self::KEY_ID, ['read', 'write', 'read'], null, $now->addMilliseconds(400)));
 
         self::assertNotNull($claims);
         self::assertSame(self::KEY_ID, $claims[Claims::CREDENTIAL_ID->value]);
         self::assertSame('read write', $claims[Claims::SCOPE->value]);
         self::assertSame('7', $claims[Claims::SUBJECT->value]);
-        self::assertSame('7', $claims[Claims::PRINCIPAL_ID->value]);
-        self::assertNull($claims[Claims::SESSION_ID->value]);
-        self::assertSame('access', $claims[Claims::TYPE->value]);
+        self::assertSame('7', $claims[Claims::PRINCIPAL->value]);
+        self::assertSame('machine', $claims[Claims::SUBJECT_TYPE->value]);
+        self::assertArrayNotHasKey(Claims::SESSION_ID->value, $claims);
+        self::assertArrayNotHasKey(Claims::TENANT_ID->value, $claims);
         self::assertSame($now->getTimestamp(), $claims[Claims::ISSUED_AT->value]);
         self::assertSame($now->addMinutes(15)->getTimestamp(), $claims[Claims::EXPIRES_AT->value]);
 
-        $bounded = $tokens->parse($tokens->issueClientAccessToken($machine, $machine, self::KEY_ID, [], $now->addMinutes(2), $now));
+        $bounded = $tokens->parse($tokens->issueClientAccessToken($machine, $machine, null, self::KEY_ID, [], $now->addMinutes(2), $now));
 
         self::assertNotNull($bounded);
         self::assertSame('', $bounded[Claims::SCOPE->value]);
@@ -192,8 +193,8 @@ final class MachineJwtTokenServiceTest extends TestCase
         $machine = self::machine();
         $now     = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
 
-        $pastBound = static fn (): string => $tokens->issueClientAccessToken($machine, $machine, self::KEY_ID, [], $now, $now->addMilliseconds(999));
-        $notUuid   = static fn (): string => $tokens->issueClientAccessToken($machine, $machine, 'key-1', []);
+        $pastBound = static fn (): string => $tokens->issueClientAccessToken($machine, $machine, null, self::KEY_ID, [], $now, $now->addMilliseconds(999));
+        $notUuid   = static fn (): string => $tokens->issueClientAccessToken($machine, $machine, null, 'key-1', []);
         $refusals  = [
             'Cannot issue a token whose latest expiry is not after its issue time.'                           => $pastBound,
             'Cannot issue a client credentials token without its `cid` claim: the API key id must be a UUID.' => $notUuid,
@@ -211,7 +212,7 @@ final class MachineJwtTokenServiceTest extends TestCase
 
         $this->expectException(InvalidScopeException::class);
 
-        $tokens->issueClientAccessToken($machine, $machine, self::KEY_ID, ['a b']);
+        $tokens->issueClientAccessToken($machine, $machine, null, self::KEY_ID, ['a b']);
     }
 
     /**
@@ -232,7 +233,7 @@ final class MachineJwtTokenServiceTest extends TestCase
             'a malformed scope'      => [['cid' => self::KEY_ID, 'scope' => 'read  write'], false],
             'a key id not a uuid'    => [['cid' => 'key-1', 'scope' => ''], false],
             'a numeric key id'       => [['cid' => 7, 'scope' => ''], false],
-            'a session'              => [['cid' => self::KEY_ID, 'scope' => '', 'did' => 'session-1'], false],
+            'a session'              => [['cid' => self::KEY_ID, 'scope' => '', 'sid' => 'session-1'], false],
         ];
     }
 
@@ -248,17 +249,19 @@ final class MachineJwtTokenServiceTest extends TestCase
     {
         $now     = CarbonImmutable::now()->getTimestamp();
         $payload = [
-            'sub' => '7',
-            'pid' => '7',
-            'jti' => 'token-id',
-            'iat' => $now,
-            'exp' => $now + 60,
-            'typ' => 'access',
-            'grd' => 'api',
+            'iss'       => self::JWT_ISSUER,
+            'aud'       => self::JWT_AUDIENCE,
+            'client_id' => 'api',
+            'sub'       => '7',
+            'sub_type'  => ($claims['cid'] ?? null) === null ? 'person' : 'machine',
+            'principal' => '7',
+            'jti'       => 'token-id',
+            'iat'       => $now,
+            'exp'       => $now + 60,
             ...$claims,
         ];
 
-        $token = JWT::encode($payload, 'test-secret-key-with-at-least-32-bytes!', 'HS256', 'test-kid');
+        $token = JWT::encode($payload, 'test-secret-key-with-at-least-32-bytes!', 'HS256', 'test-kid', ['typ' => 'at+jwt']);
 
         self::assertSame($accepted, $this->tokens()->parse($token) !== null);
     }

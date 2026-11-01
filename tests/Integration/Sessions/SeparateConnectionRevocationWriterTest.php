@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Integration\Fixtures\SeparateConnectionCutoffIdentity;
@@ -288,6 +289,8 @@ final class SeparateConnectionRevocationWriterTest extends TestCase
      *
      * @param  \Tests\Integration\Fixtures\SeparateConnectionCutoffIdentity  $identity
      * @return array<string, string>
+     *
+     * @throws \JsonException
      */
     private function defaultPendingRow(SeparateConnectionCutoffIdentity $identity): array
     {
@@ -300,6 +303,7 @@ final class SeparateConnectionRevocationWriterTest extends TestCase
             'authenticatable_type' => $identity->getMorphClass(),
             'authenticatable_id'   => (string) $identity->id,
             'expires_at'           => '2027-01-15 10:05:00',
+            'first_factor'         => json_encode(SignInProof::unattested('password', CarbonImmutable::parse(self::NOW))->toArray(), JSON_THROW_ON_ERROR),
         ];
     }
 

@@ -138,8 +138,8 @@ final class ApplicationPolicyIntegrationTest extends TestCase
     public function testAccessTokensLiveForTheirGuardsLifetime(): void
     {
         $membership = $this->seedMembership('client_staff', 'staff');
-        $token      = $this->tokens()->issueAccessToken($membership->getIdentity(), $membership, null);
-        $other      = $this->tokens(self::OTHER_GUARD)->issueAccessToken($membership->getIdentity(), $membership, null);
+        $token      = $this->tokens()->issueAccessToken($membership->getIdentity(), $membership, null, null);
+        $other      = $this->tokens(self::OTHER_GUARD)->issueAccessToken($membership->getIdentity(), $membership, null, null);
 
         $this->assertExpiresInMinutes(2, $token);
         $this->assertExpiresInMinutes(15, $other, self::OTHER_GUARD);
@@ -169,6 +169,7 @@ final class ApplicationPolicyIntegrationTest extends TestCase
         $absolute   = $lifetimes->absoluteDeadline(Carbon::now());
 
         self::assertInstanceOf(TypedIdentity::class, $identity);
+        self::assertNotNull($absolute);
         self::assertSame(Carbon::now()->addDay()->getTimestamp(), $absolute->getTimestamp());
 
         $record = new Session;
@@ -247,7 +248,7 @@ final class ApplicationPolicyIntegrationTest extends TestCase
     public function testATokenCarryingAPrincipalTypeAuthenticates(): void
     {
         $membership = $this->seedMembership('client_staff', 'staff');
-        $claims     = $this->claims($this->tokens()->issueAccessToken($membership->getIdentity(), $membership, null));
+        $claims     = $this->claims($this->tokens()->issueAccessToken($membership->getIdentity(), $membership, null, null));
         $kid        = config('authentication.jwt.active_kid');
 
         self::assertIsString($kid);
@@ -256,7 +257,7 @@ final class ApplicationPolicyIntegrationTest extends TestCase
 
         self::assertIsString($key);
 
-        $legacy = JWT::encode([...$claims, 'pty' => 'contractor'], $key, 'HS256', $kid);
+        $legacy = JWT::encode([...$claims, 'pty' => 'contractor'], $key, 'HS256', $kid, ['typ' => TokenType::ACCESS->value]);
 
         $this->withToken($legacy)->getJson('/api/me')->assertOk()->assertExactJson(['principal' => $membership->getKey()]);
     }

@@ -14,20 +14,20 @@ return [
     |---------------------------------------------------------------------------
     |
     | The connection every package table lives on (`null` for the default):
-    | sessions, pending sign-ins, one-time codes, passkeys and their challenges,
-    | API keys, identifier changes, and the rate limit counters unless
-    | `rate_limits.connection` names their own. The models read and write them
-    | there, and the published migrations create them there. They share one
-    | connection because a session, the completion of a pending sign-in, a
-    | password reset and an identifier change each write several of them in one
-    | transaction, which two connections cannot commit as one: a custom session
-    | model must live on it too, or every session flow fails closed, and
-    | password resets and identifier changes need the identity there as well. A
-    | value that is neither a connection name nor `null` or empty fails closed
-    | when a model is built, and `authentication:check` reports it, as it does a
-    | name `database.connections` does not configure. Keep it fixed while the
-    | application runs: moving the tables is a deploy, with a migration the
-    | application performs and a worker restart.
+    | sessions, their proofs and provenance, pending sign-ins, one-time codes,
+    | passkeys and their challenges, API keys, identifier changes, and the rate
+    | limit counters unless `rate_limits.connection` names their own. The models
+    | read and write them there, and the published migrations create them there.
+    | They share one connection because a session, the completion of a pending
+    | sign-in, a password reset and an identifier change each write several of
+    | them in one transaction, which two connections cannot commit as one: a
+    | custom session model must live on it too, or every session flow fails
+    | closed, and password resets and identifier changes need the identity there
+    | as well. A value that is neither a connection name nor `null` or empty
+    | fails closed when a model is built, and `authentication:check` reports it,
+    | as it does a name `database.connections` does not configure. Keep it fixed
+    | while the application runs: moving the tables is a deploy, with a
+    | migration the application performs and a worker restart.
     |
     */
 
@@ -69,6 +69,34 @@ return [
         'table'                      => env('AUTHENTICATION_SESSION_TABLE', 'authentication_sessions'),
         'last_used_throttle_seconds' => (int) env('AUTHENTICATION_SESSION_LAST_USED_THROTTLE_SECONDS', 60),
         'prune_after_days'           => env('AUTHENTICATION_SESSION_PRUNE_AFTER_DAYS', 30),
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | Proofs
+    |---------------------------------------------------------------------------
+    |
+    | Every session records the proofs it was established and kept with: the
+    | first factor at sign-in, a reauthentication with it, and a further factor
+    | or a recovery code an adapter verified, each with its method, channel,
+    | factor, what was observed, the adapter's evaluation, its `amr` values,
+    | its time and its binding, in `table`. A reauthentication at the external
+    | provider the session began with is a reserved kind: nothing records it
+    | yet. A session an external provider established also records how it
+    | began (the connection and its tenant, the provider's authentication time
+    | and session deadline, and the policy version checked, but no evidence:
+    | nothing accepts any yet) in `provenance_table`. Both live on the storage
+    | connection, are read from the write connection, and are pruned with
+    | their sessions by the session model's `model:prune`. A code proof's
+    | destination is personal data, kept no longer than its session. Each table
+    | name may be up to 47 characters, as the migrations name their indexes
+    | after it.
+    |
+    */
+
+    'proofs' => [
+        'table'            => env('AUTHENTICATION_PROOFS_TABLE', 'authentication_proofs'),
+        'provenance_table' => env('AUTHENTICATION_PROOFS_PROVENANCE_TABLE', 'authentication_provenance'),
     ],
 
     /*
@@ -152,11 +180,15 @@ return [
     | `algorithm` must be HS256, HS384, or HS512, and every key must be at
     | least 32, 48, or 64 bytes respectively. Invalid signing material fails
     | closed when a JWT guard or token service is resolved. Every token carries
-    | a `grd` claim naming the guard that issued it, and a guard rejects tokens
-    | issued by any other guard, even with a shared key. `issuer`/`audience`
-    | are optional; when set they are strictly verified on every parse. Each
-    | must be a string or null, and `algorithm` a string, here and in a guard
-    | override; any other type fails closed rather than being ignored. Each
+    | a `client_id` claim naming the guard (the application) that issued it,
+    | and a guard rejects tokens issued by any other guard, even with a shared
+    | key. `issuer` and `audience` are required, with no default: every token
+    | carries them as `iss` and `aud`, every parse checks them strictly, and a
+    | guard that has neither a package value nor an override fails closed
+    | (`authentication:check` reports it), so a fresh install must set
+    | AUTHENTICATION_JWT_ISSUER and AUTHENTICATION_JWT_AUDIENCE. Each must be
+    | a non-empty string, and `algorithm` a string, here and in a guard
+    | override; any other value fails closed rather than being ignored. Each
     | guard's token service is built from these values once and kept while the
     | token service factory lives, so a change needs a worker restart under
     | Octane or a queue worker (see Configuration lifetimes in
@@ -184,10 +216,16 @@ return [
         // lives `access_ttl_minutes` (1 to 1440). A session ends
         // `refresh_idle_ttl_minutes` after its last refresh, and in any case
         // `refresh_absolute_ttl_minutes` after it started (each 1 to 5256000,
-        // ten years). No token outlives its session: a refresh token, and an
+        // ten years), or earlier at a deadline its sign-in supplied. Set
+        // `refresh_absolute_ttl_minutes` to `null` explicitly (here, in a
+        // guard's override, or AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES
+        // =null) for no absolute limit: such a session ends only when it goes
+        // idle or reaches its sign-in's deadline. The idle lifetime is always
+        // required. No token outlives its session: a refresh token, and an
         // access token whose lifetime is longer, expire when it would. Values
         // must be integers, or digit strings as `env()` returns them; anything
-        // else fails closed when the guard is resolved.
+        // else, a missing absolute lifetime included, fails closed when the
+        // guard is resolved.
         'access_ttl_minutes'           => env('AUTHENTICATION_JWT_ACCESS_TTL_MINUTES', 5),
         'refresh_idle_ttl_minutes'     => env('AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES', 60 * 24 * 90),
         'refresh_absolute_ttl_minutes' => env('AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES', 60 * 24 * 180),
@@ -204,6 +242,8 @@ return [
         // absolute deadline is rejected however recent its access token.
         'leeway_seconds' => env('AUTHENTICATION_JWT_LEEWAY_SECONDS', 30),
 
+        // The `iss` (who issues the tokens, such as https://auth.example.com)
+        // and the `aud` (the API they are for) of every token. Required.
         'issuer'   => env('AUTHENTICATION_JWT_ISSUER'),
         'audience' => env('AUTHENTICATION_JWT_AUDIENCE'),
     ],
@@ -510,26 +550,67 @@ return [
     | `Auth::identifierChanges($guard)` changes an identity's email address or
     | phone number only once the new one is proven, by a one-time code sent to
     | it or a signed link the application sends it; until then the identity
-    | keeps the current one. A request must come within
-    | `recent_authentication_seconds` (60 to 86400) of the identity's sign-in on
-    | the session it is made from, or of a proof the application confirmed
-    | itself, or give the current password. It waits in `table`, on the storage
-    | connection, for at most `ttl_seconds` (300 to 86400; a code request also
-    | no longer than its code), and a newer request for the same identity and
-    | type replaces it. Requests are limited by the `identifier_change` rate
-    | limits, counted on the new identifier and on the identity. Each number is
-    | an integer, or a digit string as `env()` returns one; anything else fails
-    | closed when a change is first requested or confirmed, and
-    | `authentication:check` reports it. The application binds an
-    | `IdentifierChangeNotifier` to tell the old identifier; the change stands
-    | if that notice fails. Prune expired changes with `model:prune`.
+    | keeps the current one. A request must be made from a session with a proof
+    | fresh enough for the `identifier_change` operation (see Freshness), or
+    | give the current password when that freshness takes a first-factor
+    | reauthentication. It waits in `table`, on the storage connection, for at
+    | most `ttl_seconds` (300 to 86400; a code request also no longer than its
+    | code), and a newer request for the same identity and type replaces it.
+    | Requests are limited by the `identifier_change` rate limits, counted on
+    | the new identifier and on the identity. The number is an integer, or a
+    | digit string as `env()` returns one; anything else fails closed when a
+    | change is first requested or confirmed, and `authentication:check`
+    | reports it. The application binds an `IdentifierChangeNotifier` to tell
+    | the old identifier; the change stands if that notice fails. Prune expired
+    | changes with `model:prune`.
     |
     */
 
     'identifier_changes' => [
-        'table'                         => env('AUTHENTICATION_IDENTIFIER_CHANGES_TABLE', 'identifier_changes'),
-        'ttl_seconds'                   => env('AUTHENTICATION_IDENTIFIER_CHANGES_TTL_SECONDS', 3600),
-        'recent_authentication_seconds' => env('AUTHENTICATION_IDENTIFIER_CHANGES_RECENT_AUTHENTICATION_SECONDS', 900),
+        'table'       => env('AUTHENTICATION_IDENTIFIER_CHANGES_TABLE', 'identifier_changes'),
+        'ttl_seconds' => env('AUTHENTICATION_IDENTIFIER_CHANGES_TTL_SECONDS', 3600),
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | Freshness
+    |---------------------------------------------------------------------------
+    |
+    | How fresh a session's authentication must be for each operation, judged
+    | on the newest of its proofs that meets the operation's requirement, never
+    | on the latest `auth_time`: one of the `proofs` kinds, made within
+    | `max_age_seconds` (1 to 86400; an integer, or a digit string as `env()`
+    | returns one), and, when an entry sets `multifactor` or
+    | `phishing_resistant` to true, reported multifactor or observed to resist
+    | phishing. The kinds are `first_factor`, `first_factor_reauthentication`,
+    | `external_reauthentication`, `additional_factor` and `recovery_code`.
+    | Operations are named by this package (below), the application or another
+    | package (`mfa.add_factor`, `sso.reauthenticate`: lower-case segments
+    | separated by dots, read as array keys, never as configuration paths). A
+    | caller may pass a requirement of its own, and the stricter of the two
+    | applies; an operation with neither is never fresh. A guard overrides any
+    | operation in a `freshness` block on its `config/auth.php` entry, where
+    | `null` removes it. A malformed entry fails closed when it is read, and
+    | `authentication:check` reports it. Changing a factor or generating
+    | recovery codes takes a fresh step-up, so `factor_change` takes only a
+    | further factor or a recovery code: neither a sign-in nor a
+    | reauthentication renews the evidence of a further factor.
+    |
+    */
+
+    'freshness' => [
+        'identifier_change' => [
+            'max_age_seconds' => env('AUTHENTICATION_FRESHNESS_IDENTIFIER_CHANGE_SECONDS', 900),
+            'proofs'          => ['first_factor', 'first_factor_reauthentication', 'external_reauthentication', 'additional_factor', 'recovery_code'],
+        ],
+        'password_establishment' => [
+            'max_age_seconds' => env('AUTHENTICATION_FRESHNESS_PASSWORD_ESTABLISHMENT_SECONDS', 900),
+            'proofs'          => ['first_factor', 'first_factor_reauthentication', 'external_reauthentication', 'additional_factor', 'recovery_code'],
+        ],
+        'factor_change' => [
+            'max_age_seconds' => env('AUTHENTICATION_FRESHNESS_FACTOR_CHANGE_SECONDS', 900),
+            'proofs'          => ['additional_factor', 'recovery_code'],
+        ],
     ],
 
     /*

@@ -15,7 +15,7 @@ use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionKeyShape;
 
 /**
- * Unit tests for the `SessionKeyShape` `did` pre-check.
+ * Unit tests for the `SessionKeyShape` `sid` pre-check.
  *
  * Each row pairs a session model with a candidate key and the expected verdict,
  * covering every key format (model-provided rule, ULID, UUID, integer, plain

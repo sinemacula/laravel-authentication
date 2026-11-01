@@ -7,6 +7,9 @@ namespace Tests\Fixtures\Sessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Proofs\Channel;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
 /**
@@ -51,10 +54,10 @@ final readonly class RefusalIgnoringSignIn implements SignInMethod
      * refusal.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
-     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Proofs\FirstFactor
      */
     #[\Override]
-    public function authenticate(SignInRequest $request): FailureReason|Identity
+    public function authenticate(SignInRequest $request): FailureReason|FirstFactor
     {
         $email    = $this->identifier($request->guard, $request->input);
         $identity = $email === null ? null : $request->provider->retrieveByCredentials(['email' => $email]);
@@ -66,7 +69,7 @@ final readonly class RefusalIgnoringSignIn implements SignInMethod
         $request->reserveAccountAttempt($identity);
 
         return $request->provider->validateCredentials($identity, ['password' => $request->input['password'] ?? null])
-            ? $identity
+            ? new FirstFactor($identity, new Channel(ChannelKind::PASSWORD), methods: ['pwd'])
             : FailureReason::INVALID_CREDENTIALS;
     }
 }

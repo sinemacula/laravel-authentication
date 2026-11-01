@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Contracts;
 
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
 /**
@@ -12,10 +13,14 @@ use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
  *
  * A sign-in method proves who is signing in from the input a client sent: a
  * password, a one-time code, an external provider's assertion. It answers with
- * the identity it verified, or why it did not; everything after that (activity,
- * the principal, the application policy, a further factor, the session and the
- * tokens) belongs to the session service, so every method ends in the same
- * place.
+ * what it verified (a `FirstFactor`: the identity, the channel it proved itself
+ * over, what was observed about the authenticator, and the `amr` values the
+ * proof stands for), or why it did not; everything after that (activity, the
+ * principal, the application policy, a further factor, the session, its proofs
+ * and the tokens) belongs to the session service, so every method ends in the
+ * same place. The session records the first factor as its first proof and
+ * derives the access token's `amr` from its values; `mfa` is reserved and a
+ * `FirstFactor` refuses it.
  *
  * Methods are registered on the `SignInMethodManager` under the name the
  * session service records on the session and the application policy allows per
@@ -59,10 +64,11 @@ interface SignInMethod
     public function identifier(string $guard, #[\SensitiveParameter] array $input): ?string;
 
     /**
-     * Verify the input and return the identity it proves, or why it does not.
+     * Verify the input and return the first factor it proves, or why it does
+     * not.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
-     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Proofs\FirstFactor
      */
-    public function authenticate(SignInRequest $request): FailureReason|Identity;
+    public function authenticate(SignInRequest $request): FailureReason|FirstFactor;
 }

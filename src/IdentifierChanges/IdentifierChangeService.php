@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Codes\CodeKeys;
 use SineMacula\Laravel\Authentication\Codes\CodeSettings;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
+use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\HasChangeableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierChangeNotifier;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -28,6 +29,7 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
+use SineMacula\Laravel\Authentication\Freshness\Operations;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
@@ -465,8 +467,9 @@ final readonly class IdentifierChangeService
 
     /**
      * The identity as one whose identifier of the type can be changed through
-     * this guard, once every setting a change reads is checked:
-     * misconfiguration fails here, before anything is counted or written.
+     * this guard, once every setting a change reads is checked, the guard's
+     * freshness for the change included: misconfiguration fails here, before
+     * anything is counted or written.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
@@ -488,6 +491,7 @@ final readonly class IdentifierChangeService
         }
 
         (new IdentifierChangeSettings($config))->validate();
+        $this->collaborator(FreshnessPolicy::class)->requirement($this->context->name(), Operations::IDENTIFIER_CHANGE);
         (new CodeKeys($config))->validate();
         $this->collaborator(QueuedDelivery::class)->settings();
 

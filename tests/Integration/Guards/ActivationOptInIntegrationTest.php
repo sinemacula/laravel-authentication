@@ -107,7 +107,7 @@ final class ActivationOptInIntegrationTest extends TestCase
     public function testUserWithoutActiveColumnAuthenticatesBearerRequest(): void
     {
         $user  = $this->seedUser();
-        $token = $this->authManager()->jwt('api')->issueAccessToken($user, $user, null);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($user, $user, null, null);
 
         Route::middleware('auth:api')->get('/me', static fn (): array => ['id' => Auth::id()]);
 

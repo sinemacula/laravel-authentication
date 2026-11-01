@@ -169,6 +169,8 @@ final class RefreshTokenExchangeBenchHarness
             'api',
             new TokenLifetimes(15, 60 * 24 * 30, 60 * 24 * 180, 30),
             30,
+            'https://issuer.example.test',
+            'https://api.example.test',
         );
         $container->instance(ApplicationPolicy::class, new PermissiveApplicationPolicy($this->tokens->lifetimes()));
         $container->instance(AttemptLimiter::class, new UnlimitedAttemptLimiter);
@@ -273,6 +275,7 @@ final class RefreshTokenExchangeBenchHarness
         BenchSchema::ensureIdentityTable('stub_principals');
         BenchSchema::ensureIdentityTable('tenant_aware_3d_identities');
         BenchSchema::ensureSessionTable();
+        BenchSchema::ensureProofTables();
         BenchSchema::ensureTenantTables();
     }
 
@@ -370,6 +373,8 @@ final class RefreshTokenExchangeBenchHarness
                 'refresh_key'          => RefreshTokenHasher::hash($rotationId),
                 'last_used_at'         => Carbon::now(),
             ])->save();
+
+            BenchSchema::recordFirstFactor($session);
 
             $pool[] = $this->tokens->issueRefreshToken($session, $rotationId, $principal);
         }

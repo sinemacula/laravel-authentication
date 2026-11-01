@@ -24,9 +24,13 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
+use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
+use SineMacula\Laravel\Authentication\Sessions\SessionReauthentication;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
@@ -34,12 +38,14 @@ use Tests\Concerns\InteractsWithCodeIdentities;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Integration\Fixtures\CodeIdentity;
 use Tests\TestCase;
+use Tests\Unit\Stubs\StubVerbatimNormalizer;
 
 /**
  * Feature tests for signing in with a one-time code sent to a phone number,
  * through `Auth::sessions($guard)->signIn('phone_code', ...)`: the session a
  * correct code starts, and how every wrong, expired, exhausted, replayed,
- * foreign or malformed code is refused, counted and reported.
+ * foreign or malformed code is refused, counted and reported; and the proof a
+ * code records, on a sign-in and on a reauthentication.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -48,6 +54,7 @@ use Tests\TestCase;
  */
 #[CoversClass(CodeSignIn::class)]
 #[CoversClass(CodeCheck::class)]
+#[CoversClass(SessionReauthentication::class)]
 final class CodeSignInTest extends TestCase
 {
     use InteractsWithCodeIdentities, InteractsWithRateLimits;
@@ -99,7 +106,9 @@ final class CodeSignInTest extends TestCase
 
     /**
      * The code sent to a verified number starts a session for its identity that
-     * records the method and the identifier type, and uses the code up.
+     * records the method and the identifier type, and uses the code up; its
+     * first proof is the text message to the number in its normal form, with
+     * the `sms` value and nothing observed.
      *
      * @return void
      *
@@ -117,6 +126,14 @@ final class CodeSignInTest extends TestCase
         self::assertTrue($identity->is($result->session?->identity));
         self::assertSame(['phone_code', 'phone'], [$result->session?->method, Session::query()->sole()->sign_in_identifier_type]);
         self::assertNotNull(DB::table('one_time_codes')->value('consumed_at'));
+
+        $proof = SessionProof::query()->sole();
+
+        self::assertSame(
+            ['first_factor', 'phone_code', 'sms', self::PHONE, ['sms']],
+            [$proof->kind, $proof->method, $proof->channel_kind, $proof->channel_reference, $proof->methods],
+        );
+        self::assertNull($proof->user_presence);
     }
 
     /**
@@ -573,6 +590,129 @@ final class CodeSignInTest extends TestCase
         self::assertSame('whatsapp', $manager->method('whatsapp_code')->identifierType('mobile'));
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions('mobile')->signIn('whatsapp_code', ['whatsapp' => self::PHONE, 'code' => '000000'])->reason);
         self::assertSame(1, self::storedAttempts());
+    }
+
+    /**
+     * A code sent through another identifier type is a proof over an unknown
+     * channel, to the identifier in its normal form, with the `otp` value.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACodeOfAnotherTypeIsAnUnknownChannel(): void
+    {
+        Schema::table('code_identities', static function (Blueprint $blueprint): void {
+            $blueprint->string('whatsapp')->nullable();
+            $blueprint->dateTime('whatsapp_verified_at')->nullable();
+        });
+
+        config()->set('authentication.identifiers.normalizers.whatsapp', config('authentication.identifiers.normalizers.phone'));
+        config()->set('auth.guards.mobile.application.methods', ['whatsapp_code']);
+
+        app(SignInMethodManager::class)->extend('whatsapp_code', fn (Application $app): CodeSignIn => $app->make(CodeSignIn::class, ['type' => 'whatsapp']));
+
+        self::seedCodeIdentity()->forceFill(['whatsapp' => self::PHONE, 'whatsapp_verified_at' => '2026-01-01 00:00:00'])->save();
+
+        self::assertTrue($this->codeService()->send('whatsapp_code', ['whatsapp' => ' ' . self::PHONE])->isSent());
+        self::assertTrue($this->sessions('mobile')->signIn('whatsapp_code', ['whatsapp' => self::PHONE, 'code' => self::CODE])->isSignedIn());
+
+        $proof = SessionProof::query()->sole();
+
+        self::assertSame(['whatsapp_code', 'unknown', self::PHONE, ['otp']], [$proof->method, $proof->channel_kind, $proof->channel_reference, $proof->methods]);
+    }
+
+    /**
+     * Rows of `[destination, whether it is recorded]`: destinations that fit
+     * the channel reference's 255 characters (counted as characters, not
+     * bytes), and one that does not.
+     *
+     * @return iterable<string, array{0: string, 1: bool}>
+     */
+    public static function provideDestinationLengths(): iterable
+    {
+        yield from [
+            'one that fits'               => [str_repeat('h', 255), true],
+            'one that fits in characters' => [str_repeat('é', 255), true],
+            'one a character over'        => [str_repeat('h', 256), false],
+        ];
+    }
+
+    /**
+     * A code sent to a destination that fits the channel reference is recorded
+     * with it; a longer one, which a custom type's normaliser may keep, is
+     * recorded with no reference rather than cut.
+     *
+     * @param  string  $handle
+     * @param  bool  $recorded
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideDestinationLengths')]
+    public function testADestinationIsRecordedOnlyWhenItFits(string $handle, bool $recorded): void
+    {
+        Schema::table('code_identities', static function (Blueprint $blueprint): void {
+            $blueprint->text('handle')->nullable();
+            $blueprint->dateTime('handle_verified_at')->nullable();
+        });
+
+        config()->set('authentication.identifiers.normalizers.handle', StubVerbatimNormalizer::class);
+        config()->set('auth.guards.mobile.application.methods', ['handle_code']);
+
+        app(SignInMethodManager::class)->extend('handle_code', fn (Application $app): CodeSignIn => $app->make(CodeSignIn::class, ['type' => 'handle']));
+
+        self::seedCodeIdentity()->forceFill(['handle' => $handle, 'handle_verified_at' => '2026-01-01 00:00:00'])->save();
+
+        self::assertTrue($this->codeService()->send('handle_code', ['handle' => $handle])->isSent());
+        self::assertTrue($this->sessions('mobile')->signIn('handle_code', ['handle' => $handle, 'code' => self::CODE])->isSignedIn());
+        self::assertSame($recorded ? $handle : null, SessionProof::query()->sole()->channel_reference);
+    }
+
+    /**
+     * A session reauthenticated with a code records a first-factor
+     * reauthentication over the code's channel, to the number in its normal
+     * form, with the `sms` value; the new token's `auth_time` moves and its
+     * `amr` stays the session's own.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACodeReauthenticatesASessionOverItsChannel(): void
+    {
+        self::seedCodeIdentity();
+
+        self::assertTrue($this->codeService()->send('phone_code', ['phone' => self::PHONE])->isSent());
+
+        $session = $this->signIn(self::CODE)->session;
+
+        self::assertNotNull($session);
+
+        $later = $this->now->addHour();
+
+        Carbon::setTestNow($later);
+        CarbonImmutable::setTestNow($later);
+
+        JWT::$timestamp = $later->getTimestamp();
+
+        self::assertTrue($this->codeService()->send('phone_code', ['phone' => self::PHONE])->isSent());
+
+        $result = $this->sessions('mobile')->reauthenticate($session->record, 'phone_code', ['phone' => ' ' . self::PHONE, 'code' => '246802']);
+
+        self::assertTrue($result->isIssued());
+
+        $proof = SessionProof::query()->where('kind', 'first_factor_reauthentication')->sole();
+
+        self::assertSame(
+            ['reauthenticate', 'phone_code', 'sms', self::PHONE, ['sms']],
+            [$proof->purpose, $proof->method, $proof->channel_kind, $proof->channel_reference, $proof->methods],
+        );
+
+        $claims = Auth::manager()->jwt('mobile')->parse((string) $result->accessToken, TokenType::ACCESS);
+
+        self::assertIsArray($claims);
+        self::assertSame([$later->getTimestamp(), ['sms']], [$claims['auth_time'] ?? null, $claims['amr'] ?? null]);
     }
 
     /**

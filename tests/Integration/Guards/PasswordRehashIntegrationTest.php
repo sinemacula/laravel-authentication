@@ -168,7 +168,7 @@ final class PasswordRehashIntegrationTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $outdated = $identity->password;
-        $token    = Auth::manager()->jwt('api')->issueAccessToken($identity, $identity, null);
+        $token    = Auth::manager()->jwt('api')->issueAccessToken($identity, $identity, null, null);
 
         app()->instance('request', Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]));
 

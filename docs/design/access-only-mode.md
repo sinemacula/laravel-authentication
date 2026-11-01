@@ -12,10 +12,11 @@ principal auth without session tracking or refresh rotation.
 - `attempt()` counts its attempts in the `rate_limits` table, unless the guard turns its sign-in limits off
   (`rate_limits.sign_in = null`): a deployment that signs in with `attempt()` keeps that table, and the
   `authentication_sessions` and `pending_sign_ins` tables stay empty.
-- Access tokens for this mode must be issued with `session = null`, which means the JWT carries `did = null`. `did` is
-  the one access-token claim that may be absent or null; `sub`, `pid`, `exp`, `iat`, `jti`, `typ`, and `grd` are
-  required as on every access token. With no session to bound it, such a token lives exactly the guard's
-  `access_ttl_minutes`.
+- Access tokens for this mode must be issued with `session = null`, which means the JWT carries no `sid`, and so no
+  `auth_time` or `amr` either: a token that names no session and carries one of those fails to parse. `sid` is the one
+  access-token claim that may be absent (or `null`); `iss`, `aud`, `client_id`, `sub`, `sub_type` (`person`),
+  `principal`, `jti`, `iat` and `exp`, with the `at+jwt` header type, are required as on every access token. With no
+  session to bound it, such a token lives exactly the guard's `access_ttl_minutes`.
 - The identity model does not need to implement `HasSessions`.
 - Bearer auth still rehydrates the identity through the configured provider and resolves the principal through the
   configured resolver.
@@ -32,14 +33,19 @@ principal auth without session tracking or refresh rotation.
 - Leave the `authentication_sessions` table out (or empty); keep the `rate_limits` table only for a guard that signs in
   with `attempt()`.
 - Do not implement `HasSessions` on the identity model.
-- Issue access tokens with `Auth::jwt('api')->issueAccessToken($identity, $principal, null)`.
+- Issue access tokens with `Auth::jwt('api')->issueAccessToken($identity, $principal, $tenant, null)`, where `$tenant`
+  is the tenant the principal acts within (carried in `tenant_id`), or `null` for none; a tenant that is not the
+  principal's own is refused with an `InvalidArgumentException`, and a principal whose tenant cannot be loaded (deleted,
+  soft-deleted or hidden by a scope) throws the `TenantUnavailableException` its `getTenant()` does. The tenant is
+  read on the write connection: none when the caller passes the tenant it loaded through the principal, one when the
+  principal's relation is not loaded.
 - On the bearer path, the guard binds identity and principal normally and leaves session unset.
 - Query cost stays low because the access-only bearer path only needs the identity read, a recorded "tokens valid
   after" time included.
 
 ## Failure / Edge Cases
 
-- A forged non-null `did` does not cause a best-effort downgrade. The bearer path fails closed even in a deployment that
+- A forged non-null `sid` does not cause a best-effort downgrade. The bearer path fails closed even in a deployment that
   has no `authentication_sessions` table.
 - This mode is intentionally bearer-only. `JwtTokenService::issueRefreshToken()` still requires a `Session`, and the
   refresh exchange still depends on an `EloquentSession` model plus persisted session state. The session service refuses
@@ -51,8 +57,8 @@ principal auth without session tracking or refresh rotation.
   reports it; it reads no `authentication_sessions` row and deletes no `pending_sign_ins` row, since no session of such
   an identity can hold either, so neither table needs to exist.
 - Guard construction still validates the configured session model: its class, and that it lives on the storage
-  connection. The package tolerates a missing table on this path because bearer auth with `did = null` never tries to
-  query it.
+  connection. The package tolerates a missing table on this path because bearer auth with no `sid` never tries to query
+  it.
 - Access-token `jti` values are not consulted on the bearer path. Revocation behaviour therefore comes from identity and
   principal rehydration, not from a server-side access-token store.
 
@@ -75,7 +81,7 @@ principal auth without session tracking or refresh rotation.
 - `tests/Integration/Guards/AccessOnlyIntegrationTest.php`
   `testForgedSessionHintFailsClosedWithoutSessionsTable`
 - `tests/Unit/Jwt/JwtTokenServiceIssueTest.php`
-  `testIssueAccessTokenWithoutSessionSetsNullSessionClaim`
+  `testIssueAccessTokenWithoutSessionCarriesNoSessionClaims`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
   `testUserSkipsSessionWhenNoDidClaimPresent`
 - `tests/Performance/JwtGuardQueryBudgetTest.php`
@@ -96,7 +102,7 @@ principal auth without session tracking or refresh rotation.
 
 Update this note when any of the following change:
 
-- the rule that access-only tokens carry `did = null`
+- the rule that access-only tokens carry no `sid`, `auth_time` or `amr`
 - whether bearer auth can still succeed without `HasSessions`
 - whether access-only bearer auth remains free of session writes
 - whether refresh becomes supported without persisted session state

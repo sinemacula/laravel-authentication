@@ -149,13 +149,12 @@ final class BearerAuthenticationTest extends JwtGuardTestCase
         $this->expectOutcome(false);
 
         $token = $this->encodeToken([
-            'jti' => 'access-token-id',
-            'sub' => 'i-1',
-            'pid' => 'p-1',
+            'jti'       => 'access-token-id',
+            'sub'       => 'i-1',
+            'sub_type'  => 'person',
+            'principal' => 'p-1',
+            ...$this->bindingClaims($this->now->getTimestamp(), $this->now->getTimestamp() + 900),
             'iat' => $this->now->getTimestamp() - 0.5,
-            'exp' => $this->now->getTimestamp() + 900,
-            'typ' => 'access',
-            'grd' => self::GUARD_NAME,
         ]);
 
         self::assertNull($this->guardFor($identity, $this->principal(null), $token)->user());
@@ -235,7 +234,7 @@ final class BearerAuthenticationTest extends JwtGuardTestCase
                 ->once()
                 ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed && $event->reason === FailureReason::PRINCIPAL_MISMATCH));
 
-            self::assertNull($this->makeGuard($this->makeRequest($this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1'])))->user());
+            self::assertNull($this->makeGuard($this->makeRequest($this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1'])))->user());
         }
     }
 
@@ -264,7 +263,7 @@ final class BearerAuthenticationTest extends JwtGuardTestCase
                 && $event->reason            === FailureReason::MACHINE_IDENTITY
                 && $event->context->identity === $machine));
 
-        self::assertNull($this->makeGuard($this->makeRequest($this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1'])))->user());
+        self::assertNull($this->makeGuard($this->makeRequest($this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1'])))->user());
     }
 
     /**
@@ -330,7 +329,7 @@ final class BearerAuthenticationTest extends JwtGuardTestCase
         $this->provider->shouldReceive('retrieveById')->once()->with('i-1')->andReturn($identity);
         $this->resolver->shouldReceive('resolve')->once()->with($identity, 'p-1')->andReturn($principal);
 
-        return $this->makeGuard($this->makeRequest($token ?? $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1'])));
+        return $this->makeGuard($this->makeRequest($token ?? $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1'])));
     }
 
     /**

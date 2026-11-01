@@ -76,7 +76,7 @@ final class SessionSummaryTest extends TestCase
         self::assertSame('2027-01-15 09:59:00', $summary->lastUsedAt->format('Y-m-d H:i:s'));
         self::assertSame('2027-01-15 08:00:00', $summary->signedInAt->format('Y-m-d H:i:s'));
         self::assertSame('2027-02-14 10:00:00', $summary->idleExpiresAt->format('Y-m-d H:i:s'));
-        self::assertSame('2027-03-16 10:00:00', $summary->absoluteExpiresAt->format('Y-m-d H:i:s'));
+        self::assertSame('2027-03-16 10:00:00', $summary->absoluteExpiresAt?->format('Y-m-d H:i:s'));
     }
 
     /**
@@ -206,12 +206,12 @@ final class SessionSummaryTest extends TestCase
     }
 
     /**
-     * A session without a deadline or a sign-in time cannot be summarised: an
-     * active session always has them.
+     * A session without an idle deadline or a sign-in time cannot be
+     * summarised: an active session always has them.
      *
      * @return void
      */
-    public function testRefusesASessionWithoutADeadline(): void
+    public function testRefusesASessionWithoutAnIdleDeadline(): void
     {
         $unsigned = self::ROW;
 
@@ -226,12 +226,31 @@ final class SessionSummaryTest extends TestCase
 
         $row = self::ROW;
 
-        $row['absolute_expires_at'] = null;
+        $row['idle_expires_at'] = null;
 
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('Session session-1 of ' . StubUncastSession::class . ' has no session deadline to summarise.');
 
         SessionSummary::of(self::session($row), false);
+    }
+
+    /**
+     * A session with no absolute deadline is summarised with `null` for it, in
+     * the summary and its array.
+     *
+     * @return void
+     */
+    public function testASessionWithoutAnAbsoluteDeadlineIsSummarisedWithNone(): void
+    {
+        $row = self::ROW;
+
+        $row['absolute_expires_at'] = null;
+
+        $summary = SessionSummary::of(self::session($row), false);
+
+        self::assertNull($summary->absoluteExpiresAt);
+        self::assertNull($summary->toArray()['absolute_expires_at']);
+        self::assertSame('2027-02-14T10:00:00+00:00', $summary->toArray()['idle_expires_at']);
     }
 
     /**

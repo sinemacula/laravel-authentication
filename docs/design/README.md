@@ -27,16 +27,19 @@ The current note set is:
   previous rotation id, and when a replayed refresh token revokes the session (`rotation_reuse`).
 - `refresh-token-transport.md`: where a guard reads the refresh token from, why a request may carry it in only one
   place, the cookie's cross-site checks, and the cookie that carries a browser's refresh token.
-- `fail-closed-pid-did.md`: why `pid` and `did` are treated as commitments rather than advisory hints.
+- `token-profile.md`: the claims each token carries, the header type that tells access and refresh tokens apart, the
+  subject type that tells a person's token from a machine's, what every parse checks, and what the bearer path does not
+  read.
+- `fail-closed-pid-did.md`: why the `principal` and `sid` claims are treated as commitments rather than advisory hints.
 - `storage.md`: where the package's tables live, why the session-backed ones share one connection, and how the models
   and the published migrations choose the same one.
 - `access-only-mode.md`: the supported bearer-only, no-sessions migration path.
-- `guard-bound-tokens.md`: the `grd` claim that ties every token to its issuing guard, and the provider-scoped owner
-  reload on refresh.
+- `guard-bound-tokens.md`: the `client_id` claim that ties every token to its issuing guard, and the provider-scoped
+  owner reload on refresh.
 - `session-service.md`: how a guard's session service signs in, creates a session and revokes the one a client proved,
   issues the first pair, and reports it.
 - `session-record.md`: what the package calls the record it keeps per sign-in and why, the Laravel names it meets, the
-  `did` claim it keeps, what proves a previous session for replacement, the `superseded` reason, and the sessions
+  `sid` claim it keeps, what proves a previous session for replacement, the `superseded` reason, and the sessions
   table's index names.
 - `session-lifecycle.md`: which sessions are active, how an identity's sessions are listed, how a session signs out and
   sessions are revoked (one, every session of an identity or a principal, and on security changes, by method or optional
@@ -55,6 +58,9 @@ The current note set is:
   its link's token or code with the new password and the revocation.
 - `machine-credentials.md`: how non-human identities authenticate, and the scope convention the suite follows: scopes
   carried, never interpreted, and held to an optional registry when a credential is issued.
+- `proofs-and-freshness.md`: the proofs a session records and its provenance, how `auth_time` and `amr` are derived
+  from them, how a session steps up and reauthenticates in place, and how freshness is judged for a sensitive operation
+  on the proof that meets it.
 - `identifier-changes.md`: how an identity's email address or phone number is replaced once the new one is proven,
   after a recent authentication, unique on its normalised value under a race, invalidating the proofs it outdates.
 - `provider-composition.md`: why every binding the provider makes is a default another provider's binding is never

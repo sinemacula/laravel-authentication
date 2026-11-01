@@ -40,7 +40,8 @@ use Tests\Unit\Stubs\StubPrincipal;
  * sessions table: a refresh moves the idle deadline forward but never past the
  * absolute deadline, which never moves; tokens mirror the deadlines; and a
  * session past either deadline is over on every path, the bearer path, sign-in
- * pins, and refresh, whatever its tokens say.
+ * pins, and refresh, whatever its tokens say; and a session that records no
+ * first factor is never issued for.
  *
  * The `api` guard uses 5-minute access tokens, a 1-hour idle lifetime, a
  * 10-hour absolute lifetime, and 30 seconds of leeway. The `brief` guard keeps
@@ -129,11 +130,56 @@ final class SessionLifetimeIntegrationTest extends TestCase
         [$identity, $session] = $this->signIn();
 
         $refresh = $this->claims($this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity), TokenType::REFRESH);
-        $access  = $this->claims($this->tokens()->issueAccessToken($identity, $identity, $session), TokenType::ACCESS);
+        $access  = $this->claims($this->tokens()->issueAccessToken($identity, $identity, null, $session), TokenType::ACCESS);
 
         self::assertSame($this->signedInAt->getTimestamp() + 3600, $refresh[Claims::EXPIRES_AT->value]);
         self::assertSame($this->signedInAt->getTimestamp() + 300, $access[Claims::EXPIRES_AT->value]);
         self::assertSame($this->signedInAt->getTimestamp() + 36000, $this->stored($session)->getAbsoluteExpiresAt()?->getTimestamp());
+    }
+
+    /**
+     * Rows of `[seconds to the idle deadline, seconds to the absolute deadline
+     * or null for none, seconds the access token lasts]`: the access lifetime
+     * within a session that outlasts it, and either deadline when it comes
+     * first, down to its last second.
+     *
+     * @return iterable<string, array{0: int, 1: ?int, 2: int}>
+     */
+    public static function provideSessionEnds(): iterable
+    {
+        yield from [
+            'session outlasts the token' => [86400, 86400, 300],
+            'absolute deadline first'    => [3600, 120, 120],
+            'absolute deadline in 1 s'   => [3600, 1, 1],
+            'idle deadline first'        => [120, 36000, 120],
+            'idle deadline in 1 s'       => [1, 36000, 1],
+            'no absolute deadline'       => [86400, null, 300],
+            'no absolute, idle first'    => [120, null, 120],
+        ];
+    }
+
+    /**
+     * An access token for a session expires after the access lifetime, but
+     * never after the session's idle or absolute deadline, whichever comes
+     * first, or the idle one alone when it has no absolute one.
+     *
+     * @param  int  $idleIn
+     * @param  ?int  $absoluteIn
+     * @param  int  $expiresIn
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideSessionEnds')]
+    public function testAnAccessTokenNeverOutlivesItsSession(int $idleIn, ?int $absoluteIn, int $expiresIn): void
+    {
+        [$identity, $session] = $this->signIn();
+
+        $this->setDeadlines($session, $this->signedInAt->copy()->addSeconds($idleIn), $absoluteIn === null ? null : $this->signedInAt->copy()->addSeconds($absoluteIn));
+
+        $access = $this->claims($this->issue(TokenType::ACCESS, $identity, $this->stored($session)), TokenType::ACCESS);
+
+        self::assertSame($this->signedInAt->getTimestamp() + $expiresIn, $access[Claims::EXPIRES_AT->value]);
     }
 
     /**
@@ -173,7 +219,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
         $this->moveClockTo($idle);
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Cannot issue a token for a session that has ended or that has no idle and absolute deadlines.');
+        $this->expectExceptionMessage('Cannot issue a token for a session that has ended or that has no idle deadline.');
 
         $this->issue($type, $identity, $session);
     }
@@ -233,6 +279,41 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
+     * A session row that records no first factor (one an application wrote
+     * itself, not through the session service) is never issued for: a refresh
+     * fails with a `LogicException` rather than mint an access token that
+     * cannot say when or how it authenticated, and nothing of its rotation is
+     * written, since the token is issued before the rotation is stored, so its
+     * refresh token still names the session as it was.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionThatRecordsNoFirstFactorIsNeverRefreshed(): void
+    {
+        $this->recordsSessionProofs = false;
+
+        [$identity, $session] = $this->signIn();
+
+        $token   = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity);
+        $columns = ['refresh_key', 'previous_refresh_key', 'refresh_rotated_at', 'idle_expires_at'];
+        $before  = (array) DB::table('authentication_sessions')->where('id', $session->getKey())->first($columns);
+
+        $this->moveClockTo($this->signedInAt->copy()->addMinute());
+
+        try {
+            GuardSessions::of($this->guard())->refresh($token);
+            self::fail('Expected a session without a first factor to be refused a token.');
+        } catch (\LogicException $exception) {
+            self::assertSame('The session records no counting first factor, so no access token can say when or how it authenticated.', $exception->getMessage());
+        }
+
+        self::assertSame(0, DB::table('authentication_proofs')->count());
+        self::assertSame($before, (array) DB::table('authentication_sessions')->where('id', $session->getKey())->first($columns));
+    }
+
+    /**
      * With an idle lifetime shorter than the access lifetime, an access token
      * expires at the session's idle deadline rather than after the access
      * lifetime, since the bearer path rejects it from that second: no token
@@ -247,7 +328,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
     {
         [$identity, $session] = $this->signIn(self::BRIEF);
 
-        $access  = $this->tokens(self::BRIEF)->issueAccessToken($identity, $identity, $session);
+        $access  = $this->tokens(self::BRIEF)->issueAccessToken($identity, $identity, null, $session);
         $refresh = $this->tokens(self::BRIEF)->issueRefreshToken($session, self::ROTATION_ID, $identity);
         $idle    = $this->signedInAt->getTimestamp() + 120;
 
@@ -387,7 +468,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
     {
         [$identity, $session] = $this->signIn();
 
-        $token = $this->tokens()->issueAccessToken($identity, $identity, $session);
+        $token = $this->tokens()->issueAccessToken($identity, $identity, null, $session);
 
         $this->bearer($token)->assertOk()->assertExactJson(['session' => $session->getKey()]);
 
@@ -413,7 +494,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
         $this->setDeadlines($session, $absolute, $absolute);
 
-        $token = $this->tokens()->issueAccessToken($identity, $identity, $this->stored($session));
+        $token = $this->tokens()->issueAccessToken($identity, $identity, null, $this->stored($session));
 
         self::assertSame($absolute->getTimestamp(), $this->claims($token, TokenType::ACCESS)[Claims::EXPIRES_AT->value]);
 
@@ -554,14 +635,14 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * Overwrite a session's deadlines on the row.
+     * Overwrite a session's deadlines on the row, `null` for no absolute one.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
      * @param  \Carbon\CarbonInterface  $idle
-     * @param  \Carbon\CarbonInterface  $absolute
+     * @param  ?\Carbon\CarbonInterface  $absolute
      * @return void
      */
-    private function setDeadlines(Session $session, CarbonInterface $idle, CarbonInterface $absolute): void
+    private function setDeadlines(Session $session, CarbonInterface $idle, ?CarbonInterface $absolute): void
     {
         Session::query()->whereKey($session->getKey())->update([
             'idle_expires_at'     => $idle,
@@ -638,7 +719,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
     private function issue(TokenType $type, StubPrincipal $identity, Session $session): string
     {
         return $type === TokenType::ACCESS
-            ? $this->tokens()->issueAccessToken($identity, $identity, $session)
+            ? $this->tokens()->issueAccessToken($identity, $identity, null, $session)
             : $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity);
     }
 

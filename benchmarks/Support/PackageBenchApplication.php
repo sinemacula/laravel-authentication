@@ -70,8 +70,8 @@ final class PackageBenchApplication
             'authentication.jwt.keys'                         => ['bench' => self::SECRET],
             'authentication.jwt.active_kid'                   => 'bench',
             'authentication.jwt.algorithm'                    => 'HS256',
-            'authentication.jwt.issuer'                       => null,
-            'authentication.jwt.audience'                     => null,
+            'authentication.jwt.issuer'                       => 'https://issuer.example.test',
+            'authentication.jwt.audience'                     => 'https://api.example.test',
             'authentication.timebox.credentials_microseconds' => 1,
         ]);
 

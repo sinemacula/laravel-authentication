@@ -1,4 +1,175 @@
-# Switching principal and signing out
+# Sessions: proofs, stepping up, freshness, switching principal and signing out
+
+## Proofs and provenance
+
+Every session records the proofs it was established and kept with, each a timestamped row in `proofs.table` (see
+[Proofs](configuration.md#proofs)), kept apart by kind:
+
+| Kind                            | Recorded by                                                                                                                                                                     |
+|---------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `first_factor`                  | every sign-in: what the sign-in method verified (see [Writing a sign-in method](signing-in.md#writing-a-sign-in-method)), or the external provider's result `start()` was given |
+| `first_factor_reauthentication` | a reauthentication with the first factor on an active session                                                                                                                   |
+| `additional_factor`             | a further factor an adapter verified: at sign-in, with `complete()`, or as a step-up                                                                                            |
+| `recovery_code`                 | a recovery code an adapter accepted in place of a further factor                                                                                                                |
+| `external_reauthentication`     | reserved for a reauthentication at the external provider the session began with: nothing records it yet                                                                         |
+
+Each holds its method, its channel (`password`, `sms`, `email`, `authenticator_app`, `passkey`, `external_provider` or
+`unknown`, with the destination or credential reference: a code's address or number in its normal form, a passkey's own
+row id, a provider's connection id), the factor an adapter used, what was observed about the authenticator (user
+presence and verification, backup eligibility and state, phishing resistance, key protection: each `null` when it was
+not observed, which never counts as true), the adapter's evaluation (accepted, multifactor; none for a proof the package
+verified itself), its `amr` values, its time and its binding (the identity, the application, the session and the
+purpose: `sign_in`, `reauthenticate` or `step_up`). A proof is never changed once recorded. A proof marked void never
+counts, but nothing marks one yet: removing a factor leaves its proofs counting, so after
+`factorRemoved($identity, Auth::session())` the current session keeps its step-up with that factor (its tokens' `amr`
+keep `mfa`, and it still meets a multifactor requirement). Pass no session to except when the current one must not keep
+it.
+
+A session an external provider established also records its provenance, once, in `proofs.provenance_table`: the
+connection and its tenant, the provider's authentication time, no evidence (nothing yet decides whether a provider's
+evidence is accepted, so none is recorded), the provider's deadline for its session (which also caps the session's
+absolute deadline, the earlier of it and the sign-in's own winning) and the policy version the caller checked. A later
+reauthentication at the provider is a proof of its own and never rewrites how the session began. The provenance is
+indexed by connection and by tenant, for finding the sessions of a connection or of a tenant's connections, but the
+package has no lookup or revocation by connection or tenant yet: only the indexes.
+
+Proofs and provenance belong to the session's key, so they carry unchanged from a pending sign-in to its session, and
+across every refresh and switch of principal. A sign-in that replaces a session the client proved it holds is a new
+session with its own proofs; the replaced session keeps its own. A new session counts only its own sign-in's: anything
+recorded under its key before (by an earlier session whose key the database issued again) is deleted as it records them.
+`auth_time` and `amr` are derived from the proofs when an access token is issued, never stored in their place. Every
+read of them is from the write connection, so a lagging replica cannot hide a proof just written. They hold personal
+data (a code's destination), are hidden from a model's serialised form, and are pruned with their session (see
+[Pruning](operations.md#pruning)).
+
+## Stepping up
+
+A session steps up when your further-factor adapter verifies a factor on it: a one-time password, a passkey used as a
+factor, or a recovery code in its place. Hand the adapter's `Proofs\ProofResult` to the session service; it records the
+proof on the session and issues the session a new access token, and nothing else:
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+Route::middleware('auth:api')->post('/step-up', function (Request $request) {
+    $proof  = $factors->verify(Auth::identity(), Auth::session(), $request->input('code')); // your adapter's ProofResult
+    $result = Auth::sessions('api')->stepUp($proof);
+
+    return $result->isIssued()
+        ? response()->json(['access_token' => $result->accessToken, 'expires_at' => $result->expiresAt->toIso8601String()])
+        : response()->json(['message' => 'The code was not accepted.'], 403);
+});
+```
+
+The proof must be an `additional_factor` or a `recovery_code`, made for `Purpose::STEP_UP`, accepted by its adapter's
+`Evaluation`, and made no later than now and no earlier than the session started (`proof_invalid` otherwise); its
+`ProofBinding` must name the session's owner, this guard and the session's key (`proof_binding_mismatch`). The session
+is read again and locked while the proof is recorded, so it must still be one of the guard's live sessions of a person
+(`session_unknown`, `session_guard_mismatch`, `session_revoked`, `session_expired`, `machine_identity`), and it is
+admitted again as a refresh admits it (its owner, principal and tenant active, the method still allowed, the principal
+still eligible). A revocation that commits first refuses the step-up; one that commits after ends the new token at its
+next request, as it ends every access token of the session.
+
+The new access token's `auth_time` is the newest time of the session's proofs, so never earlier than the step-up proof's
+(a reauthentication recorded after the proof was made keeps its own, later time), and its `amr` gains the proof's
+values, and `mfa` when the evaluation reports multifactor authentication. The session keeps its key, its refresh token
+and its deadlines: a refresh afterwards issues tokens that still carry the step-up, since `auth_time` and `amr` are
+derived from the session's proofs each time a token is issued. No refresh token is issued and nothing is bound to the
+request, which is already authenticated. `SteppedUp` reports it once committed, with the proof's kind and, as the
+context's method, the method the adapter verified it with; a refusal is an `AccessTokenResult` whose `reason` says why,
+reported by `AuthenticationFailed` with the flow `step_up` and the same method, and never thrown.
+
+## Reauthenticating
+
+A session reauthenticates when its identity proves its first factor again, through one of the guard's sign-in methods
+and the input the client sent:
+
+```php
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+Route::middleware('auth:api')->post('/reauthenticate', function (Request $request) {
+    $result = Auth::sessions('api')->reauthenticate(Auth::session(), 'password', $request->only('email', 'password'));
+
+    return match (true) {
+        $result->isIssued()                                => response()->json(['access_token' => $result->accessToken]),
+        $result->reason === FailureReason::RATE_LIMITED    => response()->json([], 429, ['Retry-After' => $result->retryAfter]),
+        default                                            => response()->json(['message' => 'Those details are not correct.'], 403),
+    };
+});
+```
+
+Any sign-in method the guard allows can reauthenticate, with the input its sign-in takes. A code method (`phone_code`,
+`email_code`) takes the identifier and a code sent for it: request one first with `Auth::codes('api')->send()`, as for a
+sign-in and counted under the same code request limits (see [Signing in with a one-time
+code](signing-in.md#signing-in-with-a-one-time-code)), then pass the identifier and the code
+(`['phone' => $phone, 'code' => $code]`); the code is used up as a sign-in's is. A passkey takes the `challenge` and
+`credential` of a ceremony begun with `Auth::passkeys('api')->signInOptions()` (see [Using
+passkeys](signing-in.md#using-passkeys)). Whichever the method, the identity it verifies must be the session's owner.
+
+The method must be one the guard's application allows (`method_not_allowed`, nothing counted) and not a machine
+credential's (an `InvalidArgumentException`). The session must still be the one given, as stored (a session put under
+its key since, of the same owner or not, records another generation and is `session_unknown`), and one of the guard's
+live sessions of a person, as for a step-up. The attempt counts against the guard's `sign_in` limits, on the identifier
+and the IP address, before any transaction opens (`rate_limited`, with the wait), and the method verifies the input in
+the guard's credential timebox, its account checks counted as a sign-in's are. The identity it verifies must be the
+session's owner: another identity's correct credential is `invalid_credentials`, as a wrong one is, and never says whose
+it was. A concealed reason (`account_rate_limited`, an expired or exhausted code, a passkey's sign counter that did not
+advance) is answered as `invalid_credentials`, with no wait. The session is then locked, checked again (still the
+owner's, and of the generation verified) and admitted again, as for a step-up, the proof is recorded as
+`first_factor_reauthentication`, and the slots are given back.
+
+A reauthentication renews the session's authentication time and nothing else: the new access token's `auth_time` is now,
+its `amr` is the session's as it was, and a further factor the session holds keeps its own time, so an operation that
+asks for a further factor within a minute is not met by a fresh password. `Reauthenticated` reports it once committed; a
+refusal is reported by `AuthenticationFailed` with the flow `reauthentication`. An `external_reauthentication`, at the
+provider the session began with, has no entry point yet: the kind is reserved for the provider's reauthentication
+handoff, and a step-up refuses it.
+
+## Freshness
+
+Whether a session's authentication is fresh enough for a sensitive operation is the `Contracts\FreshnessPolicy`'s to
+say, judged on the newest of the session's proofs that meets the operation's requirement, never on the latest
+`auth_time`: a step-up with a one-time password a minute ago does not make a session fresh for an operation that asks
+for a phishing-resistant proof, though its token's `auth_time` is a minute old.
+
+```php
+use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
+use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
+
+$freshness = app(FreshnessPolicy::class);
+
+// The configured requirement for the operation on the session's application.
+$proof = $freshness->freshProof(Auth::session(), 'mfa.add_factor');
+
+// Made stricter by the caller's own: the shorter age, the kinds both take, either's flags.
+$proof = $freshness->freshProof(Auth::session(), 'payouts.change', new FreshnessRequirement(300, [ProofKind::ADDITIONAL_FACTOR], multifactor: true));
+
+// A maximum age alone: every kind counts, so only the configured age is shortened.
+$proof = $freshness->freshProof(Auth::session(), 'sso.reauthenticate', FreshnessRequirement::within(300));
+
+if ($proof === null) {
+    return response()->json(['message' => 'Confirm it is you.', 'step_up' => true], 403);
+}
+```
+
+`freshProof()` answers the proof that makes the session fresh (a `Proofs\RecordedProof`, with its kind, method, channel,
+evaluation and time), or `null`. The requirement is configured per operation in `freshness` and per guard (see
+[Freshness](configuration.md#freshness)): the proof kinds that count, how recently one must have been made, and whether
+it must have reported multifactor authentication or been observed to resist phishing. An operation with no configured
+requirement and none of the caller's is never fresh, nor is one whose two requirements take no kind in common. A proof
+marked void never counts (nothing marks one yet). The session is never trusted as the caller holds it: it is read again
+on the write connection and must still record the same generation and owner (a retained instance of a session whose key
+now holds another, a later one of the same identity included, is never fresh) and be live for its guard before its
+proofs are read, two queries in all, and none when the operation has no requirement. That read takes no lock, and inside
+a transaction it may be served from a snapshot taken before the caller's lock (MySQL's REPEATABLE READ), so a caller
+that acts on the answer atomically locks the session in its transaction, checks the locked row is still live itself, and
+asks inside it, as an identifier change does (see [Changing identifiers](identifier-changes.md)).
+
+The package binds `Freshness\ConfiguredFreshness`. Rebind the contract for a requirement the stored proofs cannot show,
+such as a minimum assurance level or an additional verification of your own; an implementation keeps no state between
+calls.
 
 ## Switching principal
 
@@ -57,12 +228,12 @@ identifier cannot be reached by switching to it, the session's sign-in method mu
 additional-factor policy must not ask for a further factor (`additional_factor_required`: sign in again as the target).
 
 With the current rotation id, the token's principal must be the one the session records (`session_principal_mismatch`).
-The switch keeps the session's absolute deadline, held to the guard's absolute lifetime counted from the sign-in
-(`session_expired` when that has passed), restarts the idle one under the guard's lifetimes, issues both tokens for the
-target, then records the target, the switch time (`principal_switched_at`), the rotation and both deadlines in one
-compare-and-swap. The access tokens of the principal switched from stop at once, and switching back does not revive them
-(see [Session](configuration.md#session)). A switch to the principal the session already records rotates the credential
-like a refresh and reports no switch.
+The switch keeps the session's absolute deadline, or its having none while the guard sets no limit, held to the guard's
+absolute lifetime counted from the sign-in (`session_expired` when that has passed), restarts the idle one under the
+guard's lifetimes, issues both tokens for the target, then records the target, the switch time
+(`principal_switched_at`), the rotation and both deadlines in one compare-and-swap. The access tokens of the principal
+switched from stop at once, and switching back does not revive them (see [Session](configuration.md#session)). A switch
+to the principal the session already records rotates the credential like a refresh and reports no switch.
 
 With the previous rotation id inside the grace window, the current credential for the target is handed back, writing
 nothing, only when the session records the target and either its last rotation was the switch to it (a lost switch
@@ -152,7 +323,8 @@ session.
 ### Listing sessions
 
 `sessions()` returns one page of an identity's active sessions for a "where you're signed in" screen: every session it
-holds on any guard that is not revoked and is before both its idle and absolute deadline, most recently used first
+holds on any guard that is not revoked and is before its idle deadline and its absolute deadline when it has one (each
+summary's `absolute_expires_at` is `null` when it has none), most recently used first
 (sessions never used last), then newest first:
 
 ```php
@@ -161,7 +333,7 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 Route::middleware('auth:api')->get('/sessions', fn () => Auth::sessions('api')->sessions(Auth::identity(), perPage: 20));
 ```
 
-Each item is a `SessionSummary`, safe to return as it is: the session id (its `did`), guard, sign-in method, client name
+Each item is a `SessionSummary`, safe to return as it is: the session id (its `sid`), guard, sign-in method, client name
 and platform, the creation time (for a model with Eloquent timestamps), IP address and user agent, when the session
 started (the sign-in that created the session), the last use and its IP address and user agent, both deadlines, and
 `current`, which marks the session the request is authenticated with on that guard. It never holds a refresh digest, the

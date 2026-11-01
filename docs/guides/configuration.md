@@ -1,96 +1,103 @@
 # Configuration
 
-The package's settings live in the published `config/authentication.php`, under `authentication.`. A guard overrides
-the ones marked per guard in its own `config/auth.php` entry, in a block named after the first part of the key (`jwt`,
-`application`, `rate_limits`, `refresh_token`, `passkeys` for the relying party, and `sign_in` for the password
-identifier), where a key it sets wins. A value that is malformed or out of range fails closed, naming the key (and the
-guard), when it is first used, and `php artisan authentication:check` reports it before a deploy (see
-[Checking the configuration](operations.md#checking-the-configuration)). Most settings are read each time they are used;
-a guard's JWT settings are read once and kept (see [Configuration lifetimes](operations.md#configuration-lifetimes)).
+The package's settings live in the published `config/authentication.php`, under `authentication.`. A guard overrides the
+ones marked per guard in its own `config/auth.php` entry, in a block named after the first part of the key (`jwt`,
+`application`, `rate_limits`, `refresh_token`, `freshness`, `passkeys` for the relying party, and `sign_in` for the
+password identifier), where a key it sets wins. A value that is malformed or out of range fails closed, naming the key
+(and the guard), when it is first used, and `php artisan authentication:check` reports it before a deploy (see [Checking
+the configuration](operations.md#checking-the-configuration)). Most settings are read each time they are used; a guard's
+JWT settings are read once and kept (see [Configuration lifetimes](operations.md#configuration-lifetimes)).
 
-| Key                                                 | Default                                                                      | Env                                                               | Per guard | See                                                                   |
-|-----------------------------------------------------|------------------------------------------------------------------------------|-------------------------------------------------------------------|-----------|-----------------------------------------------------------------------|
-| `storage.connection`                                | `null`                                                                       | `AUTHENTICATION_STORAGE_CONNECTION`                               |           | [Storage](#storage)                                                   |
-| `session.model`                                     | `Session::class`                                                             | `AUTHENTICATION_SESSION_MODEL`                                    |           | [Session](#session)                                                   |
-| `session.table`                                     | `authentication_sessions`                                                    | `AUTHENTICATION_SESSION_TABLE`                                    |           | [Session](#session)                                                   |
-| `session.last_used_throttle_seconds`                | `60`                                                                         | `AUTHENTICATION_SESSION_LAST_USED_THROTTLE_SECONDS`               |           | [Session](#session)                                                   |
-| `session.prune_after_days`                          | `30`                                                                         | `AUTHENTICATION_SESSION_PRUNE_AFTER_DAYS`                         |           | [Pruning](operations.md#pruning)                                      |
-| `sign_in.password_identifier`                       | `email`                                                                      | `AUTHENTICATION_SIGN_IN_PASSWORD_IDENTIFIER`                      | yes       | [Sign-in](#sign-in)                                                   |
-| `sign_in.pending_table`                             | `pending_sign_ins`                                                           | `AUTHENTICATION_SIGN_IN_PENDING_TABLE`                            |           | [Sign-in](#sign-in)                                                   |
-| `sign_in.pending_ttl_seconds`                       | `300`                                                                        | `AUTHENTICATION_SIGN_IN_PENDING_TTL_SECONDS`                      |           | [Sign-in](#sign-in)                                                   |
-| `timebox.credentials_microseconds`                  | `400000`                                                                     | `AUTHENTICATION_TIMEBOX_CREDENTIALS_US`                           |           | [Credential validation timing](#credential-validation-timing)         |
-| `events.redacted_credential_keys`                   | `[]`                                                                         |                                                                   |           | [Events](events.md#events)                                            |
-| `jwt.keys`                                          | `['default' => env('AUTHENTICATION_JWT_KEY')]`                               |                                                                   | yes       | [Key rotation](operations.md#key-rotation)                            |
-| `jwt.active_kid`                                    | `default`                                                                    | `AUTHENTICATION_JWT_ACTIVE_KID`                                   | yes       | [Key rotation](operations.md#key-rotation)                            |
-| `jwt.algorithm`                                     | `HS256`                                                                      | `AUTHENTICATION_JWT_ALGORITHM`                                    | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
-| `jwt.access_ttl_minutes`                            | `5`                                                                          | `AUTHENTICATION_JWT_ACCESS_TTL_MINUTES`                           | yes       | [Token and session lifetimes](#token-and-session-lifetimes)           |
-| `jwt.refresh_idle_ttl_minutes`                      | `129600`                                                                     | `AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES`                     | yes       | [Token and session lifetimes](#token-and-session-lifetimes)           |
-| `jwt.refresh_absolute_ttl_minutes`                  | `259200`                                                                     | `AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES`                 | yes       | [Token and session lifetimes](#token-and-session-lifetimes)           |
-| `jwt.refresh_grace_seconds`                         | `30`                                                                         | `AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS`                        | yes       | [Refresh token replay](refreshing.md#refresh-token-replay)            |
-| `jwt.leeway_seconds`                                | `30`                                                                         | `AUTHENTICATION_JWT_LEEWAY_SECONDS`                               | yes       | [Token and session lifetimes](#token-and-session-lifetimes)           |
-| `jwt.issuer`                                        | `null`                                                                       | `AUTHENTICATION_JWT_ISSUER`                                       | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
-| `jwt.audience`                                      | `null`                                                                       | `AUTHENTICATION_JWT_AUDIENCE`                                     | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
-| `application.methods`                               | `[]`                                                                         |                                                                   | yes       | [Applications](#applications)                                         |
-| `application.require_verified_identifier`           | `false`                                                                      |                                                                   | yes       | [Applications](#applications)                                         |
-| `identifiers.normalizers`                           | `['email' => EmailNormalizer::class, 'phone' => E164PhoneNormalizer::class]` |                                                                   |           | [Identifiers](identity-models.md#identifiers)                         |
-| `rate_limits.table`                                 | `rate_limits`                                                                | `AUTHENTICATION_RATE_LIMITS_TABLE`                                |           | [Rate limits](#rate-limits)                                           |
-| `rate_limits.connection`                            | `null`                                                                       | `AUTHENTICATION_RATE_LIMITS_CONNECTION`                           |           | [Rate limits](#rate-limits)                                           |
-| `rate_limits.sign_in.per_identifier`                | 5 per 300 s                                                                  |                                                                   | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.sign_in.per_ip`                        | 50 per 300 s                                                                 |                                                                   | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.refresh.per_identifier`                | 10 per 60 s                                                                  |                                                                   | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.refresh.per_ip`                        | 100 per 60 s                                                                 |                                                                   | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.code_request.per_identifier`           | 5 per 3600 s                                                                 |                                                                   | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.code_request.per_ip`                   | 50 per 3600 s                                                                |                                                                   | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.passkey_options.per_identifier`        | `null`                                                                       |                                                                   | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.passkey_options.per_ip`                | 100 per 300 s                                                                |                                                                   | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.client_credentials.per_identifier`     | `null`                                                                       |                                                                   | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.client_credentials.per_ip`             | 100 per 60 s                                                                 |                                                                   | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.password_reset_request.per_identifier` | 5 per 3600 s                                                                 |                                                                   | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.password_reset_request.per_ip`         | 50 per 3600 s                                                                |                                                                   | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.password_reset.per_identifier`         | 10 per 900 s                                                                 |                                                                   | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.password_reset.per_ip`                 | 50 per 900 s                                                                 |                                                                   | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.identifier_change.per_identifier`      | 5 per 3600 s                                                                 |                                                                   | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.identifier_change.per_ip`              | 50 per 3600 s                                                                |                                                                   | yes       | [Rate limits](#rate-limits)                                           |
-| `refresh_token.sources`                             | `['body', 'header']`                                                         |                                                                   | yes       | [Refreshing](refreshing.md)                                           |
-| `refresh_token.body_field`                          | `refresh_token`                                                              |                                                                   | yes       | [Refreshing](refreshing.md)                                           |
-| `refresh_token.header`                              | `X-Refresh-Token`                                                            |                                                                   | yes       | [Refreshing](refreshing.md)                                           |
-| `refresh_token.cookie.name`                         | `__Secure-refresh_token`                                                     |                                                                   | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
-| `refresh_token.cookie.path`                         | `null`                                                                       |                                                                   | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
-| `refresh_token.cookie.domain`                       | `null`                                                                       |                                                                   | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
-| `refresh_token.cookie.allowed_origins`              | `[]`                                                                         |                                                                   | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
-| `refresh_token.cookie.csrf_header`                  | `X-Requested-With`                                                           |                                                                   | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
-| `api_keys.table`                                    | `api_keys`                                                                   | `AUTHENTICATION_API_KEYS_TABLE`                                   |           | [API key settings](#api-key-settings)                                 |
-| `api_keys.prefix`                                   | `ak`                                                                         | `AUTHENTICATION_API_KEYS_PREFIX`                                  |           | [API key settings](#api-key-settings)                                 |
-| `api_keys.rotation_overlap_seconds`                 | `86400`                                                                      | `AUTHENTICATION_API_KEYS_ROTATION_OVERLAP_SECONDS`                |           | [API key settings](#api-key-settings)                                 |
-| `api_keys.max_rotation_overlap_seconds`             | `604800`                                                                     | `AUTHENTICATION_API_KEYS_MAX_ROTATION_OVERLAP_SECONDS`            |           | [API key settings](#api-key-settings)                                 |
-| `api_keys.last_used_throttle_seconds`               | `60`                                                                         | `AUTHENTICATION_API_KEYS_LAST_USED_THROTTLE_SECONDS`              |           | [API key settings](#api-key-settings)                                 |
-| `api_keys.prune_after_days`                         | `30`                                                                         | `AUTHENTICATION_API_KEYS_PRUNE_AFTER_DAYS`                        |           | [API key settings](#api-key-settings)                                 |
-| `verification.link_ttl_minutes`                     | `60`                                                                         | `AUTHENTICATION_VERIFICATION_LINK_TTL_MINUTES`                    |           | [Identifier verification](identity-models.md#identifier-verification) |
-| `passwords.min_length`                              | `15`                                                                         | `AUTHENTICATION_PASSWORDS_MIN_LENGTH`                             |           | [Password policy](passwords.md#password-policy)                       |
-| `passwords.max_length`                              | `128`                                                                        | `AUTHENTICATION_PASSWORDS_MAX_LENGTH`                             |           | [Password policy](passwords.md#password-policy)                       |
-| `passwords.letters`                                 | `false`                                                                      |                                                                   |           | [Password policy](passwords.md#password-policy)                       |
-| `passwords.mixed_case`                              | `false`                                                                      |                                                                   |           | [Password policy](passwords.md#password-policy)                       |
-| `passwords.numbers`                                 | `false`                                                                      |                                                                   |           | [Password policy](passwords.md#password-policy)                       |
-| `passwords.symbols`                                 | `false`                                                                      |                                                                   |           | [Password policy](passwords.md#password-policy)                       |
-| `passwords.breached.when_unavailable`               | `reject`                                                                     | `AUTHENTICATION_PASSWORDS_BREACHED_WHEN_UNAVAILABLE`              |           | [Password policy](passwords.md#password-policy)                       |
-| `passwords.reset.link_ttl_seconds`                  | `3600`                                                                       | `AUTHENTICATION_PASSWORDS_RESET_LINK_TTL_SECONDS`                 |           | [Password reset](passwords.md#password-reset)                         |
-| `identifier_changes.table`                          | `identifier_changes`                                                         | `AUTHENTICATION_IDENTIFIER_CHANGES_TABLE`                         |           | [Changing identifiers](identifier-changes.md)                         |
-| `identifier_changes.ttl_seconds`                    | `3600`                                                                       | `AUTHENTICATION_IDENTIFIER_CHANGES_TTL_SECONDS`                   |           | [Changing identifiers](identifier-changes.md)                         |
-| `identifier_changes.recent_authentication_seconds`  | `900`                                                                        | `AUTHENTICATION_IDENTIFIER_CHANGES_RECENT_AUTHENTICATION_SECONDS` |           | [Changing identifiers](identifier-changes.md)                         |
-| `codes.table`                                       | `one_time_codes`                                                             | `AUTHENTICATION_CODES_TABLE`                                      |           | [One-time codes](#one-time-codes)                                     |
-| `codes.key`                                         | `null`                                                                       | `AUTHENTICATION_CODES_KEY`                                        |           | [One-time codes](#one-time-codes)                                     |
-| `codes.length`                                      | `6`                                                                          | `AUTHENTICATION_CODES_LENGTH`                                     |           | [One-time codes](#one-time-codes)                                     |
-| `codes.ttl_seconds`                                 | `600`                                                                        | `AUTHENTICATION_CODES_TTL_SECONDS`                                |           | [One-time codes](#one-time-codes)                                     |
-| `codes.max_attempts`                                | `5`                                                                          | `AUTHENTICATION_CODES_MAX_ATTEMPTS`                               |           | [One-time codes](#one-time-codes)                                     |
-| `codes.resend_cooldown_seconds`                     | `60`                                                                         | `AUTHENTICATION_CODES_RESEND_COOLDOWN_SECONDS`                    |           | [One-time codes](#one-time-codes)                                     |
-| `delivery.queue.connection`                         | `null`                                                                       | `AUTHENTICATION_DELIVERY_QUEUE_CONNECTION`                        |           | [One-time codes](#one-time-codes)                                     |
-| `delivery.queue.name`                               | `null`                                                                       | `AUTHENTICATION_DELIVERY_QUEUE`                                   |           | [One-time codes](#one-time-codes)                                     |
-| `passkeys.table`                                    | `passkeys`                                                                   | `AUTHENTICATION_PASSKEYS_TABLE`                                   |           | [Passkeys](#passkeys)                                                 |
-| `passkeys.challenges_table`                         | `passkey_challenges`                                                         | `AUTHENTICATION_PASSKEYS_CHALLENGES_TABLE`                        |           | [Passkeys](#passkeys)                                                 |
-| `passkeys.challenge_ttl_seconds`                    | `300`                                                                        | `AUTHENTICATION_PASSKEYS_CHALLENGE_TTL_SECONDS`                   |           | [Passkeys](#passkeys)                                                 |
-| `passkeys.relying_party.id`                         | `null`                                                                       | `AUTHENTICATION_PASSKEYS_RP_ID`                                   | yes       | [Passkeys](#passkeys)                                                 |
-| `passkeys.relying_party.name`                       | `env('APP_NAME')`                                                            | `APP_NAME`                                                        | yes       | [Passkeys](#passkeys)                                                 |
-| `passkeys.relying_party.origins`                    | `[]`                                                                         |                                                                   | yes       | [Passkeys](#passkeys)                                                 |
+| Key                                                 | Default                                                                      | Env                                                       | Per guard | See                                                                   |
+|-----------------------------------------------------|------------------------------------------------------------------------------|-----------------------------------------------------------|-----------|-----------------------------------------------------------------------|
+| `storage.connection`                                | `null`                                                                       | `AUTHENTICATION_STORAGE_CONNECTION`                       |           | [Storage](#storage)                                                   |
+| `session.model`                                     | `Session::class`                                                             | `AUTHENTICATION_SESSION_MODEL`                            |           | [Session](#session)                                                   |
+| `session.table`                                     | `authentication_sessions`                                                    | `AUTHENTICATION_SESSION_TABLE`                            |           | [Session](#session)                                                   |
+| `session.last_used_throttle_seconds`                | `60`                                                                         | `AUTHENTICATION_SESSION_LAST_USED_THROTTLE_SECONDS`       |           | [Session](#session)                                                   |
+| `session.prune_after_days`                          | `30`                                                                         | `AUTHENTICATION_SESSION_PRUNE_AFTER_DAYS`                 |           | [Pruning](operations.md#pruning)                                      |
+| `proofs.table`                                      | `authentication_proofs`                                                      | `AUTHENTICATION_PROOFS_TABLE`                             |           | [Proofs](#proofs)                                                     |
+| `proofs.provenance_table`                           | `authentication_provenance`                                                  | `AUTHENTICATION_PROOFS_PROVENANCE_TABLE`                  |           | [Proofs](#proofs)                                                     |
+| `sign_in.password_identifier`                       | `email`                                                                      | `AUTHENTICATION_SIGN_IN_PASSWORD_IDENTIFIER`              | yes       | [Sign-in](#sign-in)                                                   |
+| `sign_in.pending_table`                             | `pending_sign_ins`                                                           | `AUTHENTICATION_SIGN_IN_PENDING_TABLE`                    |           | [Sign-in](#sign-in)                                                   |
+| `sign_in.pending_ttl_seconds`                       | `300`                                                                        | `AUTHENTICATION_SIGN_IN_PENDING_TTL_SECONDS`              |           | [Sign-in](#sign-in)                                                   |
+| `timebox.credentials_microseconds`                  | `400000`                                                                     | `AUTHENTICATION_TIMEBOX_CREDENTIALS_US`                   |           | [Credential validation timing](#credential-validation-timing)         |
+| `events.redacted_credential_keys`                   | `[]`                                                                         |                                                           |           | [Events](events.md#events)                                            |
+| `jwt.keys`                                          | `['default' => env('AUTHENTICATION_JWT_KEY')]`                               |                                                           | yes       | [Key rotation](operations.md#key-rotation)                            |
+| `jwt.active_kid`                                    | `default`                                                                    | `AUTHENTICATION_JWT_ACTIVE_KID`                           | yes       | [Key rotation](operations.md#key-rotation)                            |
+| `jwt.algorithm`                                     | `HS256`                                                                      | `AUTHENTICATION_JWT_ALGORITHM`                            | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
+| `jwt.access_ttl_minutes`                            | `5`                                                                          | `AUTHENTICATION_JWT_ACCESS_TTL_MINUTES`                   | yes       | [Token and session lifetimes](#token-and-session-lifetimes)           |
+| `jwt.refresh_idle_ttl_minutes`                      | `129600`                                                                     | `AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES`             | yes       | [Token and session lifetimes](#token-and-session-lifetimes)           |
+| `jwt.refresh_absolute_ttl_minutes`                  | `259200`                                                                     | `AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES`         | yes       | [Token and session lifetimes](#token-and-session-lifetimes)           |
+| `jwt.refresh_grace_seconds`                         | `30`                                                                         | `AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS`                | yes       | [Refresh token replay](refreshing.md#refresh-token-replay)            |
+| `jwt.leeway_seconds`                                | `30`                                                                         | `AUTHENTICATION_JWT_LEEWAY_SECONDS`                       | yes       | [Token and session lifetimes](#token-and-session-lifetimes)           |
+| `jwt.issuer`                                        | none (required)                                                              | `AUTHENTICATION_JWT_ISSUER`                               | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
+| `jwt.audience`                                      | none (required)                                                              | `AUTHENTICATION_JWT_AUDIENCE`                             | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
+| `application.methods`                               | `[]`                                                                         |                                                           | yes       | [Applications](#applications)                                         |
+| `application.require_verified_identifier`           | `false`                                                                      |                                                           | yes       | [Applications](#applications)                                         |
+| `identifiers.normalizers`                           | `['email' => EmailNormalizer::class, 'phone' => E164PhoneNormalizer::class]` |                                                           |           | [Identifiers](identity-models.md#identifiers)                         |
+| `rate_limits.table`                                 | `rate_limits`                                                                | `AUTHENTICATION_RATE_LIMITS_TABLE`                        |           | [Rate limits](#rate-limits)                                           |
+| `rate_limits.connection`                            | `null`                                                                       | `AUTHENTICATION_RATE_LIMITS_CONNECTION`                   |           | [Rate limits](#rate-limits)                                           |
+| `rate_limits.sign_in.per_identifier`                | 5 per 300 s                                                                  |                                                           | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.sign_in.per_ip`                        | 50 per 300 s                                                                 |                                                           | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.refresh.per_identifier`                | 10 per 60 s                                                                  |                                                           | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.refresh.per_ip`                        | 100 per 60 s                                                                 |                                                           | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.code_request.per_identifier`           | 5 per 3600 s                                                                 |                                                           | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.code_request.per_ip`                   | 50 per 3600 s                                                                |                                                           | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.passkey_options.per_identifier`        | `null`                                                                       |                                                           | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.passkey_options.per_ip`                | 100 per 300 s                                                                |                                                           | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.client_credentials.per_identifier`     | `null`                                                                       |                                                           | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.client_credentials.per_ip`             | 100 per 60 s                                                                 |                                                           | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.password_reset_request.per_identifier` | 5 per 3600 s                                                                 |                                                           | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.password_reset_request.per_ip`         | 50 per 3600 s                                                                |                                                           | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.password_reset.per_identifier`         | 10 per 900 s                                                                 |                                                           | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.password_reset.per_ip`                 | 50 per 900 s                                                                 |                                                           | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.identifier_change.per_identifier`      | 5 per 3600 s                                                                 |                                                           | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.identifier_change.per_ip`              | 50 per 3600 s                                                                |                                                           | yes       | [Rate limits](#rate-limits)                                           |
+| `refresh_token.sources`                             | `['body', 'header']`                                                         |                                                           | yes       | [Refreshing](refreshing.md)                                           |
+| `refresh_token.body_field`                          | `refresh_token`                                                              |                                                           | yes       | [Refreshing](refreshing.md)                                           |
+| `refresh_token.header`                              | `X-Refresh-Token`                                                            |                                                           | yes       | [Refreshing](refreshing.md)                                           |
+| `refresh_token.cookie.name`                         | `__Secure-refresh_token`                                                     |                                                           | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
+| `refresh_token.cookie.path`                         | `null`                                                                       |                                                           | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
+| `refresh_token.cookie.domain`                       | `null`                                                                       |                                                           | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
+| `refresh_token.cookie.allowed_origins`              | `[]`                                                                         |                                                           | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
+| `refresh_token.cookie.csrf_header`                  | `X-Requested-With`                                                           |                                                           | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
+| `api_keys.table`                                    | `api_keys`                                                                   | `AUTHENTICATION_API_KEYS_TABLE`                           |           | [API key settings](#api-key-settings)                                 |
+| `api_keys.prefix`                                   | `ak`                                                                         | `AUTHENTICATION_API_KEYS_PREFIX`                          |           | [API key settings](#api-key-settings)                                 |
+| `api_keys.rotation_overlap_seconds`                 | `86400`                                                                      | `AUTHENTICATION_API_KEYS_ROTATION_OVERLAP_SECONDS`        |           | [API key settings](#api-key-settings)                                 |
+| `api_keys.max_rotation_overlap_seconds`             | `604800`                                                                     | `AUTHENTICATION_API_KEYS_MAX_ROTATION_OVERLAP_SECONDS`    |           | [API key settings](#api-key-settings)                                 |
+| `api_keys.last_used_throttle_seconds`               | `60`                                                                         | `AUTHENTICATION_API_KEYS_LAST_USED_THROTTLE_SECONDS`      |           | [API key settings](#api-key-settings)                                 |
+| `api_keys.prune_after_days`                         | `30`                                                                         | `AUTHENTICATION_API_KEYS_PRUNE_AFTER_DAYS`                |           | [API key settings](#api-key-settings)                                 |
+| `verification.link_ttl_minutes`                     | `60`                                                                         | `AUTHENTICATION_VERIFICATION_LINK_TTL_MINUTES`            |           | [Identifier verification](identity-models.md#identifier-verification) |
+| `passwords.min_length`                              | `15`                                                                         | `AUTHENTICATION_PASSWORDS_MIN_LENGTH`                     |           | [Password policy](passwords.md#password-policy)                       |
+| `passwords.max_length`                              | `128`                                                                        | `AUTHENTICATION_PASSWORDS_MAX_LENGTH`                     |           | [Password policy](passwords.md#password-policy)                       |
+| `passwords.letters`                                 | `false`                                                                      |                                                           |           | [Password policy](passwords.md#password-policy)                       |
+| `passwords.mixed_case`                              | `false`                                                                      |                                                           |           | [Password policy](passwords.md#password-policy)                       |
+| `passwords.numbers`                                 | `false`                                                                      |                                                           |           | [Password policy](passwords.md#password-policy)                       |
+| `passwords.symbols`                                 | `false`                                                                      |                                                           |           | [Password policy](passwords.md#password-policy)                       |
+| `passwords.breached.when_unavailable`               | `reject`                                                                     | `AUTHENTICATION_PASSWORDS_BREACHED_WHEN_UNAVAILABLE`      |           | [Password policy](passwords.md#password-policy)                       |
+| `passwords.reset.link_ttl_seconds`                  | `3600`                                                                       | `AUTHENTICATION_PASSWORDS_RESET_LINK_TTL_SECONDS`         |           | [Password reset](passwords.md#password-reset)                         |
+| `identifier_changes.table`                          | `identifier_changes`                                                         | `AUTHENTICATION_IDENTIFIER_CHANGES_TABLE`                 |           | [Changing identifiers](identifier-changes.md)                         |
+| `identifier_changes.ttl_seconds`                    | `3600`                                                                       | `AUTHENTICATION_IDENTIFIER_CHANGES_TTL_SECONDS`           |           | [Changing identifiers](identifier-changes.md)                         |
+| `freshness.identifier_change.max_age_seconds`       | `900`                                                                        | `AUTHENTICATION_FRESHNESS_IDENTIFIER_CHANGE_SECONDS`      | yes       | [Freshness](#freshness)                                               |
+| `freshness.identifier_change.proofs`                | every proof kind                                                             |                                                           | yes       | [Freshness](#freshness)                                               |
+| `freshness.password_establishment.max_age_seconds`  | `900`                                                                        | `AUTHENTICATION_FRESHNESS_PASSWORD_ESTABLISHMENT_SECONDS` | yes       | [Freshness](#freshness)                                               |
+| `freshness.password_establishment.proofs`           | every proof kind                                                             |                                                           | yes       | [Freshness](#freshness)                                               |
+| `freshness.factor_change.max_age_seconds`           | `900`                                                                        | `AUTHENTICATION_FRESHNESS_FACTOR_CHANGE_SECONDS`          | yes       | [Freshness](#freshness)                                               |
+| `freshness.factor_change.proofs`                    | `additional_factor`, `recovery_code`                                         |                                                           | yes       | [Freshness](#freshness)                                               |
+| `codes.table`                                       | `one_time_codes`                                                             | `AUTHENTICATION_CODES_TABLE`                              |           | [One-time codes](#one-time-codes)                                     |
+| `codes.key`                                         | `null`                                                                       | `AUTHENTICATION_CODES_KEY`                                |           | [One-time codes](#one-time-codes)                                     |
+| `codes.length`                                      | `6`                                                                          | `AUTHENTICATION_CODES_LENGTH`                             |           | [One-time codes](#one-time-codes)                                     |
+| `codes.ttl_seconds`                                 | `600`                                                                        | `AUTHENTICATION_CODES_TTL_SECONDS`                        |           | [One-time codes](#one-time-codes)                                     |
+| `codes.max_attempts`                                | `5`                                                                          | `AUTHENTICATION_CODES_MAX_ATTEMPTS`                       |           | [One-time codes](#one-time-codes)                                     |
+| `codes.resend_cooldown_seconds`                     | `60`                                                                         | `AUTHENTICATION_CODES_RESEND_COOLDOWN_SECONDS`            |           | [One-time codes](#one-time-codes)                                     |
+| `delivery.queue.connection`                         | `null`                                                                       | `AUTHENTICATION_DELIVERY_QUEUE_CONNECTION`                |           | [One-time codes](#one-time-codes)                                     |
+| `delivery.queue.name`                               | `null`                                                                       | `AUTHENTICATION_DELIVERY_QUEUE`                           |           | [One-time codes](#one-time-codes)                                     |
+| `passkeys.table`                                    | `passkeys`                                                                   | `AUTHENTICATION_PASSKEYS_TABLE`                           |           | [Passkeys](#passkeys)                                                 |
+| `passkeys.challenges_table`                         | `passkey_challenges`                                                         | `AUTHENTICATION_PASSKEYS_CHALLENGES_TABLE`                |           | [Passkeys](#passkeys)                                                 |
+| `passkeys.challenge_ttl_seconds`                    | `300`                                                                        | `AUTHENTICATION_PASSKEYS_CHALLENGE_TTL_SECONDS`           |           | [Passkeys](#passkeys)                                                 |
+| `passkeys.relying_party.id`                         | `null`                                                                       | `AUTHENTICATION_PASSKEYS_RP_ID`                           | yes       | [Passkeys](#passkeys)                                                 |
+| `passkeys.relying_party.name`                       | `env('APP_NAME')`                                                            | `APP_NAME`                                                | yes       | [Passkeys](#passkeys)                                                 |
+| `passkeys.relying_party.origins`                    | `[]`                                                                         |                                                           | yes       | [Passkeys](#passkeys)                                                 |
 
 ## Storage
 
@@ -100,14 +107,14 @@ a guard's JWT settings are read once and kept (see [Configuration lifetimes](ope
 ],
 ```
 
-Every table the package ships lives on `storage.connection`, the default connection when `null`: sessions, pending
-sign-ins, one-time codes, passkeys and their challenges, API keys, identifier changes, and the attempt counters unless
-`rate_limits.connection` names a connection of their own (see [Rate limits](#rate-limits)). The shipped models read and
-write them there, and the published migrations create them there: each names the storage connection as its own, so
-`php artisan migrate` creates every table where the package uses it, whichever connection the migrator runs on. With
-`null`, the migrations follow the migrator, as any migration that names no connection does, while the models use the
-default connection, so run them on the default connection. Laravel keeps its `migrations` table on the migrator's
-connection either way.
+Every table the package ships lives on `storage.connection`, the default connection when `null`: sessions, their proofs
+and provenance, pending sign-ins, one-time codes, passkeys and their challenges, API keys, identifier changes, and the
+attempt counters unless `rate_limits.connection` names a connection of their own (see [Rate limits](#rate-limits)). The
+shipped models read and write them there, and the published migrations create them there: each names the storage
+connection as its own, so `php artisan migrate` creates every table where the package uses it, whichever connection the
+migrator runs on. With `null`, the migrations follow the migrator, as any migration that names no connection does, while
+the models use the default connection, so run them on the default connection. Laravel keeps its `migrations` table on
+the migrator's connection either way.
 
 The tables share one connection because a session, the completion of a pending sign-in, a password reset and an
 identifier change each write several of them in one transaction, which two connections cannot commit as one. The session
@@ -159,25 +166,60 @@ entry; missing fields fall back to the defaults:
 ],
 ```
 
-Routes opt into a boundary via `auth:staff` or `auth:customer` middleware. Every token carries a `grd` claim naming the
-guard that issued it, and a guard rejects any token whose `grd` names another guard, so a staff token cannot
-authenticate as a customer even when both guards share the package key map and identity model. Separate keys and
-audiences, as above, are optional defence in depth on top of that. On refresh, the guard reloads the session's owner
-through its own user provider, so the provider's scoping applies and an owner it does not serve is rejected. The session
-row stores the owner's primary key and the provider looks identities up by their auth identifier, so refresh requires an
-identity model whose auth identifier is its primary key: one that overrides `getAuthIdentifierName()` fails to refresh
-with `identity_unknown`. Every field in the package `jwt` block is overridable (`keys`, `active_kid`,
-`algorithm`, `access_ttl_minutes`, `refresh_idle_ttl_minutes`, `refresh_absolute_ttl_minutes`, `refresh_grace_seconds`,
-`leeway_seconds`, `issuer`, `audience`). `keys` and `active_kid` fall back independently: a guard that overrides `keys`
-should also set `active_kid` to a kid in its own map. A guard's `jwt` entry must be an array (or `null` for no
-overrides). `algorithm` must be a string, and `issuer` and `audience` a string or `null`: a guard that sets either to
-`null` or `''` turns that claim check off even when the package value sets one. A value of any other type, in the
-guard's block or the package block, fails closed with an `InvalidJwtConfigurationException` naming the key and the
-guard, rather than being ignored.
+Routes opt into a boundary via `auth:staff` or `auth:customer` middleware. Every token carries a `client_id` claim
+naming the guard that issued it, and a guard rejects any token whose `client_id` names another guard, so a staff token
+cannot authenticate as a customer even when both guards share the package key map, issuer, audience and identity model.
+Separate keys and audiences, as above, are optional defence in depth on top of that. On refresh, the guard reloads the
+session's owner through its own user provider, so the provider's scoping applies and an owner it does not serve is
+rejected. The session row stores the owner's primary key and the provider looks identities up by their auth identifier,
+so refresh requires an identity model whose auth identifier is its primary key: one that overrides
+`getAuthIdentifierName()` fails to refresh with `identity_unknown`. Every field in the package `jwt` block is
+overridable (`keys`, `active_kid`, `algorithm`, `access_ttl_minutes`, `refresh_idle_ttl_minutes`,
+`refresh_absolute_ttl_minutes`, `refresh_grace_seconds`, `leeway_seconds`, `issuer`, `audience`). `keys` and
+`active_kid` fall back independently: a guard that overrides `keys` should also set `active_kid` to a kid in its own
+map. A guard's `jwt` entry must be an array (or `null` for no overrides). `algorithm` must be a string, and `issuer` and
+`audience` non-empty strings: they are required, every token carries them as `iss` and `aud`, and every request checks
+them strictly (an `aud` that is an array never matches). A guard's override that is present wins, `null` included, so a
+guard that sets either to `null` or `''` fails closed rather than falling back to the package value; a guard with
+neither an override nor a package value fails closed too, and `authentication:check` reports it. A value of any other
+type, in the guard's block or the package block, fails closed with an `InvalidJwtConfigurationException` naming the key
+and the guard, rather than being ignored.
 
 A guard's token service is built from these settings once, when the guard or `Auth::jwt()` first needs it, and kept for
 the life of the token service factory, so a change made at runtime does not reach it (see
 [Configuration lifetimes](operations.md#configuration-lifetimes)).
+
+## Token claims
+
+Tokens follow a private profile that borrows RFC 9068's claims; it does not claim RFC 9068 conformance, which needs
+asymmetric keys. The token's type is its JOSE header `typ`: `at+jwt` for an access token (`application/at+jwt` and any
+case are accepted) and the private `refresh+jwt` for a refresh token, so neither can be presented as the other. A token
+with no header type, php-jwt's default `JWT`, or the other type's is rejected as `token_invalid`.
+
+| Claim               | On                          | Meaning                                                           |
+|---------------------|-----------------------------|-------------------------------------------------------------------|
+| `iss`               | every token                 | the guard's `issuer`, required and checked strictly               |
+| `aud`               | every token                 | the guard's `audience`, one string, required and checked strictly |
+| `client_id`         | every token                 | the application (the guard) that issued the token                 |
+| `sub`               | access                      | the identity, or for a client credentials token the client        |
+| `sub_type`          | access                      | `person` for a human identity, `machine` for a client             |
+| `principal`         | access; refresh, optional   | the principal the identity acts as                                |
+| `sid`               | refresh; a session's access | the session                                                       |
+| `tenant_id`         | access, with a tenant       | the tenant the principal acts within                              |
+| `auth_time`         | a session's access          | when the session last authenticated                               |
+| `amr`               | a session's access          | the session's authentication method references, a list            |
+| `cid`               | client credentials          | the API key the token was exchanged for                           |
+| `scope`             | client credentials          | the scopes it grants, space-separated                             |
+| `jti`, `iat`, `exp` | every token                 | the token's id, issue time and expiry                             |
+
+`sub_type` is `machine` exactly when the token names an API key in `cid`, and is checked against the identity's kind on
+every request, so a human's token can never be read as a machine's or the other way round. A session's access token
+carries `auth_time` and `amr` derived from the session when the token is issued; a token without a session carries
+neither. The bearer path does not read `tenant_id`, `auth_time` or `amr`: they are for the token's readers, and live no
+longer than the access token does. On a request the package exposes none of them, and a decision about how fresh or how
+strong the authentication is asks `FreshnessPolicy` (see [Freshness](#freshness)). `tenant_id` names the tenant the
+principal acts within when the token is issued, and is carried only: the package does not check it on a request, and
+`Auth::tenant()` stays the principal's tenant, read live.
 
 ## Token and session lifetimes
 
@@ -185,13 +227,13 @@ Each guard issues access tokens and keeps sessions for these lifetimes, set in t
 in a guard's `jwt` block. The defaults are 5 minutes for access tokens, and 90 days idle and 180 days absolute for
 sessions:
 
-| Key                            | Default | Range        | Env                                               |
-|--------------------------------|---------|--------------|---------------------------------------------------|
-| `access_ttl_minutes`           | 5       | 1 to 1440    | `AUTHENTICATION_JWT_ACCESS_TTL_MINUTES`           |
-| `refresh_idle_ttl_minutes`     | 129600  | 1 to 5256000 | `AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES`     |
-| `refresh_absolute_ttl_minutes` | 259200  | 1 to 5256000 | `AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES` |
-| `refresh_grace_seconds`        | 30      | 0 to 300     | `AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS`        |
-| `leeway_seconds`               | 30      | 0 to 300     | `AUTHENTICATION_JWT_LEEWAY_SECONDS`               |
+| Key                            | Default | Range                            | Env                                               |
+|--------------------------------|---------|----------------------------------|---------------------------------------------------|
+| `access_ttl_minutes`           | 5       | 1 to 1440                        | `AUTHENTICATION_JWT_ACCESS_TTL_MINUTES`           |
+| `refresh_idle_ttl_minutes`     | 129600  | 1 to 5256000                     | `AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES`     |
+| `refresh_absolute_ttl_minutes` | 259200  | 1 to 5256000, or `null` for none | `AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES` |
+| `refresh_grace_seconds`        | 30      | 0 to 300                         | `AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS`        |
+| `leeway_seconds`               | 30      | 0 to 300                         | `AUTHENTICATION_JWT_LEEWAY_SECONDS`               |
 
 A session ends at its idle deadline unless a refresh moves that deadline forward, and at its absolute deadline however
 often it is refreshed: each refresh sets the idle deadline to the idle lifetime from now, never past the absolute
@@ -199,11 +241,24 @@ deadline, and never moves the absolute deadline. Tokens mirror the session: a re
 idle deadline, and an access token after the access lifetime but never after the session's idle or absolute deadline.
 With an idle lifetime shorter than the access lifetime, access tokens therefore expire at the idle deadline, together
 with the refresh token, so clients must refresh before their access token expires. A session past either deadline, or
-without one, is over everywhere: its access tokens are rejected (with no leeway), it cannot be pinned on sign-in, it
-cannot be refreshed (`session_expired`), and no token can be issued for it. It is ended, not revoked.
+without an idle one, is over everywhere: its access tokens are rejected (with no leeway), it cannot be pinned on
+sign-in, it cannot be refreshed (`session_expired`), and no token can be issued for it. It is ended, not revoked.
 
-A guard override that is present and not `null` wins; otherwise the package value applies. Each value must be an integer
-or a string of digits (as `env()` returns it) within its range. A value that is missing, malformed, or out of range
+An application may set no absolute limit: set `refresh_absolute_ttl_minutes` to `null` explicitly, in the package block
+(`AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES=null`, which `env()` reads as `null`) or in a guard's `jwt` block,
+where a `null` override lifts the package's limit for that guard alone. Its sessions have no absolute deadline
+(`absolute_expires_at` is `null`) and end only when they go idle, are revoked, or reach a deadline their sign-in
+supplied (below); a refresh never adds one, and a switch of principal adds one only when the guard has set a limit since
+the sign-in, counted from it. The idle lifetime is always required, and an absolute lifetime missing at both levels
+fails closed rather than reading as none.
+
+A sign-in may supply a deadline of its own, such as an external provider's session deadline, on its `SignInContext`
+(see [Signing in](signing-in.md#a-sign-ins-own-deadline)): the session's absolute deadline is then the earlier of it
+and the application's limit, or the deadline alone when the application sets none.
+
+A guard override that is present and not `null` wins; otherwise the package value applies, except that a present `null`
+for `refresh_absolute_ttl_minutes` means no absolute limit (above). Each value must be an integer or a string of digits
+(as `env()` returns it) within its range. A value that is missing, malformed, or out of range
 fails closed with an `InvalidJwtConfigurationException` naming the key and the guard when the guard or `Auth::jwt()`
 service is resolved; the defaults live only in the published config.
 
@@ -323,22 +378,23 @@ longer name gives index names that PostgreSQL cuts short without an error, or th
 
 A session is one sign-in, on one application, on one device. The shipped migration creates these columns:
 
-| Column                                                 | Holds                                                  |
-|--------------------------------------------------------|--------------------------------------------------------|
-| `id`                                                   | UUID v7 primary key, carried in every token as `did`   |
-| `authenticatable_type`, `authenticatable_id`           | The owning identity (required)                         |
-| `principal_type`, `principal_id`                       | The principal the session acts as (any key type)       |
-| `principal_switched_at`                                | When the session last switched its principal           |
-| `guard`, `sign_in_method`                              | The guard and sign-in method that created it           |
-| `sign_in_identifier_type`                              | The type of identifier that sign-in used, if any       |
-| `client_name`, `platform`                              | What the client calls itself (`Work laptop`, `macOS`)  |
-| `created_ip`, `created_user_agent`                     | The client at sign-in                                  |
-| `last_used_at`, `last_used_ip`, `last_used_user_agent` | The client at the last use                             |
-| `refresh_key`, `previous_refresh_key`                  | Digests of the current and previous rotation ids       |
-| `refresh_rotated_at`                                   | When the current rotation id replaced the previous one |
-| `signed_in_at`                                         | When the session started (required)                    |
-| `idle_expires_at`, `absolute_expires_at`               | End without a refresh, and end regardless (required)   |
-| `revoked_at`, `revoked_reason`                         | When and why the session was revoked                   |
+| Column                                                 | Holds                                                                  |
+|--------------------------------------------------------|------------------------------------------------------------------------|
+| `id`                                                   | UUID v7 primary key, carried in every token as `sid`                   |
+| `generation`                                           | A random UUID written at insert and never changed (required)           |
+| `authenticatable_type`, `authenticatable_id`           | The owning identity (required)                                         |
+| `principal_type`, `principal_id`                       | The principal the session acts as (any key type)                       |
+| `principal_switched_at`                                | When the session last switched its principal                           |
+| `guard`, `sign_in_method`                              | The guard and sign-in method that created it                           |
+| `sign_in_identifier_type`                              | The type of identifier that sign-in used, if any                       |
+| `client_name`, `platform`                              | What the client calls itself (`Work laptop`, `macOS`)                  |
+| `created_ip`, `created_user_agent`                     | The client at sign-in                                                  |
+| `last_used_at`, `last_used_ip`, `last_used_user_agent` | The client at the last use                                             |
+| `refresh_key`, `previous_refresh_key`                  | Digests of the current and previous rotation ids                       |
+| `refresh_rotated_at`                                   | When the current rotation id replaced the previous one                 |
+| `signed_in_at`                                         | When the session started (required)                                    |
+| `idle_expires_at`, `absolute_expires_at`               | End without a refresh (required), and end regardless (`null` for none) |
+| `revoked_at`, `revoked_reason`                         | When and why the session was revoked                                   |
 
 Every timestamp is a `datetime` stored to the whole second, so a deadline years ahead fits on every engine (MySQL's
 `timestamp` type ends in January 2038), and the table is indexed on the owner, the principal, the guard, both
@@ -371,7 +427,7 @@ three.
 
 Subclass the model or swap `session.model` entirely - custom models must implement the `EloquentSession` contract and
 live on the storage connection (see [Storage](#storage)). A session's identifier is always its primary key: tokens carry
-it in `did`, and the bearer path and refresh find the session by primary key, whatever the key column is called. Other
+it in `sid`, and the bearer path and refresh find the session by primary key, whatever the key column is called. Other
 column names come from the contract's accessors (`getRefreshKeyName()`, `getRevokedAtName()`, and so on); the shipped
 migration creates the default names, so a model that renames a column needs its own migration.
 
@@ -397,6 +453,72 @@ digests, the rotation time, the session's start, the principal switch time, both
 without the sign-in's identifier type (`sign_in_identifier_type`), for example through a `sessions()` relation or a
 global scope that selects other columns, so a partial select is reported instead of being read as a session that is not
 revoked, has no deadline, or whose sign-in used no identifier.
+
+## Proofs
+
+```php
+'proofs' => [
+    'table'            => 'authentication_proofs',
+    'provenance_table' => 'authentication_provenance',
+],
+```
+
+Every session records the proofs it was established and kept with in `proofs.table`, and a session an external provider
+established records how it began in `proofs.provenance_table` (see [Proofs and
+provenance](sessions.md#proofs-and-provenance)). Both live on the storage connection, so a session and its proofs are
+written in one transaction, and both are read from the write connection. Each name may be up to 47 characters: the
+migrations name their indexes after it (`<table>_session_index` and so on), and PostgreSQL cuts a longer index name
+short. They are pruned with their sessions (see [Pruning](operations.md#pruning)).
+
+## Freshness
+
+```php
+'freshness' => [
+    'identifier_change' => [
+        'max_age_seconds' => 900,
+        'proofs'          => ['first_factor', 'first_factor_reauthentication', 'external_reauthentication', 'additional_factor', 'recovery_code'],
+    ],
+    'password_establishment' => [/* the same */],
+    'factor_change'          => [
+        'max_age_seconds' => 900,
+        'proofs'          => ['additional_factor', 'recovery_code'],
+    ],
+],
+```
+
+How fresh a session's authentication must be for a sensitive operation. A session is fresh for one when the newest of
+its proofs that the operation's entry takes was made within `max_age_seconds` (1 to 86400): one of the `proofs` kinds
+and, when the entry sets `multifactor` or `phishing_resistant` to `true`, one whose evaluation reported multifactor
+authentication or that was observed to resist phishing. It is judged on that proof, never on the session's latest
+authentication time, so a recent step-up with a weak factor does not make a session fresh for an operation that asks for
+a strong one (see [Freshness](sessions.md#freshness)).
+
+The package names three operations (`Freshness\Operations`): `identifier_change`, which an identifier change checks for
+a session proof (see [Changing identifiers](identifier-changes.md)), and `password_establishment` and `factor_change`,
+which nothing in the package checks yet: they are configured for whatever gates establishing a password or changing a
+factor. Adding, replacing or removing a factor and generating recovery codes take a fresh step-up, so `factor_change`
+takes only a further factor or a recovery code: a sign-in or a reauthentication, which never renews the evidence of a
+further factor, does not make a session fresh for it. The application or another package names its own
+(`mfa.add_factor`, `sso.reauthenticate`): lower-case segments separated by dots, read as array keys, never as
+configuration paths. An operation with no entry, and no requirement passed by its caller, is never fresh.
+
+A guard overrides any operation in a `freshness` block on its `config/auth.php` entry; an entry it sets wins whole, and
+`null` removes the operation for that guard:
+
+```php
+'api' => [
+    'driver'    => 'jwt',
+    'provider'  => 'users',
+    'freshness' => [
+        'identifier_change' => ['max_age_seconds' => 300, 'proofs' => ['first_factor_reauthentication', 'additional_factor'], 'multifactor' => true],
+        'factor_change'     => null,
+    ],
+],
+```
+
+An entry must set `max_age_seconds` and `proofs`, may set `multifactor` and `phishing_resistant`, and may set nothing
+else; `proofs` lists distinct kinds, at least one. A malformed entry fails closed when it is read, and
+`authentication:check` reports it, under `[freshness]` for the package's block and under the guard for its own.
 
 ## Sign-in
 
@@ -697,7 +819,8 @@ else fails closed when it is used, and `authentication:check` reports it.
 
 `attempt()` and `validate()` wrap credential checks in a constant-time `Timebox` to prevent timing side-channels, and
 the session service's `signIn()` runs its sign-in method and the checks after it in the same budget, as do a password
-reset submission and the password check of `Reauthentication::password()` before an identifier change:
+reset submission, a reauthentication by `reauthenticate()`, and the password check of `Reauthentication::password()`
+before an identifier change:
 
 ```php
 'timebox' => [

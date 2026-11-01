@@ -13,6 +13,10 @@ use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose;
+use SineMacula\Laravel\Authentication\Proofs\Channel;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
+use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
 /**
@@ -37,6 +41,16 @@ use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
  * the sign-in; the session service decides the rest (a machine identity,
  * activity, the principal, the application, a further factor, the session).
  *
+ * A verified passkey is a proof over a `passkey` channel whose reference is the
+ * passkey's own row id (never the WebAuthn credential id, which can run past a
+ * thousand bytes), with the `pop` `amr` value (RFC 8176). What the assertion
+ * showed is observed: the user was present and verified (the ceremony requires
+ * both, and the assertion is refused without them), the credential's backup
+ * eligibility and state as its authenticator data flags report them, and
+ * resistance to phishing (the origin and relying party id were verified); how
+ * its key is protected is not observed, as the passkey was registered with
+ * attestation `none`.
+ *
  * @api
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -52,6 +66,9 @@ final readonly class PasskeySignIn implements SignInMethod
 
     /** @var string Input key holding the browser's response. */
     public const string CREDENTIAL_KEY = 'credential';
+
+    /** @var string The `amr` value of a passkey: proof of possession of a key (RFC 8176). */
+    private const string AMR = 'pop';
 
     /**
      * Constructor.
@@ -90,17 +107,18 @@ final readonly class PasskeySignIn implements SignInMethod
     }
 
     /**
-     * Verify the passkey assertion the input carries and return its owner.
+     * Verify the passkey assertion the input carries and return its owner's
+     * first factor.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
-     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Proofs\FirstFactor
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \Symfony\Component\Serializer\Exception\ExceptionInterface
      */
     #[\Override]
-    public function authenticate(SignInRequest $request): FailureReason|Identity
+    public function authenticate(SignInRequest $request): FailureReason|FirstFactor
     {
         $rp         = RelyingParty::forGuard($request->guard, $this->container->make(Repository::class));
         $assertions = new PasskeyAssertions($this->container);
@@ -129,6 +147,14 @@ final readonly class PasskeySignIn implements SignInMethod
             $this->container->make(Dispatcher::class)->dispatch($event);
         });
 
-        return $identity;
+        $observed = new ObservedProperties(
+            userPresence: true,
+            userVerification: true,
+            backupEligible: $passkey->backup_eligible,
+            backupState: $passkey->backup_state,
+            phishingResistant: true,
+        );
+
+        return new FirstFactor($identity, new Channel(ChannelKind::PASSKEY, $passkey->id), $observed, [self::AMR]);
     }
 }

@@ -105,7 +105,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
         $jwt = PackageAuth::jwt(self::GUARD);
 
-        $token = $jwt->issueAccessToken($identity, $principal, null);
+        $token = $jwt->issueAccessToken($identity, $principal, null, null);
 
         self::assertTrue($this->guardForBearer($token)->check());
 
@@ -134,7 +134,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
         $jwt = PackageAuth::jwt(self::GUARD);
 
-        $token = $jwt->issueAccessToken($identity, $activePrincipal, null);
+        $token = $jwt->issueAccessToken($identity, $activePrincipal, null, null);
 
         self::assertTrue($this->guardForBearer($token)->check());
 
@@ -145,7 +145,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
     /**
      * Bearer session resolution remains live-only, so deleting the session row
-     * causes the next request with that `did` claim to fail closed.
+     * causes the next request with that `sid` claim to fail closed.
      *
      * @return void
      *
@@ -161,7 +161,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
         $jwt = PackageAuth::jwt(self::GUARD);
 
-        $token = $jwt->issueAccessToken($identity, $identity, $session);
+        $token = $jwt->issueAccessToken($identity, $identity, null, $session);
 
         self::assertTrue($this->guardForBearer($token)->check());
 
@@ -242,7 +242,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     /**
      * The bearer path must resolve principals against the current resolver
      * policy on a fresh request: once the resolver stops mapping the token's
-     * `pid` to that principal, the same token is rejected.
+     * `principal` to that principal, the same token is rejected.
      *
      * @return void
      *
@@ -255,10 +255,10 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
         $this->resolver()->setHintedPrincipal('staff-actor', new PlainPrincipalFixture('staff-actor', $identity));
 
         $token = $this->encodeAccessToken([
-            'sub' => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'pid' => 'staff-actor',
-            'iat' => time(),
-            'exp' => time() + 600,
+            'sub'       => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'principal' => 'staff-actor',
+            'iat'       => time(),
+            'exp'       => time() + 600,
         ]);
 
         $firstGuard = $this->guardForBearer($token);
@@ -399,21 +399,28 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     }
 
     /**
-     * Encode an access token with only the claims needed by the bearer tests.
+     * Encode an access token with only the claims needed by the bearer tests,
+     * bound to the test issuer, audience and guard under the `at+jwt` header
+     * type, with the `person` subject type and, for a token that names a
+     * session, a password authentication at its issue time.
      *
      * @param  array<string, mixed>  $claims
      * @return string
      */
     private function encodeAccessToken(array $claims): string
     {
+        $defaults = [Claims::JWT_ID->value => 'access-token-id', Claims::SUBJECT_TYPE->value => 'person'];
+
+        if (($claims[Claims::SESSION_ID->value] ?? null) !== null) {
+            $defaults += [Claims::AUTH_TIME->value => $claims[Claims::ISSUED_AT->value] ?? time(), Claims::AUTHENTICATION_METHODS->value => ['pwd']];
+        }
+
         return JWT::encode(
-            array_merge([Claims::JWT_ID->value => 'access-token-id'], $claims, [
-                Claims::TYPE->value  => TokenType::ACCESS->value,
-                Claims::GUARD->value => self::GUARD,
-            ]),
+            [...$defaults, ...$claims, Claims::ISSUER->value => self::JWT_ISSUER, Claims::AUDIENCE->value => self::JWT_AUDIENCE, Claims::CLIENT_ID->value => self::GUARD],
             self::JWT_SECRET,
             'HS256',
             self::JWT_KID,
+            ['typ' => TokenType::ACCESS->value],
         );
     }
 }

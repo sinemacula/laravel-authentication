@@ -75,6 +75,7 @@ final class RecordsSessionMilestonesTest extends TestCase
     {
         $session = new StubSession;
 
+        self::assertSame('generation', $session->getGenerationName());
         self::assertSame('signed_in_at', $session->getSignedInAtName());
         self::assertSame('principal_switched_at', $session->getPrincipalSwitchedAtName());
     }

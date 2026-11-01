@@ -78,9 +78,13 @@ final class PendingSignInsTableSchemaTest extends TestCase
     /**
      * The table holds the token digest and purpose, the guard, method and
      * identifier type, the owner and principal, the client, the proven session,
-     * the windows of the attempt-limit slots the sign-in holds, the expiry and
-     * the timestamps; only what a sign-in may lack is nullable, the principal
-     * included, which a sign-in waiting for a choice of principal lacks.
+     * the windows of the attempt-limit slots the sign-in holds, the deadline it
+     * supplied for its session, the first factor and the provenance it
+     * verified, the expiry and the timestamps; only what a sign-in may lack is
+     * nullable, the principal included, which a sign-in waiting for a choice of
+     * principal lacks, the deadline, which only a sign-in that supplied one
+     * has, and the provenance, which only one an external provider verified
+     * has.
      *
      * @return void
      */
@@ -99,14 +103,17 @@ final class PendingSignInsTableSchemaTest extends TestCase
             'created_ip'                 => true,
             'created_user_agent'         => true,
             'expires_at'                 => false,
+            'first_factor'               => false,
             'guard'                      => false,
             'id'                         => false,
             'identifier_type'            => true,
+            'not_after'                  => true,
             'platform'                   => true,
             'principal_id'               => true,
             'principal_type'             => true,
             'proven_session_id'          => true,
             'proven_session_refresh_key' => true,
+            'provenance'                 => true,
             'purpose'                    => false,
             'sign_in_method'             => false,
             'token_digest'               => false,
@@ -129,7 +136,7 @@ final class PendingSignInsTableSchemaTest extends TestCase
     {
         $types = array_column(Schema::getColumns(self::TABLE), 'type', 'name');
 
-        foreach (['expires_at', 'created_at', 'updated_at'] as $column) {
+        foreach (['not_after', 'expires_at', 'created_at', 'updated_at'] as $column) {
             self::assertDoesNotMatchRegularExpression('/\([1-9]\)/', $types[$column], $column);
         }
 
@@ -143,10 +150,13 @@ final class PendingSignInsTableSchemaTest extends TestCase
             'authenticatable_id'   => '1',
             'principal_type'       => 'identity',
             'principal_id'         => '1',
+            'not_after'            => '2039-02-28 23:59:58',
+            'first_factor'         => '{}',
             'expires_at'           => '2039-02-28 23:59:59',
         ]);
 
         self::assertSame('2039-02-28 23:59:59', DB::table(self::TABLE)->value('expires_at'));
+        self::assertSame('2039-02-28 23:59:58', DB::table(self::TABLE)->value('not_after'));
     }
 
     /**

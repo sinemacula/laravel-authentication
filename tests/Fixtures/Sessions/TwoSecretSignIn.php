@@ -7,6 +7,9 @@ namespace Tests\Fixtures\Sessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Proofs\Channel;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
 /**
@@ -53,10 +56,10 @@ final readonly class TwoSecretSignIn implements SignInMethod
      * Check the password and then the PIN, each counted against the account.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
-     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Proofs\FirstFactor
      */
     #[\Override]
-    public function authenticate(SignInRequest $request): FailureReason|Identity
+    public function authenticate(SignInRequest $request): FailureReason|FirstFactor
     {
         $email    = $this->identifier($request->guard, $request->input);
         $identity = $email === null ? null : $request->provider->retrieveByCredentials(['email' => $email]);
@@ -69,7 +72,7 @@ final readonly class TwoSecretSignIn implements SignInMethod
             && $request->provider->validateCredentials($identity, ['password' => $request->input['password'] ?? null]);
 
         return $password && $request->reserveAccountAttempt($identity) && ($request->input['pin'] ?? null) === self::PIN
-            ? $identity
+            ? new FirstFactor($identity, new Channel(ChannelKind::PASSWORD), methods: ['pwd'])
             : FailureReason::INVALID_CREDENTIALS;
     }
 }

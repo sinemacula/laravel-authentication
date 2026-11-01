@@ -1,19 +1,19 @@
-# Fail-Closed `pid` / `did`
+# Fail-Closed `principal` / `sid`
 
 ## Purpose
 
-This note records the rule that `pid` and `did` are treated as commitments, not best-effort hints. If a token claims a
-specific principal or session and the runtime cannot prove that claim, authentication fails.
+This note records the rule that `principal` and `sid` are treated as commitments, not best-effort hints. If a token
+claims a specific principal or session and the runtime cannot prove that claim, authentication fails.
 
 ## Invariants
 
-- A present `pid` must resolve to that exact principal identifier. The same check verifies a principal pinned on
+- A present `principal` must resolve to that exact principal identifier. The same check verifies a principal pinned on
   `attempt()`, which must also come back as the same class and be owned by the authenticated identity: its
   `getIdentity()`, read from the write connection and from the principal's stored key rather than a relation the
   resolver set (lazily, even when the principal was hydrated with lazy loading prevented), must be that identity's class
   and auth identifier, so a resolver whose hinted lookup is not scoped to the identity cannot bind another identity's
   principal. An owner that cannot be read fails closed.
-- A present bearer `did` must resolve to a real, unrevoked session owned by the resolved identity that has not ended. A
+- A present bearer `sid` must resolve to a real, unrevoked session owned by the resolved identity that has not ended. A
   session with `revoked_at` set, or past its idle or absolute deadline (or without one), is rejected like a missing one,
   with its own reason (`session_revoked`, `session_expired`; a session of another guard `session_guard_mismatch`, a
   missing one `session_unknown`), so revoking or ending a session ends its access tokens at once; the check reads the
@@ -22,7 +22,7 @@ specific principal or session and the runtime cannot prove that claim, authentic
   column is rejected too, and a session loaded without one of its state columns throws a `LogicException` instead of
   being read as not revoked. The same lookup verifies a session pinned on `attempt()`, which must also come back as the
   same class.
-- A bearer `did` is accepted only for the principal the session records: the session's `principal_type` and
+- A bearer `sid` is accepted only for the principal the session records: the session's `principal_type` and
   `principal_id` must name the token's principal (a session that records none fails closed), and the token's `iat` must
   not be before the second of the session's last principal switch (`principal_switched_at`), else
   `session_principal_mismatch`. A switch from A to B ends A's tokens at once, and a switch back to A does not revive the
@@ -30,15 +30,15 @@ specific principal or session and the runtime cannot prove that claim, authentic
   token issued in the same second as an A -> B -> A pair completed within that second. A session pinned on `attempt()`
   must record the principal being bound, else `session_mismatch`. Both read the row already loaded, with no query, and
   a session loaded without `principal_switched_at` throws a `LogicException` rather than reading as never switched.
-- Refresh is stricter than bearer auth: refresh always requires a valid `did`, because refresh is session-backed.
-- A `did` is checked against the session model's key format before any query; one that cannot be a key fails closed as
-  an unresolved session, and a database error on a well-formed `did` propagates instead of reading as a missing session.
+- Refresh is stricter than bearer auth: refresh always requires a valid `sid`, because refresh is session-backed.
+- A `sid` is checked against the session model's key format before any query; one that cannot be a key fails closed as
+  an unresolved session, and a database error on a well-formed `sid` propagates instead of reading as a missing session.
 - Unsupported or transient identifiers stringify to `null` and therefore fail matching rather than being tolerated.
-- Failure attribution should still point at the already resolved identity when `pid` or `did` rejection happens late in
-  the bearer flow.
-- `pid`, `did`, and active-state checks run live on every request; nothing is cached across requests.
+- Failure attribution should still point at the already resolved identity when `principal` or `sid` rejection happens
+  late in the bearer flow.
+- `principal`, `sid`, and active-state checks run live on every request; nothing is cached across requests.
 - The identity, principal, tenant, and session reads behind those checks go to the write connection, so a lagging read
-  replica cannot satisfy a `pid` or `did`, or an activity check, the primary no longer recognises. The identity,
+  replica cannot satisfy a `principal` or `sid`, or an activity check, the primary no longer recognises. The identity,
   principal, and session lookups run inside `WriteConnection::during()`, which pins their model's connection and every
   connection a model resolves while they run, so relations they eager-load (a `$with` tenant, say) come from the writer
   too, not only the lookup's own query, even on another connection; so does each `CanBeActive::isActive()` check, the
@@ -48,39 +48,41 @@ specific principal or session and the runtime cannot prove that claim, authentic
 
 ## Success Path
 
-- An access token must carry `pid`: one without it fails to parse, so the bearer path never falls back to the resolver's
-  default principal. A refresh token may omit `pid`, in which case refresh uses the default principal policy.
+- An access token must carry `principal`: one without it fails to parse, so the bearer path never falls back to the
+  resolver's default principal. A refresh token may omit `principal`, in which case refresh uses the default principal
+  policy.
 - Issuing enforces the same claims: `issueAccessToken()` and `issueRefreshToken()` throw an `InvalidArgumentException`
-  instead of minting a token with an empty `sub`, `pid`, `did`, or `jti` (an unsaved model or a non-scalar identifier),
-  so a token that could never authenticate, or would silently drop its session or principal, is never issued.
-- If no bearer `did` is present, auth can still succeed with `session = null`.
-- If `pid` is present and the resolver returns the exact matching principal, auth continues normally.
-- If refresh carries `pid`, the same exact-match rule is applied before the rotated pair is issued.
+  instead of minting a token with an empty `sub`, `principal`, `sid`, or `jti` (an unsaved model or a non-scalar
+  identifier), so a token that could never authenticate, or would silently drop its session or principal, is never
+  issued.
+- If no bearer `sid` is present, auth can still succeed with `session = null`.
+- If `principal` is present and the resolver returns the exact matching principal, auth continues normally.
+- If refresh carries `principal`, the same exact-match rule is applied before the rotated pair is issued.
 
 ## Failure / Edge Cases
 
 - The default resolver may fall through from a hinted miss to the 2D or 3D default principal path. The guard and the
   refresh exchange explicitly prevent that fallback from becoming an auth downgrade by re-checking the resolved
-  identifier against the hinted `pid`.
+  identifier against the hinted `principal`.
 - Identities may implement `ResolvesHintedPrincipal` to short-circuit the hinted lookup, but a `null` / non-Principal
   result still falls through to the existing default resolver path and is therefore subject to the same fail-closed
-  `pid` re-check.
+  `principal` re-check.
 - A resolver that returns an unsaved principal with a `null` identifier is rejected for the same reason.
-- On the bearer path, `did` resolution is identity-scoped through `HasSessions`; a token that claims a session against
+- On the bearer path, `sid` resolution is identity-scoped through `HasSessions`; a token that claims a session against
   an identity with no session capability fails closed instead of silently binding no session, and a `sessions()`
   relation over a model that is not an `EloquentSession` throws a `LogicException` before it is queried.
-- On the refresh path, `did` resolution is global through the configured session model, and the session's owner is
+- On the refresh path, `sid` resolution is global through the configured session model, and the session's owner is
   reloaded through the guard's identity provider (see `guard-bound-tokens.md`).
 - When bearer auth rejects a token after the identity has already been loaded, the `AuthenticationFailed` event still
-  carries that resolved identity (and the principal and session, once found) for attribution, and the `did` the token
+  carries that resolved identity (and the principal and session, once found) for attribution, and the `sid` the token
   named.
 
 ## Implementation Anchors
 
-- `src/Guards/BearerAuthentication.php`: `authenticate()`, `admitAs()` (the exact `pid` match), `onSession()` and
+- `src/Guards/BearerAuthentication.php`: `authenticate()`, `admitAs()` (the exact `principal` match), `onSession()` and
   `principalRefusal()`; `src/SessionRecords/OwnedSession.php`: `refusal()`, `actsAs()` and `isIssuedSinceSwitch()`,
   shared with the `attempt()` session pin.
-- `src/SessionRecords/IdentitySessions.php`: `find()`, the identity-scoped session lookup behind a bearer `did`, a
+- `src/SessionRecords/IdentitySessions.php`: `find()`, the identity-scoped session lookup behind a bearer `sid`, a
   session pinned on `attempt()` and the session service's `revokeSession()`.
 - `src/Guards/Concerns/VerifiesPinnedContext.php`: `resolvePinnedPrincipal()`, `resolvePinnedSession()` and
   `resolveSessionFromHint()`, the pinned-context checks in `attempt()`.
@@ -88,16 +90,17 @@ specific principal or session and the runtime cannot prove that claim, authentic
   `src/Jwt/RefreshAdmission.php`: `principal()`; the session is found by `src/SessionRecords/SessionLookup.php`'s
   `find()`.
 - `src/Support/IdentifierCoercion.php`: `stringify()` and `matches()`, the exact-match rule behind the bearer and
-  refresh `pid` checks.
+  refresh `principal` checks.
 - `src/Jwt/Enums/TokenType.php`: `requiredClaims()`, enforced by `JwtTokenService::parse()`.
-- `src/SessionRecords/SessionKeyShape.php`: `matches()`, the `did` shape check shared by the bearer and refresh paths.
+- `src/SessionRecords/SessionKeyShape.php`: `matches()`, the `sid` shape check shared by the bearer and refresh paths.
 - `src/SessionRecords/SessionDeadlines.php`: `hasEnded()`, the one deadline rule the bearer path, pins, refresh, and
   issuance share.
 - `src/Database/WriteConnection.php`: `query()` and `during()`, which pin the identity, principal, tenant, and session
   reads to the write connection; `src/Database/PinningConnectionResolver.php` carries the pin to every connection a
   model resolves inside `during()`.
-- `src/Resolvers/DefaultPrincipalResolver.php`: default resolver behaviour that the guard hardens with explicit pid
-  matching, including the optional `ResolvesHintedPrincipal` shortcut ahead of the generic `HasPrincipals` lookup.
+- `src/Resolvers/DefaultPrincipalResolver.php`: default resolver behaviour that the guard hardens with explicit
+  `principal` matching, including the optional `ResolvesHintedPrincipal` shortcut ahead of the generic `HasPrincipals`
+  lookup.
 - `src/Contracts/ResolvesHintedPrincipal.php`: optional 3D optimisation seam for hinted principal hydration.
 - `src/AuthenticationServiceProvider.php` and `src/Guards/JwtGuard.php`: resolver-rebind wiring so bearer and refresh
   stay on the same principal policy.
@@ -182,13 +185,13 @@ specific principal or session and the runtime cannot prove that claim, authentic
 
 Update this note when any of the following change:
 
-- how `pid` and `did` are matched or coerced
+- how `principal` and `sid` are matched or coerced
 - which claims each token type requires (`TokenType::requiredClaims()`)
-- how a `did` is checked against the session model's key format before the lookup
+- how a `sid` is checked against the session model's key format before the lookup
 - whether hinted principal resolution can short-circuit through `ResolvesHintedPrincipal`
-- whether bearer `did` remains identity-scoped through `HasSessions`
+- whether bearer `sid` remains identity-scoped through `HasSessions`
 - whether a revoked or ended session is still rejected on the bearer path like a missing one
-- whether refresh `did` remains backed by the configured session model
+- whether refresh `sid` remains backed by the configured session model
 - how late-path bearer failures are attributed on the `AuthenticationFailed` event
 - whether the identity, principal, tenant, and session reads still go to the write connection
 - how guard-local or rebound principal resolvers are propagated into refresh

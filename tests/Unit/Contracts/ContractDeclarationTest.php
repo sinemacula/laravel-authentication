@@ -130,8 +130,8 @@ final class ContractDeclarationTest extends TestCase
     /**
      * `EloquentSession` adds exactly the owner and principal relations and the
      * column names the session creation, refresh, revocation, and last-use
-     * writes need, besides those of the session's origin. The identifier has no
-     * column name: it is always the primary key.
+     * writes need, and the generation's, besides those of the session's origin.
+     * The identifier has no column name: it is always the primary key.
      *
      * @return void
      */
@@ -140,6 +140,7 @@ final class ContractDeclarationTest extends TestCase
         self::assertSame([
             'authenticatable',
             'getAbsoluteExpiresAtName',
+            'getGenerationName',
             'getIdleExpiresAtName',
             'getLastUsedAtName',
             'getLastUsedIpName',

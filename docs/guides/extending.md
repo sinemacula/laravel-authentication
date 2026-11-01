@@ -27,6 +27,7 @@ inheritance:
 | Breached-password checks          | Implement `BreachedPasswordChecker` and bind it in the container                                                 |
 | Password reset links              | Implement `PasswordResetLinkSender` and bind it in the container                                                 |
 | Identifier change notices         | Implement `IdentifierChangeNotifier` and bind it in the container                                                |
+| Freshness of sensitive operations | Configure `freshness` per operation and guard, or implement `FreshnessPolicy` and bind it in the container       |
 | Code sign-in for another type     | Register `CodeSignIn` for the type with `SignInMethodManager::extend()`                                          |
 | Credential scope validation       | Implement `ScopeRegistry` and bind it in the container                                                           |
 
@@ -295,13 +296,28 @@ seam has a default that works alone.
 - Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity)` and `verifyFactor()`, which count and
   report nothing: the factor's outcome is the factor package's to limit and report. `verifyFactor()` answers a
   `PasskeyFactorResult` (see [Using passkeys](signing-in.md#using-passkeys)), never `null`.
-- A factor package's credentials and enrolments are its own. Authentication proofs belong on the session in this
-  package, which does not record them yet, so for now anything a factor package keeps about a session is its own,
-  keyed by the session id (`Auth::session()?->getSessionIdentifier()`, the `did` every session token carries),
-  and does not survive a sign-in: every sign-in starts a new session with a new id, and the session the client proved
-  (`AdditionalFactorContext::$provenSession`) is revoked, so nothing kept about it transfers to the new one.
-- A factor the factor package has just verified proves a recent authentication before an identifier change:
-  `Reauthentication::confirmedAt($verifiedAt)` (see [Changing identifiers](identifier-changes.md)).
+- A factor package's credentials and enrolments are its own; the proofs of a session are this package's (see [Proofs and
+  provenance](sessions.md#proofs-and-provenance)). The adapter hands each factor it verified to the session service as a
+  `Proofs\ProofResult`: its kind (`additional_factor`, or `recovery_code` for the fallback, kept apart), method,
+  channel, factor, what it observed (`null` for anything it did not), its `Evaluation` (accepted, and multifactor as it
+  judged it: `amr` carries `mfa` only from there, never counted from the values, and a proof's own values may not name
+  `mfa`), its `amr` values (at most 8, each 1 to 48 printable ASCII characters other than `"` and `\`; anything else is
+  an `InvalidArgumentException`), its time and its `ProofBinding` (identity, application, session or pending sign-in,
+  purpose). Complete a pending sign-in with `complete($token, $proof)`, bound to `PendingFactor::$id` for `sign_in` (see
+  [Additional factors](signing-in.md#additional-factors)). Nothing a factor package keeps about a session survives a
+  sign-in: every sign-in starts a new session with a new id and its own proofs, and the session the client proved
+  (`AdditionalFactorContext::$provenSession`) is revoked with its proofs left on it.
+- Step a signed-in session up with a factor the factor package has just verified: `Auth::sessions()->stepUp($proof)`,
+  with the `ProofResult` bound to the session's key for `step_up`. The session keeps its refresh token and deadlines,
+  and every access token issued for it from then on carries the factor in `auth_time` and `amr`; the session then
+  proves an identifier change, or any operation whose freshness takes a further factor (see [Stepping
+  up](sessions.md#stepping-up)). A factor verified outside a session proves nothing on its own.
+- Before a sensitive operation of its own (adding or removing a factor, say), the factor package asks
+  `FreshnessPolicy::freshProof($session, 'mfa.add_factor')`, under a namespaced operation name of its own that the
+  application configures under `freshness`, and passes a `FreshnessRequirement` of its own for a floor the
+  configuration may not lower (see [Freshness](sessions.md#freshness)). A caller that means only "within so many
+  seconds" passes `FreshnessRequirement::within($seconds)`, which takes every proof kind: a list of kinds of its own
+  narrows the configured kinds to those both take.
 - When every sign-in requires a further factor, a password is no longer the only factor, and `passwords.min_length`
   may be lowered from 15 to 8, as NIST SP 800-63B allows (see [Password policy](passwords.md#password-policy)).
 
@@ -338,8 +354,18 @@ $passed = $result->isVerified();   // else $result->reason
 - For an assertion the package should verify itself, implement `Contracts\SignInMethod`, register it with
   `SignInMethodManager::extend()` and sign in through `signIn()`, which adds the limits and the timebox (see
   [Writing a sign-in method](signing-in.md#writing-a-sign-in-method)).
+- Pass what the callback checked as a `Proofs\Provenance` (`start($identity, $principal, 'sso', $context,
+  $provenance)`): the session records it once (the connection and its tenant, the provider's authentication time, its
+  session deadline and the policy version), indexed by connection and by tenant, its first proof is the provider's with
+  the private `amr` value `urn:sinemacula:amr:external_provider`, and the provider's deadline caps the session (see
+  [Signing in: the session service](signing-in.md#signing-in-the-session-service)). The provider's own `amr` values and
+  evidence are the SSO package's: none of them reaches this package's `amr`.
 - Either way the session records the method, so the application can stop allowing it and its sessions stop
   refreshing.
+- A reauthentication at the provider (`external_reauthentication`) is reserved for the provider's reauthentication
+  handoff, which this package does not take yet; until then, a session reauthenticates with
+  `Auth::sessions()->reauthenticate()` through a sign-in method the application allows, the package's or one
+  registered with `SignInMethodManager::extend()`.
 
 ### Audit (`laravel-audit-log`)
 

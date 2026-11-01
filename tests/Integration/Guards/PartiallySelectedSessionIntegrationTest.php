@@ -114,7 +114,7 @@ final class PartiallySelectedSessionIntegrationTest extends TestCase
     {
         [$identity, $session] = $this->seedIdentityWithRevokedSession();
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $session);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session);
 
         Route::middleware('auth:api')->get('/me', static fn (): string => 'ok');
 

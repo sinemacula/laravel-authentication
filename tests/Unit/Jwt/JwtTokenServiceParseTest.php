@@ -15,7 +15,7 @@ use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 
 /**
  * Parse-side unit tests for `JwtTokenService` - `parse()` and the issuer /
- * audience / `typ` / leeway / logger surface.
+ * audience / header `typ` / leeway / logger surface.
  *
  * Split out of the original `JwtTokenServiceTest` so each class stays focused
  * on a single behavioural slice.
@@ -53,9 +53,11 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
             self::GUARD,
             new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
             30,
+            self::ISSUER,
+            self::AUDIENCE,
         );
 
-        $token = $issuer->issueAccessToken($identity, $principal, null);
+        $token = $issuer->issueAccessToken($identity, $principal, null, null);
 
         self::assertNull($verifier->parse($token, TokenType::ACCESS));
     }
@@ -73,7 +75,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         $principal = $this->mockPrincipal('principal-3');
 
         $service = $this->makeService();
-        $token   = $service->issueAccessToken($identity, $principal, null);
+        $token   = $service->issueAccessToken($identity, $principal, null, null);
 
         $this->advanceClock(self::ACCESS_TTL_MINUTES + 1);
 
@@ -82,7 +84,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
 
     /**
      * A refresh token presented to `parse()` with `expectedType = access` is
-     * rejected - the `typ` check prevents token-type confusion.
+     * rejected - the header `typ` check prevents token-type confusion.
      *
      * @return void
      */
@@ -98,7 +100,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
 
     /**
      * An access token presented to `parse()` with `expectedType = refresh` is
-     * rejected - the `typ` check prevents token-type confusion.
+     * rejected - the header `typ` check prevents token-type confusion.
      *
      * @return void
      *
@@ -110,14 +112,14 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         $principal = $this->mockPrincipal('principal-3');
 
         $service = $this->makeService();
-        $token   = $service->issueAccessToken($identity, $principal, null);
+        $token   = $service->issueAccessToken($identity, $principal, null, null);
 
         self::assertNull($service->parse($token, TokenType::REFRESH));
     }
 
     /**
-     * When the service is configured with an issuer and audience, a token
-     * issued by that service parses cleanly on that service.
+     * Every token carries the service's issuer and audience, and parses cleanly
+     * on that service.
      *
      * @return void
      *
@@ -125,29 +127,21 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
      */
     public function testParseAcceptsIssuerAndAudienceOnMatchingService(): void
     {
-        $identity  = $this->mockIdentity('identity-7');
-        $principal = $this->mockPrincipal('principal-3');
+        $service = $this->makeServiceWith(self::ISSUER_A, 'https://audience.example.test');
 
-        $service = new JwtTokenService(
-            $this->makeKeyring(),
-            self::GUARD,
-            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
-            30,
-            'https://issuer.example.test',
-            'https://audience.example.test',
-        );
+        foreach ([$this->accessToken($service), $service->issueRefreshToken($this->mockSession('session-42'), 'rotation-id')] as $token) {
 
-        $token  = $service->issueAccessToken($identity, $principal, null);
-        $claims = $service->parse($token, TokenType::ACCESS);
+            $claims = $service->parse($token);
 
-        self::assertIsArray($claims);
-        self::assertSame('https://issuer.example.test', $claims[Claims::ISSUER->value]);
-        self::assertSame('https://audience.example.test', $claims[Claims::AUDIENCE->value]);
+            self::assertIsArray($claims);
+            self::assertSame(self::ISSUER_A, $claims[Claims::ISSUER->value]);
+            self::assertSame('https://audience.example.test', $claims[Claims::AUDIENCE->value]);
+        }
     }
 
     /**
-     * A token whose issuer claim does not match the verifier's configured
-     * issuer is rejected.
+     * A token whose issuer claim does not match the verifier's issuer is
+     * rejected, of either type.
      *
      * @return void
      *
@@ -155,33 +149,16 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
      */
     public function testParseRejectsTokenWithMismatchedIssuer(): void
     {
-        $identity  = $this->mockIdentity('identity-7');
-        $principal = $this->mockPrincipal('principal-3');
+        $issuer   = $this->makeServiceWith(self::ISSUER_A);
+        $verifier = $this->makeServiceWith(self::ISSUER_B);
 
-        $issuer = new JwtTokenService(
-            $this->makeKeyring(),
-            self::GUARD,
-            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
-            30,
-            self::ISSUER_A,
-        );
-
-        $verifier = new JwtTokenService(
-            $this->makeKeyring(),
-            self::GUARD,
-            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
-            30,
-            self::ISSUER_B,
-        );
-
-        $token = $issuer->issueAccessToken($identity, $principal, null);
-
-        self::assertNull($verifier->parse($token, TokenType::ACCESS));
+        self::assertNull($verifier->parse($this->accessToken($issuer), TokenType::ACCESS));
+        self::assertNull($verifier->parse($issuer->issueRefreshToken($this->mockSession('session-42'), 'rotation-id'), TokenType::REFRESH));
     }
 
     /**
-     * A token whose audience claim does not match the verifier's configured
-     * audience is rejected.
+     * A token whose audience claim does not match the verifier's audience is
+     * rejected, of either type.
      *
      * @return void
      *
@@ -189,30 +166,11 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
      */
     public function testParseRejectsTokenWithMismatchedAudience(): void
     {
-        $identity  = $this->mockIdentity('identity-7');
-        $principal = $this->mockPrincipal('principal-3');
+        $issuer   = $this->makeServiceWith(self::ISSUER, 'https://audience-a.example.test');
+        $verifier = $this->makeServiceWith(self::ISSUER, 'https://audience-b.example.test');
 
-        $issuer = new JwtTokenService(
-            $this->makeKeyring(),
-            self::GUARD,
-            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
-            30,
-            null,
-            'https://audience-a.example.test',
-        );
-
-        $verifier = new JwtTokenService(
-            $this->makeKeyring(),
-            self::GUARD,
-            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
-            30,
-            null,
-            'https://audience-b.example.test',
-        );
-
-        $token = $issuer->issueAccessToken($identity, $principal, null);
-
-        self::assertNull($verifier->parse($token, TokenType::ACCESS));
+        self::assertNull($verifier->parse($this->accessToken($issuer), TokenType::ACCESS));
+        self::assertNull($verifier->parse($issuer->issueRefreshToken($this->mockSession('session-42'), 'rotation-id'), TokenType::REFRESH));
     }
 
     /**
@@ -233,9 +191,11 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
             self::GUARD,
             new TokenLifetimes(1, self::REFRESH_TTL_MINUTES, 60 * 24 * 180, 30),
             30,
+            self::ISSUER,
+            self::AUDIENCE,
         );
 
-        $token = $service->issueAccessToken($identity, $principal, null);
+        $token = $service->issueAccessToken($identity, $principal, null, null);
 
         // Advance past exp but within the 30-second leeway window.
         $advanced = $this->now->copy()->addSeconds(65);
@@ -270,9 +230,11 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
                 self::GUARD,
                 new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
                 15,
+                self::ISSUER,
+                self::AUDIENCE,
             );
 
-            $token  = $service->issueAccessToken($identity, $principal, null);
+            $token  = $service->issueAccessToken($identity, $principal, null, null);
             $claims = $service->parse($token, TokenType::ACCESS);
 
             self::assertIsArray($claims);
@@ -296,17 +258,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
             ->once()
             ->with('JWT decode failed', \Mockery::on(static fn (mixed $context): bool => is_array($context) && isset($context['exception'], $context['reason'])));
 
-        $service = new JwtTokenService(
-            $this->makeKeyring(),
-            self::GUARD,
-            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
-            30,
-            null,
-            null,
-            $logger,
-        );
-
-        self::assertNull($service->parse('not-a-jwt'));
+        self::assertNull($this->makeServiceWith(logger: $logger)->parse('not-a-jwt'));
     }
 
     /**
@@ -319,38 +271,84 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
      */
     public function testParseDebugLogsIssuerMismatchWhenLoggerSupplied(): void
     {
-        $identity  = $this->mockIdentity('identity-7');
-        $principal = $this->mockPrincipal('principal-3');
-
-        $issuer = new JwtTokenService(
-            $this->makeKeyring(),
-            self::GUARD,
-            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
-            30,
-            self::ISSUER_A,
-        );
-
         $logger = \Mockery::mock(LoggerInterface::class);
         $logger->shouldReceive('debug')
             ->once()
             ->with(
                 'JWT issuer mismatch',
                 \Mockery::on(static fn (mixed $context): bool => is_array($context)
-                    && ($context['expected'] ?? null) === self::ISSUER_B),
+                    && ($context['expected'] ?? null) === self::ISSUER_B
+                    && ($context['received'] ?? null) === self::ISSUER_A),
             );
 
-        $verifier = new JwtTokenService(
+        self::assertNull($this->makeServiceWith(self::ISSUER_B, logger: $logger)->parse($this->accessToken($this->makeServiceWith(self::ISSUER_A))));
+    }
+
+    /**
+     * Audience-mismatch failures are debug-logged with the expected vs received
+     * audience, an array audience included.
+     *
+     * @return void
+     */
+    public function testParseDebugLogsAudienceMismatchWhenLoggerSupplied(): void
+    {
+        $logger = \Mockery::mock(LoggerInterface::class);
+        $logger->shouldReceive('debug')
+            ->once()
+            ->with('JWT audience mismatch', ['expected' => self::AUDIENCE, 'received' => [self::AUDIENCE]]);
+
+        $claims = [
+            Claims::ISSUER->value       => self::ISSUER,
+            Claims::AUDIENCE->value     => [self::AUDIENCE],
+            Claims::CLIENT_ID->value    => self::GUARD,
+            Claims::SUBJECT->value      => 'identity-7',
+            Claims::SUBJECT_TYPE->value => 'person',
+            Claims::PRINCIPAL->value    => 'principal-3',
+            Claims::JWT_ID->value       => 'token-id',
+            Claims::ISSUED_AT->value    => $this->now->getTimestamp(),
+            Claims::EXPIRES_AT->value   => $this->now->getTimestamp() + 600,
+        ];
+
+        $token = JWT::encode($claims, self::SECRET, self::ALGORITHM, self::KID, ['typ' => TokenType::ACCESS->value]);
+
+        self::assertNull($this->makeServiceWith(logger: $logger)->parse($token, TokenType::ACCESS));
+    }
+
+    /**
+     * Build a service with the test keyring and lifetimes and the supplied
+     * issuer, audience and logger.
+     *
+     * @param  string  $issuer
+     * @param  string  $audience
+     * @param  ?\Psr\Log\LoggerInterface  $logger
+     * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
+     *
+     * @throws \InvalidArgumentException
+     */
+    private function makeServiceWith(string $issuer = self::ISSUER, string $audience = self::AUDIENCE, ?LoggerInterface $logger = null): JwtTokenService
+    {
+        return new JwtTokenService(
             $this->makeKeyring(),
             self::GUARD,
             new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
             30,
-            self::ISSUER_B,
-            null,
+            $issuer,
+            $audience,
             $logger,
         );
+    }
 
-        $token = $issuer->issueAccessToken($identity, $principal, null);
-
-        self::assertNull($verifier->parse($token));
+    /**
+     * An access token the service issues for mock identity and principal
+     * context objects, with no session.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $service
+     * @return string
+     *
+     * @throws \Random\RandomException
+     */
+    private function accessToken(JwtTokenService $service): string
+    {
+        return $service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null);
     }
 }

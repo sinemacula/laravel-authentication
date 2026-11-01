@@ -235,7 +235,7 @@ final class RevocationScopeTest extends TestCase
 
         self::assertNotNull($tokens);
 
-        return $tokens->issueAccessToken($identity, $identity, null);
+        return $tokens->issueAccessToken($identity, $identity, null, null);
     }
 
     /**

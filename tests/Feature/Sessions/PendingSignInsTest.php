@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\FoundPendingSignIn;
@@ -110,7 +111,16 @@ final class PendingSignInsTest extends TestCase
         $session  = $this->seedSession($identity);
         $context  = new SignInContext(new ClientContext('192.0.2.1', 'Pending/1.0'), 'Phone', 'iOS');
         $windows  = [['counter-key' => '2026-04-06 12:05:00']];
-        $pending  = $this->pendings()->issue('api', (new Admitted($identity, $identity, null))->on($session), 'password', 'email', $context, $this->now, $windows);
+        $pending  = $this->pendings()->issue(
+            'api',
+            (new Admitted($identity, $identity, null))->on($session),
+            'password',
+            'email',
+            $context,
+            SignInProof::unattested('password', $this->now),
+            $this->now,
+            $windows,
+        );
 
         [$id, $secret] = explode('.', $pending->token, 2);
 
@@ -258,7 +268,15 @@ final class PendingSignInsTest extends TestCase
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage(sprintf('A sign-in can only wait for a further factor for an Eloquent identity; %s is not a model.', $identity::class));
 
-        $this->pendings()->issue('api', new Admitted($identity, \Mockery::mock(Principal::class), null), 'password', null, $this->context(), $this->now);
+        $this->pendings()->issue(
+            'api',
+            new Admitted($identity, \Mockery::mock(Principal::class), null),
+            'password',
+            null,
+            $this->context(),
+            SignInProof::unattested('password', $this->now),
+            $this->now,
+        );
     }
 
     /**
@@ -276,7 +294,17 @@ final class PendingSignInsTest extends TestCase
         $context  = new SignInContext(new ClientContext('192.0.2.1', 'Pending/1.0'), 'Phone', 'iOS');
         $windows  = [['counter-key' => '2026-04-06 12:05:00']];
 
-        [$token, $expiresAt] = $this->pendings()->issueChoice('api', $identity, $session, 'password', 'email', $context, $this->now, $windows);
+        [$token, $expiresAt] = $this->pendings()->issueChoice(
+            'api',
+            $identity,
+            $session,
+            'password',
+            'email',
+            $context,
+            SignInProof::unattested('password', $this->now),
+            $this->now,
+            $windows,
+        );
 
         [$id, $secret] = explode('.', $token, 2);
 
@@ -313,7 +341,7 @@ final class PendingSignInsTest extends TestCase
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage(sprintf('A sign-in can only wait for a choice of principal for an Eloquent identity; %s is not a model.', $identity::class));
 
-        $this->pendings()->issueChoice('api', $identity, null, 'password', null, $this->context(), $this->now, null);
+        $this->pendings()->issueChoice('api', $identity, null, 'password', null, $this->context(), SignInProof::unattested('password', $this->now), $this->now, null);
     }
 
     /**
@@ -331,7 +359,7 @@ final class PendingSignInsTest extends TestCase
         $identity = $this->seedIdentity();
         $factor   = $this->issue($identity)->token;
 
-        [$choice] = $this->pendings()->issueChoice('api', $identity, null, 'password', null, $this->context(), $this->now, null);
+        [$choice] = $this->pendings()->issueChoice('api', $identity, null, 'password', null, $this->context(), SignInProof::unattested('password', $this->now), $this->now, null);
 
         self::assertNotNull(PendingSignIns::live('api', $factor, $this->now, PendingSignIn::ADDITIONAL_FACTOR));
         self::assertNull(PendingSignIns::live('api', $factor, $this->now, PendingSignIn::PRINCIPAL_CHOICE));
@@ -362,7 +390,7 @@ final class PendingSignInsTest extends TestCase
         $identity = $this->seedIdentity();
         $session  = $this->seedSession($identity);
 
-        $this->pendings()->issueChoice('api', $identity, $session, 'password', null, $this->context(), $this->now, null);
+        $this->pendings()->issueChoice('api', $identity, $session, 'password', null, $this->context(), SignInProof::unattested('password', $this->now), $this->now, null);
 
         $pending = PendingSignIn::query()->firstOrFail();
 
@@ -408,7 +436,17 @@ final class PendingSignInsTest extends TestCase
      */
     public function testDeleteNeedsTheSecretBeforeTheExpiry(): void
     {
-        [$token] = $this->pendings()->issueChoice('api', $this->seedIdentity(), null, 'password', null, $this->context(), $this->now, null);
+        [$token] = $this->pendings()->issueChoice(
+            'api',
+            $this->seedIdentity(),
+            null,
+            'password',
+            null,
+            $this->context(),
+            SignInProof::unattested('password', $this->now),
+            $this->now,
+            null,
+        );
 
         [$pending, $secret] = PendingSignIns::live('api', $token, $this->now, null) ?? [null, ''];
 
@@ -565,7 +603,15 @@ final class PendingSignInsTest extends TestCase
         [$member, $membership, $tenant] = $this->seedMember();
         [, $foreign]                    = $this->seedMember('other@example.test', $tenant);
 
-        $pending = $this->pendings()->issue('members', new Admitted($member, $membership, $tenant), 'password', 'email', $this->context(), $this->now);
+        $pending = $this->pendings()->issue(
+            'members',
+            new Admitted($member, $membership, $tenant),
+            'password',
+            'email',
+            $this->context(),
+            SignInProof::unattested('password', $this->now),
+            $this->now,
+        );
 
         [$id] = explode('.', $pending->token, 2);
 
@@ -604,7 +650,15 @@ final class PendingSignInsTest extends TestCase
         [$other]                        = $this->seedMember('other@example.test', $tenant);
 
         $resolver = new UnscopedMembershipResolver;
-        $pending  = $this->pendings()->issue('members', new Admitted($member, $membership, $tenant), 'password', 'email', $this->context(), $this->now);
+        $pending  = $this->pendings()->issue(
+            'members',
+            new Admitted($member, $membership, $tenant),
+            'password',
+            'email',
+            $this->context(),
+            SignInProof::unattested('password', $this->now),
+            $this->now,
+        );
 
         self::assertNotNull($this->pendings()->find('members', $pending->token, $this->provider('members'), $resolver, $this->now));
 
@@ -627,7 +681,15 @@ final class PendingSignInsTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $session  = $this->seedSession($identity);
-        $pending  = $this->pendings()->issue('api', (new Admitted($identity, $identity, null))->on($session), 'password', 'email', $this->context(), $this->now);
+        $pending  = $this->pendings()->issue(
+            'api',
+            (new Admitted($identity, $identity, null))->on($session),
+            'password',
+            'email',
+            $this->context(),
+            SignInProof::unattested('password', $this->now),
+            $this->now,
+        );
 
         self::assertSame($session->getKey(), $this->find($pending->token)?->provenSession?->getKey());
         self::assertSame($session->getKey(), $this->find($pending->token)?->factor->provenSession?->getSessionIdentifier());
@@ -707,9 +769,27 @@ final class PendingSignInsTest extends TestCase
         $context  = new SignInContext(new ClientContext('192.0.2.1', 'Pending/1.0'));
         $window   = '2026-04-06 12:05:00';
         $windows  = [['identifier-key' => $window, 'ip-key' => $window], ['account-key' => $window], ['account-key' => $window]];
-        $kept     = $this->pendings()->issue('api', new Admitted($identity, $identity, null), 'password', 'email', $context, $this->now, $windows);
-        $none     = $this->pendings()->issue('api', new Admitted($identity, $identity, null), 'sso', null, $context, $this->now);
-        $empty    = $this->pendings()->issue('api', new Admitted($identity, $identity, null), 'password', 'email', $context, $this->now, [[]]);
+        $kept     = $this->pendings()->issue(
+            'api',
+            new Admitted($identity, $identity, null),
+            'password',
+            'email',
+            $context,
+            SignInProof::unattested('password', $this->now),
+            $this->now,
+            $windows,
+        );
+        $none  = $this->pendings()->issue('api', new Admitted($identity, $identity, null), 'sso', null, $context, SignInProof::unattested('password', $this->now), $this->now);
+        $empty = $this->pendings()->issue(
+            'api',
+            new Admitted($identity, $identity, null),
+            'password',
+            'email',
+            $context,
+            SignInProof::unattested('password', $this->now),
+            $this->now,
+            [[]],
+        );
 
         $reservations = PendingSignIns::reservations(PendingSignIn::query()->whereKey(explode('.', $kept->token, 2)[0])->firstOrFail());
 
@@ -800,9 +880,17 @@ final class PendingSignInsTest extends TestCase
      */
     public function testTheContextIsTheCompletingClientsAndTheOriginTheRecordedOne(): void
     {
-        $identity   = $this->seedIdentity();
-        $context    = new SignInContext(new ClientContext('192.0.2.1', 'Pending/1.0'), 'Phone', 'iOS');
-        $pending    = $this->pendings()->issue('api', new Admitted($identity, $identity, null), 'password', null, $context, $this->now);
+        $identity = $this->seedIdentity();
+        $context  = new SignInContext(new ClientContext('192.0.2.1', 'Pending/1.0'), 'Phone', 'iOS');
+        $pending  = $this->pendings()->issue(
+            'api',
+            new Admitted($identity, $identity, null),
+            'password',
+            null,
+            $context,
+            SignInProof::unattested('password', $this->now),
+            $this->now,
+        );
         $row        = PendingSignIn::query()->whereKey(explode('.', $pending->token, 2)[0])->firstOrFail();
         $completing = new ClientContext('198.51.100.9', 'Factor/1.0');
         $rebuilt    = PendingSignIns::context($row, $completing);
@@ -829,7 +917,15 @@ final class PendingSignInsTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $live     = $this->issue($identity);
-        $expired  = $this->pendings()->issue('api', new Admitted($identity, $identity, null), 'password', null, $this->context(), $this->now->subMinutes(5));
+        $expired  = $this->pendings()->issue(
+            'api',
+            new Admitted($identity, $identity, null),
+            'password',
+            null,
+            $this->context(),
+            SignInProof::unattested('password', $this->now->subMinutes(5)),
+            $this->now->subMinutes(5),
+        );
 
         self::assertSame([explode('.', $expired->token, 2)[0]], (new PendingSignIn)->prunable()->pluck('id')->all());
         self::assertNotNull($this->find($live->token));
@@ -873,7 +969,15 @@ final class PendingSignInsTest extends TestCase
      */
     private function issue(IntegrationIdentity $identity): PendingFactor
     {
-        return $this->pendings()->issue('api', new Admitted($identity, $identity, null), 'password', 'email', $this->context(), $this->now);
+        return $this->pendings()->issue(
+            'api',
+            new Admitted($identity, $identity, null),
+            'password',
+            'email',
+            $this->context(),
+            SignInProof::unattested('password', $this->now),
+            $this->now,
+        );
     }
 
     /**

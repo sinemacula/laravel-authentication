@@ -29,8 +29,8 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * which must then be the storage connection too.
  *
  * Only the client-described metadata is mass assignable. Ownership, the
- * request-derived columns, and the session state (digests, rotation time,
- * start, principal switch, deadlines, revocation, last use) are not: the
+ * request-derived columns, and the session state (generation, digests, rotation
+ * time, start, principal switch, deadlines, revocation, last use) are not: the
  * package writes the columns it owns with query-builder updates, and code that
  * creates a session sets the rest with `forceFill()`.
  *
@@ -42,6 +42,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * @copyright   2026 Sine Macula Limited
  *
  * @property string $id
+ * @property string $generation
  * @property string $authenticatable_type
  * @property string $authenticatable_id
  * @property ?string $principal_type
@@ -62,7 +63,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * @property ?\Carbon\CarbonInterface $refresh_rotated_at
  * @property \Carbon\CarbonInterface $signed_in_at
  * @property \Carbon\CarbonInterface $idle_expires_at
- * @property \Carbon\CarbonInterface $absolute_expires_at
+ * @property ?\Carbon\CarbonInterface $absolute_expires_at
  * @property ?\Carbon\CarbonInterface $revoked_at
  * @property ?string $revoked_reason
  *
@@ -149,6 +150,7 @@ class Session extends Model implements EloquentSession
     protected function casts(): array
     {
         return [
+            'generation'              => 'string',
             'authenticatable_type'    => 'string',
             'authenticatable_id'      => 'string',
             'principal_type'          => 'string',

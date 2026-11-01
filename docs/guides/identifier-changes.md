@@ -53,25 +53,34 @@ is refused as `taken`, inside a savepoint, so the change, its proof and any tran
 the index the check is best effort and a race can leave two identities with one identifier.
 
 **Recent authentication.** A request carries a `Sessions\Reauthentication`, the proof that the identity authenticated
-recently: within `identifier_changes.recent_authentication_seconds` (900 by default), from the second it names, and
-never from the future.
+recently enough: the `identifier_change` operation's freshness decides how recently and by which proofs (900 seconds,
+and any proof kind, by default; see [Freshness](configuration.md#freshness), where a guard may set its own).
 
 - `Reauthentication::session($session)`: the session the change is made from. Read again on the write connection, it
-  must be one of the identity's own live sessions of the guard (not revoked, deadlines not passed), signed in within the
-  window. A refresh or a principal switch does not renew it. A fresh sign-in starts a new session, signed in now, and a
-  session it replaced is revoked, so it no longer proves anything.
-- `Reauthentication::password($password)`: the identity's current password, checked in the guard's credential timebox
-  against the identity read again through the guard's provider. It counts against the identity's account and the IP
-  address under the `sign_in` limits, and a correct one is given back. A guard whose application does not allow the
-  `password` method takes no password as proof (`reauthentication_required`, nothing counted).
-- `Reauthentication::confirmedAt($at)`: a further factor, or another proof your code verified, at `$at`. It is trusted,
-  as `start()` is: never build it from a time the client sent.
+  must still be that session (of its generation, so a later session a model put under its key proves nothing for it) and
+  one of the identity's own live sessions of the guard (not revoked, deadlines not passed) holding a proof that meets
+  the requirement: its sign-in, a reauthentication, a step-up or a recovery code, of a kind the requirement takes, made
+  within its age (see [Freshness](sessions.md#freshness)). A refresh or a principal switch records no proof, so neither
+  renews it; a reauthentication or a step-up does. A fresh sign-in starts a new session, and a session it replaced is
+  revoked, so it no longer proves anything.
+- `Reauthentication::password($password)`: the identity's current password, a first-factor reauthentication made now,
+  checked in the guard's credential timebox against the identity read again through the guard's provider. It counts
+  against the identity's account and the IP address under the `sign_in` limits, and a correct one is given back. It is
+  taken only when the requirement takes `first_factor_reauthentication` and asks for neither `multifactor` nor
+  `phishing_resistant`, which a password never shows, and only on a guard whose application allows the `password`
+  method; otherwise it is `reauthentication_required`, nothing counted.
 
-An identity that signs in only with codes or passkeys reauthenticates by signing in again and making the change from the
-new session. A token with no session (in [access-only mode](installation.md#access-only-mode-no-sessions-no-refresh), or
-any access token without a `did`) has none to offer, so `Auth::session()` is `null` there and the request must ask for
-another proof. The first route below takes the password whenever one is sent, so a session signed in longer ago than the
-window can confirm it instead of signing in again, and the session's recent sign-in otherwise.
+A further factor your code verified proves nothing on its own: record it on the session with
+`Auth::sessions()->stepUp($proof)` (see [Stepping up](sessions.md#stepping-up)) and prove the change with the session.
+An identity that signs in only with codes or passkeys reauthenticates the session with
+`Auth::sessions()->reauthenticate()` (see [Reauthenticating](sessions.md#reauthenticating)), or signs in again and makes
+the change from the new session. A token with no session (in [access-only
+mode](installation.md#access-only-mode-no-sessions-no-refresh), or any access token without a `sid`) has none to offer,
+so `Auth::session()` is `null` there and the request must ask for another proof. The first route below takes the
+password whenever one is sent, so a session last proven longer ago than the requirement allows can confirm it instead of
+reauthenticating, and the session's own proofs otherwise. A malformed `identifier_change` requirement fails closed:
+every request and confirmation throws its `InvalidArgumentException` before anything is counted or written, and
+`authentication:check` reports it.
 
 **Requesting.** `requestByCode()` sends a code to the new identifier, delivered after commit by a queued job through
 your `OneTimeCodeSender` with the purpose `change_identifier` (the message's `identifier` is the new one);
@@ -84,11 +93,11 @@ transaction that locks that row (and the proving session's row, for a session pr
 stands and that the identifier is not the current one, and writes the change. A refusal there gives the
 `identifier_change` slots back. So a password change or a reset racing a request proven by the old password, and a
 revocation of the session that proves one, come either before the check under the lock, which then fails, or after the
-change is written, which they then cancel. A `confirmedAt()` proof, and a password proof racing a revocation that leaves
-the password as it is, are not serialised. The current identifier is read from the row as locked. The limits are counted
-before the transaction, never inside it, so no counter's row stays locked until its commit: on MySQL, two transactions
-that each create a counter in the same gap of the index deadlock (inside a transaction of yours, see the note on
-transactions under [Rate limits](configuration.md#rate-limits)).
+change is written, which they then cancel. A password proof racing a revocation that leaves the password as it is is not
+serialised. The current identifier is read from the row as locked. The limits are counted before the transaction, never
+inside it, so no counter's row stays locked until its commit: on MySQL, two transactions that each create a counter in
+the same gap of the index deadlock (inside a transaction of yours, see the note on transactions under [Rate
+limits](configuration.md#rate-limits)).
 
 ```php
 use SineMacula\Laravel\Authentication\Facades\Auth;

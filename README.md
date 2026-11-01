@@ -38,11 +38,14 @@ are caught on the server.
 
 ## Features
 
-- **JWT guard** with guard-bound, kid-rotated HMAC tokens, refresh rotation with replay detection, and a browser
-  refresh cookie with CSRF checks.
+- **JWT guard** with guard-bound, kid-rotated HMAC tokens in a private profile that borrows RFC 9068's claims
+  (`client_id`, `auth_time`, `amr`, an `at+jwt` header type) and OpenID Connect's `sid`, refresh rotation with replay
+  detection, and a browser refresh cookie with CSRF checks.
 - **Sign-in methods**: password, one-time code to a phone or email, and passkeys, behind one contract that SSO and
   custom methods plug into.
-- **Sessions**: list, sign out, sign out everywhere, revoke on security changes, and switch principal.
+- **Sessions**: timestamped proofs of every sign-in and an external provider's provenance on each session, step-up and
+  reauthentication with `auth_time` and `amr` derived from the proofs, per-operation freshness judged on the proof that
+  meets it, list, sign out, sign out everywhere, revoke on security changes, and switch principal.
 - **Machine credentials**: API keys and OAuth 2.0 client credentials for non-human identities, with scopes.
 - **Account lifecycle**: password policy, password reset, identifier verification and changing an email or phone.
 - **Per-application settings**: which sign-in methods and machine credentials each application allows (none until it
@@ -61,7 +64,8 @@ composer require sinemacula/laravel-authentication
 
 ## Configuration
 
-Publish the config and the migrations, migrate, and generate a signing key:
+Publish the config and the migrations, migrate, generate a signing key, and name the issuer and audience every token
+carries (a guard without them fails closed):
 
 ```bash
 php artisan vendor:publish --tag=authentication-config
@@ -69,6 +73,8 @@ php artisan vendor:publish --tag=authentication-migrations
 php artisan migrate
 
 echo "AUTHENTICATION_JWT_KEY=$(openssl rand -base64 48)" >> .env
+echo "AUTHENTICATION_JWT_ISSUER=https://auth.example.com" >> .env
+echo "AUTHENTICATION_JWT_AUDIENCE=https://api.example.com" >> .env
 ```
 
 Register a `jwt` guard and a `model` provider in `config/auth.php`. Each guard is an application, and allows only the
@@ -150,21 +156,21 @@ Route::middleware('auth:api')->get('/me', fn () => Auth::identity());
 
 ### Guides
 
-| Guide                                                     | Covers                                                                   |
-|-----------------------------------------------------------|--------------------------------------------------------------------------|
-| [Installation](docs/guides/installation.md)               | Keys, guards and providers, the `401`, localisation, access-only mode    |
-| [Identity models](docs/guides/identity-models.md)         | 2D and 3D models, identifiers, verification, activity                    |
-| [Signing in](docs/guides/signing-in.md)                   | The session service, one-time codes, passkeys, custom methods, factors   |
-| [Refreshing](docs/guides/refreshing.md)                   | Refresh, the refresh cookie and replay detection                         |
-| [Sessions](docs/guides/sessions.md)                       | Switching principal, signing out, listing sessions and revocation        |
-| [Passwords](docs/guides/passwords.md)                     | Password policy, setting a password and password reset                   |
-| [Changing identifiers](docs/guides/identifier-changes.md) | Changing an email address or phone number                                |
-| [Machine credentials](docs/guides/machine-credentials.md) | Non-human identities, scopes, API keys and client credentials            |
-| [Events](docs/guides/events.md)                           | Every event, its context and the failure outcomes                        |
-| [Configuration](docs/guides/configuration.md)             | Every configuration key                                                  |
-| [Operations](docs/guides/operations.md)                   | Read replicas, Octane, key rotation, pruning and the configuration check |
-| [Testing](docs/guides/testing.md)                         | Acting as an identity in your tests, context assertions and fakes        |
-| [Extending](docs/guides/extending.md)                     | Extension points and the MFA, authorisation, SSO and audit seams         |
+| Guide                                                     | Covers                                                                                                       |
+|-----------------------------------------------------------|--------------------------------------------------------------------------------------------------------------|
+| [Installation](docs/guides/installation.md)               | Keys, guards and providers, the `401`, localisation, access-only mode                                        |
+| [Identity models](docs/guides/identity-models.md)         | 2D and 3D models, identifiers, verification, activity                                                        |
+| [Signing in](docs/guides/signing-in.md)                   | The session service, one-time codes, passkeys, custom methods, factors                                       |
+| [Refreshing](docs/guides/refreshing.md)                   | Refresh, the refresh cookie and replay detection                                                             |
+| [Sessions](docs/guides/sessions.md)                       | Proofs, step-up, reauthentication, freshness, switching principal, signing out, listing sessions, revocation |
+| [Passwords](docs/guides/passwords.md)                     | Password policy, setting a password and password reset                                                       |
+| [Changing identifiers](docs/guides/identifier-changes.md) | Changing an email address or phone number                                                                    |
+| [Machine credentials](docs/guides/machine-credentials.md) | Non-human identities, scopes, API keys and client credentials                                                |
+| [Events](docs/guides/events.md)                           | Every event, its context and the failure outcomes                                                            |
+| [Configuration](docs/guides/configuration.md)             | Every configuration key                                                                                      |
+| [Operations](docs/guides/operations.md)                   | Read replicas, Octane, key rotation, pruning and the configuration check                                     |
+| [Testing](docs/guides/testing.md)                         | Acting as an identity in your tests, context assertions and fakes                                            |
+| [Extending](docs/guides/extending.md)                     | Extension points and the MFA, authorisation, SSO and audit seams                                             |
 
 The security and lifecycle contracts behind them, for maintainers and reviewers, are in
 [docs/design](docs/design/README.md).

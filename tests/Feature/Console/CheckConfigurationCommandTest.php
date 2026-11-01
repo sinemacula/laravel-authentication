@@ -59,7 +59,16 @@ final class CheckConfigurationCommandTest extends TestCase
     private const array PACKAGE_OK = ['[storage] OK', '[session] OK', ...self::SHARED_OK];
 
     /** @var list<string> What a run prints for the package-wide settings after the storage and session checks. */
-    private const array SHARED_OK = ['[sign_in] OK', '[passwords] OK', '[codes] OK', '[delivery] OK', '[passkeys] OK', '[api_keys] OK', '[identifier_changes] OK'];
+    private const array SHARED_OK = [
+        '[sign_in] OK',
+        '[passwords] OK',
+        '[codes] OK',
+        '[delivery] OK',
+        '[passkeys] OK',
+        '[api_keys] OK',
+        '[identifier_changes] OK',
+        '[freshness] OK',
+    ];
 
     /** @var string What a run prints for the `machine` guard when its application does not allow `api_key`. */
     private const string API_KEY_NOT_ALLOWED = '[machine] An api_key guard\'s application must allow `api_key`, or every key it is presented is refused: '
@@ -101,6 +110,22 @@ final class CheckConfigurationCommandTest extends TestCase
         yield 'a key too short for the algorithm' => [
             ['authentication.jwt.keys' => ['kid' => 'short']],
             '[api] JWT key \'kid\' is too short for HS256',
+        ];
+        yield 'no package issuer' => [
+            ['authentication.jwt.issuer' => null],
+            '[api] JWT `issuer` for guard [api] is required: set `authentication.jwt.issuer` (AUTHENTICATION_JWT_ISSUER) or the guard\'s `jwt.issuer` override.',
+        ];
+        yield 'no package audience' => [
+            ['authentication.jwt.audience' => ''],
+            '[api] JWT `audience` for guard [api] is required: set `authentication.jwt.audience` (AUTHENTICATION_JWT_AUDIENCE) or the guard\'s `jwt.audience` override.',
+        ];
+        yield 'an issuer override that is null' => [
+            ['auth.guards.api.jwt' => ['issuer' => null]],
+            '[api] JWT `issuer` for guard [api] is required',
+        ];
+        yield 'an audience override that is empty' => [
+            ['auth.guards.api.jwt' => ['audience' => '']],
+            '[api] JWT `audience` for guard [api] is required',
         ];
         yield 'a provider that is not an identity provider' => [
             ['auth.providers.users' => ['driver' => 'eloquent', 'model' => StubAuthenticatableModel::class]],
@@ -298,6 +323,46 @@ final class CheckConfigurationCommandTest extends TestCase
             ['auth.guards.machine.rate_limits' => ['api_key' => null]],
             '[machine] Rate limits for guard [machine]: the guard\'s `rate_limits` has an unknown key `api_key`.',
         ];
+        yield 'a freshness block that is not a map' => [
+            ['authentication.freshness' => 'soon'],
+            '[freshness] authentication.freshness must map operation names to their freshness.',
+        ];
+        yield 'a freshness block naming something that is not an operation' => [
+            ['authentication.freshness' => ['Identifier Change' => null]],
+            '[freshness] authentication.freshness names [Identifier Change], which is not an operation',
+        ];
+        yield 'a freshness entry with an unknown key' => [
+            ['authentication.freshness.identifier_change.window' => 60],
+            '[freshness] authentication.freshness.identifier_change must set `max_age_seconds` and `proofs`',
+        ];
+        yield 'a freshness entry whose age is out of range' => [
+            ['authentication.freshness.identifier_change.max_age_seconds' => 86401],
+            '[freshness] authentication.freshness.identifier_change.max_age_seconds must be an integer from 1 to 86400.',
+        ];
+        yield 'a freshness entry listing no proofs' => [
+            ['authentication.freshness.factor_change.proofs' => []],
+            '[freshness] authentication.freshness.factor_change.proofs must list distinct proof kinds, at least one, from',
+        ];
+        yield 'a freshness entry whose flag is not a boolean' => [
+            ['authentication.freshness.password_establishment.multifactor' => 'yes'],
+            '[freshness] authentication.freshness.password_establishment.multifactor must be true or false.',
+        ];
+        yield 'a freshness entry whose flag is null' => [
+            ['authentication.freshness.password_establishment.phishing_resistant' => null],
+            '[freshness] authentication.freshness.password_establishment.phishing_resistant must be true or false.',
+        ];
+        yield 'a guard freshness entry whose flag is null' => [
+            ['auth.guards.api.freshness' => ['identifier_change' => ['max_age_seconds' => 900, 'proofs' => ['first_factor'], 'multifactor' => null]]],
+            '[api] auth.guards.api.freshness.identifier_change.multifactor must be true or false.',
+        ];
+        yield 'a guard freshness block that is not a map' => [
+            ['auth.guards.api.freshness' => 'soon'],
+            '[api] auth.guards.api.freshness must map operation names to their freshness.',
+        ];
+        yield 'a guard freshness entry with no age' => [
+            ['auth.guards.api.freshness' => ['identifier_change' => ['proofs' => ['first_factor']]]],
+            '[api] auth.guards.api.freshness.identifier_change.max_age_seconds must be an integer from 1 to 86400.',
+        ];
     }
 
     /**
@@ -342,6 +407,7 @@ final class CheckConfigurationCommandTest extends TestCase
             '[passkeys] OK',
             '[api_keys] OK',
             '[identifier_changes] OK',
+            '[freshness] OK',
             '[admin] OK',
             '[machine] OK',
             '[session] authentication.session.model must be a non-empty class-string of an Eloquent model implementing [' . EloquentSession::class . ']; got [(empty string)].',
@@ -495,7 +561,7 @@ final class CheckConfigurationCommandTest extends TestCase
             'auth.guards.api.application'              => ['methods' => ''],
             'auth.guards.admin.application'            => ['methods' => ['phone_code']],
             'authentication.delivery.queue.connection' => 'missing',
-            'authentication.identifier_changes'        => ['ttl_seconds' => 3600, 'recent_authentication_seconds' => '59'],
+            'authentication.identifier_changes'        => ['ttl_seconds' => '299'],
         ]);
 
         [$code, $output] = $this->check();
@@ -508,11 +574,12 @@ final class CheckConfigurationCommandTest extends TestCase
             '[passwords] OK',
             '[passkeys] OK',
             '[api_keys] OK',
+            '[freshness] OK',
             '[admin] OK',
             '[machine] OK',
             '[codes] Guards [admin] allow a code sign-in method, but no ' . OneTimeCodeSender::class . ' is bound to deliver the codes.',
             '[delivery] authentication.delivery.queue.connection must name a connection configured in `queue.connections`, or be null for `queue.default`.',
-            '[identifier_changes] authentication.identifier_changes.recent_authentication_seconds must be an integer from 60 to 86400.',
+            '[identifier_changes] authentication.identifier_changes.ttl_seconds must be an integer from 300 to 86400.',
             '[api] Application `methods` for guard [api] must be a list of lower-case sign-in method names:'
                 . ' set `authentication.application.methods` or the guard\'s `application.methods` override.',
         ], $output);
@@ -556,6 +623,7 @@ final class CheckConfigurationCommandTest extends TestCase
             '[passkeys] OK',
             '[api_keys] OK',
             '[identifier_changes] OK',
+            '[freshness] OK',
             '[api] OK',
             '[web] Not a jwt or api_key guard.',
             '[missing] Not configured.',
@@ -720,7 +788,17 @@ final class CheckConfigurationCommandTest extends TestCase
     {
         $problem = static fn (string $guard, string $message): string => "[codes] Guard [{$guard}]'s application policy could not say"
             . " whether it allows a code sign-in method: {$message}";
-        $before = ['[storage] OK', '[session] OK', '[sign_in] OK', '[passwords] OK', '[delivery] OK', '[passkeys] OK', '[api_keys] OK', '[identifier_changes] OK'];
+        $before = [
+            '[storage] OK',
+            '[session] OK',
+            '[sign_in] OK',
+            '[passwords] OK',
+            '[delivery] OK',
+            '[passkeys] OK',
+            '[api_keys] OK',
+            '[identifier_changes] OK',
+            '[freshness] OK',
+        ];
 
         foreach ([new \InvalidArgumentException('Unreadable `phone_code` setting.'), new \RuntimeException('Policy store down.')] as $exception) {
 
@@ -777,7 +855,17 @@ final class CheckConfigurationCommandTest extends TestCase
             . ' guard [admin] must be a list of lower-case sign-in method names: set `authentication.application.methods` or the guard\'s'
             . ' `application.methods` override.';
 
-        $before = ['[storage] OK', '[session] OK', '[sign_in] OK', '[passwords] OK', '[delivery] OK', '[passkeys] OK', '[api_keys] OK', '[identifier_changes] OK'];
+        $before = [
+            '[storage] OK',
+            '[session] OK',
+            '[sign_in] OK',
+            '[passwords] OK',
+            '[delivery] OK',
+            '[passkeys] OK',
+            '[api_keys] OK',
+            '[identifier_changes] OK',
+            '[freshness] OK',
+        ];
 
         self::assertSame([1, [...$before, '[machine] OK', $problem]], $this->check(['--guard' => ['machine']]));
     }
@@ -1087,6 +1175,8 @@ final class CheckConfigurationCommandTest extends TestCase
         $config->set('authentication.session.model', Session::class);
         $config->set('authentication.jwt.keys', ['kid' => self::SECRET]);
         $config->set('authentication.jwt.active_kid', 'kid');
+        $config->set('authentication.jwt.issuer', 'https://issuer.example.test');
+        $config->set('authentication.jwt.audience', 'https://api.example.test');
         $config->set('auth.providers.users', ['driver' => 'model', 'model' => IntegrationIdentity::class]);
         $config->set('auth.guards.web', ['driver' => 'session', 'provider' => 'users']);
         $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'users', 'application' => ['methods' => ['password']]]);

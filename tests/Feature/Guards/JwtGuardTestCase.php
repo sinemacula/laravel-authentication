@@ -29,17 +29,20 @@ use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use Tests\Concerns\BindsSignInPolicyDoubles;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessionRecords;
+use Tests\Fixtures\Sessions\FirstFactorRecorder;
 use Tests\Unit\Stubs\StubInjectableSession;
 use Tests\Unit\Stubs\StubSession;
 
 /**
  * Shared base case for the JwtGuard split tests.
  *
- * Owns collaborator mocks, the in-memory `stub_sessions` schema, the frozen
- * Carbon and JWT clocks, and the helper factories used by every concrete
- * `JwtGuardTest` variant. Each subclass covers one slice of JwtGuard's
- * behaviour.
+ * Owns collaborator mocks, the in-memory `stub_sessions` schema with the
+ * shipped proofs and provenance tables (each saved session row given the
+ * first-factor proof its sign-in would record), the frozen Carbon and JWT
+ * clocks, and the helper factories used by every concrete `JwtGuardTest`
+ * variant. Each subclass covers one slice of JwtGuard's behaviour.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -48,10 +51,16 @@ use Tests\Unit\Stubs\StubSession;
  */
 abstract class JwtGuardTestCase extends TestCase
 {
-    use BindsSignInPolicyDoubles, InteractsWithSessionRecords, MockeryPHPUnitIntegration;
+    use BindsSignInPolicyDoubles, InteractsWithProofs, InteractsWithSessionRecords, MockeryPHPUnitIntegration;
 
     /** @var string The guard name forwarded to JwtGuard's constructor. */
     protected const string GUARD_NAME = 'jwt-test';
+
+    /** @var string Issuer the test token service writes into and checks in `iss`. */
+    protected const string ISSUER = 'https://issuer.example.test';
+
+    /** @var string Audience the test token service writes into and checks in `aud`. */
+    protected const string AUDIENCE = 'https://api.example.test';
 
     /** @var string Shared secret for the hand-rolled JWT tokens. */
     protected const string SECRET = 'test-secret-key-with-at-least-32-bytes!';
@@ -115,6 +124,8 @@ abstract class JwtGuardTestCase extends TestCase
             self::GUARD_NAME,
             new TokenLifetimes(self::ACCESS_TTL, self::REFRESH_TTL, 60 * 24 * 180, 30),
             30,
+            self::ISSUER,
+            self::AUDIENCE,
         );
 
         // Every principal's sessions last as long as the token service says.
@@ -127,6 +138,11 @@ abstract class JwtGuardTestCase extends TestCase
             ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));
 
         self::createSessionRecordTable('stub_sessions');
+        self::migrateProofTables();
+
+        // A session row a test saves records the first factor its sign-in would
+        // have, so the tokens issued for it carry `auth_time` and `amr`.
+        FirstFactorRecorder::listen($this->app->make(Dispatcher::class), static fn (): bool => true);
     }
 
     /**
@@ -226,40 +242,44 @@ abstract class JwtGuardTestCase extends TestCase
     }
 
     /**
-     * Encode an access-token-style JWT with `iat`, `exp`, `typ = access`, and
-     * the guard's `grd` claims baked in (plus a default `jti` the claims may
-     * override) so the real `JwtTokenService::parse(..., TYPE_ACCESS)` path
-     * accepts it.
+     * Encode an access-token-style JWT with `iat`, `exp`, the service's `iss`
+     * and `aud`, and the guard's `client_id` baked in, under the `at+jwt`
+     * header type, plus a default `jti` and the `person` subject type the
+     * claims may override, and, for a token that names a session, an
+     * `auth_time` of now and a password `amr` it may override too, so the real
+     * `JwtTokenService::parse(..., TokenType::ACCESS)` path accepts it.
      *
      * @param  array<string, mixed>  $claims
      * @return string
      */
     protected function encodeAccessToken(array $claims): string
     {
-        $now = $this->now->getTimestamp();
+        $now      = $this->now->getTimestamp();
+        $defaults = ['jti' => 'access-token-id', 'sub_type' => 'person'];
 
-        return $this->encodeToken(array_merge(['jti' => 'access-token-id'], $claims, [
-            'iat' => $now,
-            'exp' => $now + (self::ACCESS_TTL * 60),
-            'typ' => TokenType::ACCESS->value,
-            'grd' => self::GUARD_NAME,
-        ]));
+        if (($claims['sid'] ?? null) !== null) {
+            $defaults += ['auth_time' => $now, 'amr' => ['pwd']];
+        }
+
+        return $this->encodeToken([...$defaults, ...$claims, ...$this->bindingClaims($now, $now + (self::ACCESS_TTL * 60))]);
     }
 
     /**
-     * Encode a raw payload as a JWT using the shared test secret.
+     * Encode a raw payload as a JWT of the type using the shared test secret.
      *
      * @param  array<string, mixed>  $payload
+     * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
      * @return string
      */
-    protected function encodeToken(array $payload): string
+    protected function encodeToken(array $payload, TokenType $type = TokenType::ACCESS): string
     {
-        return JWT::encode($payload, self::SECRET, self::ALGORITHM, self::KID);
+        return JWT::encode($payload, self::SECRET, self::ALGORITHM, self::KID, ['typ' => $type->value]);
     }
 
     /**
-     * Encode a refresh-token-style JWT with `iat`, `exp`, `typ = refresh`, and
-     * the guard's `grd` claims so the real refresh parse path accepts it.
+     * Encode a refresh-token-style JWT with `iat`, `exp`, the service's `iss`
+     * and `aud`, and the guard's `client_id`, under the `refresh+jwt` header
+     * type, so the real refresh parse path accepts it.
      *
      * @param  array<string, mixed>  $claims
      * @return string
@@ -268,12 +288,26 @@ abstract class JwtGuardTestCase extends TestCase
     {
         $now = $this->now->getTimestamp();
 
-        return $this->encodeToken(array_merge($claims, [
-            'iat' => $now,
-            'exp' => $now + (self::REFRESH_TTL * 60),
-            'typ' => TokenType::REFRESH->value,
-            'grd' => self::GUARD_NAME,
-        ]));
+        return $this->encodeToken([...$claims, ...$this->bindingClaims($now, $now + (self::REFRESH_TTL * 60))], TokenType::REFRESH);
+    }
+
+    /**
+     * The claims that bind a token to the test service, and its issue and
+     * expiry times.
+     *
+     * @param  int  $issuedAt
+     * @param  int  $expiresAt
+     * @return array<string, mixed>
+     */
+    protected function bindingClaims(int $issuedAt, int $expiresAt): array
+    {
+        return [
+            'iss'       => self::ISSUER,
+            'aud'       => self::AUDIENCE,
+            'client_id' => self::GUARD_NAME,
+            'iat'       => $issuedAt,
+            'exp'       => $expiresAt,
+        ];
     }
 
     /**

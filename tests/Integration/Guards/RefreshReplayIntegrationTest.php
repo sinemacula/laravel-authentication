@@ -249,7 +249,7 @@ final class RefreshReplayIntegrationTest extends TestCase
 
         foreach ([[$identity, $sibling, 'sibling-rotation-id'], [$stranger, $sameRotation, self::ROTATION_ID]] as [$owner, $other, $rotationId]) {
 
-            $this->bearer($this->tokens()->issueAccessToken($owner, $owner, $other))->assertOk()->assertJson(['session' => $other->getKey()]);
+            $this->bearer($this->tokens()->issueAccessToken($owner, $owner, null, $other))->assertOk()->assertJson(['session' => $other->getKey()]);
 
             self::assertNotNull(GuardSessions::of($this->guard())->refresh($this->tokens()->issueRefreshToken($other, $rotationId, $owner))->session);
             self::assertNull($this->stored($other)->getRevokedAt());

@@ -15,14 +15,16 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Integration\Fixtures\RelationSessionsIdentity;
 use Tests\TestCase;
 
 /**
- * Bearer `did` resolution through a real `morphMany` sessions relation.
+ * Bearer `sid` resolution through a real `morphMany` sessions relation.
  *
- * The guard routes the relation to the write connection, checks the `did`
+ * The guard routes the relation to the write connection, checks the `sid`
  * against the relation's session model, and loads the session through it, so
  * this covers the relation (rather than plain builder) form of each step.
  *
@@ -34,7 +36,7 @@ use Tests\TestCase;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardSessionRelationIntegrationTest extends TestCase
 {
-    use InteractsWithSessionRecords;
+    use InteractsWithProofs, InteractsWithSessionRecords;
 
     /**
      * Freeze the clocks and create the identity table.
@@ -79,7 +81,7 @@ final class JwtGuardSessionRelationIntegrationTest extends TestCase
     }
 
     /**
-     * A `did` naming one of the identity's sessions binds that session.
+     * A `sid` naming one of the identity's sessions binds that session.
      *
      * @return void
      *
@@ -116,7 +118,7 @@ final class JwtGuardSessionRelationIntegrationTest extends TestCase
     }
 
     /**
-     * A `did` that cannot be a key of the relation's session model is rejected
+     * A `sid` that cannot be a key of the relation's session model is rejected
      * without querying the sessions table.
      *
      * @return void
@@ -128,7 +130,16 @@ final class JwtGuardSessionRelationIntegrationTest extends TestCase
         $identity = $this->seedIdentity();
 
         $malformed = new Session;
-        $malformed->forceFill([...self::liveSession(), 'id' => 'not-a-uuid']);
+        $malformed->forceFill([
+            ...self::liveSession(),
+            'id'                   => 'not-a-uuid',
+            'authenticatable_type' => $identity->getMorphClass(),
+            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+        ]);
+
+        // The proofs table keeps any key as a string, so the token can say how
+        // the session authenticated.
+        self::recordProof($malformed, ProofKind::FIRST_FACTOR, Carbon::now(), ['pwd']);
 
         $token = $this->accessToken($identity, $malformed);
 
@@ -204,7 +215,7 @@ final class JwtGuardSessionRelationIntegrationTest extends TestCase
      */
     private function accessToken(RelationSessionsIdentity $identity, Session $session): string
     {
-        return $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $session);
+        return $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session);
     }
 
     /**

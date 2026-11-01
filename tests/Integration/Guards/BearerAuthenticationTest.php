@@ -219,7 +219,7 @@ final class BearerAuthenticationTest extends TestCase
 
             self::assertNotNull($tokens);
 
-            return $tokens->issueAccessToken($identity, $other, $session->record);
+            return $tokens->issueAccessToken($identity, $other, null, $session->record);
         }, FailureReason::PRINCIPAL_MISMATCH];
         yield 'a deleted session' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
             Session::query()->whereKey($session->record->getKey())->delete();
@@ -377,7 +377,7 @@ final class BearerAuthenticationTest extends TestCase
 
         self::assertNotNull($tokens);
 
-        $this->bearer($tokens->issueAccessToken($identity, $identity, Session::query()->findOrFail($sessionId)))->assertOk();
+        $this->bearer($tokens->issueAccessToken($identity, $identity, null, Session::query()->findOrFail($sessionId)))->assertOk();
     }
 
     /**

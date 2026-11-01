@@ -4,8 +4,6 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Sessions;
 
-use Carbon\Carbon;
-use Carbon\CarbonImmutable;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Session;
@@ -48,26 +46,6 @@ final class ReauthenticationTest extends TestCase
     }
 
     /**
-     * A confirmation carries its time as an immutable copy, so changing the
-     * time it was built from changes nothing.
-     *
-     * @return void
-     */
-    public function testAConfirmationCarriesAnImmutableTime(): void
-    {
-        $at    = Carbon::parse('2027-03-01 08:30:00');
-        $proof = Reauthentication::confirmedAt($at);
-
-        $at->addHour();
-
-        [$kind, $carried] = self::kind($proof);
-
-        self::assertSame('confirmed', $kind);
-        self::assertInstanceOf(CarbonImmutable::class, $carried);
-        self::assertSame('2027-03-01 08:30:00', $carried->format('Y-m-d H:i:s'));
-    }
-
-    /**
      * No dump of a password proof shows the password, and it cannot be
      * serialised.
      *
@@ -96,7 +74,6 @@ final class ReauthenticationTest extends TestCase
         return $proof->apply(
             static fn (Session $session): array => ['session', $session],
             static fn (string $password): array => ['password', $password],
-            static fn (CarbonImmutable $at): array => ['confirmed', $at],
         );
     }
 }

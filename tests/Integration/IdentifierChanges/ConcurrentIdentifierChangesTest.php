@@ -13,7 +13,6 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeConfirmation;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
-use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use Tests\Concerns\ChangesIdentifiers;
 use Tests\Integration\Fixtures\ChangeableIdentity;
 use Tests\TestCase;
@@ -202,7 +201,7 @@ final class ConcurrentIdentifierChangesTest extends TestCase
      */
     private function requestByLink(ChangeableIdentity $identity, string $email): string
     {
-        $link = $this->changes()->requestByLink($identity, 'email', $email, Reauthentication::confirmedAt($this->now), 'email.confirm')->link();
+        $link = $this->changes()->requestByLink($identity, 'email', $email, self::freshSession($identity), 'email.confirm')->link();
 
         self::assertIsString($link);
 

@@ -21,11 +21,14 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\OutdatedProofs;
 use SineMacula\Laravel\Authentication\Passwords\PasswordResult;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
+use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Sessions\RecentAuthentication;
 use SineMacula\Laravel\Authentication\Testing\FakeIdentifierChangeNotifier;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 use Tests\Concerns\InteractsWithChangeableIdentities;
+use Tests\Concerns\InteractsWithProofs;
 
 /**
  * Query-budget contracts for changing identifiers: a request and a confirmation
@@ -46,7 +49,7 @@ use Tests\Concerns\InteractsWithChangeableIdentities;
 #[CoversClass(RecentAuthentication::class)]
 final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
 {
-    use InteractsWithChangeableIdentities;
+    use InteractsWithChangeableIdentities, InteractsWithProofs;
 
     /** @var int Timebox for the timing contracts, in microseconds. */
     private const int TIMEBOX_MICROSECONDS = 200000;
@@ -87,11 +90,14 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A first request proven by a confirmation time reads the identity's row
-     * and counts the limits (an update, then an insert, for each of the
-     * identifier, the identity and the IP address); then, in its transaction,
-     * it locks the row, issues the code (an insert), reads the pending change
-     * it would replace, and inserts its own.
+     * A first request proven by the session it is made from reads the
+     * identity's row, reads the session (for its owner), then the freshness
+     * policy reads it again and its freshest proof, and counts the limits (an
+     * update, then an insert, for each of the identifier, the identity and the
+     * IP address); then, in its transaction, it locks the row, locks the
+     * session and has the policy read it and its freshest proof again, issues
+     * the code (an insert), reads the pending change it would replace, and
+     * inserts its own.
      *
      * @return void
      *
@@ -102,8 +108,8 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
         $identity = self::seedChangeable();
         $changes  = Auth::identifierChanges('web');
 
-        $proof   = Reauthentication::confirmedAt(now());
-        $request = $this->assertQueryBudget(3, 8, static fn (): IdentifierChangeRequest => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof));
+        $proof   = self::freshSession($identity);
+        $request = $this->assertQueryBudget(9, 8, static fn (): IdentifierChangeRequest => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof));
 
         self::assertTrue($request->isSent());
     }
@@ -121,31 +127,38 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
     {
         $identity = self::seedChangeable();
         $changes  = Auth::identifierChanges('web');
-        $proof    = Reauthentication::confirmedAt(now());
+        $proof    = self::freshSession($identity);
 
         $changes->requestByLink($identity, 'email', 'ada@first.example.test', $proof, 'confirm');
 
-        $request = $this->assertQueryBudget(3, 6, static fn (): IdentifierChangeRequest => $changes->requestByLink($identity, 'email', self::NEW_EMAIL, $proof, 'confirm'));
+        $request = $this->assertQueryBudget(9, 6, static fn (): IdentifierChangeRequest => $changes->requestByLink($identity, 'email', self::NEW_EMAIL, $proof, 'confirm'));
 
         self::assertTrue($request->isSent());
     }
 
     /**
-     * A request proven by the session it is made from adds two reads to a
-     * request proven by a confirmation time: the session's row before the
-     * transaction, and again, locked, after the identity's.
+     * A request proven by a session that signed in long ago and was stepped up
+     * many times since costs what one proven by a session just signed in does:
+     * the freshness policy reads the one freshest proof, however many the
+     * session holds.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testARequestProvenByItsSessionHasAFixedBudget(): void
+    public function testARequestProvenByASessionWithManyProofsHasTheSameBudget(): void
     {
         $identity = self::seedChangeable();
-        $proof    = Reauthentication::session(self::seedSession($identity));
-        $changes  = Auth::identifierChanges('web');
+        $session  = self::seedSession($identity, 'web', now()->subDays(30));
 
-        $request = $this->assertQueryBudget(5, 8, static fn (): IdentifierChangeRequest => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof));
+        foreach (range(1, 50) as $minutes) {
+            self::recordProof($session, ProofKind::ADDITIONAL_FACTOR, now()->subMinutes($minutes), ['otp'], new Evaluation(true, true));
+        }
+
+        $proof   = Reauthentication::session($session);
+        $changes = Auth::identifierChanges('web');
+
+        $request = $this->assertQueryBudget(9, 8, static fn (): IdentifierChangeRequest => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof));
 
         self::assertTrue($request->isSent());
     }
@@ -176,8 +189,9 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
      * A request proven by the identity's password takes a sign-in slot of the
      * account and of the IP address (an update, then an insert, each), reads
      * the identity again through the provider, and gives the two slots back,
-     * besides what a request proven by a confirmation time runs; it returns as
-     * soon as the password is known to be right.
+     * besides what the request itself runs (the identity's row read, then
+     * locked, the pending change read, and the code and change written); it
+     * returns as soon as the password is known to be right.
      *
      * @return void
      *
@@ -268,7 +282,7 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
         $identity = self::seedChangeable();
         $changes  = Auth::identifierChanges('web');
 
-        $changes->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt(now()));
+        $changes->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD));
 
         $outcome = $this->assertQueryBudget(5, 5, static fn (): IdentifierChangeOutcome => $changes->confirmByCode($identity, 'email', '135790'));
 
@@ -287,7 +301,7 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
     {
         $identity = self::seedChangeable();
         $changes  = Auth::identifierChanges('web');
-        $link     = (string) $changes->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt(now()), 'confirm')->link();
+        $link     = (string) $changes->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), 'confirm')->link();
 
         $outcome = $this->assertQueryBudget(5, 3, static fn (): IdentifierChangeOutcome => $changes->confirmByLink(Request::create($link)));
 
@@ -309,8 +323,8 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
         $identity = self::seedChangeable(self::EMAIL, self::PHONE);
         $changes  = Auth::identifierChanges('web');
 
-        $changes->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt(now()), 'confirm');
-        $changes->requestByLink($identity, 'phone', self::NEW_PHONE, Reauthentication::confirmedAt(now()), 'confirm');
+        $changes->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), 'confirm');
+        $changes->requestByLink($identity, 'phone', self::NEW_PHONE, Reauthentication::password(self::PASSWORD), 'confirm');
 
         $passwords = Auth::passwords('web');
         $result    = $this->assertQueryBudget(2, 4, static fn (): PasswordResult => $passwords->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE));

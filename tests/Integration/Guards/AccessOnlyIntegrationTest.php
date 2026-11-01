@@ -45,6 +45,12 @@ final class AccessOnlyIntegrationTest extends TestCase
     /** @var string Guard name registered for the test. */
     private const string GUARD = 'api';
 
+    /** @var string Issuer the guard's tokens carry. */
+    private const string ISSUER = 'https://issuer.example.test';
+
+    /** @var string Audience the guard's tokens carry. */
+    private const string AUDIENCE = 'https://api.example.test';
+
     /**
      * Provision only the identity table; deliberately do not create the
      * sessions table or any other package-owned schema.
@@ -66,10 +72,10 @@ final class AccessOnlyIntegrationTest extends TestCase
     }
 
     /**
-     * Issuing an access token with `null` session produces a JWT whose `did`
-     * claim is explicitly null, so the bearer path sees no usable session hint
-     * and still resolves identity + principal without needing a sessions table.
-     * The identity is still loaded through the configured provider.
+     * Issuing an access token with `null` session produces a JWT with no `sid`
+     * claim (and no `auth_time`), so the bearer path sees no session hint and
+     * still resolves identity + principal without needing a sessions table. The
+     * identity is still loaded through the configured provider.
      *
      * @return void
      *
@@ -81,12 +87,12 @@ final class AccessOnlyIntegrationTest extends TestCase
 
         $jwtService = PackageAuth::jwt(self::GUARD);
 
-        $token  = $jwtService->issueAccessToken($user, $user, null);
+        $token  = $jwtService->issueAccessToken($user, $user, null, null);
         $claims = $jwtService->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
-        self::assertArrayHasKey(Claims::SESSION_ID->value, $claims);
-        self::assertNull($claims[Claims::SESSION_ID->value] ?? null);
+        self::assertArrayNotHasKey(Claims::SESSION_ID->value, $claims);
+        self::assertArrayNotHasKey(Claims::AUTH_TIME->value, $claims);
         self::assertFalse(Schema::hasTable('authentication_sessions'));
 
         $request = Request::create('/me', 'GET');
@@ -105,7 +111,7 @@ final class AccessOnlyIntegrationTest extends TestCase
     }
 
     /**
-     * A token that forges a non-null `did` against an access-only identity must
+     * A token that forges a non-null `sid` against an access-only identity must
      * fail closed even though the deployment has no `authentication_sessions`
      * table.
      *
@@ -117,15 +123,19 @@ final class AccessOnlyIntegrationTest extends TestCase
         $now  = time();
 
         $token = JWT::encode([
-            'sub' => (string) $user->getAuthIdentifier(), // @phpstan-ignore cast.string
-            'pid' => (string) $user->getAuthIdentifier(), // @phpstan-ignore cast.string
-            'did' => 'forged-session-id',
-            'iat' => $now,
-            'exp' => $now + 900,
-            'typ' => TokenType::ACCESS->value,
-            'grd' => self::GUARD,
-            'jti' => 'access-token-id',
-        ], self::JWT_SECRET, 'HS256', self::JWT_KID);
+            'iss'       => self::ISSUER,
+            'aud'       => self::AUDIENCE,
+            'client_id' => self::GUARD,
+            'sub'       => (string) $user->getAuthIdentifier(), // @phpstan-ignore cast.string
+            'sub_type'  => 'person',
+            'principal' => (string) $user->getAuthIdentifier(), // @phpstan-ignore cast.string
+            'sid'       => 'forged-session-id',
+            'auth_time' => $now,
+            'amr'       => ['pwd'],
+            'iat'       => $now,
+            'exp'       => $now + 900,
+            'jti'       => 'access-token-id',
+        ], self::JWT_SECRET, 'HS256', self::JWT_KID, ['typ' => TokenType::ACCESS->value]);
 
         self::assertFalse(Schema::hasTable('authentication_sessions'));
 
@@ -208,6 +218,8 @@ final class AccessOnlyIntegrationTest extends TestCase
         $config->set('authentication.jwt.keys', [self::JWT_KID => self::JWT_SECRET]);
         $config->set('authentication.jwt.active_kid', self::JWT_KID);
         $config->set('authentication.jwt.algorithm', 'HS256');
+        $config->set('authentication.jwt.issuer', self::ISSUER);
+        $config->set('authentication.jwt.audience', self::AUDIENCE);
         $config->set('authentication.jwt.access_ttl_minutes', 15);
     }
 

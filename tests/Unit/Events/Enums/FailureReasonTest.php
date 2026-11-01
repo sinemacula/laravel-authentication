@@ -72,6 +72,8 @@ final class FailureReasonTest extends TestCase
             'reauthentication_required',
             'identifier_taken',
             'link_expired',
+            'proof_invalid',
+            'proof_binding_mismatch',
         ], array_map(static fn (FailureReason $reason): string => $reason->value, FailureReason::cases()));
     }
 
@@ -136,6 +138,8 @@ final class FailureReasonTest extends TestCase
             'client_credentials',
             'password_reset',
             'identifier_change',
+            'step_up',
+            'reauthentication',
         ], $flows);
     }
 

@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Sessions;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -87,6 +88,102 @@ final class SignInContextTest extends TestCase
         self::assertNull($bare->platform);
         self::assertNull($bare->principal);
         self::assertNull($bare->refreshToken);
+        self::assertNull($bare->notAfter);
+    }
+
+    /**
+     * The deadline is kept as an immutable time cut to the whole second, in the
+     * timezone it was given in.
+     *
+     * @return void
+     */
+    public function testTheDeadlineIsCutToTheWholeSecond(): void
+    {
+        $context = new SignInContext(new ClientContext(null, null), notAfter: CarbonImmutable::parse('2026-04-06 12:00:00.900000', 'Europe/London'));
+
+        self::assertNotNull($context->notAfter);
+        self::assertSame('2026-04-06 12:00:00.000000', $context->notAfter->format('Y-m-d H:i:s.u'));
+        self::assertSame('Europe/London', $context->notAfter->getTimezone()->getName());
+    }
+
+    /**
+     * Rows of `[seconds from now to the context's deadline or null, seconds
+     * from now to the deadline given or null, seconds from now to the deadline
+     * kept or null]`.
+     *
+     * @return iterable<string, array{0: ?int, 1: ?int, 2: ?int}>
+     */
+    public static function provideDeadlines(): iterable
+    {
+        yield from [
+            'neither'                   => [null, null, null],
+            'the context alone'         => [60, null, 60],
+            'the given alone'           => [null, 60, 60],
+            'the given earlier'         => [60, 30, 30],
+            'the context earlier'       => [30, 60, 30],
+            'both the same second'      => [60, 60, 60],
+            'the given one second less' => [60, 59, 59],
+        ];
+    }
+
+    /**
+     * `withNotAfter()` keeps the earlier of the context's deadline and the one
+     * given, either alone when the other is absent, and none for neither, so it
+     * only ever lowers a deadline; the rest of the context is kept.
+     *
+     * @param  ?int  $contextIn
+     * @param  ?int  $givenIn
+     * @param  ?int  $keptIn
+     * @return void
+     */
+    #[DataProvider('provideDeadlines')]
+    public function testWithNotAfterKeepsTheEarlierDeadline(?int $contextIn, ?int $givenIn, ?int $keptIn): void
+    {
+        $now       = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
+        $client    = new ClientContext('203.0.113.7', 'agent');
+        $principal = \Mockery::mock(Principal::class);
+        $context   = new SignInContext($client, 'Laptop', 'macOS', $principal, 'refresh-token', $contextIn === null ? null : $now->addSeconds($contextIn));
+        $capped    = $context->withNotAfter($givenIn === null ? null : $now->addSeconds($givenIn)->addMilliseconds(500));
+
+        self::assertSame($keptIn === null ? null : $now->getTimestamp() + $keptIn, $capped->notAfter?->getTimestamp());
+        self::assertSame(
+            [$client, 'Laptop', 'macOS', $principal, 'refresh-token'],
+            [$capped->client, $capped->clientName, $capped->platform, $capped->principal, $capped->refreshToken],
+        );
+        self::assertSame($contextIn === null ? null : $now->getTimestamp() + $contextIn, $context->notAfter?->getTimestamp());
+    }
+
+    /**
+     * Of two deadlines in the same second, the context keeps its own.
+     *
+     * @return void
+     */
+    public function testWithNotAfterKeepsItsOwnDeadlineForTheSameSecond(): void
+    {
+        $own     = CarbonImmutable::parse('2026-04-06 12:00:00', 'Europe/London');
+        $context = new SignInContext(new ClientContext(null, null), notAfter: $own);
+        $capped  = $context->withNotAfter($own->utc()->addMilliseconds(500));
+
+        self::assertSame($own->getTimestamp(), $capped->notAfter?->getTimestamp());
+        self::assertSame('Europe/London', $capped->notAfter->getTimezone()->getName());
+    }
+
+    /**
+     * A deadline has passed from the second it names, and a context without one
+     * never has.
+     *
+     * @return void
+     */
+    public function testTheDeadlineHasPassedFromTheSecondItNames(): void
+    {
+        $now     = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
+        $context = new SignInContext(new ClientContext(null, null), notAfter: $now);
+
+        self::assertFalse($context->hasPassedDeadline($now->subSecond()));
+        self::assertFalse($context->hasPassedDeadline($now->subMillisecond()));
+        self::assertTrue($context->hasPassedDeadline($now));
+        self::assertTrue($context->hasPassedDeadline($now->addSecond()));
+        self::assertFalse((new SignInContext(new ClientContext(null, null)))->hasPassedDeadline($now->addYears(10)));
     }
 
     /**
@@ -113,6 +210,7 @@ final class SignInContextTest extends TestCase
 
         self::assertNull($bare->clientName);
         self::assertNull($bare->refreshToken);
+        self::assertNull($context->notAfter);
     }
 
     /**

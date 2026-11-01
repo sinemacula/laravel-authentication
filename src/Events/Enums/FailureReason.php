@@ -6,9 +6,9 @@ namespace SineMacula\Laravel\Authentication\Events\Enums;
 
 /**
  * Machine-readable reason a sign-in, a request's access token or API key, a
- * refresh, a principal switch, a code request, a client credentials exchange, a
- * password reset or an identifier change failed, carried on the
- * `AuthenticationFailed` event and on a failed `SignInResult`.
+ * refresh, a principal switch, a step-up, a reauthentication, a code request, a
+ * client credentials exchange, a password reset or an identifier change failed,
+ * carried on the `AuthenticationFailed` event and on a failed `SignInResult`.
  *
  * Backed, so SIEM consumers count failure modes without scraping log messages.
  * The concealed reasons (`isConcealed()`) are ones a sign-in's result never
@@ -48,8 +48,8 @@ enum FailureReason: string
     // No principal could be resolved for the identity
     case PRINCIPAL_UNRESOLVED = 'principal_unresolved';
 
-    // The principal named (pinned, or a token's pid) does not resolve to that
-    // exact principal of the identity
+    // The principal named (pinned, or a token's `principal` claim) does not
+    // resolve to that exact principal of the identity
     case PRINCIPAL_MISMATCH = 'principal_mismatch';
 
     // The principal reported inactive
@@ -100,7 +100,9 @@ enum FailureReason: string
     // The session is marked revoked
     case SESSION_REVOKED = 'session_revoked';
 
-    // The session's idle or absolute deadline is reached, or missing
+    // The session's idle or absolute deadline is reached, or missing, or the
+    // deadline a sign-in supplied had passed by the sign-in, its completion or
+    // its choice of principal
     case SESSION_EXPIRED = 'session_expired';
 
     // The token was issued for a principal the session no longer acts as
@@ -161,9 +163,9 @@ enum FailureReason: string
     // A requested scope is malformed or not granted to the credential
     case SCOPE_INVALID = 'scope_invalid';
 
-    // A change of identifier was asked for without a recent sign-in,
-    // reauthentication or confirmed further factor, or the password given to
-    // reauthenticate was wrong or one the guard does not take
+    // A change of identifier was asked for without a fresh enough proof on the
+    // session it was made from, or the password given to reauthenticate was
+    // wrong or one the guard's freshness does not take
     case REAUTHENTICATION_REQUIRED = 'reauthentication_required';
 
     // The identifier a change would set is held by another identity (found by
@@ -175,6 +177,15 @@ enum FailureReason: string
     // event says so, and an identifier change or a verification reports it as
     // expired
     case LINK_EXPIRED = 'link_expired';
+
+    // A proof handed to a completion or a step-up is of a kind or purpose the
+    // operation does not take, was not accepted by its adapter, or is timed
+    // after now or before what it adds to
+    case PROOF_INVALID = 'proof_invalid';
+
+    // A proof handed to a completion or a step-up was made by another identity,
+    // on another application, or for another session or pending sign-in
+    case PROOF_BINDING_MISMATCH = 'proof_binding_mismatch';
 
     /**
      * Whether a sign-in method may answer with this reason. Every other reason

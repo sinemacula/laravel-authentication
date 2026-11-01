@@ -122,7 +122,7 @@ final readonly class EventContext implements Arrayable
         /** The session, if one was loaded. */
         public ?Session $session = null,
 
-        /** Name of the sign-in method; for a session's events, the method it records. */
+        /** Name of the sign-in method; for a session's events, the method it records, or the one a step-up or reauthentication proved it with. */
         public ?string $method = null,
 
         // A session id a token or pin named, kept when no session row was

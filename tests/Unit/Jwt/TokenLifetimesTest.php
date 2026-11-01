@@ -63,9 +63,9 @@ final class TokenLifetimesTest extends TestCase
 
     /**
      * Rows of `[access, idle, absolute, grace, accepted]` at and beyond each
-     * range bound.
+     * range bound; an absolute lifetime of `null` is none, and accepted.
      *
-     * @return iterable<string, array{0: int, 1: int, 2: int, 3: int, 4: bool}>
+     * @return iterable<string, array{0: int, 1: int, 2: ?int, 3: int, 4: bool}>
      */
     public static function provideLifetimeBounds(): iterable
     {
@@ -78,6 +78,7 @@ final class TokenLifetimesTest extends TestCase
             'idle above the maximum'     => [1, 5256001, 1, 0, false],
             'absolute below the minimum' => [1, 1, 0, 0, false],
             'absolute above the maximum' => [1, 1, 5256001, 0, false],
+            'no absolute lifetime'       => [1, 1, null, 0, true],
             'grace below the minimum'    => [1, 1, 1, -1, false],
             'grace above the maximum'    => [1, 1, 1, 301, false],
             'negative'                   => [-5, 1, 1, 0, false],
@@ -91,13 +92,13 @@ final class TokenLifetimesTest extends TestCase
      *
      * @param  int  $access
      * @param  int  $idle
-     * @param  int  $absolute
+     * @param  ?int  $absolute
      * @param  int  $grace
      * @param  bool  $accepted
      * @return void
      */
     #[DataProvider('provideLifetimeBounds')]
-    public function testRejectsALifetimeOutsideItsRange(int $access, int $idle, int $absolute, int $grace, bool $accepted): void
+    public function testRejectsALifetimeOutsideItsRange(int $access, int $idle, ?int $absolute, int $grace, bool $accepted): void
     {
         if (!$accepted) {
             $this->expectException(\InvalidArgumentException::class);
@@ -122,8 +123,66 @@ final class TokenLifetimesTest extends TestCase
     {
         $deadline = $this->lifetimes()->absoluteDeadline($this->now);
 
+        self::assertNotNull($deadline);
         self::assertSame('2026-04-06 22:00:00.000000', $deadline->format('Y-m-d H:i:s.u'));
         self::assertSame('Europe/London', $deadline->getTimezone()->getName());
+    }
+
+    /**
+     * Without an absolute lifetime a session has no absolute deadline unless
+     * its sign-in supplied one.
+     *
+     * @return void
+     */
+    public function testNoAbsoluteLifetimeMeansNoAbsoluteDeadline(): void
+    {
+        $lifetimes = new TokenLifetimes(self::ACCESS, self::IDLE, null, 30);
+
+        self::assertNull($lifetimes->refreshAbsoluteTtlMinutes);
+        self::assertNull($lifetimes->absoluteDeadline($this->now));
+        self::assertNull($lifetimes->absoluteDeadline($this->now, null));
+    }
+
+    /**
+     * Rows of `[absolute lifetime or null, seconds from now to the sign-in's
+     * deadline or null, seconds from now to the expected absolute deadline or
+     * null]`.
+     *
+     * @return iterable<string, array{0: ?int, 1: ?int, 2: ?int}>
+     */
+    public static function provideAbsoluteCaps(): iterable
+    {
+        yield from [
+            'lifetime alone'                   => [self::ABSOLUTE, null, 36000],
+            'deadline alone'                   => [null, 120, 120],
+            'deadline before the lifetime'     => [self::ABSOLUTE, 35999, 35999],
+            'deadline at the lifetime'         => [self::ABSOLUTE, 36000, 36000],
+            'deadline after the lifetime'      => [self::ABSOLUTE, 36001, 36000],
+            'deadline well after the lifetime' => [self::ABSOLUTE, 86400, 36000],
+            'neither'                          => [null, null, null],
+        ];
+    }
+
+    /**
+     * The absolute deadline is the earlier of the absolute lifetime from the
+     * sign-in and the deadline the sign-in supplied, either alone when the
+     * other is absent, on whole seconds and in the sign-in's timezone.
+     *
+     * @param  ?int  $absolute
+     * @param  ?int  $notAfterIn
+     * @param  ?int  $expectedIn
+     * @return void
+     */
+    #[DataProvider('provideAbsoluteCaps')]
+    public function testAbsoluteDeadlineIsTheEarlierOfTheLifetimeAndTheSignInsDeadline(?int $absolute, ?int $notAfterIn, ?int $expectedIn): void
+    {
+        $now      = $this->now->startOfSecond();
+        $notAfter = $notAfterIn === null ? null : $this->now->utc()->addSeconds($notAfterIn);
+        $deadline = (new TokenLifetimes(self::ACCESS, self::IDLE, $absolute, 30))->absoluteDeadline($this->now, $notAfter);
+
+        self::assertSame($expectedIn === null ? null : $now->getTimestamp() + $expectedIn, $deadline?->getTimestamp());
+        self::assertSame($expectedIn === null ? null : 'Europe/London', $deadline?->getTimezone()->getName());
+        self::assertSame($expectedIn === null ? null : 0, $deadline?->microsecond);
     }
 
     /**
@@ -138,6 +197,7 @@ final class TokenLifetimesTest extends TestCase
 
         $deadline = $this->lifetimes()->absoluteDeadline($beforeChange);
 
+        self::assertNotNull($deadline);
         self::assertSame(self::ABSOLUTE * 60, $deadline->getTimestamp() - $beforeChange->getTimestamp());
     }
 
@@ -174,6 +234,21 @@ final class TokenLifetimesTest extends TestCase
 
         self::assertSame($now->getTimestamp() + $expectedIn, $deadline->getTimestamp());
         self::assertSame(0, $deadline->microsecond);
+    }
+
+    /**
+     * Without an absolute deadline the idle deadline is the idle lifetime from
+     * now, uncapped, on whole seconds and in now's timezone.
+     *
+     * @return void
+     */
+    public function testIdleDeadlineIsUncappedWithoutAnAbsoluteDeadline(): void
+    {
+        $deadline = $this->lifetimes()->idleDeadline($this->now, null);
+
+        self::assertSame($this->now->startOfSecond()->getTimestamp() + (self::IDLE * 60), $deadline->getTimestamp());
+        self::assertSame(0, $deadline->microsecond);
+        self::assertSame('Europe/London', $deadline->getTimezone()->getName());
     }
 
     /**

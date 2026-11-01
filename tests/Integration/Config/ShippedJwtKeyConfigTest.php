@@ -6,6 +6,7 @@ namespace Tests\Integration\Config;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
+use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -19,8 +20,10 @@ use Tests\TestCase;
  *
  * Loads the shipped config file against controlled environment variables, so a
  * renamed env var or a changed default kid fails here rather than shipping
- * silently: `AUTHENTICATION_JWT_KEY` backs the `default` kid, and
- * `AUTHENTICATION_JWT_ACTIVE_KID` defaults to `default`.
+ * silently: `AUTHENTICATION_JWT_KEY` backs the `default` kid,
+ * `AUTHENTICATION_JWT_ACTIVE_KID` defaults to `default`, and the issuer and
+ * audience come from `AUTHENTICATION_JWT_ISSUER` and
+ * `AUTHENTICATION_JWT_AUDIENCE` with no default.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -43,6 +46,12 @@ final class ShippedJwtKeyConfigTest extends TestCase
 
     /** @var string Guard that resolves the package-wide JWT config. */
     private const string GUARD = 'shipped';
+
+    /** @var string Issuer placed in the environment for the tests. */
+    private const string ISSUER = 'https://auth.shipped.example.test';
+
+    /** @var string Audience placed in the environment for the tests. */
+    private const string AUDIENCE = 'https://api.shipped.example.test';
 
     /** @var list<string> Every env var the shipped `jwt` block reads. */
     private const array JWT_ENV = [
@@ -150,7 +159,7 @@ final class ShippedJwtKeyConfigTest extends TestCase
      */
     public function testGuardSignsWithDefaultKidOnShippedConfig(): void
     {
-        putenv(self::KEY_ENV . '=' . self::KEY);
+        $this->putTokenSettings();
 
         config()->set('authentication.jwt', $this->shippedJwtConfig());
 
@@ -158,10 +167,50 @@ final class ShippedJwtKeyConfigTest extends TestCase
 
         self::assertInstanceOf(JwtTokenService::class, $service);
 
-        $token = $this->issueAccessToken($service);
+        $token  = $this->issueAccessToken($service);
+        $claims = $service->parse($token, TokenType::ACCESS);
 
         self::assertSame('default', $this->jwtHeader($token)['kid'] ?? null);
-        self::assertNotNull($service->parse($token, TokenType::ACCESS));
+        self::assertNotNull($claims);
+        self::assertSame(self::ISSUER, $claims[Claims::ISSUER->value]);
+        self::assertSame(self::AUDIENCE, $claims[Claims::AUDIENCE->value]);
+    }
+
+    /**
+     * The shipped config gives the issuer and the audience no default: with
+     * neither variable set a guard on it fails closed, naming the issuer and
+     * the variable to set, and with only the issuer set, the audience.
+     *
+     * @return void
+     */
+    public function testGuardRejectsShippedConfigWithoutIssuerOrAudience(): void
+    {
+        putenv(self::KEY_ENV . '=' . self::KEY);
+
+        $jwt = $this->shippedJwtConfig();
+
+        self::assertNull($jwt['issuer'] ?? null);
+        self::assertNull($jwt['audience'] ?? null);
+
+        $expectations = [
+            'JWT `issuer` for guard [shipped] is required: set `authentication.jwt.issuer` (AUTHENTICATION_JWT_ISSUER) or the guard\'s `jwt.issuer` override.',
+            'JWT `audience` for guard [shipped] is required: set `authentication.jwt.audience` (AUTHENTICATION_JWT_AUDIENCE) or the guard\'s `jwt.audience` override.',
+        ];
+
+        foreach ($expectations as $expected) {
+
+            config()->set('authentication.jwt', $this->shippedJwtConfig());
+
+            try {
+                PackageAuth::jwt(self::GUARD);
+
+                self::fail('Expected the guard to need an issuer and an audience.');
+            } catch (InvalidJwtConfigurationException $exception) {
+                self::assertSame($expected, $exception->getMessage());
+            }
+
+            putenv('AUTHENTICATION_JWT_ISSUER=' . self::ISSUER);
+        }
     }
 
     /**
@@ -194,7 +243,7 @@ final class ShippedJwtKeyConfigTest extends TestCase
      */
     public function testShippedLifetimesAreTheDocumentedDefaults(): void
     {
-        putenv(self::KEY_ENV . '=' . self::KEY);
+        $this->putTokenSettings();
 
         $jwt = $this->shippedJwtConfig();
 
@@ -221,7 +270,7 @@ final class ShippedJwtKeyConfigTest extends TestCase
      */
     public function testShippedLifetimesReadDigitStringsFromEnv(): void
     {
-        putenv(self::KEY_ENV . '=' . self::KEY);
+        $this->putTokenSettings();
         putenv('AUTHENTICATION_JWT_ACCESS_TTL_MINUTES=10');
         putenv('AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES=20160');
         putenv('AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES=43200');
@@ -242,6 +291,31 @@ final class ShippedJwtKeyConfigTest extends TestCase
     }
 
     /**
+     * `AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES=null` reads as an
+     * explicit `null`, so a guard on the shipped config sets no absolute limit,
+     * while its idle lifetime stays the default.
+     *
+     * @return void
+     */
+    public function testShippedAbsoluteLifetimeReadsNullFromEnv(): void
+    {
+        $this->putTokenSettings();
+        putenv('AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES=null');
+
+        $jwt = $this->shippedJwtConfig();
+
+        self::assertArrayHasKey('refresh_absolute_ttl_minutes', $jwt);
+        self::assertNull($jwt['refresh_absolute_ttl_minutes']);
+
+        config()->set('authentication.jwt', $jwt);
+
+        $lifetimes = $this->shippedService()->lifetimes();
+
+        self::assertNull($lifetimes->refreshAbsoluteTtlMinutes);
+        self::assertSame(60 * 24 * 90, $lifetimes->refreshIdleTtlMinutes);
+    }
+
+    /**
      * A lifetime in the environment that is not a whole number fails closed
      * when the guard is resolved, rather than being cast to some integer.
      *
@@ -258,6 +332,19 @@ final class ShippedJwtKeyConfigTest extends TestCase
         $this->expectExceptionMessage('JWT `access_ttl_minutes` for guard [shipped] must be an integer from 1 to 1440');
 
         PackageAuth::jwt(self::GUARD);
+    }
+
+    /**
+     * Put the settings the shipped config needs from the environment for a
+     * guard to resolve: the signing key, the issuer and the audience.
+     *
+     * @return void
+     */
+    private function putTokenSettings(): void
+    {
+        putenv(self::KEY_ENV . '=' . self::KEY);
+        putenv('AUTHENTICATION_JWT_ISSUER=' . self::ISSUER);
+        putenv('AUTHENTICATION_JWT_AUDIENCE=' . self::AUDIENCE);
     }
 
     /**

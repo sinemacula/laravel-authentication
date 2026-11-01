@@ -69,6 +69,16 @@ return new class extends Migration {
             // factor cannot be guessed by signing in again.
             $blueprint->text('attempt_windows')->nullable();
 
+            // The deadline the sign-in supplied for its session, if any, so a
+            // completion caps the session at it and refuses once it passed.
+            $blueprint->dateTime('not_after', 0)->nullable();
+
+            // The first factor the sign-in verified, and the provenance of one
+            // an external provider verified, as JSON, so the session it becomes
+            // records them as they were when the credentials were verified.
+            $blueprint->text('first_factor');
+            $blueprint->text('provenance')->nullable();
+
             $blueprint->dateTime('expires_at', 0);
             $blueprint->datetimes(0);
 

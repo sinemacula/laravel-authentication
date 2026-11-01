@@ -42,6 +42,12 @@ abstract class JwtTokenServiceTestCase extends TestCase
     /** @var string Guard the test services are bound to. */
     protected const string GUARD = 'api';
 
+    /** @var string Issuer every test service writes into and checks in `iss`. */
+    protected const string ISSUER = 'https://issuer.example.test';
+
+    /** @var string Audience every test service writes into and checks in `aud`. */
+    protected const string AUDIENCE = 'https://api.example.test';
+
     /** @var string HMAC algorithm used by the service under test. */
     protected const string ALGORITHM = 'HS256';
 
@@ -118,6 +124,8 @@ abstract class JwtTokenServiceTestCase extends TestCase
             self::GUARD,
             new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
             30,
+            self::ISSUER,
+            self::AUDIENCE,
         );
     }
 
@@ -182,7 +190,8 @@ abstract class JwtTokenServiceTestCase extends TestCase
     }
 
     /**
-     * Build a Session mock with the supplied identifier and deadlines.
+     * Build a Session mock with the supplied identifier and deadlines, signed
+     * in now with a password.
      *
      * @param  mixed  $id
      * @param  ?\Carbon\CarbonInterface  $idle
@@ -199,6 +208,10 @@ abstract class JwtTokenServiceTestCase extends TestCase
             ->andReturn($idle);
         $session->shouldReceive('getAbsoluteExpiresAt')
             ->andReturn($absolute);
+        $session->shouldReceive('getSignedInAt')
+            ->andReturn($this->now->copy());
+        $session->shouldReceive('getSignInMethod')
+            ->andReturn('password');
 
         return $session;
     }

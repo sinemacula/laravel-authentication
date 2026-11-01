@@ -4,7 +4,6 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\IdentifierChanges;
 
-use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Events\QueryExecuted;
@@ -14,28 +13,34 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
+use SineMacula\Laravel\Authentication\Contracts\Session as Contract;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRequests;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeRequestStatus;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
+use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Sessions\RecentAuthentication;
 use Tests\Concerns\ChangesIdentifiers;
 use Tests\Concerns\InspectsTraces;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Integration\Fixtures\ChangeableIdentity;
 use Tests\TestCase;
 
 /**
  * Feature tests for the recent authentication a change of identifier asks for:
- * when a session, a password or a confirmation time proves it, within the
- * window and from its first second to its last, and what a refusal reports and
- * counts.
+ * when a session's proofs or a password prove it under the guard's freshness
+ * for the `identifier_change` operation, from the age's first second to its
+ * last, and what a refusal reports and counts.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -46,9 +51,10 @@ use Tests\TestCase;
 #[CoversClass(Reauthentication::class)]
 #[CoversClass(ChangeRequests::class)]
 #[CoversClass(IdentifierChangeService::class)]
+#[CoversClass(ConfiguredFreshness::class)]
 final class RecentAuthenticationTest extends TestCase
 {
-    use ChangesIdentifiers, InspectsTraces, InteractsWithRateLimits;
+    use ChangesIdentifiers, InspectsTraces, InteractsWithProofs, InteractsWithRateLimits;
 
     /**
      * Start every test from a known moment, with the fakes bound.
@@ -79,88 +85,98 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * Rows of `[seconds before now the proof names, whether it is recent]` with
-     * the default 900-second window: from now back to 899 seconds ago, and not
-     * from 900 seconds ago or the future.
+     * Rows of `[seconds before now the proof names, whether it is fresh]` with
+     * the default 900-second freshness: from now back to 899 seconds ago, and
+     * not from 900 seconds ago or the future.
      *
      * @return iterable<string, array{0: int, 1: bool}>
      */
     public static function provideTimes(): iterable
     {
         yield from [
-            'now'                => [0, true],
-            'the window\'s last' => [899, true],
-            'the window\'s end'  => [900, false],
-            'long ago'           => [86400, false],
-            'a second ahead'     => [-1, false],
+            'now'             => [0, true],
+            'the age\'s last' => [899, true],
+            'the age\'s end'  => [900, false],
+            'long ago'        => [86400, false],
+            'a second ahead'  => [-1, false],
         ];
     }
 
     /**
-     * A confirmation time is recent within the window and not in the future.
+     * A session is fresh when, as stored, its first factor was proved within
+     * the identifier change's maximum age.
      *
      * @param  int  $ago
-     * @param  bool  $recent
+     * @param  bool  $fresh
      * @return void
      */
     #[DataProvider('provideTimes')]
-    public function testAConfirmationTimeIsRecentWithinTheWindow(int $ago, bool $recent): void
-    {
-        $identity = self::seedChangeable();
-
-        $refusal = $this->check()->refusal($identity, Reauthentication::confirmedAt($this->now->subSeconds($ago)), null);
-
-        self::assertSame($recent ? null : FailureReason::REAUTHENTICATION_REQUIRED, $refusal);
-    }
-
-    /**
-     * A session is recent when, as stored, it signed in within the window.
-     *
-     * @param  int  $ago
-     * @param  bool  $recent
-     * @return void
-     */
-    #[DataProvider('provideTimes')]
-    public function testASessionIsRecentWhenItSignedInWithinTheWindow(int $ago, bool $recent): void
+    public function testASessionIsFreshWhenItsFirstFactorIsWithinTheAge(int $ago, bool $fresh): void
     {
         $identity = self::seedChangeable();
         $record   = self::seedSession($identity, 'web', $this->now->subSeconds($ago));
 
-        self::assertSame($recent ? null : FailureReason::REAUTHENTICATION_REQUIRED, $this->check()->refusal($identity, Reauthentication::session($record), null));
+        self::assertSame($fresh ? null : FailureReason::REAUTHENTICATION_REQUIRED, $this->check()->refusal($identity, Reauthentication::session($record), null));
     }
 
     /**
-     * A confirmation time later in the same second is now: times are compared
-     * to the second.
+     * A reauthentication or a step-up made within the age makes a session that
+     * signed in long ago fresh: the newest proof that meets the requirement
+     * decides, never the session's sign-in.
      *
      * @return void
      */
-    public function testAConfirmationLaterInTheSecondIsRecent(): void
+    public function testALaterProofMakesALongLivedSessionFresh(): void
     {
         $identity = self::seedChangeable();
+        $stale    = self::seedSession($identity, 'web', $this->now->subDays(10));
+        $stepped  = self::seedSession($identity, 'web', $this->now->subDays(10));
 
-        self::assertNull($this->check()->refusal($identity, Reauthentication::confirmedAt($this->now->addMicroseconds(999999)), null));
+        self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $this->check()->refusal($identity, Reauthentication::session($stale), null));
+
+        self::recordProof($stale, ProofKind::FIRST_FACTOR_REAUTHENTICATION, $this->now->subMinutes(5), ['pwd']);
+        self::recordProof($stepped, ProofKind::ADDITIONAL_FACTOR, $this->now->subMinutes(5), ['otp'], new Evaluation(true, true));
+
+        self::assertNull($this->check()->refusal($identity, Reauthentication::session($stale), null));
+        self::assertNull($this->check()->refusal($identity, Reauthentication::session($stepped), null));
     }
 
     /**
-     * The window is the one configured.
+     * The freshness is the one configured, per guard: a shorter age, a list of
+     * kinds that leaves the first factor out, and a guard's own entry, which
+     * `null` removes so that nothing is fresh.
      *
      * @return void
      */
-    public function testTheConfiguredWindowApplies(): void
+    public function testTheConfiguredFreshnessApplies(): void
     {
         $identity = self::seedChangeable();
-        $check    = new RecentAuthentication($this->guardContext(), $this->app, 60, $this->now);
+        $recent   = Reauthentication::session(self::seedSession($identity, 'web', $this->now->subSeconds(59)));
+        $older    = Reauthentication::session(self::seedSession($identity, 'web', $this->now->subSeconds(60)));
 
-        self::assertNull($check->refusal($identity, Reauthentication::confirmedAt($this->now->subSeconds(59)), null));
-        self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $check->refusal($identity, Reauthentication::confirmedAt($this->now->subSeconds(60)), null));
+        config()->set('authentication.freshness.identifier_change.max_age_seconds', 60);
+
+        self::assertNull($this->check()->refusal($identity, $recent, null));
+        self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $this->check()->refusal($identity, $older, null));
+
+        config()->set('authentication.freshness.identifier_change.proofs', ['additional_factor']);
+
+        self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $this->check()->refusal($identity, $recent, null));
+
+        config()->set('auth.guards.web.freshness', ['identifier_change' => ['max_age_seconds' => 120, 'proofs' => ['first_factor']]]);
+
+        self::assertNull($this->check()->refusal($identity, $older, null));
+
+        config()->set('auth.guards.web.freshness', ['identifier_change' => null]);
+
+        self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $this->check()->refusal($identity, $recent, null));
     }
 
     /**
      * A proof accepted before the transaction stands under the lock as the rows
-     * read then: a session while it is still live (read with its row locked), a
-     * password while the locked row holds the hash read before it was checked,
-     * and a confirmation time always; nothing is counted.
+     * read then: a session while it is still live and fresh (read with its row
+     * locked), and a password while the locked row holds the hash read before
+     * it was checked; nothing is counted.
      *
      * @return void
      *
@@ -176,7 +192,6 @@ final class RecentAuthenticationTest extends TestCase
 
         self::assertTrue($check->stands($before, ChangeableIdentity::query()->sole(), Reauthentication::session($record)));
         self::assertTrue($check->stands($before, ChangeableIdentity::query()->sole(), $password));
-        self::assertTrue($check->stands($before, ChangeableIdentity::query()->sole(), Reauthentication::confirmedAt($this->now->subYear())));
 
         DB::table('authentication_sessions')->update(['revoked_at' => '2026-04-06 11:59:00']);
         DB::table('changeable_identities')->update(['password' => app(Hasher::class)->make(self::PASSWORD)]);
@@ -195,8 +210,8 @@ final class RecentAuthenticationTest extends TestCase
 
     /**
      * A session proves nothing when, as stored, it is another identity's, of
-     * another guard, revoked, past its deadlines or gone, whatever the instance
-     * given says.
+     * another guard, revoked, past its deadlines, holds no proof fresh enough
+     * (one too old, one voided) or is gone, whatever the instance given says.
      *
      * @return void
      */
@@ -224,9 +239,15 @@ final class RecentAuthenticationTest extends TestCase
 
         $stale = self::seedSession($identity);
 
-        DB::table('authentication_sessions')->where('id', $stale->getKey())->update(['signed_in_at' => '2026-04-06 11:00:00']);
+        DB::table('authentication_proofs')->where('session_id', $stale->getKey())->update(['authenticated_at' => '2026-04-06 11:00:00']);
 
         self::assertSame($refused, $check->refusal($identity, Reauthentication::session($stale), null));
+
+        $voided = self::seedSession($identity);
+
+        DB::table('authentication_proofs')->where('session_id', $voided->getKey())->update(['voided_at' => '2026-04-06 12:00:00']);
+
+        self::assertSame($refused, $check->refusal($identity, Reauthentication::session($voided), null));
 
         $gone = self::seedSession($identity);
 
@@ -237,9 +258,48 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * A refresh does not renew a session's sign-in, so a session signed in long
-     * ago proves nothing however recently it refreshed; signing in again on the
-     * same client does.
+     * A session the caller still holds proves nothing once its key holds a
+     * later session of the same identity, even one started in the same second
+     * with a fresh first factor of its own, while the replacement's own
+     * instance does, before the change and under its lock; a session that is
+     * not an Eloquent session records no generation and proves nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARetainedSessionIsNotProvedByItsReplacement(): void
+    {
+        $identity = self::seedChangeable();
+        $retained = self::seedSession($identity);
+        $row      = (array) DB::table('authentication_sessions')->where('id', $retained->getKey())->first();
+        $check    = $this->check();
+
+        $retained->delete();
+
+        $replacement = new Session;
+        $replacement->forceFill(array_diff_key($row, array_flip(['generation', 'created_at', 'updated_at'])))->save();
+
+        $locked = ChangeableIdentity::query()->sole();
+
+        self::assertNull($check->refusal($identity, Reauthentication::session($replacement), null));
+        self::assertTrue($check->stands($locked, $locked, Reauthentication::session($replacement)));
+        self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $check->refusal($identity, Reauthentication::session($retained), null));
+        self::assertFalse($check->stands($locked, $locked, Reauthentication::session($retained)));
+
+        foreach ([Contract::class, EloquentSession::class] as $contract) {
+            $session = \Mockery::mock($contract);
+            $session->shouldReceive('getSessionIdentifier')->andReturn($replacement->getKey());
+
+            self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $check->refusal($identity, Reauthentication::session($session), null), $contract);
+            self::assertFalse($check->stands($locked, $locked, Reauthentication::session($session)), $contract);
+        }
+    }
+
+    /**
+     * A refresh records no proof, so a session signed in long ago proves
+     * nothing however recently it refreshed; signing in again on the same
+     * client does.
      *
      * @return void
      *
@@ -257,7 +317,7 @@ final class RecentAuthenticationTest extends TestCase
         self::assertNotNull(self::sessionsOf($this->freshGuard('web'))->refresh($session->tokens->refreshToken)->session);
 
         $refreshed = Session::query()->findOrFail($session->record->getKey());
-        $check     = new RecentAuthentication($this->guardContext(), $this->app, 900, CarbonImmutable::now());
+        $check     = new RecentAuthentication($this->guardContext(), $this->app);
 
         self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $check->refusal($identity, Reauthentication::session($refreshed), null));
 
@@ -310,6 +370,41 @@ final class RecentAuthenticationTest extends TestCase
 
         self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $request->status);
         self::assertSame([AuthenticationFlow::IDENTIFIER_CHANGE, FailureReason::REAUTHENTICATION_REQUIRED], [$this->failures()[0]->flow, $this->failures()[0]->reason]);
+    }
+
+    /**
+     * A password is a reauthentication with the first factor made now, so it is
+     * taken only when the guard's freshness takes one and asks for neither
+     * multifactor authentication nor phishing resistance, which a password
+     * never shows; otherwise even the right one is refused with nothing
+     * counted.
+     *
+     * @return void
+     */
+    public function testAPasswordIsTakenOnlyWhenTheFreshnessTakesAReauthentication(): void
+    {
+        $identity = self::seedChangeable();
+
+        foreach ([['first_factor', 'additional_factor'], ['first_factor_reauthentication']] as $index => $proofs) {
+
+            config()->set('authentication.freshness.identifier_change', ['max_age_seconds' => 900, 'proofs' => $proofs]);
+
+            $refusal = $this->check()->refusal($identity, Reauthentication::password(self::PASSWORD), self::CLIENT_IP);
+
+            self::assertSame($index === 0 ? FailureReason::REAUTHENTICATION_REQUIRED : null, $refusal);
+        }
+
+        foreach (['multifactor', 'phishing_resistant'] as $flag) {
+
+            config()->set('authentication.freshness.identifier_change', ['max_age_seconds' => 900, 'proofs' => ['first_factor_reauthentication'], $flag => true]);
+
+            self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $this->check()->refusal($identity, Reauthentication::password(self::PASSWORD), self::CLIENT_IP));
+        }
+
+        config()->set('authentication.freshness.identifier_change', null);
+
+        self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $this->check()->refusal($identity, Reauthentication::password(self::PASSWORD), self::CLIENT_IP));
+        self::assertSame(0, self::counterHits('sign_in', 'per_account', AccountAttempts::account($identity)));
     }
 
     /**
@@ -430,7 +525,7 @@ final class RecentAuthenticationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now->subHour()));
+        $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session(self::seedSession($identity, 'web', $this->now->subHour())));
 
         self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $request->status);
         $failure = $this->failures()[0];
@@ -457,13 +552,13 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
-     * The check of the `web` guard, with the default window, now.
+     * The check of the `web` guard.
      *
      * @return \SineMacula\Laravel\Authentication\Sessions\RecentAuthentication
      */
     private function check(): RecentAuthentication
     {
-        return new RecentAuthentication($this->guardContext(), $this->app, 900, $this->now);
+        return new RecentAuthentication($this->guardContext(), $this->app);
     }
 
     /**

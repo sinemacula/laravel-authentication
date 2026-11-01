@@ -18,6 +18,8 @@ use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Models\RateLimit;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Models\SessionProof;
+use SineMacula\Laravel\Authentication\Models\SessionProvenance;
 use Tests\TestCase;
 
 /**
@@ -202,6 +204,8 @@ final class StorageConnectionMigrationTest extends TestCase
             'passkey challenges' => new PasskeyChallenge,
             'API keys'           => new ApiKey,
             'identifier changes' => new IdentifierChange,
+            'proofs'             => new SessionProof,
+            'provenance'         => new SessionProvenance,
         ];
     }
 }

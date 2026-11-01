@@ -158,6 +158,8 @@ final class JwtGuardBenchHarness
             'api',
             new TokenLifetimes(15, 60 * 24 * 30, 60 * 24 * 180, 30),
             30,
+            'https://issuer.example.test',
+            'https://api.example.test',
         );
         $this->timebox = new Timebox;
 
@@ -275,6 +277,7 @@ final class JwtGuardBenchHarness
         BenchSchema::ensureCoexistPrincipalTable();
         BenchSchema::ensureTenantTables();
         BenchSchema::ensureSessionTable();
+        BenchSchema::ensureProofTables();
     }
 
     /**
@@ -299,7 +302,7 @@ final class JwtGuardBenchHarness
             $identity->save();
         }
 
-        $this->accessOnlyToken = $this->tokens->issueAccessToken($identity, $identity, null);
+        $this->accessOnlyToken = $this->tokens->issueAccessToken($identity, $identity, null, null);
     }
 
     /**
@@ -325,7 +328,7 @@ final class JwtGuardBenchHarness
             $identity->save();
         }
 
-        $this->coexistTwoDToken = $this->tokens->issueAccessToken($identity, $identity, null);
+        $this->coexistTwoDToken = $this->tokens->issueAccessToken($identity, $identity, null, null);
     }
 
     /**
@@ -350,57 +353,51 @@ final class JwtGuardBenchHarness
         }
 
         $freshSession = Session::query()->where('client_name', 'bench-session-fresh')->first();
+        $freshSession = $freshSession instanceof Session ? $freshSession : $this->seedSession($identity, 'bench-session-fresh', Carbon::now());
 
-        /** @var string $identityId */
-        $identityId = $identity->getKey();
-
-        if (!$freshSession instanceof Session) {
-            $freshSession = new Session;
-            $freshSession->forceFill([
-                ...BenchSchema::signedIn('session_api'),
-                'authenticatable_type' => IntegrationIdentity::class,
-                'authenticatable_id'   => $identityId,
-                'principal_type'       => $identity->getMorphClass(),
-                'principal_id'         => $identityId,
-                'client_name'          => 'bench-session-fresh',
-                'last_used_at'         => Carbon::now(),
-            ])->save();
-        }
-
-        $this->sessionFreshToken = $this->tokens->issueAccessToken($identity, $identity, $freshSession);
+        $this->sessionFreshToken = $this->tokens->issueAccessToken($identity, $identity, null, $freshSession);
 
         if ($this->sessionWriteTokens !== []) {
             return;
         }
 
-        $checkSession = new Session;
-        $checkSession->forceFill([
+        $this->sessionWriteCheckToken = $this->tokens->issueAccessToken($identity, $identity, null, $this->seedSession($identity, 'bench-session-write-check', null));
+
+        for ($index = 0; $index < self::TOKEN_POOL_SIZE; $index++) {
+            $this->sessionWriteTokens[] = $this->tokens->issueAccessToken($identity, $identity, null, $this->seedSession($identity, 'bench-session-write-' . $index, null));
+        }
+    }
+
+    /**
+     * Save a session the identity's password sign-in on `session_api` started
+     * now, with the first-factor proof that sign-in records.
+     *
+     * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
+     * @param  string  $clientName
+     * @param  ?\Carbon\Carbon  $lastUsedAt
+     * @return \SineMacula\Laravel\Authentication\Models\Session
+     *
+     * @throws \LogicException
+     */
+    private function seedSession(IntegrationIdentity $identity, string $clientName, ?Carbon $lastUsedAt): Session
+    {
+        /** @var string $identityId */
+        $identityId = $identity->getKey();
+
+        $session = new Session;
+        $session->forceFill([
             ...BenchSchema::signedIn('session_api'),
             'authenticatable_type' => IntegrationIdentity::class,
             'authenticatable_id'   => $identityId,
             'principal_type'       => $identity->getMorphClass(),
             'principal_id'         => $identityId,
-            'client_name'          => 'bench-session-write-check',
-            'last_used_at'         => null,
+            'client_name'          => $clientName,
+            'last_used_at'         => $lastUsedAt,
         ])->save();
 
-        $this->sessionWriteCheckToken = $this->tokens->issueAccessToken($identity, $identity, $checkSession);
+        BenchSchema::recordFirstFactor($session);
 
-        for ($index = 0; $index < self::TOKEN_POOL_SIZE; $index++) {
-
-            $session = new Session;
-            $session->forceFill([
-                ...BenchSchema::signedIn('session_api'),
-                'authenticatable_type' => IntegrationIdentity::class,
-                'authenticatable_id'   => $identityId,
-                'principal_type'       => $identity->getMorphClass(),
-                'principal_id'         => $identityId,
-                'client_name'          => 'bench-session-write-' . $index,
-                'last_used_at'         => null,
-            ])->save();
-
-            $this->sessionWriteTokens[] = $this->tokens->issueAccessToken($identity, $identity, $session);
-        }
+        return $session;
     }
 
     /**
@@ -438,7 +435,7 @@ final class JwtGuardBenchHarness
             $principal->save();
         }
 
-        $this->threeDToken = $this->tokens->issueAccessToken($identity, $principal, null);
+        $this->threeDToken = $this->tokens->issueAccessToken($identity, $principal, null, null);
     }
 
     /**
@@ -474,8 +471,8 @@ final class JwtGuardBenchHarness
             'bench-tenant-3d-secondary-principal',
         );
 
-        $this->tenantAwareThreeDToken    = $this->tokens->issueAccessToken($identity, $principal, null);
-        $this->tenantAwareSecondaryToken = $this->tokens->issueAccessToken($identity, $secondaryPrincipal, null);
+        $this->tenantAwareThreeDToken    = $this->tokens->issueAccessToken($identity, $principal, null, null);
+        $this->tenantAwareSecondaryToken = $this->tokens->issueAccessToken($identity, $secondaryPrincipal, null, null);
     }
 
     /**

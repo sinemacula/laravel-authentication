@@ -252,7 +252,7 @@ final readonly class RefreshTokenExchange
 
     /**
      * Extract and shape-check the refresh-token claims. `parse()` has already
-     * rejected a token missing `did` or `jti`, so what remains is a `jti` that
+     * rejected a token missing `sid` or `jti`, so what remains is a `jti` that
      * is not a string. Returns the `token_invalid` failure for any malformed
      * payload.
      *
@@ -268,7 +268,7 @@ final readonly class RefreshTokenExchange
 
         $rawSessionId  = $claims[Claims::SESSION_ID->value];
         $rotationId    = $claims[Claims::JWT_ID->value];
-        $principalHint = $claims[Claims::PRINCIPAL_ID->value] ?? null;
+        $principalHint = $claims[Claims::PRINCIPAL->value] ?? null;
 
         if (!is_string($rotationId)) {
             return $this->refused(FailureReason::TOKEN_INVALID, new EventContext($this->context->name(), $client, sessionId: is_string($rawSessionId) ? $rawSessionId : null));
@@ -402,13 +402,13 @@ final readonly class RefreshTokenExchange
      * pair for it.
      *
      * The new idle deadline is the idle lifetime the application policy gives
-     * the guard, from `$now`, never past the absolute deadline, which a
-     * rotation never moves. Both tokens are issued at `$now`, the time the
-     * session was judged at, before anything is written, so a failure while
-     * issuing (signing, randomness, an identifier that cannot be read) leaves
-     * the presented refresh token valid. The pair is only returned once the
-     * compare-and-swap has committed; when the swap misses, the row changed
-     * under the exchange and is judged again.
+     * the guard, from `$now`, never past the absolute deadline when the session
+     * has one, which a rotation never moves (and never adds). Both tokens are
+     * issued at `$now`, the time the session was judged at, before anything is
+     * written, so a failure while issuing (signing, randomness, an identifier
+     * that cannot be read) leaves the presented refresh token valid. The pair
+     * is only returned once the compare-and-swap has committed; when the swap
+     * misses, the row changed under the exchange and is judged again.
      *
      * @formatter:off
      *
@@ -418,7 +418,7 @@ final readonly class RefreshTokenExchange
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $session
      * @param  string  $rotationId
      * @param  \Carbon\CarbonImmutable  $now
-     * @param  \Carbon\CarbonInterface  $absolute
+     * @param  ?\Carbon\CarbonInterface  $absolute
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
      *
@@ -436,7 +436,7 @@ final readonly class RefreshTokenExchange
         Admitted $session,
         #[\SensitiveParameter] string $rotationId,
         CarbonImmutable $now,
-        CarbonInterface $absolute,
+        ?CarbonInterface $absolute,
         ClientContext $client,
     ): AuthenticationFailed|ExchangedRefresh {
         $next = RefreshTokenHasher::successor($rotationId);
@@ -445,7 +445,7 @@ final readonly class RefreshTokenExchange
         $record->setAttribute($record->getIdleExpiresAtName(), $idle);
 
         $tokens = new TokenPair(
-            $this->tokens->issueAccessToken($session->identity, $session->principal, $record, $now),
+            $this->tokens->issueAccessToken($session->identity, $session->principal, $session->tenant, $record, $now),
             $this->tokens->issueRefreshToken($record, $next, $session->principal, $now),
         );
 
@@ -549,7 +549,7 @@ final readonly class RefreshTokenExchange
     private function reissue(EloquentSession&Model $record, Admitted $session, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): ExchangedRefresh
     {
         $tokens = new TokenPair(
-            $this->tokens->issueAccessToken($session->identity, $session->principal, $record, $now),
+            $this->tokens->issueAccessToken($session->identity, $session->principal, $session->tenant, $record, $now),
             $this->tokens->issueRefreshToken($record, RefreshTokenHasher::successor($rotationId), $session->principal, $now),
         );
 

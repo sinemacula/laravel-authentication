@@ -32,7 +32,7 @@ interface Session
 {
     /**
      * Return the session's identifier, which is always its primary key: tokens
-     * carry it in `did` and every lookup finds the session by primary key.
+     * carry it in `sid` and every lookup finds the session by primary key.
      *
      * @return mixed
      */
@@ -114,8 +114,10 @@ interface Session
 
     /**
      * Return the absolute deadline: the session ends at this time however often
-     * it is refreshed. `null` means the session has no deadline and fails
-     * closed everywhere.
+     * it is refreshed. `null` means the session has no absolute deadline (the
+     * application sets no absolute limit and the sign-in supplied no deadline
+     * of its own), so it ends only when it goes idle. A session loaded without
+     * the column throws a `LogicException` rather than reading as `null`.
      *
      * @return ?\Carbon\CarbonInterface
      *

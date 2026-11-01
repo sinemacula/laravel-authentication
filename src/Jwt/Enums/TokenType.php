@@ -7,9 +7,11 @@ namespace SineMacula\Laravel\Authentication\Jwt\Enums;
 /**
  * JWT token type.
  *
- * Backed enum distinguishing access tokens from refresh tokens. Used as the
- * `typ` claim value and as the type-safe parameter for
- * `JwtTokenService::parse()` so callers cannot pass a typo'd string, and owns
+ * Backed enum distinguishing access tokens from refresh tokens. Its value is
+ * the token's JOSE header `typ`: `at+jwt` for an access token (RFC 9068 §2.1)
+ * and the private `refresh+jwt` for a refresh token, so neither can be
+ * presented as the other. It is also the type-safe parameter for
+ * `JwtTokenService::parse()`, so callers cannot pass a typo'd string, and owns
  * the set of claims each type must carry.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -17,21 +19,22 @@ namespace SineMacula\Laravel\Authentication\Jwt\Enums;
  */
 enum TokenType: string
 {
-    case ACCESS  = 'access';
-    case REFRESH = 'refresh';
+    case ACCESS  = 'at+jwt';
+    case REFRESH = 'refresh+jwt';
 
     /**
      * Claims a token of this type must carry with a non-empty value; an access
-     * token's `did` stays optional for access-only mode.
+     * token's `sid` stays optional for access-only mode and client credentials
+     * tokens.
      *
      * @return list<\SineMacula\Laravel\Authentication\Jwt\Enums\Claims>
      */
     public function requiredClaims(): array
     {
-        $common = [Claims::EXPIRES_AT, Claims::ISSUED_AT, Claims::JWT_ID, Claims::TYPE, Claims::GUARD];
+        $common = [Claims::ISSUER, Claims::AUDIENCE, Claims::CLIENT_ID, Claims::JWT_ID, Claims::ISSUED_AT, Claims::EXPIRES_AT];
 
         return match ($this) {
-            self::ACCESS  => [...$common, Claims::SUBJECT, Claims::PRINCIPAL_ID],
+            self::ACCESS  => [...$common, Claims::SUBJECT, Claims::SUBJECT_TYPE, Claims::PRINCIPAL],
             self::REFRESH => [...$common, Claims::SESSION_ID],
         };
     }

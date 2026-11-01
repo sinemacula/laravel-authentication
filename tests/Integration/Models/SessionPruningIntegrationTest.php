@@ -5,21 +5,27 @@ declare(strict_types = 1);
 namespace Tests\Integration\Models;
 
 use Carbon\Carbon;
+use Illuminate\Database\Events\ModelsPruned;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Concerns\PrunesSessions;
 use SineMacula\Laravel\Authentication\Models\Session;
+use Tests\Integration\Fixtures\IntegerKeyPruningSession;
 use Tests\Integration\Fixtures\ScopedRenamedPruningSession;
+use Tests\Integration\Fixtures\SoftDeletingPruningSession;
 use Tests\TestCase;
 
 /**
  * Integration tests for pruning sessions with Laravel's `model:prune`, against
  * the shipped table on each supported database: which ended sessions are
- * deleted at each boundary of the retention, and how a custom model opts in.
+ * deleted at each boundary of the retention, with their proofs and provenance,
+ * and how a custom model opts in, an integer-keyed and a soft-deleting one
+ * included.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -58,6 +64,8 @@ final class SessionPruningIntegrationTest extends TestCase
     {
         Carbon::setTestNow();
         Schema::dropIfExists('scoped_renamed_pruning_sessions');
+        Schema::dropIfExists('integer_key_pruning_sessions');
+        Schema::dropIfExists('soft_deleting_pruning_sessions');
 
         parent::tearDown();
     }
@@ -198,18 +206,186 @@ final class SessionPruningIntegrationTest extends TestCase
     }
 
     /**
-     * Insert one session of the shipped table.
+     * Pruning a session deletes the proofs and the provenance recorded for it
+     * in the same chunk, and keeps those of the sessions it keeps; it reports
+     * the sessions it pruned, not their proofs.
+     *
+     * @return void
+     */
+    public function testPruningASessionDeletesItsProofsAndProvenance(): void
+    {
+        $pruned = $this->insertSession('revoked', revokedAt: Carbon::parse(self::CUTOFF));
+        $kept   = $this->insertSession('live');
+
+        foreach ([$pruned, $kept] as $id) {
+            $this->insertProofsOf($id);
+        }
+
+        Event::fake([ModelsPruned::class]);
+
+        Artisan::call('model:prune', ['--model' => [Session::class]]);
+
+        self::assertSame([$kept], DB::table('authentication_sessions')->pluck('id')->all());
+        self::assertSame([$kept, $kept], DB::table('authentication_proofs')->pluck('session_id')->all());
+        self::assertSame([$kept], DB::table('authentication_provenance')->pluck('session_id')->all());
+
+        Event::assertDispatched(ModelsPruned::class, static fn (ModelsPruned $event): bool => $event->model === Session::class && $event->count === 1);
+        Event::assertDispatchedTimes(ModelsPruned::class, 1);
+    }
+
+    /**
+     * Chunked pruning deletes each chunk's proofs with its sessions, and the
+     * running total `ModelsPruned` reports counts sessions.
+     *
+     * @return void
+     */
+    public function testChunkedPruningDeletesEachChunksProofs(): void
+    {
+        for ($index = 0; $index < 5; $index++) {
+            $this->insertProofsOf($this->insertSession('revoked-' . $index, revokedAt: Carbon::parse(self::CUTOFF)));
+        }
+
+        $live = $this->insertSession('live');
+
+        $this->insertProofsOf($live);
+
+        Event::fake([ModelsPruned::class]);
+
+        Artisan::call('model:prune', ['--model' => [Session::class], '--chunk' => 2]);
+
+        self::assertSame([$live], DB::table('authentication_sessions')->pluck('id')->all());
+        self::assertSame([$live], array_values(array_unique(DB::table('authentication_proofs')->pluck('session_id')->all())));
+        self::assertSame([$live], DB::table('authentication_provenance')->pluck('session_id')->all());
+
+        $totals = array_map(static fn (array $dispatched): mixed => $dispatched[0]->count ?? null, Event::dispatched(ModelsPruned::class)->all());
+
+        self::assertSame([2, 4, 5], $totals);
+    }
+
+    /**
+     * A session model with an integer key has its sessions' proofs and
+     * provenance pruned by the key as the string they record it as.
+     *
+     * @return void
+     */
+    public function testAnIntegerKeyedModelPrunesItsSessionsProofs(): void
+    {
+        config()->set('authentication.session.table', 'integer_key_pruning_sessions');
+
+        Schema::create('integer_key_pruning_sessions', static function (Blueprint $table): void {
+            $table->increments('id');
+            $table->string('guard');
+            $table->dateTime('revoked_at', 0)->nullable();
+            $table->dateTime('idle_expires_at', 0);
+            $table->dateTime('absolute_expires_at', 0)->nullable();
+        });
+
+        $future = Carbon::parse(self::NOW)->addDays(30);
+
+        DB::table('integer_key_pruning_sessions')->insert([
+            ['guard' => 'api', 'revoked_at' => Carbon::parse(self::CUTOFF), 'idle_expires_at' => $future, 'absolute_expires_at' => $future],
+            ['guard' => 'api', 'revoked_at' => null, 'idle_expires_at' => $future, 'absolute_expires_at' => $future],
+        ]);
+
+        $this->insertProofsOf('1');
+        $this->insertProofsOf('2');
+        $this->insertProofsOf('12');
+
+        Artisan::call('model:prune', ['--model' => [IntegerKeyPruningSession::class]]);
+
+        Schema::dropIfExists('integer_key_pruning_sessions');
+
+        self::assertEqualsCanonicalizing(['2', '2', '12', '12'], DB::table('authentication_proofs')->pluck('session_id')->all());
+        self::assertEqualsCanonicalizing(['2', '12'], DB::table('authentication_provenance')->pluck('session_id')->all());
+    }
+
+    /**
+     * A session model that soft-deletes has its ended sessions deleted outright
+     * with their proofs and provenance, as Laravel's mass pruning
+     * force-deletes, rather than marked deleted, which would leave them out of
+     * every later prune and keep them for good.
+     *
+     * @return void
+     */
+    public function testASoftDeletingModelPrunesItsSessionsOutright(): void
+    {
+        Schema::create('soft_deleting_pruning_sessions', static function (Blueprint $table): void {
+            $table->increments('id');
+            $table->string('guard');
+            $table->dateTime('revoked_at', 0)->nullable();
+            $table->dateTime('idle_expires_at', 0);
+            $table->dateTime('absolute_expires_at', 0)->nullable();
+            $table->softDeletes();
+        });
+
+        $future = Carbon::parse(self::NOW)->addDays(30);
+
+        DB::table('soft_deleting_pruning_sessions')->insert([
+            ['guard' => 'api', 'revoked_at' => Carbon::parse(self::CUTOFF), 'idle_expires_at' => $future, 'absolute_expires_at' => $future],
+            ['guard' => 'api', 'revoked_at' => null, 'idle_expires_at' => $future, 'absolute_expires_at' => $future],
+        ]);
+
+        $this->insertProofsOf('1');
+        $this->insertProofsOf('2');
+
+        Artisan::call('model:prune', ['--model' => [SoftDeletingPruningSession::class]]);
+
+        $remaining = DB::table('soft_deleting_pruning_sessions')->get(['id', 'deleted_at'])->all();
+
+        Schema::dropIfExists('soft_deleting_pruning_sessions');
+
+        self::assertCount(1, $remaining);
+        self::assertSame('2', (string) $remaining[0]->id);
+        self::assertNull($remaining[0]->deleted_at);
+        self::assertSame(['2', '2'], DB::table('authentication_proofs')->pluck('session_id')->all());
+        self::assertSame(['2'], DB::table('authentication_provenance')->pluck('session_id')->all());
+    }
+
+    /**
+     * Record two proofs and a provenance for the session key, as rows.
+     *
+     * @param  string  $sessionId
+     * @return void
+     */
+    private function insertProofsOf(string $sessionId): void
+    {
+        foreach (['first_factor', 'additional_factor'] as $kind) {
+            DB::table('authentication_proofs')->insert([
+                'id'                   => (string) Str::uuid7(),
+                'session_id'           => $sessionId,
+                'kind'                 => $kind,
+                'purpose'              => 'sign_in',
+                'method'               => 'password',
+                'channel_kind'         => 'password',
+                'methods'              => '["pwd"]',
+                'authenticatable_type' => 'users',
+                'authenticatable_id'   => '1',
+                'guard'                => 'api',
+                'authenticated_at'     => Carbon::parse(self::NOW),
+                'created_at'           => Carbon::parse(self::NOW),
+            ]);
+        }
+
+        DB::table('authentication_provenance')->insert(['session_id' => $sessionId, 'connection_id' => 'connection-7', 'created_at' => Carbon::parse(self::NOW)]);
+    }
+
+    /**
+     * Insert one session of the shipped table and return its key.
      *
      * @param  string  $name
      * @param  ?\Carbon\Carbon  $revokedAt
      * @param  ?\Carbon\Carbon  $idle
      * @param  ?\Carbon\Carbon  $absolute
      * @param  ?\Carbon\Carbon  $createdAt
-     * @return void
+     * @return string
      */
-    private function insertSession(string $name, ?Carbon $revokedAt = null, ?Carbon $idle = null, ?Carbon $absolute = null, ?Carbon $createdAt = null): void
+    private function insertSession(string $name, ?Carbon $revokedAt = null, ?Carbon $idle = null, ?Carbon $absolute = null, ?Carbon $createdAt = null): string
     {
-        DB::table('authentication_sessions')->insert($this->sessionRow($name, $revokedAt, $idle, $absolute, $createdAt));
+        $id = (string) Str::uuid7();
+
+        DB::table('authentication_sessions')->insert([...$this->sessionRow($name, $revokedAt, $idle, $absolute, $createdAt), 'id' => $id]);
+
+        return $id;
     }
 
     /**
@@ -229,6 +405,7 @@ final class SessionPruningIntegrationTest extends TestCase
 
         return [
             'id'                   => (string) Str::uuid7(),
+            'generation'           => (string) Str::uuid7(),
             'authenticatable_type' => 'users',
             'authenticatable_id'   => '1',
             'guard'                => 'api',

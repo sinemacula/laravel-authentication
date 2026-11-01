@@ -111,8 +111,8 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
         $staffJwt    = PackageAuth::jwt(self::STAFF_GUARD);
         $customerJwt = PackageAuth::jwt(self::CUSTOMER_GUARD);
 
-        $staffToken    = $staffJwt->issueAccessToken($principal, $principal, null);
-        $customerToken = $customerJwt->issueAccessToken($principal, $principal, null);
+        $staffToken    = $staffJwt->issueAccessToken($principal, $principal, null, null);
+        $customerToken = $customerJwt->issueAccessToken($principal, $principal, null, null);
 
         self::assertTrue($this->guardForBearer(self::STAFF_GUARD, $staffToken)->check());
         self::assertFalse($this->guardForBearer(self::CUSTOMER_GUARD, $staffToken)->check());

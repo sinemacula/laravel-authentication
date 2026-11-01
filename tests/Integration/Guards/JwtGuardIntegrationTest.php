@@ -107,10 +107,10 @@ final class JwtGuardIntegrationTest extends TestCase
         $user = $this->seedUser();
 
         $token = $this->encodeAccessToken([
-            'sub' => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'pid' => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'iat' => $this->now->getTimestamp(),
-            'exp' => $this->now->getTimestamp() + 600,
+            'sub'       => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'principal' => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'iat'       => $this->now->getTimestamp(),
+            'exp'       => $this->now->getTimestamp() + 600,
         ]);
 
         Route::middleware(self::AUTH_MIDDLEWARE)->get('/me', static fn (): array => [
@@ -155,10 +155,10 @@ final class JwtGuardIntegrationTest extends TestCase
         $user = $this->seedUser();
 
         $token = $this->encodeAccessToken([
-            'sub' => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'pid' => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'iat' => $this->now->getTimestamp() - 3600,
-            'exp' => $this->now->getTimestamp() - 60,
+            'sub'       => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'principal' => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'iat'       => $this->now->getTimestamp() - 3600,
+            'exp'       => $this->now->getTimestamp() - 60,
         ]);
 
         Route::middleware(self::AUTH_MIDDLEWARE)->get('/me', static fn (): string => 'ok');
@@ -195,10 +195,10 @@ final class JwtGuardIntegrationTest extends TestCase
         $user = $this->seedUser();
 
         $claims = [
-            'sub' => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'pid' => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'iat' => $this->now->getTimestamp(),
-            'exp' => $this->now->getTimestamp() + 600,
+            'sub'       => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'principal' => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'iat'       => $this->now->getTimestamp(),
+            'exp'       => $this->now->getTimestamp() + 600,
         ];
 
         unset($claims[$claim]);
@@ -230,11 +230,11 @@ final class JwtGuardIntegrationTest extends TestCase
         ])->save();
 
         $token = $this->encodeAccessToken([
-            'sub' => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'pid' => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'did' => $session->getKey(),
-            'iat' => $this->now->getTimestamp(),
-            'exp' => $this->now->getTimestamp() + 600,
+            'sub'       => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'principal' => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'sid'       => $session->getKey(),
+            'iat'       => $this->now->getTimestamp(),
+            'exp'       => $this->now->getTimestamp() + 600,
         ]);
 
         Route::middleware(self::AUTH_MIDDLEWARE)->get('/context', static function (): array {
@@ -260,7 +260,7 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
-     * A bearer token carrying a `did` still resolves the session from storage
+     * A bearer token carrying a `sid` still resolves the session from storage
      * and can therefore trigger the debounced `last_used_at` write on the
      * persisted session row.
      *
@@ -280,11 +280,11 @@ final class JwtGuardIntegrationTest extends TestCase
         ])->save();
 
         $token = $this->encodeAccessToken([
-            'sub' => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'pid' => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'did' => $session->getKey(),
-            'iat' => $this->now->getTimestamp(),
-            'exp' => $this->now->getTimestamp() + 600,
+            'sub'       => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'principal' => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'sid'       => $session->getKey(),
+            'iat'       => $this->now->getTimestamp(),
+            'exp'       => $this->now->getTimestamp() + 600,
         ]);
 
         Route::middleware(self::AUTH_MIDDLEWARE)->get('/last-used', static fn (): string => 'ok');
@@ -325,11 +325,11 @@ final class JwtGuardIntegrationTest extends TestCase
         ])->save();
 
         $accessToken = $this->encodeAccessToken([
-            'sub' => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'pid' => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'did' => $session->getKey(),
-            'iat' => $this->now->getTimestamp(),
-            'exp' => $this->now->getTimestamp() + 600,
+            'sub'       => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'principal' => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'sid'       => $session->getKey(),
+            'iat'       => $this->now->getTimestamp(),
+            'exp'       => $this->now->getTimestamp() + 600,
         ]);
 
         $manager      = $this->freshAuthManager();
@@ -402,21 +402,28 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
-     * Encode a signed access-token JWT from the supplied claims.
+     * Encode a signed access-token JWT from the supplied claims, bound to the
+     * test issuer, audience and guard under the `at+jwt` header type, with the
+     * `person` subject type and, for a token that names a session, a password
+     * authentication at its issue time, each of which the claims may override.
      *
      * @param  array<string, mixed>  $claims
      * @return string
      */
     private function encodeAccessToken(array $claims): string
     {
+        $defaults = [Claims::JWT_ID->value => 'access-token-id', Claims::SUBJECT_TYPE->value => 'person'];
+
+        if (($claims[Claims::SESSION_ID->value] ?? null) !== null) {
+            $defaults += [Claims::AUTH_TIME->value => $claims[Claims::ISSUED_AT->value] ?? time(), Claims::AUTHENTICATION_METHODS->value => ['pwd']];
+        }
+
         return JWT::encode(
-            array_merge([Claims::JWT_ID->value => 'access-token-id'], $claims, [
-                Claims::TYPE->value  => TokenType::ACCESS->value,
-                Claims::GUARD->value => 'api',
-            ]),
+            [...$defaults, ...$claims, Claims::ISSUER->value => self::JWT_ISSUER, Claims::AUDIENCE->value => self::JWT_AUDIENCE, Claims::CLIENT_ID->value => 'api'],
             self::JWT_SECRET,
             'HS256',
             self::JWT_KID,
+            ['typ' => TokenType::ACCESS->value],
         );
     }
 

@@ -122,7 +122,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserAttemptsARejectedTokenOncePerRequest(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-missing', 'pid' => 'p-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-missing', 'principal' => 'p-1']);
         $guard = $this->makeGuard($this->makeRequest($token));
 
         $this->expectRejection(FailureReason::IDENTITY_UNKNOWN);
@@ -148,7 +148,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserReturnsNullWhenSubClaimMissing(): void
     {
-        $token = $this->encodeAccessToken(['pid' => 'p-1', 'did' => 'd-1']);
+        $token = $this->encodeAccessToken(['principal' => 'p-1', 'sid' => 'd-1']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -160,8 +160,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * An access token without `pid` is rejected before any lookup, instead of
-     * falling back to the resolver's default principal.
+     * An access token without `principal` is rejected before any lookup,
+     * instead of falling back to the resolver's default principal.
      *
      * @return void
      *
@@ -190,7 +190,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserReturnsNullWhenIdentityNotFound(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -216,7 +216,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserReturnsNullWhenResolvedUserIsNotIdentity(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -243,7 +243,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserReturnsNullWhenResolverProducesNoPrincipal(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -275,7 +275,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserReturnsNullWhenResolvedPrincipalIsInactive(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -316,7 +316,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserPropagatesUnresolvableIdentityException(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -354,7 +354,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserReturnsNullWhenPrincipalTenantIsInactive(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -397,7 +397,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserBindsPrincipalWithoutActivationCapability(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -435,7 +435,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserReturnsNullWhenIdentityIsInactive(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -456,8 +456,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * When `sub` resolves to a real identity but a fail-closed `pid` branch
-     * rejects the token, the failure is still attributed to the resolved
+     * When `sub` resolves to a real identity but a fail-closed `principal`
+     * branch rejects the token, the failure is still attributed to the resolved
      * identity, with no principal.
      *
      * @return void
@@ -466,7 +466,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserAttributesTheFailureToTheResolvedIdentityWhenPidHintRejectsToken(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-hinted']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-hinted']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -494,9 +494,9 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: when the token carries a `pid` hint but the resolver returns
-     * `null` (the hinted principal cannot be resolved), `user()` rejects the
-     * token rather than falling back to the default principal.
+     * Fail-closed: when the token carries a `principal` hint but the resolver
+     * returns `null` (the hinted principal cannot be resolved), `user()`
+     * rejects the token rather than falling back to the default principal.
      *
      * @return void
      *
@@ -504,7 +504,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserRejectsTokenWhenPidHintResolvesToNullPrincipal(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-hinted']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-hinted']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -527,8 +527,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: when the token carries a `pid` hint but the resolver returns
-     * a *different* principal (because it fell through to the default),
+     * Fail-closed: when the token carries a `principal` hint but the resolver
+     * returns a *different* principal (because it fell through to the default),
      * `user()` returns null rather than silently downgrading the active
      * principal.
      *
@@ -538,7 +538,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserRejectsTokenWhenPidHintDoesNotMatchResolvedPrincipal(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-hinted']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-hinted']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -578,7 +578,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserRejectsTokenWhenResolvedPrincipalIdentifierIsNull(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-hinted']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-hinted']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -606,7 +606,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: when the token carries a `did` hint but the session lookup
+     * Fail-closed: when the token carries a `sid` hint but the session lookup
      * fails, `user()` returns null rather than silently binding the identity
      * with no session.
      *
@@ -616,7 +616,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserRejectsTokenWhenDidHintCannotBeResolved(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::MISSING_SESSION_ID]);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1', 'sid' => self::MISSING_SESSION_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -662,7 +662,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: a `did` naming a revoked session is rejected as
+     * Fail-closed: a `sid` naming a revoked session is rejected as
      * `session_revoked`, from the single lookup that loaded it, attributed to
      * the resolved identity and the session.
      *
@@ -694,7 +694,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: a `did` naming a session that has ended is rejected as
+     * Fail-closed: a `sid` naming a session that has ended is rejected as
      * `session_expired`, from the single lookup that loaded it, whatever the
      * token's own expiry.
      *
@@ -717,7 +717,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A `did` naming a session loaded without its revocation column is reported
+     * A `sid` naming a session loaded without its revocation column is reported
      * as a misconfiguration rather than read as "not revoked", so no user is
      * bound.
      *
@@ -727,7 +727,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserReportsDidHintNamingSessionLoadedWithoutItsRevocation(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::SESSION_ID]);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1', 'sid' => self::SESSION_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -764,7 +764,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A `did` looked up through a `sessions()` relation over a model that is
+     * A `sid` looked up through a `sessions()` relation over a model that is
      * not an `EloquentSession` is reported as the misconfiguration it is,
      * before the relation is queried, rather than read as an unknown session.
      *
@@ -774,7 +774,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserReportsASessionsRelationOverAModelThatIsNotASession(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::SESSION_ID]);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1', 'sid' => self::SESSION_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -818,7 +818,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserBuildsTheSessionsRelationWithReadsPinnedToTheWriteConnection(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::SESSION_ID]);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1', 'sid' => self::SESSION_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -858,7 +858,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A `did` that cannot be a key of the identity's session model is rejected
+     * A `sid` that cannot be a key of the identity's session model is rejected
      * as `session_unknown` without querying the sessions relation, attributed
      * to the resolved identity and principal and to the id the token named.
      *
@@ -868,7 +868,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserRejectsMalformedDidHintWithoutQueryingSessions(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => 'not-a-uuid']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1', 'sid' => 'not-a-uuid']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -914,7 +914,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A database error while looking up a well-formed `did` propagates as a
+     * A database error while looking up a well-formed `sid` propagates as a
      * server error instead of reading as a missing session.
      *
      * @return void
@@ -923,7 +923,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserPropagatesDatabaseErrorFromSessionLookup(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::SESSION_ID]);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1', 'sid' => self::SESSION_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -973,7 +973,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * When the `did` fail-closed branch rejects a token after `sub` already
+     * When the `sid` fail-closed branch rejects a token after `sub` already
      * resolved, the failure carries that resolved identity and principal, and
      * the session id the token named, for attribution.
      *
@@ -983,7 +983,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserAttributesTheFailureToTheResolvedIdentityWhenDidHintCannotBeResolved(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::MISSING_SESSION_ID]);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1', 'sid' => self::MISSING_SESSION_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -1033,9 +1033,9 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A valid token whose claims include `sub`, `pid`, and `did` results in the
-     * guard binding the identity, principal, and session and dispatching only
-     * `Authenticated`, `PrincipalAssigned` and `SessionAuthenticated`: a
+     * A valid token whose claims include `sub`, `principal`, and `sid` results
+     * in the guard binding the identity, principal, and session and dispatching
+     * only `Authenticated`, `PrincipalAssigned` and `SessionAuthenticated`: a
      * request's token is an authentication, not a sign-in, so no `Attempting`,
      * `Validated` or `Login`.
      *
@@ -1045,7 +1045,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserBindsIdentityPrincipalAndSessionFromValidToken(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::SESSION_ID]);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1', 'sid' => self::SESSION_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -1103,7 +1103,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A valid token without a `did` claim binds identity + principal and does
+     * A valid token without a `sid` claim binds identity + principal and does
      * NOT fire `SessionAuthenticated`.
      *
      * @return void
@@ -1112,7 +1112,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserSkipsSessionWhenNoDidClaimPresent(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -1151,7 +1151,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Assert a bearer token whose `did` names the supplied session is rejected
+     * Assert a bearer token whose `sid` names the supplied session is rejected
      * for the reason from the single lookup that loaded it, attributed to the
      * resolved identity and the session.
      *
@@ -1163,7 +1163,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     private function assertDidHintIsRejected(StubSession $session, FailureReason $reason): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::SESSION_ID]);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1', 'sid' => self::SESSION_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 

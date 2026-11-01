@@ -32,6 +32,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
@@ -158,7 +159,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $identity = $this->seedIdentity();
         $session  = $this->seedSession($identity);
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $session);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session);
 
         $guard = $this->guardForRequest(Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]));
 
@@ -184,7 +185,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         Session::query()->whereKey($session->getKey())->update(['revoked_at' => Carbon::now()]);
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $session);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session);
 
         $guard = $this->guardForRequest(Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]));
 
@@ -207,7 +208,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $this->copyRowToReplica('stub_principals', $identity->getKey());
         $this->copyRowToReplica('authentication_sessions', $session->getKey());
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $session);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session);
 
         Session::query()->whereKey($session->getKey())->update(['idle_expires_at' => Carbon::now()]);
 
@@ -279,7 +280,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     /**
      * A session pinned on `attempt()` that is revoked on the primary while the
      * replica still shows it live fails the attempt: the pinned session is read
-     * from the writer, like a bearer `did`.
+     * from the writer, like a bearer `sid`.
      *
      * @return void
      *
@@ -321,7 +322,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     {
         [$identity, $session] = $this->seedRevocationLogSession();
 
-        $token   = $this->authManager()->jwt('revocation_log')->issueAccessToken($identity, $identity, $session);
+        $token   = $this->authManager()->jwt('revocation_log')->issueAccessToken($identity, $identity, null, $session);
         $request = Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]);
 
         self::assertTrue($identity->is($this->guardForRequest($request, 'revocation_log')->user()));
@@ -345,7 +346,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     {
         [$identity, $session] = $this->seedRevocationLogSession();
 
-        $token   = $this->authManager()->jwt('revocation_log')->issueAccessToken($identity, $identity, $session);
+        $token   = $this->authManager()->jwt('revocation_log')->issueAccessToken($identity, $identity, null, $session);
         $request = Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]);
 
         self::assertTrue($identity->is($this->guardForRequest($request, 'revocation_log')->user()));
@@ -358,7 +359,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     /**
      * A session pinned on `attempt()` that derives its end from another table,
      * ended on the primary while the replica lags, fails the attempt: the pin's
-     * deadlines are read from the writer, like a bearer `did`'s.
+     * deadlines are read from the writer, like a bearer `sid`'s.
      *
      * @return void
      *
@@ -495,7 +496,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         $tokens = $this->authManager()->jwt('revocation_log');
 
-        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($tokens->issueAccessToken($identity, $identity, $session))['exp'] ?? null);
+        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($tokens->issueAccessToken($identity, $identity, null, $session))['exp'] ?? null);
         self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($tokens->issueRefreshToken($session, self::ROTATION_ID, $identity))['exp'] ?? null);
     }
 
@@ -692,7 +693,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $this->copyRowToReplica('activatable_tenant_members', $member->getKey());
         $this->copyRowToReplica('activatable_tenant_memberships', $membership->getKey());
 
-        $token   = $this->authManager()->jwt('members')->issueAccessToken($member, $membership, null);
+        $token   = $this->authManager()->jwt('members')->issueAccessToken($member, $membership, null, null);
         $request = Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]);
 
         self::assertTrue($member->is($this->guardForRequest($request, 'members')->user()));
@@ -700,6 +701,36 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         ActivatableTenant::query()->whereKey($tenant->getKey())->update(['is_active' => false]);
 
         self::assertNull($this->guardForRequest($request, 'members')->user());
+    }
+
+    /**
+     * A token for a membership names the membership's tenant when only the
+     * primary holds that tenant: the check that the tenant is the principal's
+     * own loads it from the writer, not the lagging replica, where it is
+     * missing and would read as a tenant that cannot be loaded.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testIssuanceFindsThePrincipalsTenantOnTheWriteConnection(): void
+    {
+        $tenant = new ActivatableTenant;
+        $tenant->forceFill(['name' => 'Tenant', 'is_active' => true])->save();
+
+        $member = new ActivatableTenantMember;
+        $member->forceFill(['email' => 'member@example.test', 'password' => 'hashed'])->save();
+
+        $membership = new ActivatableTenantMembership;
+        $membership->forceFill(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()])->save();
+
+        self::assertNull(ActivatableTenant::query()->find($tenant->getKey()));
+        self::assertFalse($membership->relationLoaded('tenant'));
+
+        $tokens = $this->authManager()->jwt('members');
+        $token  = $tokens->issueAccessToken($member, $membership, $tenant, null);
+
+        self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $tokens->parse($token)['tenant_id'] ?? null);
     }
 
     /**
@@ -757,7 +788,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         $this->copyRowToReplica('suspendable_users', $user->getKey());
 
-        $token   = $this->authManager()->jwt('suspendable')->issueAccessToken($user, $user, null);
+        $token   = $this->authManager()->jwt('suspendable')->issueAccessToken($user, $user, null, null);
         $request = Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]);
 
         self::assertTrue($user->is($this->guardForRequest($request, 'suspendable')->user()));

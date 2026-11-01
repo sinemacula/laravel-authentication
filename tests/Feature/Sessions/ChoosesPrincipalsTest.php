@@ -1149,6 +1149,82 @@ final class ChoosesPrincipalsTest extends TestCase
     }
 
     /**
+     * A sign-in whose deadline has already passed is refused as
+     * `session_expired` before a choice is offered: no choice is stored or
+     * reported.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignInPastItsDeadlineIsOfferedNoChoice(): void
+    {
+        $this->seedChooser();
+
+        Event::fake([PrincipalChoiceRequired::class, AuthenticationFailed::class]);
+
+        $context = SignInContext::fromRequest(app('request'))->withNotAfter($this->now);
+        $result  = $this->sessions(self::GUARD)->signIn('password', self::credentials('chooser@example.test'), $context);
+
+        self::assertTrue($result->isFailed());
+        self::assertSame(FailureReason::SESSION_EXPIRED, $result->reason);
+        self::assertSame(0, PendingSignIn::query()->count());
+
+        Event::assertNotDispatched(PrincipalChoiceRequired::class);
+        Event::assertDispatched(AuthenticationFailed::class, static fn (AuthenticationFailed $event): bool => $event->reason === FailureReason::SESSION_EXPIRED);
+    }
+
+    /**
+     * A choice keeps the deadline its sign-in supplied: chosen before it, the
+     * session is capped at it; chosen once it has passed, the choice is used up
+     * and refused as `session_expired`, reported as a failed sign-in.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChoiceKeepsItsSignInsDeadline(): void
+    {
+        [, $first] = $this->seedChooser();
+
+        $deadline = $this->now->addMinute();
+        $sessions = $this->sessions(self::GUARD);
+        $context  = SignInContext::fromRequest(app('request'))->withNotAfter($deadline);
+        $early    = $sessions->signIn('password', self::credentials('chooser@example.test'), $context)->choice;
+        $late     = $sessions->signIn('password', self::credentials('chooser@example.test'), $context)->choice;
+
+        self::assertNotNull($early);
+        self::assertNotNull($late);
+        self::assertSame(2, PendingSignIn::query()->count());
+
+        foreach (PendingSignIn::query()->get() as $pending) {
+            self::assertSame($deadline->getTimestamp(), $pending->not_after?->getTimestamp());
+        }
+
+        $session = $this->sessions(self::GUARD)->choose($early->token, $first)->session;
+
+        self::assertNotNull($session);
+        self::assertSame($deadline->getTimestamp(), $session->record->getAbsoluteExpiresAt()?->getTimestamp());
+
+        Carbon::setTestNow($deadline);
+        CarbonImmutable::setTestNow($deadline);
+        JWT::$timestamp = $deadline->getTimestamp();
+
+        Event::fake([AuthenticationFailed::class]);
+
+        $refused = $this->sessions(self::GUARD)->choose($late->token, $first);
+
+        self::assertTrue($refused->isFailed());
+        self::assertSame(FailureReason::SESSION_EXPIRED, $refused->reason);
+        self::assertSame(0, PendingSignIn::query()->count());
+
+        Event::assertDispatched(
+            AuthenticationFailed::class,
+            static fn (AuthenticationFailed $event): bool => $event->reason === FailureReason::SESSION_EXPIRED && $event->flow === AuthenticationFlow::SIGN_IN,
+        );
+    }
+
+    /**
      * Register the guards, and a guard over the choosing members.
      *
      * @param  mixed  $app

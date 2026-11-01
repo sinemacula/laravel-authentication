@@ -72,7 +72,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * A refresh token without a `did` claim fails and fires
+     * A refresh token without a `sid` claim fails and fires
      * `AuthenticationFailed` with reason `token_invalid`.
      *
      * @return void
@@ -111,7 +111,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest(null));
 
         $token = $this->encodeRefreshToken([
-            'did' => '01HZZZZZZZZZZZZZZZZZZZZZZZ',
+            'sid' => '01HZZZZZZZZZZZZZZZZZZZZZZZ',
             'jti' => 'rotation-id',
         ]);
 
@@ -146,7 +146,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest(null));
 
         $token = $this->encodeRefreshToken([
-            'did' => $session->id,
+            'sid' => $session->id,
             'jti' => 'tampered-rotation-id',
         ]);
 
@@ -184,7 +184,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest(null));
 
         $token = $this->encodeRefreshToken([
-            'did' => 'session-empty-jti',
+            'sid' => 'session-empty-jti',
             'jti' => '',
         ]);
 
@@ -215,7 +215,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest(null));
 
         $token = $this->encodeRefreshToken([
-            'did' => 'session-non-string-jti',
+            'sid' => 'session-non-string-jti',
             'jti' => 12345,
         ]);
 
@@ -257,7 +257,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest(null));
 
         $token = $this->encodeRefreshToken([
-            'did' => $session->id,
+            'sid' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -329,7 +329,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $session->forceFill(self::recordedPrincipal($principal))->save();
 
         $token = $this->encodeRefreshToken([
-            'did' => $session->id,
+            'sid' => $session->id,
             'jti' => $plainRotationId,
         ]);
 
@@ -388,9 +388,9 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $session->forceFill(self::recordedPrincipal($principal))->save();
 
         $oldToken = $this->encodeRefreshToken([
-            'pid' => 'p-18',
-            'did' => $session->id,
-            'jti' => $plainRotationId,
+            'principal' => 'p-18',
+            'sid'       => $session->id,
+            'jti'       => $plainRotationId,
         ]);
 
         $dispatched = $this->recordDispatchedEvents();

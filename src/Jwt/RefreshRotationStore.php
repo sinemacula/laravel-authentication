@@ -48,9 +48,10 @@ final readonly class RefreshRotationStore
      *
      * The swap applies only while the row still holds the presented id as its
      * current one, is not revoked, and has both deadlines exactly as they were
-     * loaded: any concurrent rotation, revocation, or deadline change makes it
-     * affect no row. It records the presented id as the previous one and `$now`
-     * as the rotation time. Returns whether the row was rotated.
+     * loaded (a `null` absolute one matched as `IS NULL`): any concurrent
+     * rotation, revocation, or deadline change makes it affect no row. It
+     * records the presented id as the previous one and `$now` as the rotation
+     * time. Returns whether the row was rotated.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  string  $presentedRotationId
@@ -88,9 +89,10 @@ final readonly class RefreshRotationStore
 
     /**
      * Rotate the session from the presented rotation id to the next one for a
-     * switch of principal, and move both deadlines, in one compare-and-swap
-     * UPDATE; when `$switching`, also record the target as the principal the
-     * session acts as, with `$now` as the time of the switch.
+     * switch of principal, and move both deadlines (the absolute one only ever
+     * lowered, or kept `null`), in one compare-and-swap UPDATE; when
+     * `$switching`, also record the target as the principal the session acts
+     * as, with `$now` as the time of the switch.
      *
      * The swap applies only while the row still holds the presented id as its
      * current one, is not revoked, has both deadlines and records the principal
@@ -107,7 +109,7 @@ final readonly class RefreshRotationStore
      * @param  string  $nextRotationId
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $target
      * @param  bool  $switching
-     * @param  array{0: \Carbon\CarbonImmutable, 1: \Carbon\CarbonImmutable}  $deadlines
+     * @param  array{0: \Carbon\CarbonImmutable, 1: ?\Carbon\CarbonImmutable}  $deadlines
      * @param  \Carbon\CarbonImmutable  $now
      * @return bool
      *
@@ -233,7 +235,9 @@ final readonly class RefreshRotationStore
 
     /**
      * The session's idle and absolute deadlines exactly as they were loaded,
-     * keyed by column, for a swap that must match them by equality.
+     * keyed by column, for a swap that must match them by equality: a `null`
+     * one is matched as `IS NULL`, which the query builder writes for a `null`
+     * value.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return array<string, mixed>

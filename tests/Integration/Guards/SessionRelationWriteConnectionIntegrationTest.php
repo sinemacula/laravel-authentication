@@ -107,7 +107,7 @@ final class SessionRelationWriteConnectionIntegrationTest extends TestCase
     {
         [$identity, $session] = $this->seedGrantedSession();
 
-        $token   = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $session);
+        $token   = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session);
         $request = Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]);
 
         self::assertTrue($identity->is($this->guardForRequest($request)->user()));
@@ -159,7 +159,7 @@ final class SessionRelationWriteConnectionIntegrationTest extends TestCase
         });
 
         $resolver = Model::getConnectionResolver();
-        $token    = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $session);
+        $token    = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session);
 
         try {
             $this->guardForRequest(Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]))->user();

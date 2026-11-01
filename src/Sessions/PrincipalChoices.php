@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PrincipalChoiceRequired;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 
 /**
@@ -87,8 +88,10 @@ final readonly class PrincipalChoices
      * Hold a verified sign-in that lacks a principal for the identity to choose
      * one, when it has eligible principals: store the choice with the session
      * the client proved it holds for the identity and the attempt-limit slots
-     * it took, and report `PrincipalChoiceRequired` once committed. An identity
-     * with no eligible principal fails as `principal_unresolved`.
+     * it took, and report `PrincipalChoiceRequired` once committed. A sign-in
+     * whose deadline has already passed fails as `session_expired`, before
+     * anything is read, and an identity with no eligible principal as
+     * `principal_unresolved`.
      *
      * The application policy admits each principal with the identifier type the
      * sign-in used, as it would a sign-in that named one, so a guard that
@@ -101,14 +104,26 @@ final readonly class PrincipalChoices
      * @param  string  $method
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
+     * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
      * @param  ?list<array<string, string>>  $attemptWindows
      * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
-    public function offerChoice(Identity $identity, string $method, ?string $identifierType, SignInContext $context, ?array $attemptWindows): Refused|SignInResult
-    {
+    public function offerChoice(
+        Identity $identity,
+        string $method,
+        ?string $identifierType,
+        SignInContext $context,
+        SignInProof $proof,
+        ?array $attemptWindows,
+    ): Refused|SignInResult {
         $guard = $this->context->name();
+        $now   = CarbonImmutable::now()->startOfSecond();
+
+        if ($context->hasPassedDeadline($now)) {
+            return new Refused(FailureReason::SESSION_EXPIRED, $identity);
+        }
 
         [$principals, $refusal] = $this->admissible($identity, $identifierType);
 
@@ -116,10 +131,9 @@ final readonly class PrincipalChoices
             return new Refused($refusal ?? FailureReason::PRINCIPAL_UNRESOLVED, $identity);
         }
 
-        $now    = CarbonImmutable::now()->startOfSecond();
         $proven = $context->refreshToken === null ? null : $this->proof->provenSessionOf($guard, $identity, null, $context->refreshToken);
 
-        [$token, $expiresAt] = $this->pendings->issueChoice($guard, $identity, $proven, $method, $identifierType, $context, $now, $attemptWindows);
+        [$token, $expiresAt] = $this->pendings->issueChoice($guard, $identity, $proven, $method, $identifierType, $context, $proof, $now, $attemptWindows);
 
         $event = new PrincipalChoiceRequired(new EventContext($guard, $context->client, $identity, session: $proven, method: $method), $expiresAt);
 

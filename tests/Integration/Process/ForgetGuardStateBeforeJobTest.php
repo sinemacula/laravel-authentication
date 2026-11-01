@@ -170,7 +170,7 @@ final class ForgetGuardStateBeforeJobTest extends TestCase
 
         self::assertNotNull($tokens);
 
-        $token = $tokens->issueAccessToken($identity, $identity, null);
+        $token = $tokens->issueAccessToken($identity, $identity, null, null);
 
         app()->instance('request', Request::create('/account', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]));
 

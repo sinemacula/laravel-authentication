@@ -28,7 +28,7 @@ final readonly class PlainSessionFixture implements Session
      */
     public function __construct(
 
-        /** Stable identifier used as the `did` claim. */
+        /** Stable identifier used as the `sid` claim. */
         public string $id,
 
         /** Idle deadline of the session. */

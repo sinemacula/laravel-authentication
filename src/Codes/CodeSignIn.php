@@ -12,6 +12,9 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
+use SineMacula\Laravel\Authentication\Proofs\Channel;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 
@@ -44,6 +47,13 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * identifier is held, so this tells a guesser nothing, and a code is never sent
  * to an unverified identifier in the first place.
  *
+ * A verified code is a proof over the channel it was sent through, with the
+ * identifier in its normal form as the destination: an `email` channel and the
+ * `otp` `amr` value for email addresses, an `sms` channel and the `sms` value
+ * (RFC 8176) for phone numbers, and an `unknown` channel and `otp` for any
+ * other type. Nothing about an authenticator is observed. A destination longer
+ * than a channel reference holds is not recorded.
+ *
  * @api
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -59,6 +69,15 @@ final readonly class CodeSignIn implements SignInMethod
 
     /** @var string Input key holding the code. */
     private const string CODE_KEY = 'code';
+
+    /** @var array<string, array{0: \SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind, 1: string}> The channel and `amr` value of each identifier type a code is sent through, by type. */
+    private const array CHANNELS = [
+        'email' => [ChannelKind::EMAIL, 'otp'],
+        'phone' => [ChannelKind::SMS, 'sms'],
+    ];
+
+    /** @var string The `amr` value of a code sent through any other identifier type. */
+    private const string OTHER_AMR = 'otp';
 
     /**
      * Constructor.
@@ -121,12 +140,12 @@ final readonly class CodeSignIn implements SignInMethod
      * Verify the identifier and code the input carries.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
-     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Proofs\FirstFactor
      *
      * @throws \InvalidArgumentException
      */
     #[\Override]
-    public function authenticate(SignInRequest $request): FailureReason|Identity
+    public function authenticate(SignInRequest $request): FailureReason|FirstFactor
     {
         $binding = $this->binding($request->guard, $request->input);
         $code    = $request->input[self::CODE_KEY] ?? null;
@@ -140,7 +159,9 @@ final readonly class CodeSignIn implements SignInMethod
             ? FailureReason::INVALID_CREDENTIALS
             : $this->codes->check($binding, $code, CarbonImmutable::now()->startOfSecond())->failure();
 
-        return $failure ?? $this->accepted($identity);
+        $accepted = $failure ?? $this->accepted($identity);
+
+        return $accepted instanceof Identity ? $this->firstFactor($accepted, $binding) : $accepted;
     }
 
     /**
@@ -183,6 +204,25 @@ final readonly class CodeSignIn implements SignInMethod
             $found instanceof HasVerifiableIdentifiers => CodeIdentifiers::isHeldBy($found, $binding, $this->verifier) ? $found : null,
             default                                    => $found,
         };
+    }
+
+    /**
+     * The first factor a verified code proves: the identity, over the channel
+     * of the method's identifier type, to the bound identifier when a channel
+     * reference holds it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
+     * @return \SineMacula\Laravel\Authentication\Proofs\FirstFactor
+     */
+    private function firstFactor(Identity $identity, CodeBinding $binding): FirstFactor
+    {
+        [$kind, $amr] = self::CHANNELS[$this->type] ?? [ChannelKind::UNKNOWN, self::OTHER_AMR];
+
+        $length      = mb_strlen($binding->identifier);
+        $destination = $length > 0 && $length <= Channel::REFERENCE_MAX_LENGTH ? $binding->identifier : null;
+
+        return new FirstFactor($identity, new Channel($kind, $destination), methods: [$amr]);
     }
 
     /**

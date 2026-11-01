@@ -8,7 +8,7 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  * Capability contract: session model can describe the shape of its key.
  *
  * Optional supplement to a session model. The bearer and refresh paths check a
- * token's `did` claim against the session model's key before querying, so a
+ * token's `sid` claim against the session model's key before querying, so a
  * value the database cannot compare against the key column (for example a
  * non-UUID string against a PostgreSQL `uuid` column) never reaches it and a
  * real database error is never mistaken for an unknown session. Integer keys

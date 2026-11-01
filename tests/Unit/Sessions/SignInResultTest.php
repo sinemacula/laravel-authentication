@@ -92,8 +92,18 @@ final class SignInResultTest extends TestCase
      */
     public function testAPendingFactorResultCarriesThePendingSignIn(): void
     {
-        $pending = new PendingFactor('token', 'api', \Mockery::mock(Identity::class), \Mockery::mock(Principal::class), null, 'password', CarbonImmutable::now(), null);
-        $result  = SignInResult::pendingFactor($pending);
+        $pending = new PendingFactor(
+            'token',
+            'api',
+            \Mockery::mock(Identity::class),
+            \Mockery::mock(Principal::class),
+            null,
+            'password',
+            CarbonImmutable::now(),
+            null,
+            'pending-id',
+        );
+        $result = SignInResult::pendingFactor($pending);
 
         self::assertSame(SignInStatus::FACTOR_REQUIRED, $result->status);
         self::assertTrue($result->requiresFactor());

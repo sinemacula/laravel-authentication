@@ -253,7 +253,7 @@ final readonly class ClientCredentialsExchange
         /** @var \SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory $factory */
         $factory = $this->container->make(JwtTokenServiceFactory::class);
         $tokens  = $factory->forGuard($key->guard);
-        $token   = $tokens->issueClientAccessToken($identity, $admitted->principal, $key->id, $scopes, $key->expires_at, $now);
+        $token   = $tokens->issueClientAccessToken($identity, $admitted->principal, $admitted->tenant, $key->id, $scopes, $key->expires_at, $now);
         $expires = $tokens->parse($token)[Claims::EXPIRES_AT->value] ?? null;
 
         assert(is_int($expires));

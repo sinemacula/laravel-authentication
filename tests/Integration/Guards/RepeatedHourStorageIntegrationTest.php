@@ -317,13 +317,13 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
 
         [$identity, $session] = $this->signIn($firstUse);
 
-        $this->withToken($this->tokens()->issueAccessToken($identity, $identity, $session))->getJson('/me')->assertOk();
+        $this->withToken($this->tokens()->issueAccessToken($identity, $identity, null, $session))->getJson('/me')->assertOk();
 
         self::assertSame('2026-10-25 01:30:00', $this->storedRow($session)['last_used_at']);
 
         $this->moveClockTo($firstUse->copy()->addSeconds(30));
 
-        $this->withToken($this->tokens()->issueAccessToken($identity, $identity, $session))->getJson('/me')->assertOk();
+        $this->withToken($this->tokens()->issueAccessToken($identity, $identity, null, $session))->getJson('/me')->assertOk();
 
         self::assertSame('2026-10-25 01:30:30', $this->storedRow($session)['last_used_at']);
     }

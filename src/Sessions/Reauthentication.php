@@ -4,8 +4,6 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions;
 
-use Carbon\CarbonImmutable;
-use Carbon\CarbonInterface;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 
 /**
@@ -13,21 +11,23 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
  * of an identity (changing its email address or phone number): one of.
  *
  * - `session($session)`: the session it is making the change from, which must
- *   be one of the identity's own live sessions of the guard, signed in within
- *   the window (a refresh or a principal switch does not renew it; an identity
- *   with no password signs in again and proves the change with the new
- *   session);
- * - `password($password)`: the identity's current password, checked when the
- *   change is requested and counted against its sign-in limits;
- * - `confirmedAt($at)`: when a further factor, or any other proof the
- *   application verified itself, was confirmed, which must be within the window
- *   and not in the future. It is trusted, as `start()` trusts the identity it
- *   is given: never build it from a time the client sent.
+ *   be one of the identity's own live sessions of the guard with a proof fresh
+ *   enough for the operation (`identifier_change`, see `FreshnessPolicy`): its
+ *   first factor, a reauthentication, a further factor or a recovery code, as
+ *   the guard's freshness takes them, made within its age. A refresh or a
+ *   principal switch records no proof, so neither renews it; a reauthentication
+ *   or a step-up does.
+ * - `password($password)`: the identity's current password, a reauthentication
+ *   with the first factor made now, checked when the change is requested and
+ *   counted against its sign-in limits; taken only when the guard's freshness
+ *   for the operation takes a first-factor reauthentication and asks for
+ *   neither multifactor authentication nor phishing resistance.
  *
- * The window is the flow's own setting (for an identifier change,
- * `authentication.identifier_changes.recent_authentication_seconds`). The
- * password is held as a `\SensitiveParameterValue`, so no dump of the object
- * shows it and serialising it throws.
+ * A further factor the application verified itself proves nothing on its own:
+ * record it on the session with the session service's `stepUp()`, and prove the
+ * change with the session. The password is held as a
+ * `\SensitiveParameterValue`, so no dump of the object shows it and serialising
+ * it throws.
  *
  * @api
  *
@@ -39,17 +39,17 @@ final readonly class Reauthentication
     /**
      * Constructor.
      *
-     * @param  \Carbon\CarbonImmutable|\SensitiveParameterValue|\SineMacula\Laravel\Authentication\Contracts\Session  $proof
+     * @param  \SensitiveParameterValue|\SineMacula\Laravel\Authentication\Contracts\Session  $proof
      */
     private function __construct(
 
-        /** The session the change is made from, the password given, or when the application confirmed a proof of its own. */
-        private CarbonImmutable|\SensitiveParameterValue|Session $proof,
+        /** The session the change is made from, or the password given. */
+        private \SensitiveParameterValue|Session $proof,
     ) {}
 
     /**
-     * Proof by the session the change is made from: the session must have
-     * signed in within the window.
+     * Proof by the session the change is made from: the session must hold a
+     * proof fresh enough for the change.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return self
@@ -71,18 +71,6 @@ final readonly class Reauthentication
     }
 
     /**
-     * Proof the application verified itself at the given time (a further
-     * factor, say), which must be within the window and not in the future.
-     *
-     * @param  \Carbon\CarbonInterface  $at
-     * @return self
-     */
-    public static function confirmedAt(CarbonInterface $at): self
-    {
-        return new self(CarbonImmutable::instance($at));
-    }
-
-    /**
      * Run the callback for the kind of proof this is, with what it carries, and
      * return what it returns.
      *
@@ -90,21 +78,15 @@ final readonly class Reauthentication
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Contracts\Session): TResult  $session
      * @param  \Closure(string): TResult  $password
-     * @param  \Closure(\Carbon\CarbonImmutable): TResult  $confirmedAt
      * @return TResult
      *
      * @param-immediately-invoked-callable  $session
      * @param-immediately-invoked-callable  $password
-     * @param-immediately-invoked-callable  $confirmedAt
      *
      * @internal
      */
-    public function apply(\Closure $session, \Closure $password, \Closure $confirmedAt): mixed
+    public function apply(\Closure $session, \Closure $password): mixed
     {
-        return match (true) {
-            $this->proof instanceof Session                  => $session($this->proof),
-            $this->proof instanceof \SensitiveParameterValue => $password($this->proof->getValue()),
-            default                                          => $confirmedAt($this->proof),
-        };
+        return $this->proof instanceof Session ? $session($this->proof) : $password($this->proof->getValue());
     }
 }

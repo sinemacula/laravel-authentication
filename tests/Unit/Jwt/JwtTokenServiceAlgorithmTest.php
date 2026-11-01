@@ -66,11 +66,14 @@ final class JwtTokenServiceAlgorithmTest extends JwtTokenServiceTestCase
             self::GUARD,
             new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
             30,
+            self::ISSUER,
+            self::AUDIENCE,
         );
 
         $token = $service->issueAccessToken(
             $this->mockIdentity('identity-7'),
             $this->mockPrincipal('principal-3'),
+            null,
             null,
         );
 
@@ -80,6 +83,6 @@ final class JwtTokenServiceAlgorithmTest extends JwtTokenServiceTestCase
 
         self::assertIsArray($claims);
         self::assertSame('identity-7', $claims[Claims::SUBJECT->value]);
-        self::assertSame('principal-3', $claims[Claims::PRINCIPAL_ID->value]);
+        self::assertSame('principal-3', $claims[Claims::PRINCIPAL->value]);
     }
 }

@@ -37,6 +37,7 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
+use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
@@ -46,6 +47,7 @@ use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
+use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
@@ -565,6 +567,23 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
+     * The configured freshness policy is the default, bound as a singleton so
+     * the application can bind its own.
+     *
+     * @return void
+     */
+    public function testRegistersTheConfiguredFreshnessPolicy(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        self::assertTrue($app->isShared(FreshnessPolicy::class));
+        self::assertInstanceOf(ConfiguredFreshness::class, app(FreshnessPolicy::class));
+        self::assertSame(app(FreshnessPolicy::class), app(FreshnessPolicy::class));
+    }
+
+    /**
      * The default breached-password checker, which finds nothing, is bound as a
      * singleton so the application can bind a real one.
      *
@@ -806,9 +825,9 @@ final class AuthenticationServiceProviderTest extends TestCase
 
     /**
      * The migrations tag publishes every shipped migration (sessions, pending
-     * sign-ins, rate limits, one-time codes, passkeys, passkey challenges and
-     * API keys), from the package to the application's migrations, under their
-     * own file names.
+     * sign-ins, rate limits, one-time codes, passkeys, passkey challenges, API
+     * keys, identifier changes, proofs and provenance), from the package to the
+     * application's migrations, under their own file names.
      *
      * @return void
      */
@@ -831,6 +850,8 @@ final class AuthenticationServiceProviderTest extends TestCase
             '2026_04_06_000005_create_passkey_challenges_table.php',
             '2026_04_06_000006_create_api_keys_table.php',
             '2026_04_06_000007_create_identifier_changes_table.php',
+            '2026_04_06_000008_create_authentication_proofs_table.php',
+            '2026_04_06_000009_create_authentication_provenance_table.php',
         ];
 
         foreach ($migrations as $migration) {
@@ -991,6 +1012,8 @@ final class AuthenticationServiceProviderTest extends TestCase
         $config->set('authentication.jwt.keys', ['default' => self::JWT_SECRET]);
         $config->set('authentication.jwt.active_kid', 'default');
         $config->set('authentication.jwt.algorithm', self::JWT_ALGORITHM);
+        $config->set('authentication.jwt.issuer', 'https://issuer.example.test');
+        $config->set('authentication.jwt.audience', 'https://api.example.test');
         $config->set('authentication.jwt.access_ttl_minutes', self::JWT_TTL_MINUTES);
 
         $config->set('auth.providers.identities', [

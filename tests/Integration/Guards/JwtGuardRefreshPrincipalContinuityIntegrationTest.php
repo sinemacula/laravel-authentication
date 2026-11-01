@@ -140,7 +140,7 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
         $refreshClaims = $parseJwt->parse($result->refreshToken, TokenType::REFRESH);
 
         self::assertIsArray($refreshClaims);
-        self::assertSame('staff-actor', $refreshClaims[Claims::PRINCIPAL_ID->value]);
+        self::assertSame('staff-actor', $refreshClaims[Claims::PRINCIPAL->value]);
 
         $refreshedGuard = $this->guardForBearer($result->accessToken);
 

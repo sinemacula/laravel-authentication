@@ -131,7 +131,7 @@ final class TokensValidAfterQueryBudgetTest extends PerformanceContractTestCase
 
         self::assertNotNull($tokens);
 
-        $this->bindRequestWithBearer('/me', $tokens->issueAccessToken($identity, $identity, null));
+        $this->bindRequestWithBearer('/me', $tokens->issueAccessToken($identity, $identity, null, null));
 
         return $this->freshJwtGuard('api');
     }

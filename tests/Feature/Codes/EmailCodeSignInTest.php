@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
@@ -164,6 +165,29 @@ final class EmailCodeSignInTest extends TestCase
         self::assertTrue($result->isSignedIn());
         self::assertTrue($identity->is($result->session?->identity));
         self::assertSame(['email_code', 'email'], [$result->session?->method, Session::query()->sole()->sign_in_identifier_type]);
+    }
+
+    /**
+     * A code sent to an email address is a first proof over the `email`
+     * channel, to the address in its normal form, with the `otp` value.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnEmailCodeIsAnEmailChannelProof(): void
+    {
+        self::seedCodeIdentity(email: self::EMAIL);
+
+        self::assertTrue($this->codeService()->send('email_code', ['email' => ' Ben@Example.com'])->isSent());
+        self::assertTrue($this->signIn(self::CODE, 'BEN@example.com ')->isSignedIn());
+
+        $proof = SessionProof::query()->sole();
+
+        self::assertSame(
+            ['first_factor', 'email_code', 'email', self::EMAIL, ['otp']],
+            [$proof->kind, $proof->method, $proof->channel_kind, $proof->channel_reference, $proof->methods],
+        );
     }
 
     /**

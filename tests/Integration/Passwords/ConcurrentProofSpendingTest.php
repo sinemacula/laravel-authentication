@@ -238,8 +238,6 @@ final class ConcurrentProofSpendingTest extends TestCase
         $identity = self::seedChangeable();
         $link     = $this->requestByLink($identity);
 
-        self::seedSession($identity);
-
         [$first, $second] = $this->race(
             'delete from',
             'identifier_changes',
@@ -369,9 +367,12 @@ final class ConcurrentProofSpendingTest extends TestCase
 
     /**
      * A revocation of every session made while a request proven by one of them
-     * is held after it read the session, before its transaction, is found under
-     * the lock: reauthentication is required, nothing is written, and the
-     * `identifier_change` slots are given back.
+     * is held once its check found the session fresh and it counted its first
+     * `identifier_change` slot, before its transaction, is found under the
+     * lock: reauthentication is required, nothing is written, and the slots are
+     * given back. Held at the session's first read instead, the check's
+     * freshness read would already find the session revoked, and nothing would
+     * be counted or locked.
      *
      * @return void
      *
@@ -383,8 +384,8 @@ final class ConcurrentProofSpendingTest extends TestCase
         $record   = self::seedSession($identity);
 
         [$first, $second] = $this->race(
-            'select',
-            'authentication_sessions',
+            'update',
+            'rate_limits',
             fn (): string => $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::session($record), 'email.confirm')->status->value,
             static fn (): string => (string) Auth::sessions('web')->revokeSessions(self::reloaded($identity), RevocationReason::REVOKED),
         );
@@ -409,15 +410,16 @@ final class ConcurrentProofSpendingTest extends TestCase
      */
     public function testRequestsForTwoIdentitiesCreatingTheirCountersDoNotDeadlock(): void
     {
-        $ada   = self::seedChangeable();
-        $grace = self::seedChangeable('grace@example.test');
-        $proof = Reauthentication::confirmedAt($this->now);
+        $ada        = self::seedChangeable();
+        $grace      = self::seedChangeable('grace@example.test');
+        $adaProof   = self::freshSession($ada);
+        $graceProof = self::freshSession($grace);
 
         [$first, $second] = $this->race(
             'update',
             'rate_limits',
-            fn (): string => $this->changes()->requestByCode($ada, 'email', self::NEW_EMAIL, $proof)->status->value,
-            fn (): string => $this->changes()->requestByCode($grace, 'email', 'grace@new.example.test', $proof)->status->value,
+            fn (): string => $this->changes()->requestByCode($ada, 'email', self::NEW_EMAIL, $adaProof)->status->value,
+            fn (): string => $this->changes()->requestByCode($grace, 'email', 'grace@new.example.test', $graceProof)->status->value,
             untilSecondEnds: true,
         );
 
@@ -447,15 +449,16 @@ final class ConcurrentProofSpendingTest extends TestCase
         config()->set('database.connections.counters', config("database.connections.{$connection}"));
         config()->set('authentication.rate_limits.connection', 'counters');
 
-        $ada   = self::seedChangeable();
-        $grace = self::seedChangeable('grace@example.test');
-        $proof = Reauthentication::confirmedAt($this->now);
+        $ada        = self::seedChangeable();
+        $grace      = self::seedChangeable('grace@example.test');
+        $adaProof   = self::freshSession($ada);
+        $graceProof = self::freshSession($grace);
 
         [$first, $second] = $this->race(
             'update',
             'rate_limits',
-            fn (): string => DB::transaction(fn (): string => $this->changes()->requestByCode($ada, 'email', self::NEW_EMAIL, $proof)->status->value),
-            fn (): string => DB::transaction(fn (): string => $this->changes()->requestByCode($grace, 'email', 'grace@new.example.test', $proof)->status->value),
+            fn (): string => DB::transaction(fn (): string => $this->changes()->requestByCode($ada, 'email', self::NEW_EMAIL, $adaProof)->status->value),
+            fn (): string => DB::transaction(fn (): string => $this->changes()->requestByCode($grace, 'email', 'grace@new.example.test', $graceProof)->status->value),
             untilSecondEnds: true,
         );
 
@@ -477,15 +480,16 @@ final class ConcurrentProofSpendingTest extends TestCase
      */
     public function testARequestHeldAfterItsWritesDoesNotHoldUpAnotherIdentitysRequest(): void
     {
-        $ada   = self::seedChangeable();
-        $grace = self::seedChangeable('grace@example.test');
-        $proof = Reauthentication::confirmedAt($this->now);
+        $ada        = self::seedChangeable();
+        $grace      = self::seedChangeable('grace@example.test');
+        $adaProof   = self::freshSession($ada);
+        $graceProof = self::freshSession($grace);
 
         [$first, $second] = $this->race(
             'insert',
             'identifier_changes',
-            fn (): string => $this->changes()->requestByCode($ada, 'email', self::NEW_EMAIL, $proof)->status->value,
-            fn (): string => $this->changes()->requestByCode($grace, 'email', 'grace@new.example.test', $proof)->status->value,
+            fn (): string => $this->changes()->requestByCode($ada, 'email', self::NEW_EMAIL, $adaProof)->status->value,
+            fn (): string => $this->changes()->requestByCode($grace, 'email', 'grace@new.example.test', $graceProof)->status->value,
             untilSecondEnds: true,
         );
 
@@ -507,7 +511,7 @@ final class ConcurrentProofSpendingTest extends TestCase
     {
         $identity = self::seedChangeable();
 
-        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now))->isSent());
+        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity))->isSent());
 
         [$first, $second] = $this->race(
             'update',
@@ -535,7 +539,7 @@ final class ConcurrentProofSpendingTest extends TestCase
     {
         $identity = self::seedChangeable();
 
-        $proof = Reauthentication::confirmedAt($this->now);
+        $proof = self::freshSession($identity);
 
         self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, $proof)->isSent());
 
@@ -635,7 +639,7 @@ final class ConcurrentProofSpendingTest extends TestCase
      */
     private function requestByLink(ChangeableIdentity $identity): string
     {
-        $link = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now), 'email.confirm')->link();
+        $link = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), 'email.confirm')->link();
 
         self::assertIsString($link);
 

@@ -47,12 +47,12 @@ final readonly class SessionSummary implements \JsonSerializable, Arrayable
      * @param  ?string  $lastUsedIp
      * @param  ?string  $lastUsedUserAgent
      * @param  \Carbon\CarbonImmutable  $idleExpiresAt
-     * @param  \Carbon\CarbonImmutable  $absoluteExpiresAt
+     * @param  ?\Carbon\CarbonImmutable  $absoluteExpiresAt
      * @param  bool  $current
      */
     public function __construct(
 
-        /** The session's identifier, as tokens carry it in `did`. */
+        /** The session's identifier, as tokens carry it in `sid`. */
         public string $id,
 
         /** The guard the session belongs to. */
@@ -91,8 +91,8 @@ final readonly class SessionSummary implements \JsonSerializable, Arrayable
         /** When the session ends unless it is refreshed. */
         public CarbonImmutable $idleExpiresAt,
 
-        /** When the session ends however often it is refreshed. */
-        public CarbonImmutable $absoluteExpiresAt,
+        /** When the session ends however often it is refreshed, or `null` when it has no absolute deadline. */
+        public ?CarbonImmutable $absoluteExpiresAt,
 
         /** Whether this is the session the current request is authenticated with. */
         public bool $current,
@@ -123,7 +123,7 @@ final readonly class SessionSummary implements \JsonSerializable, Arrayable
             self::text($session, $session->getLastUsedIpName()),
             self::text($session, $session->getLastUsedUserAgentName()),
             self::required($session, $session->getIdleExpiresAt(), 'session deadline'),
-            self::required($session, $session->getAbsoluteExpiresAt(), 'session deadline'),
+            self::immutable($session->getAbsoluteExpiresAt()),
             $current,
         );
     }
@@ -150,7 +150,7 @@ final readonly class SessionSummary implements \JsonSerializable, Arrayable
             'last_used_ip'         => $this->lastUsedIp,
             'last_used_user_agent' => $this->lastUsedUserAgent,
             'idle_expires_at'      => $this->idleExpiresAt->toIso8601String(),
-            'absolute_expires_at'  => $this->absoluteExpiresAt->toIso8601String(),
+            'absolute_expires_at'  => $this->absoluteExpiresAt?->toIso8601String(),
             'current'              => $this->current,
         ];
     }

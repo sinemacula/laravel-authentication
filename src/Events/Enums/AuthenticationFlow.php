@@ -44,4 +44,12 @@ enum AuthenticationFlow: string
 
     // A request for, or a confirmation of, a change of identifier
     case IDENTIFIER_CHANGE = 'identifier_change';
+
+    // A step-up of an active session with a further factor: the session
+    // service's stepUp()
+    case STEP_UP = 'step_up';
+
+    // A reauthentication of an active session with the first factor: the
+    // session service's reauthenticate()
+    case REAUTHENTICATION = 'reauthentication';
 }
