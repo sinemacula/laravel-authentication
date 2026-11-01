@@ -9,11 +9,13 @@ use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
@@ -943,6 +945,38 @@ final class PrincipalSwitchTest extends TestCase
         $session = $this->signIn();
 
         self::assertNull(DB::table('authentication_sessions')->value('absolute_expires_at'));
+
+        $this->advance(60);
+
+        $switched = $this->switched($session, $second);
+
+        self::assertNull($switched->record->getAbsoluteExpiresAt());
+        self::assertNull(DB::table('authentication_sessions')->value('absolute_expires_at'));
+        self::assertSame($this->now->addMinutes(60)->toDateTimeString(), $this->storedTime('idle_expires_at'));
+    }
+
+    /**
+     * A session with no recorded start, which a custom schema may allow, and no
+     * absolute deadline is switched with none: with no start to count a limit
+     * from, the deadline it stores stands.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchOfASessionWithNoRecordedStartKeepsItsStoredDeadline(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $this->bindLifetimes(new TokenLifetimes(5, 60, null, 30));
+
+        $session = $this->signIn();
+
+        Schema::table('authentication_sessions', static function (Blueprint $blueprint): void {
+            $blueprint->dateTime('signed_in_at', 0)->nullable()->change();
+        });
+
+        DB::table('authentication_sessions')->update(['signed_in_at' => null]);
 
         $this->advance(60);
 
