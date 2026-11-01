@@ -12,6 +12,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
@@ -140,6 +141,26 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
+     * A reauthentication with the same values as the first factor moves the
+     * time and adds nothing, and the first factor's values still count: proofs
+     * of different kinds are told apart, whatever values they share.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReauthenticationWithTheFirstFactorsValuesMovesOnlyTheTime(): void
+    {
+        $record = $this->signedIn()->record;
+
+        self::recordProof($record, ProofKind::FIRST_FACTOR_REAUTHENTICATION, $this->now->addMinutes(9), ['pwd']);
+
+        $summary = AuthenticationClaims::forSession($record);
+
+        self::assertSame([$this->now->addMinutes(9)->getTimestamp(), ['pwd']], [$summary->authenticatedAt->getTimestamp(), $summary->methods]);
+    }
+
+    /**
      * Only counting proofs count: a voided one never, and a further factor or a
      * recovery code only when its adapter accepted it.
      *
@@ -259,6 +280,12 @@ final class SessionProofsTest extends TestCase
         self::assertNull(SessionProofs::history($plain)->authenticatedAt());
         self::assertNull(SessionProofs::newestMeeting($plain, new FreshnessRequirement(900, [ProofKind::FIRST_FACTOR]), $this->now));
         self::assertNotNull(SessionProofs::history($record)->authenticatedAt());
+
+        $contract = \Mockery::mock(EloquentSession::class);
+        $contract->shouldReceive('getSessionIdentifier')->andReturn($record->getKey());
+        $contract->shouldReceive('getGuard')->andReturn('api');
+
+        self::assertNull(SessionProofs::history($contract)->authenticatedAt());
     }
 
     /**
@@ -369,6 +396,27 @@ final class SessionProofsTest extends TestCase
             [ProofKind::FIRST_FACTOR, Purpose::SIGN_IN, 'password', ChannelKind::PASSWORD, null],
             [$first->kind, $first->purpose, $first->method, $first->channel->kind, $first->evaluation],
         );
+    }
+
+    /**
+     * A further factor whose stored evaluation lacks its multifactor report is
+     * read back with no evaluation rather than a guessed one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAHalfRecordedEvaluationIsReadAsNone(): void
+    {
+        $record = $this->signedIn()->record;
+
+        self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now, ['otp'], new Evaluation(true, true));
+
+        DB::table('authentication_proofs')->where('kind', 'additional_factor')->update(['multifactor' => null]);
+
+        $proof = SessionProofs::newestMeeting($record, new FreshnessRequirement(900, [ProofKind::ADDITIONAL_FACTOR]), $this->now);
+
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR, null], [$proof?->kind, $proof?->evaluation]);
     }
 
     /**
