@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Proofs\NewProof;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
+use SineMacula\Laravel\Authentication\SessionRecords\SessionDeadlines;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
@@ -37,9 +38,10 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * the principal the session records and its tenant active, the method still
  * allowed, the principal still eligible). Then the proof is recorded and one
  * access token issued at `$now`, its `auth_time` and `amr` derived from the
- * proofs, the new one included. Nothing else is written: the refresh token, the
- * deadlines and the session row stay as they were, so a concurrent refresh's
- * compare-and-swap is unaffected.
+ * proofs, the new one included, and answered with when it expires (the access
+ * lifetime from `$now`, never past the session's end). Nothing else is written:
+ * the refresh token, the deadlines and the session row stay as they were, so a
+ * concurrent refresh's compare-and-swap is unaffected.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -75,7 +77,7 @@ final readonly class ProofIssuance
      * @param  \SineMacula\Laravel\Authentication\Proofs\NewProof  $proof
      * @param  \Carbon\CarbonImmutable  $now
      * @param  \Closure(\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, \Carbon\CarbonInterface): ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $accepts
-     * @return array{0: \SineMacula\Laravel\Authentication\Admission\Admitted, 1: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 2: string}|\SineMacula\Laravel\Authentication\Admission\Refused
+     * @return array{0: \SineMacula\Laravel\Authentication\Admission\Admitted, 1: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 2: string, 3: \Carbon\CarbonImmutable}|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -99,7 +101,7 @@ final readonly class ProofIssuance
      * @param  \SineMacula\Laravel\Authentication\Proofs\NewProof  $proof
      * @param  \Carbon\CarbonImmutable  $now
      * @param  \Closure(\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, \Carbon\CarbonInterface): ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $accepts
-     * @return array{0: \SineMacula\Laravel\Authentication\Admission\Admitted, 1: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 2: string}|\SineMacula\Laravel\Authentication\Admission\Refused
+     * @return array{0: \SineMacula\Laravel\Authentication\Admission\Admitted, 1: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 2: string, 3: \Carbon\CarbonImmutable}|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -130,7 +132,10 @@ final readonly class ProofIssuance
 
         ProofWriter::record($session, $this->context->name(), $proof);
 
-        return [$admitted, $session, $this->tokens->issueAccessToken($admitted->identity, $admitted->principal, $admitted->tenant, $session, $now)];
+        $token   = $this->tokens->issueAccessToken($admitted->identity, $admitted->principal, $admitted->tenant, $session, $now);
+        $expires = $this->tokens->lifetimes()->accessExpiry($now, WriteConnection::during($session, static fn (): ?CarbonImmutable => SessionDeadlines::liveEnd($session, $now)));
+
+        return [$admitted, $session, $token, $expires];
     }
 
     /**

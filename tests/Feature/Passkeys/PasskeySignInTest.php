@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PasskeyUsed;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -29,6 +30,7 @@ use SineMacula\Laravel\Authentication\Passkeys\PasskeyAssertions;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyCredentials;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyOwner;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeySignIn;
+use SineMacula\Laravel\Authentication\Sessions\SessionReauthentication;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -40,8 +42,9 @@ use Tests\TestCase;
 
 /**
  * Feature tests for usernameless sign-in with a passkey through the session
- * service: what starts a session, and how each refusal is reported to the
- * client and to listeners.
+ * service: what starts a session, how each refusal is reported to the client
+ * and to listeners, and what a passkey records when it reauthenticates a
+ * session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -52,6 +55,7 @@ use Tests\TestCase;
 #[CoversClass(PasskeyAssertions::class)]
 #[CoversClass(PasskeyCredentials::class)]
 #[CoversClass(PasskeyOwner::class)]
+#[CoversClass(SessionReauthentication::class)]
 final class PasskeySignInTest extends TestCase
 {
     use InteractsWithPasskeys, InteractsWithSessions;
@@ -188,6 +192,49 @@ final class PasskeySignInTest extends TestCase
         ]);
         self::assertSame(['pop'], $proof->methods);
         self::assertSame(IdentifierCoercion::stringify($result->session?->record->getKey()), $proof->session_id);
+    }
+
+    /**
+     * A session reauthenticated with a passkey records a first-factor
+     * reauthentication over the passkey channel, naming the passkey by its row
+     * id, with the user observed present and verified and resistance to
+     * phishing observed, and the `pop` value; the new token's `auth_time` moves
+     * and its `amr` stays the session's own.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPasskeyReauthenticatesASessionWithWhatItShowed(): void
+    {
+        $identity = $this->seedIdentity();
+        $passkey  = $this->registerPasskey($identity);
+        $session  = $this->sessions()->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($session);
+
+        $later = $this->now->addHour();
+
+        self::freezeAt($later);
+
+        $options = $this->signInOptions();
+        $input   = ['challenge' => $options->challengeId, 'credential' => $this->authenticator()->get($options->options)];
+        $result  = $this->sessions()->reauthenticate($session->record, 'passkey', $input);
+
+        self::assertTrue($result->isIssued());
+
+        $proof = SessionProof::query()->where('kind', 'first_factor_reauthentication')->sole();
+
+        self::assertSame(
+            ['reauthenticate', 'passkey', 'passkey', $passkey->id, ['pop']],
+            [$proof->purpose, $proof->method, $proof->channel_kind, $proof->channel_reference, $proof->methods],
+        );
+        self::assertSame([true, true, true], [$proof->user_presence, $proof->user_verification, $proof->phishing_resistant]);
+
+        $claims = Auth::manager()->jwt('api')->parse((string) $result->accessToken, TokenType::ACCESS);
+
+        self::assertIsArray($claims);
+        self::assertSame([$later->getTimestamp(), ['pwd']], [$claims['auth_time'] ?? null, $claims['amr'] ?? null]);
     }
 
     /**

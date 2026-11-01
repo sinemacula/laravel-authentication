@@ -165,8 +165,8 @@ final readonly class SessionService
 
         $issuance = new ProofIssuance($context, $tokens);
 
-        $this->stepUps           = new SessionStepUp($context, $tokens, $issuance, $this->afterCommit);
-        $this->reauthentications = new SessionReauthentication($context, $tokens, $issuance, $this->afterCommit, $container);
+        $this->stepUps           = new SessionStepUp($context, $issuance, $this->afterCommit);
+        $this->reauthentications = new SessionReauthentication($context, $issuance, $this->afterCommit, $container);
     }
 
     /**

@@ -37,6 +37,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\IntegrationIdentity;
+use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 
 /**
@@ -155,7 +156,8 @@ final class StepUpTest extends TestCase
     /**
      * A step-up records the proof on the session for `step_up`, bound to its
      * owner and guard, with the adapter's evaluation, and the new token's
-     * expiry; `SteppedUp` reports it with the proof's kind once committed.
+     * expiry; `SteppedUp` reports it with the proof's kind and method once
+     * committed.
      *
      * @return void
      *
@@ -203,7 +205,7 @@ final class StepUpTest extends TestCase
 
         self::assertSame(ProofKind::RECOVERY_CODE, $event->kind);
         self::assertSame(
-            ['api', 'password', IdentifierCoercion::stringify($signedIn->record->getKey())],
+            ['api', 'totp', IdentifierCoercion::stringify($signedIn->record->getKey())],
             [$event->context->guard, $event->context->method, $event->context->sessionId],
         );
         self::assertSame($signedIn->identity, $event->context()->identity);
@@ -341,12 +343,16 @@ final class StepUpTest extends TestCase
             'another guard\'s'     => ['admin', FailureReason::SESSION_GUARD_MISMATCH],
             'an inactive identity' => ['inactive', FailureReason::IDENTITY_INACTIVE],
             'a disallowed method'  => ['method', FailureReason::METHOD_NOT_ALLOWED],
+            'a machine\'s'         => ['machine', FailureReason::MACHINE_IDENTITY],
+            'another principal\'s' => ['principal', FailureReason::SESSION_PRINCIPAL_MISMATCH],
         ];
     }
 
     /**
-     * A session that is gone, not this guard's live session, or whose identity
-     * or method no longer passes, takes no step-up, whatever the proof.
+     * A session that is gone, not this guard's live session, owned by a
+     * machine, acting as a principal it no longer resolves to, or whose
+     * identity or method no longer passes, takes no step-up, whatever the
+     * proof.
      *
      * @param  string  $state
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -364,17 +370,110 @@ final class StepUpTest extends TestCase
             default     => $signedIn->record->getKey(),
         };
 
-        match ($state) {
-            'revoked'  => DB::table('authentication_sessions')->update(['revoked_at' => $this->now]),
-            'ended'    => DB::table('authentication_sessions')->update(['idle_expires_at' => $this->now]),
-            'inactive' => DB::table('integration_identities')->update(['is_active' => false]),
-            'method'   => config()->set('auth.guards.api.application.methods', ['sso']),
-            default    => null,
-        };
+        $this->putInto($state);
 
         $this->recordEvents([SteppedUp::class, AuthenticationFailed::class]);
 
         $this->assertRefused($this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $key)), $reason);
+    }
+
+    /**
+     * A proof made in the very second the session signed in steps it up: the
+     * proof is measured from the session's own start, not from now.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAProofMadeAsTheSessionStartedStepsItUp(): void
+    {
+        $signedIn = $this->signedIn();
+
+        $this->clockAt($this->now->addMinute());
+
+        $result = $this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey(), at: $this->now));
+
+        self::assertTrue($result->isIssued());
+        self::assertSame($this->now->getTimestamp(), SessionProof::query()->where('kind', 'additional_factor')->sole()->authenticated_at->getTimestamp());
+    }
+
+    /**
+     * The new access token never outlives its session: when the session ends
+     * before the access lifetime does, the token and the result expire with it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheNewTokenExpiresNoLaterThanItsSession(): void
+    {
+        $signedIn = $this->signedIn();
+        $ends     = $this->now->addSeconds(90);
+
+        DB::table('authentication_sessions')->update(['idle_expires_at' => $ends]);
+
+        $result = $this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()));
+        $claims = Auth::manager()->jwt('api')->parse((string) $result->accessToken, TokenType::ACCESS);
+
+        self::assertIsArray($claims);
+        self::assertSame([$ends->getTimestamp(), $ends->getTimestamp()], [$claims['exp'], $result->expiresAt?->getTimestamp()]);
+    }
+
+    /**
+     * A session acting as a membership in a tenant is stepped up with a token
+     * that names the tenant the principal acts within.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAStepUpForATenantPrincipalCarriesItsTenant(): void
+    {
+        [$member, , $tenant] = $this->seedMember();
+
+        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+
+        self::assertNotNull($signedIn);
+
+        $result = $this->sessions('members')->stepUp(self::adapterProof($member, 'members', $signedIn->record->getKey()));
+        $claims = Auth::manager()->jwt('members')->parse((string) $result->accessToken, TokenType::ACCESS);
+
+        self::assertIsArray($claims);
+        self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $claims['tenant_id'] ?? null);
+    }
+
+    /**
+     * Inside an application's transaction, `SteppedUp` waits for the commit and
+     * is never reported when the transaction rolls back, with the proof it
+     * reports.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSteppedUpWaitsForTheCommit(): void
+    {
+        $signedIn = $this->signedIn();
+
+        $this->recordEvents([SteppedUp::class]);
+
+        DB::transaction(function () use ($signedIn): void {
+            self::assertTrue($this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()))->isIssued());
+            self::assertSame([], $this->recordedClasses());
+        });
+
+        self::assertSame([SteppedUp::class], $this->recordedClasses());
+
+        $this->recordEvents([SteppedUp::class]);
+
+        DB::beginTransaction();
+
+        self::assertTrue($this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()))->isIssued());
+
+        DB::rollBack();
+
+        self::assertSame([], $this->recordedClasses());
+        self::assertSame(1, SessionProof::query()->where('kind', 'additional_factor')->count());
     }
 
     /**
@@ -431,9 +530,29 @@ final class StepUpTest extends TestCase
     }
 
     /**
+     * Put the session, its identity or its guard into the state named.
+     *
+     * @param  string  $state
+     * @return void
+     */
+    private function putInto(string $state): void
+    {
+        match ($state) {
+            'revoked'   => DB::table('authentication_sessions')->update(['revoked_at' => $this->now]),
+            'ended'     => DB::table('authentication_sessions')->update(['idle_expires_at' => $this->now]),
+            'inactive'  => DB::table('integration_identities')->update(['is_active' => false]),
+            'method'    => config()->set('auth.guards.api.application.methods', ['sso']),
+            'machine'   => DB::table('authentication_sessions')->update(['authenticatable_type' => MachineClient::class]),
+            'principal' => DB::table('authentication_sessions')->update(['principal_type' => 'another-model']),
+            default     => null,
+        };
+    }
+
+    /**
      * Assert the step-up was refused with the reason, reported by one
-     * `AuthenticationFailed` (flow `step_up`), with no proof recorded beyond
-     * the first factor and no step-up reported.
+     * `AuthenticationFailed` (flow `step_up`) naming the method the proof was
+     * verified with, with no proof recorded beyond the first factor and no
+     * step-up reported.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult  $result
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -447,7 +566,7 @@ final class StepUpTest extends TestCase
 
         $failure = $this->recordedEvent(AuthenticationFailed::class);
 
-        self::assertSame([AuthenticationFlow::STEP_UP, $reason], [$failure->flow, $failure->reason]);
+        self::assertSame([AuthenticationFlow::STEP_UP, $reason, 'totp'], [$failure->flow, $failure->reason, $failure->context->method]);
         self::assertSame(0, SessionProof::query()->where('purpose', 'step_up')->count());
     }
 

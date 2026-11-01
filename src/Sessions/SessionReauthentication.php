@@ -19,7 +19,6 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\Reauthenticated;
-use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
@@ -65,7 +64,6 @@ final readonly class SessionReauthentication
      * Constructor.
      *
      * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
-     * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $tokens
      * @param  \SineMacula\Laravel\Authentication\Sessions\ProofIssuance  $issuance
      * @param  \SineMacula\Laravel\Authentication\Database\AfterCommit  $afterCommit
      * @param  \Illuminate\Contracts\Container\Container  $container
@@ -74,9 +72,6 @@ final readonly class SessionReauthentication
 
         /** The context of the guard whose sessions are reauthenticated. */
         private GuardContext $context,
-
-        /** The guard's token service, which reads the new token's expiry. */
-        private JwtTokenService $tokens,
 
         /** Records the proof and issues the new access token. */
         private ProofIssuance $issuance,
@@ -120,7 +115,7 @@ final readonly class SessionReauthentication
             return $this->fail($issued, $method);
         }
 
-        [$admitted, $record, $token] = $issued;
+        [$admitted, $record, $token, $expires] = $issued;
 
         $attempt->release();
 
@@ -129,7 +124,7 @@ final readonly class SessionReauthentication
 
         $this->afterCommit->run($record, fn () => $this->context->dispatch($event));
 
-        return AccessTokenResult::issued($token, $record, SessionStepUp::expiry($this->tokens, $token));
+        return AccessTokenResult::issued($token, $record, $expires);
     }
 
     /**

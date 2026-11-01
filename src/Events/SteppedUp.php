@@ -14,8 +14,9 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
  *
  * The context carries the guard, the client, the identity, principal and tenant
  * the step-up admitted, the session (which keeps its key, its refresh token and
- * its deadlines) and the method the session records; the kind says whether the
- * proof was a further factor or a recovery code.
+ * its deadlines) and the method the adapter verified the proof with, such as
+ * `totp`; the kind says whether the proof was a further factor or a recovery
+ * code.
  *
  * @api
  *

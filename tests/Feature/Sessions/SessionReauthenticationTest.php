@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -24,14 +26,21 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
+use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
+use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\Sessions\AccessTokenResult;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\ProvesSessions;
 use SineMacula\Laravel\Authentication\Sessions\ProofIssuance;
 use SineMacula\Laravel\Authentication\Sessions\SessionReauthentication;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Sessions\RefusalIgnoringSignIn;
+use Tests\Integration\Fixtures\IntegrationIdentity;
+use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 
 /**
@@ -299,6 +308,140 @@ final class SessionReauthenticationTest extends TestCase
         self::assertSame(FailureReason::SESSION_UNKNOWN, $this->sessions()->reauthenticate(new Session, 'password', self::credentials())->reason);
         self::assertSame(0, DB::table('rate_limits')->count());
         self::assertSame(0, SessionProof::query()->where('kind', 'first_factor_reauthentication')->count());
+    }
+
+    /**
+     * A session owned by a machine takes no reauthentication, before anything
+     * is counted; one whose recorded principal no longer resolves as that very
+     * principal is refused once admitted again, under the lock. Neither records
+     * a proof, and each is reported.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAMachinesOrAnotherPrincipalsSessionTakesNoReauthentication(): void
+    {
+        $signedIn = $this->signedIn();
+
+        DB::table('rate_limits')->delete();
+        DB::table('authentication_sessions')->update(['authenticatable_type' => MachineClient::class]);
+
+        $this->recordEvents([Reauthenticated::class, AuthenticationFailed::class]);
+
+        self::assertSame(FailureReason::MACHINE_IDENTITY, $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials())->reason);
+        self::assertSame(0, DB::table('rate_limits')->count());
+
+        DB::table('authentication_sessions')->update(['authenticatable_type' => IntegrationIdentity::class, 'principal_type' => 'another-model']);
+
+        self::assertSame(FailureReason::SESSION_PRINCIPAL_MISMATCH, $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials())->reason);
+        self::assertSame([AuthenticationFailed::class, AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame(
+            [[AuthenticationFlow::REAUTHENTICATION, FailureReason::MACHINE_IDENTITY], [AuthenticationFlow::REAUTHENTICATION, FailureReason::SESSION_PRINCIPAL_MISMATCH]],
+            array_map(static fn (object $event): array => $event instanceof AuthenticationFailed ? [$event->flow, $event->reason] : [], $this->recorded),
+        );
+        self::assertSame(0, SessionProof::query()->where('kind', 'first_factor_reauthentication')->count());
+    }
+
+    /**
+     * An account with no attempts left is not reauthenticated, whether the
+     * method honours the account's refusal or checks the secret anyway: the
+     * result answers `invalid_credentials` with no wait, so it never says the
+     * account exists, while `AuthenticationFailed` carries the account's limit
+     * and wait; nothing is recorded or given back.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnAccountOutOfAttemptsIsNotReauthenticated(): void
+    {
+        $signedIn = $this->signedIn();
+
+        $limiter = \Mockery::mock(AttemptLimiter::class);
+        $limiter->shouldReceive('acquire')->andReturnUsing(
+            static fn (AttemptSubject $subject): AttemptReservation => new AttemptReservation($subject, $subject->account === null ? null : 90),
+        );
+        $limiter->shouldReceive('release')->never();
+
+        app()->instance(AttemptLimiter::class, $limiter);
+
+        $manager = app(SignInMethodManager::class);
+
+        $manager->forgetDrivers();
+        $manager->extend('trusted', fn (): SignInMethod => new RefusalIgnoringSignIn);
+
+        foreach (['password', 'trusted'] as $method) {
+
+            $this->recordEvents([Reauthenticated::class, AuthenticationFailed::class]);
+
+            $result = $this->sessions()->reauthenticate($signedIn->record, $method, self::credentials());
+
+            self::assertSame([FailureReason::INVALID_CREDENTIALS, null], [$result->reason, $result->retryAfter], $method);
+
+            $failure = $this->recordedEvent(AuthenticationFailed::class);
+
+            self::assertSame([FailureReason::ACCOUNT_RATE_LIMITED, 90], [$failure->reason, $failure->retryAfter], $method);
+        }
+
+        self::assertSame(0, SessionProof::query()->where('kind', 'first_factor_reauthentication')->count());
+    }
+
+    /**
+     * A session acting as a membership in a tenant is reauthenticated with a
+     * token that names the tenant the principal acts within.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReauthenticationForATenantPrincipalCarriesItsTenant(): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+
+        self::assertNotNull($signedIn);
+
+        $result = $this->sessions('members')->reauthenticate($signedIn->record, 'password', self::credentials('member@example.test'));
+        $claims = Auth::manager()->jwt('members')->parse((string) $result->accessToken, TokenType::ACCESS);
+
+        self::assertIsArray($claims);
+        self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $claims['tenant_id'] ?? null);
+    }
+
+    /**
+     * Inside an application's transaction, `Reauthenticated` waits for the
+     * commit and is never reported when the transaction rolls back, with the
+     * proof it reports.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testReauthenticatedWaitsForTheCommit(): void
+    {
+        $signedIn = $this->signedIn();
+
+        $this->recordEvents([Reauthenticated::class]);
+
+        DB::transaction(function () use ($signedIn): void {
+            self::assertTrue($this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials())->isIssued());
+            self::assertSame([], $this->recordedClasses());
+        });
+
+        self::assertSame([Reauthenticated::class], $this->recordedClasses());
+
+        $this->recordEvents([Reauthenticated::class]);
+
+        DB::beginTransaction();
+
+        self::assertTrue($this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials())->isIssued());
+
+        DB::rollBack();
+
+        self::assertSame([], $this->recordedClasses());
+        self::assertSame(1, SessionProof::query()->where('kind', 'first_factor_reauthentication')->count());
     }
 
     /**
