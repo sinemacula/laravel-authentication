@@ -152,17 +152,19 @@ final class ProofValuesTest extends TestCase
         $value = 'A proof\'s `amr` value must be 1 to 48 printable ASCII characters, no quote or backslash.';
 
         yield from [
-            'a map'            => [['first' => 'pwd'], $list],
-            'nine values'      => [array_fill(0, 9, 'otp'), $list],
-            'an empty value'   => [[''], $value],
-            'a long value'     => [[str_repeat('x', 49)], $value],
-            'a number'         => [[7], $value],
-            'a space'          => [['one time'], $value],
-            'a quote'          => [['o"tp'], $value],
-            'a backslash'      => [['o\tp'], $value],
-            'non-ASCII'        => [['otpé'], $value],
-            'a control byte'   => [["otp\n"], $value],
-            'the reserved mfa' => [['pwd', 'mfa'], '`mfa` is reserved: it is never a proof\'s own `amr` value, only an accepted evaluation\'s report.'],
+            'a map'             => [['first' => 'pwd'], $list],
+            'nine values'       => [array_fill(0, 9, 'otp'), $list],
+            'an empty value'    => [[''], $value],
+            'a long value'      => [[str_repeat('x', 49)], $value],
+            'a number'          => [[7], $value],
+            'a space'           => [['one time'], $value],
+            'a quote'           => [['o"tp'], $value],
+            'a backslash'       => [['o\tp'], $value],
+            'non-ASCII'         => [['otpé'], $value],
+            'a control byte'    => [["otp\n"], $value],
+            'mfa and a newline' => [["mfa\n"], $value],
+            '48 and a newline'  => [[str_repeat('x', 48) . "\n"], $value],
+            'the reserved mfa'  => [['pwd', 'mfa'], '`mfa` is reserved: it is never a proof\'s own `amr` value, only an accepted evaluation\'s report.'],
         ];
     }
 
@@ -198,6 +200,16 @@ final class ProofValuesTest extends TestCase
         self::assertEquals(new ObservedProperties, $factor->observed);
         self::assertSame([], $factor->methods);
         self::assertSame(['pop'], (new FirstFactor($identity, new Channel(ChannelKind::PASSKEY), new ObservedProperties(true), ['pop']))->methods);
+
+        foreach (["mfa\n", "pwd\n"] as $trailing) {
+
+            try {
+                new FirstFactor($identity, new Channel(ChannelKind::PASSWORD), methods: [$trailing]);
+                self::fail('Expected a value ending in a newline to be refused.');
+            } catch (\InvalidArgumentException $exception) {
+                self::assertStringContainsString('printable ASCII', $exception->getMessage());
+            }
+        }
 
         $this->expectException(\InvalidArgumentException::class);
 
@@ -284,12 +296,23 @@ final class ProofValuesTest extends TestCase
     }
 
     /**
-     * A proof result refuses `mfa` among its values.
+     * A proof result refuses `mfa` among its values, and `mfa` or any value
+     * followed by a newline, which a trimming reader would take for it.
      *
      * @return void
      */
     public function testAProofResultRefusesTheReservedMfa(): void
     {
+        foreach (["mfa\n", "otp\n"] as $trailing) {
+
+            try {
+                self::stepUpProof('totp', null, [$trailing]);
+                self::fail('Expected a value ending in a newline to be refused.');
+            } catch (\InvalidArgumentException $exception) {
+                self::assertStringContainsString('printable ASCII', $exception->getMessage());
+            }
+        }
+
         $this->expectException(\InvalidArgumentException::class);
 
         self::stepUpProof('totp', null, ['otp', 'mfa']);
@@ -412,6 +435,8 @@ final class ProofValuesTest extends TestCase
      * @param  ?string  $factor
      * @param  list<string>  $methods
      * @return \SineMacula\Laravel\Authentication\Proofs\ProofResult
+     *
+     * @throws \InvalidArgumentException
      */
     private static function stepUpProof(string $method, ?string $factor, array $methods = []): ProofResult
     {

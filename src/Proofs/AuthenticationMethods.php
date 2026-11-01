@@ -31,7 +31,7 @@ final class AuthenticationMethods
     public const int MAX_LENGTH = 48;
 
     /** @var string What a value may be made of: printable ASCII but a quote or a backslash, which JSON would escape. */
-    private const string VALUE_PATTERN = '/^[\x21\x23-\x5B\x5D-\x7E]{1,48}$/';
+    private const string VALUE_PATTERN = '/^[\x21\x23-\x5B\x5D-\x7E]{1,48}$/D';
 
     /**
      * Disallow instantiation; utility container only.

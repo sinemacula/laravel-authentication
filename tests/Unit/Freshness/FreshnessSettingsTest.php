@@ -93,6 +93,7 @@ final class FreshnessSettingsTest extends TestCase
             'a hyphen'             => ['add-factor', false],
             'a segment from digit' => ['mfa.2', false],
             'empty'                => ['', false],
+            'a trailing newline'   => ["identifier_change\n", false],
         ];
     }
 

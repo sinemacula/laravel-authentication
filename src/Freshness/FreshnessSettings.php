@@ -36,7 +36,7 @@ final readonly class FreshnessSettings
     private const string PACKAGE_KEY = 'authentication.freshness';
 
     /** @var string What an operation's name is: dot-separated lower-case segments, each starting with a letter. */
-    private const string OPERATION_PATTERN = '/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/';
+    private const string OPERATION_PATTERN = '/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/D';
 
     /** @var list<string> The keys an entry may set. */
     private const array ENTRY_KEYS = ['max_age_seconds', 'proofs', 'multifactor', 'phishing_resistant'];
