@@ -143,9 +143,11 @@ final class JwtTokenService
      * part of its context: the identity and principal, the tenant when one is
      * given, and the session when one is given, must each have an identifier
      * that can be written into its claim (a saved model's scalar key), and a
-     * tenant given must be the principal's own. Refuses, too, a session that
-     * has ended or that has no idle deadline, and a non-human identity: a
-     * machine gets tokens only from a client credentials exchange.
+     * tenant given must be the principal's own (a principal whose tenant cannot
+     * be loaded throws the `TenantUnavailableException` its `getTenant()`
+     * does). Refuses, too, a session that has ended or that has no idle
+     * deadline, and a non-human identity: a machine gets tokens only from a
+     * client credentials exchange.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -157,6 +159,7 @@ final class JwtTokenService
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      */
     public function issueAccessToken(Identity $identity, Principal $principal, ?Tenant $tenant, ?Session $session, ?CarbonInterface $issuedAt = null): string
     {
@@ -171,11 +174,13 @@ final class JwtTokenService
      * the client (the identity) in `sub` with the subject type `machine`, no
      * session and no refresh, the key's id in `cid` and the granted scopes,
      * space-separated, in `scope` (`""` for none), and the tenant the
-     * exchange's admission loaded in `tenant_id`. The token lives the guard's
-     * access lifetime, never past `$notAfter` (the key's expiry); `$issuedAt`
-     * (default now, cut to the whole second) sets `iat`. Every other claim is
-     * an access token's, so the bearer path admits the identity and principal
-     * as it would any other, and then holds the token to its key.
+     * exchange's admission loaded in `tenant_id`, which must be the one the
+     * principal's `getTenant()` returns, by identifier, since a principal acts
+     * only within its own tenant. The token lives the guard's access lifetime,
+     * never past `$notAfter` (the key's expiry); `$issuedAt` (default now, cut
+     * to the whole second) sets `iat`. Every other claim is an access token's,
+     * so the bearer path admits the identity and principal as it would any
+     * other, and then holds the token to its key.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\MachineIdentity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -189,6 +194,7 @@ final class JwtTokenService
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      */
     public function issueClientAccessToken(
         MachineIdentity $identity,
@@ -338,6 +344,7 @@ final class JwtTokenService
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      */
     private function issueAccess(
         Identity $identity,

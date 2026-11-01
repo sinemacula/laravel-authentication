@@ -16,8 +16,9 @@ use Tests\Integration\Fixtures\TypedTenant;
 
 /**
  * Query-budget contracts for issuing an access token: issuing reads nothing,
- * not even the tenant a 3D principal acts within, and the bearer request the
- * token then authenticates pays only its own reads.
+ * not even the tenant a 3D principal acts within, unless the token names that
+ * tenant and the principal has not loaded it, and the bearer request the token
+ * then authenticates pays only its own reads.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -72,6 +73,29 @@ final class AccessTokenIssueQueryBudgetTest extends PerformanceContractTestCase
 
         self::assertNotSame('', $token);
         self::assertFalse($membership->relationLoaded('tenant'));
+    }
+
+    /**
+     * Issuing a token that names the principal's tenant checks it is the
+     * principal's own: through the relation the caller loaded the tenant with,
+     * at no read, or, with that relation unloaded, at the one read that loads
+     * it, and never a write.
+     *
+     * @return void
+     */
+    public function testIssuingWithTheTenantReadsItAtMostOnce(): void
+    {
+        [$identity, $membership] = $this->seedMembership();
+
+        $tenant = $membership->getTenant();
+
+        self::assertNotNull($tenant);
+        self::assertNotSame('', $this->assertQueryBudget(0, 0, fn (): string => $this->tokens()->issueAccessToken($identity, $membership, $tenant, null)));
+
+        $membership->unsetRelation('tenant');
+
+        self::assertNotSame('', $this->assertQueryBudget(1, 0, fn (): string => $this->tokens()->issueAccessToken($identity, $membership, $tenant, null)));
+        self::assertTrue($membership->relationLoaded('tenant'));
     }
 
     /**

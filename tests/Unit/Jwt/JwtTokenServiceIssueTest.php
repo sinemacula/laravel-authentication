@@ -7,8 +7,10 @@ namespace Tests\Unit\Jwt;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -125,6 +127,44 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $this->expectExceptionMessage('Cannot issue a token naming a tenant the principal does not act within');
 
         $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $principal, $this->mockTenant(9), null);
+    }
+
+    /**
+     * A principal whose tenant cannot be loaded cannot be shown to act within
+     * the tenant given, so no token is issued: the `TenantUnavailableException`
+     * its `getTenant()` throws reaches the caller as it is, for an access token
+     * and a client credentials token alike.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testIssuingLetsATenantThatCannotBeLoadedPropagate(): void
+    {
+        $unavailable = new TenantUnavailableException('The tenant cannot be loaded.');
+
+        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Principal $principal */
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('principal-3');
+        $principal->shouldReceive('getTenant')->andThrow($unavailable);
+
+        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\MachineIdentity $machine */
+        $machine = \Mockery::mock(MachineIdentity::class);
+        $machine->shouldReceive('getAuthIdentifier')->andReturn('client-4');
+
+        $issues = [
+            fn (): string => $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $principal, $this->mockTenant(9), null),
+            fn (): string => $this->makeService()->issueClientAccessToken($machine, $principal, $this->mockTenant(9), '0196a1d2-7c3e-7b8a-9f10-2a3b4c5d6e7f', []),
+        ];
+
+        foreach ($issues as $issue) {
+            try {
+                $issue();
+                self::fail('Expected the tenant that cannot be loaded to stop the token.');
+            } catch (TenantUnavailableException $exception) {
+                self::assertSame($unavailable, $exception);
+            }
+        }
     }
 
     /**

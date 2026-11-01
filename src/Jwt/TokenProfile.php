@@ -58,23 +58,20 @@ final class TokenProfile
      * identifier given, once it is known to be the one of the tenant the
      * principal acts within (its `getTenant()`, read on the write connection).
      * A principal acts only within its own tenant, so a token never names
-     * another.
+     * another. A principal whose tenant cannot be loaded throws the
+     * `TenantUnavailableException` its `getTenant()` does.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  string  $tenantId
      * @return string
      *
      * @throws \InvalidArgumentException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     * @throws \LogicException
      */
     public static function ownTenant(Principal $principal, string $tenantId): string
     {
-        $own = WriteConnection::during($principal, static fn (): ?Tenant => $principal->getTenant());
-
-        if (!IdentifierCoercion::matches($own?->getTenantIdentifier(), $tenantId)) {
-            throw new \InvalidArgumentException('Cannot issue a token naming a tenant the principal does not act within: pass the tenant its admission loaded.');
-        }
-
-        return $tenantId;
+        return self::matchingTenant(WriteConnection::during($principal, static fn (): ?Tenant => $principal->getTenant()), $tenantId);
     }
 
     /**
@@ -174,5 +171,24 @@ final class TokenProfile
         $tenant = $claims[Claims::TENANT_ID->value];
 
         return is_string($tenant) && $tenant !== '';
+    }
+
+    /**
+     * The tenant identifier given, once it is the identifier of the tenant the
+     * principal acts within (`null` for none, which no identifier matches).
+     *
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $own
+     * @param  string  $tenantId
+     * @return string
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function matchingTenant(?Tenant $own, string $tenantId): string
+    {
+        if (!IdentifierCoercion::matches($own?->getTenantIdentifier(), $tenantId)) {
+            throw new \InvalidArgumentException('Cannot issue a token naming a tenant the principal does not act within: pass the tenant its admission loaded.');
+        }
+
+        return $tenantId;
     }
 }

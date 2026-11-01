@@ -32,6 +32,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
@@ -700,6 +701,36 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         ActivatableTenant::query()->whereKey($tenant->getKey())->update(['is_active' => false]);
 
         self::assertNull($this->guardForRequest($request, 'members')->user());
+    }
+
+    /**
+     * A token for a membership names the membership's tenant when only the
+     * primary holds that tenant: the check that the tenant is the principal's
+     * own loads it from the writer, not the lagging replica, where it is
+     * missing and would read as a tenant that cannot be loaded.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testIssuanceFindsThePrincipalsTenantOnTheWriteConnection(): void
+    {
+        $tenant = new ActivatableTenant;
+        $tenant->forceFill(['name' => 'Tenant', 'is_active' => true])->save();
+
+        $member = new ActivatableTenantMember;
+        $member->forceFill(['email' => 'member@example.test', 'password' => 'hashed'])->save();
+
+        $membership = new ActivatableTenantMembership;
+        $membership->forceFill(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()])->save();
+
+        self::assertNull(ActivatableTenant::query()->find($tenant->getKey()));
+        self::assertFalse($membership->relationLoaded('tenant'));
+
+        $tokens = $this->authManager()->jwt('members');
+        $token  = $tokens->issueAccessToken($member, $membership, $tenant, null);
+
+        self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $tokens->parse($token)['tenant_id'] ?? null);
     }
 
     /**
