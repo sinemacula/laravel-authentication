@@ -184,12 +184,11 @@ final class TenantPolicyChangesTest extends TestCase
 
         $sessions = $this->sessions('members');
         $updates  = $this->countQueries('update');
-
-        $this->policy->asked = [];
+        $asked    = count($this->policy->asked);
 
         self::assertSame(0, $sessions->tenantPolicyChanged($tenant));
         self::assertCount(0, $updates);
-        self::assertCount(1, $this->policy->asked);
+        self::assertCount($asked + 1, $this->policy->asked);
         self::assertNull($this->rowOf($session->record->getKey())->getTenantPolicyVersion());
         self::assertNull($this->rowOf($session->record->getKey())->getRevokedAt());
     }

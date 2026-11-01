@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Integration\Sessions;
 
 use Carbon\CarbonImmutable;
+use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
@@ -55,7 +56,8 @@ final class TenantPolicyChangesTest extends TestCase
     private ScriptedTenantAuthenticationPolicy $policy;
 
     /**
-     * Freeze the clock, create the tables and bind the scripted policy.
+     * Freeze the clocks, the tokens' among them, create the tables and bind the
+     * scripted policy.
      *
      * @return void
      */
@@ -67,6 +69,8 @@ final class TenantPolicyChangesTest extends TestCase
         Carbon::setTestNow(CarbonImmutable::parse(self::NOW));
         CarbonImmutable::setTestNow(CarbonImmutable::parse(self::NOW));
 
+        JWT::$timestamp = CarbonImmutable::parse(self::NOW)->getTimestamp();
+
         $this->createSessionTables();
 
         $this->policy = new ScriptedTenantAuthenticationPolicy;
@@ -75,7 +79,7 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * Release the clock and drop the tables.
+     * Release the clocks and drop the tables.
      *
      * @return void
      */
@@ -86,6 +90,8 @@ final class TenantPolicyChangesTest extends TestCase
 
         Carbon::setTestNow();
         CarbonImmutable::setTestNow();
+
+        JWT::$timestamp = null;
 
         parent::tearDown();
     }
