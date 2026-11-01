@@ -24,7 +24,9 @@ use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
@@ -32,14 +34,21 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
+use SineMacula\Laravel\Authentication\Events\SessionActivated;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
+use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
+use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SessionSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -48,10 +57,15 @@ use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
+use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext;
+use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Sessions\RefusingApplicationAccess;
 use Tests\Fixtures\Tenancy\DescendantTenants;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
+use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\ChoosingMembership;
@@ -80,7 +94,7 @@ use Tests\TestCase;
 #[CoversClass(PrincipalSwitched::class)]
 final class SessionSwitchTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithProofs, InteractsWithSessions;
 
     /** @var string Guard over `ActivatableTenantMember`. */
     private const string GUARD = 'members';
@@ -1395,6 +1409,165 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
+     * A switch whose destination tenant requires connections the session was
+     * not established through is refused as `sso_required`, reported for the
+     * `switch` flow, and leaves the session as it was, acting in its current
+     * tenant with its tokens still good.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testADestinationRequiringItsOwnConnectionsRefusesTheSwitch(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $policy = $this->scriptPolicy([IdentifierCoercion::stringify($second->tenant_id) => new TenantRequirement('v1', connections: ['their-idp'])]);
+
+        $session = $this->signIn();
+        $row     = (array) DB::table('authentication_sessions')->sole();
+
+        $this->advance(5);
+
+        $asked   = count($policy->asked);
+        $refused = $this->assertSwitchFails(FailureReason::SSO_REQUIRED, $session, $second);
+
+        self::assertSame(IdentifierCoercion::stringify($second->getKey()), $refused->context->principalId);
+        self::assertSame(IdentifierCoercion::stringify($second->tenant_id), $refused->context->tenantId);
+        self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
+        self::assertCount($asked + 1, $policy->asked);
+
+        $this->bearer($session->tokens->accessToken)->assertOk();
+    }
+
+    /**
+     * A switch whose destination tenant asks for a further factor the session
+     * lacks returns the session to pending with the destination recorded,
+     * instead of re-issuing its pair: the result is pending with a credential,
+     * `SessionReturnedToPending` reports the `switch` flow, nothing reports a
+     * switch, the access token issued before is refused at once, and the
+     * refresh token is refused as `session_pending`, not as a replay. Once a
+     * further factor is satisfied, the session activates in the destination,
+     * acting as the target in its tenant, and reports `SessionActivated`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testADestinationAskingForAFactorReturnsTheSessionToPendingUntilItIsMet(): void
+    {
+        [, $second, $member] = $this->seedMemberships();
+
+        $this->scriptPolicy([IdentifierCoercion::stringify($second->tenant_id) => new TenantRequirement('v1', new Requirement(multifactor: new RequirementPart))]);
+
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        $session = $this->signIn();
+
+        $this->advance(5);
+
+        $this->recordEvents([SessionReturnedToPending::class, PrincipalSwitched::class, Authenticated::class]);
+
+        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($second));
+
+        self::assertTrue($result->isPending());
+        self::assertFalse($result->isSwitched());
+        self::assertFalse($result->isFailed());
+        self::assertNull($result->session);
+        self::assertNotNull($result->credential);
+        self::assertNotNull($result->pending);
+        self::assertSame([PendingRequirement::MFA], $result->pending->requires);
+        self::assertSame($second->getKey(), $result->pending->principal?->getPrincipalIdentifier());
+        self::assertSame([SessionReturnedToPending::class], $this->recordedClasses());
+        self::assertSame(AuthenticationFlow::SWITCH, $this->recordedEvent(SessionReturnedToPending::class)->flow);
+
+        $record = DB::table('authentication_sessions')->sole();
+
+        self::assertSame('pending', $record->status);
+        self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify($record->principal_id));
+        self::assertSame(IdentifierCoercion::stringify($second->tenant_id), $record->tenant_id);
+        self::assertNull($record->revoked_at);
+
+        $this->assertRefusedAs(FailureReason::SESSION_PENDING, $session->tokens->accessToken);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        self::assertSame(FailureReason::SESSION_PENDING, self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken)->reason);
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
+
+        $this->advance(1);
+
+        $this->recordEvents([SessionActivated::class]);
+
+        $active = $this->sessions(self::GUARD)->satisfy($result->credential, self::adapterProof($member, self::GUARD, $result->pending->id, Purpose::SIGN_IN));
+
+        self::assertTrue($active->isSignedIn());
+        self::assertNotNull($active->session);
+        self::assertSame($session->record->getKey(), $active->session->record->getKey());
+        self::assertSame(IdentifierCoercion::stringify($second->getKey()), $this->recordedEvent(SessionActivated::class)->context->principalId);
+        self::assertSame('active', DB::table('authentication_sessions')->value('status'));
+        self::assertSame('v1', DB::table('authentication_sessions')->value('tenant_policy_version'));
+
+        $this->bearer($active->session->tokens->accessToken)->assertOk()->assertJson(['principal' => $second->getKey()]);
+        $this->tenantOf($active->session->tokens->accessToken)->assertOk()->assertJson(['tenant' => IdentifierCoercion::stringify($second->tenant_id)]);
+        $this->assertRefusedAs(FailureReason::SESSION_TENANT_MISMATCH, $session->tokens->accessToken);
+    }
+
+    /**
+     * A switch whose destination's further factor the session already meets
+     * switches as one with no requirement, and records the version the policy
+     * answered; the requirement check is asked once.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testADestinationWhoseFactorTheSessionMeetsSwitchesAndRecordsTheVersion(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $this->scriptPolicy([IdentifierCoercion::stringify($second->tenant_id) => new TenantRequirement('v7', new Requirement(multifactor: new RequirementPart))]);
+
+        $session = $this->signIn();
+
+        $check = \Mockery::mock(RequirementCheck::class);
+        $check->shouldReceive('evaluate')->once()->andReturn(new RequirementEvaluation([]));
+
+        app()->instance(RequirementCheck::class, $check);
+
+        $this->advance(5);
+
+        self::assertSame($second->getKey(), $this->switched($session, $second)->principal->getPrincipalIdentifier());
+        self::assertSame('v7', DB::table('authentication_sessions')->value('tenant_policy_version'));
+    }
+
+    /**
+     * A tenant-only switch is held to the destination tenant's policy too: a
+     * tenant below the principal's own that requires connections refuses it,
+     * and the session stays in its own tenant.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATenantOnlySwitchIsHeldToTheDestinationsPolicy(): void
+    {
+        [, , , $own] = $this->seedMemberships();
+
+        $descendant = $this->below($own);
+
+        $this->scriptPolicy([IdentifierCoercion::stringify($descendant->getKey()) => new TenantRequirement(connections: [])]);
+
+        $session = $this->signIn();
+
+        $this->advance(5);
+
+        $this->assertTargetFails(FailureReason::SSO_REQUIRED, $session, SwitchTarget::tenant(TenantSelection::of($descendant->getKey())));
+
+        self::assertSame(IdentifierCoercion::stringify($own->getKey()), DB::table('authentication_sessions')->value('tenant_id'));
+    }
+
+    /**
      * Register the guards.
      *
      * @param  mixed  $app
@@ -1770,5 +1943,29 @@ final class SessionSwitchTest extends TestCase
         app()->instance(ApplicationAccess::class, new RefusingApplicationAccess(
             static fn (string $guard, Principal $principal): bool => IdentifierCoercion::matches($principal->getTenant()?->getTenantIdentifier(), $tenantId),
         ));
+    }
+
+    /**
+     * Bind a tenant authentication policy that answers each tenant with the
+     * requirement given for its identifier, and nothing for any other, and
+     * return it.
+     *
+     * @param  array<array-key, \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement>  $requirements
+     * @return \Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy
+     */
+    private function scriptPolicy(array $requirements): ScriptedTenantAuthenticationPolicy
+    {
+        $policy = new ScriptedTenantAuthenticationPolicy;
+
+        $policy->answer = static function (TenantPolicyContext $context) use ($requirements): TenantRequirement {
+
+            $tenantId = IdentifierCoercion::stringify($context->tenant->getTenantIdentifier()) ?? '';
+
+            return $requirements[$tenantId] ?? new TenantRequirement;
+        };
+
+        app()->instance(TenantAuthenticationPolicy::class, $policy);
+
+        return $policy;
     }
 }
