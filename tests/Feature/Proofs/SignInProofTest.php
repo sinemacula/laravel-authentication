@@ -146,14 +146,17 @@ final class SignInProofTest extends TestCase
      */
     public function testAPendingSignInReadsBackWhatItKept(): void
     {
-        $observed   = new ObservedProperties(true, false, null, true, null, KeyProtection::SOFTWARE);
+        $observed   = new ObservedProperties(true, false, false, true, true, KeyProtection::SOFTWARE);
         $factor     = new FirstFactor(\Mockery::mock(Identity::class), new Channel(ChannelKind::EMAIL, 'ada@example.test'), $observed, ['otp']);
         $at         = CarbonImmutable::parse('2026-04-06 12:00:00');
         $provenance = new Provenance('connection-7', 'tenant-3', $at->subMinute(), $at->addHours(8), 'v12');
         $kept       = self::kept(SignInProof::verified('email_code', $factor, $at), $provenance);
 
         self::assertSame(['email_code', ChannelKind::EMAIL, 'ada@example.test', ['otp']], [$kept->method, $kept->channel->kind, $kept->channel->reference, $kept->methods]);
-        self::assertEquals($observed, $kept->observed);
+        self::assertSame(
+            [true, false, false, true, true, KeyProtection::SOFTWARE],
+            [$kept->observed->userPresence, $kept->observed->userVerification, $kept->observed->backupEligible, $kept->observed->backupState, $kept->observed->phishingResistant, $kept->observed->keyProtection],
+        );
         self::assertSame($at->getTimestamp(), $kept->authenticatedAt->getTimestamp());
         self::assertSame(date_default_timezone_get(), $kept->authenticatedAt->getTimezone()->getName());
         self::assertNotNull($kept->provenance);
@@ -205,8 +208,8 @@ final class SignInProofTest extends TestCase
     }
 
     /**
-     * Anything else is a `LogicException`, never a first factor read as
-     * something it was not.
+     * Anything else is a `LogicException` that keeps what refused it as its
+     * cause, never a first factor read as something it was not.
      *
      * @param  mixed  $firstFactor
      * @param  mixed  $provenance
@@ -223,10 +226,14 @@ final class SignInProofTest extends TestCase
             'provenance'     => $provenance === null ? null : json_encode($provenance, JSON_THROW_ON_ERROR),
         ]);
 
-        $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage('A pending sign-in keeps a first factor or provenance the package cannot read.');
+        try {
+            SignInProof::kept($pending);
 
-        SignInProof::kept($pending);
+            self::fail('Expected the pending sign-in to fail closed.');
+        } catch (\LogicException $exception) {
+            self::assertSame('A pending sign-in keeps a first factor or provenance the package cannot read.', $exception->getMessage());
+            self::assertNotNull($exception->getPrevious());
+        }
     }
 
     /**
