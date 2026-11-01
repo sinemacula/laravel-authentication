@@ -131,14 +131,16 @@ final readonly class SessionEstablishment
     }
 
     /**
-     * Take the sign-in on from its selection to its session: check the client's
-     * proof of an existing session (for the principal selected, or any of the
-     * identity's when none is), ask the identity-level factor
-     * policy, and with a principal admit the tenant it is to be active in;
-     * then write the session active when nothing is outstanding, replacing the
-     * proven session, or pending otherwise. When the proven session changed
-     * before an active sign-in could replace it, the sign-in is judged again
-     * without it, factor policy included; it never retries the session.
+     * Take the sign-in on from its selection to its session: a deadline that
+     * passed since the selection fails as `session_expired`, before anything is
+     * written; then check the client's proof of an existing session (for the
+     * principal selected, or any of the identity's when none is), ask the
+     * identity-level factor policy, and with a principal admit the tenant it is
+     * to be active in; then write the session active when nothing is
+     * outstanding, replacing the proven session, or pending otherwise. When the
+     * proven session changed before an active sign-in could replace it, the
+     * sign-in is judged again without it, factor policy included; it never
+     * retries the session.
      *
      * @formatter:off
      *
@@ -170,11 +172,17 @@ final readonly class SessionEstablishment
     ): Refused|SignInResult {
         [$principal] = $selection;
 
+        $now = CarbonImmutable::now()->startOfSecond();
+
+        if ($context->hasPassedDeadline($now)) {
+            return new Refused(FailureReason::SESSION_EXPIRED, $identity, $principal);
+        }
+
         $proven = $context->refreshToken === null
             ? null
             : $this->proof->provenSessionOf($this->context->name(), $identity, $principal, $context->refreshToken);
 
-        return $this->establish($identity, $selection, $method, $identifierType, $context, $proof, $attemptWindows, $proven, CarbonImmutable::now()->startOfSecond());
+        return $this->establish($identity, $selection, $method, $identifierType, $context, $proof, $attemptWindows, $proven, $now);
     }
 
     /**

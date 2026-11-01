@@ -42,9 +42,11 @@ use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
+use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
+use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
@@ -599,6 +601,94 @@ final class SessionEstablishmentTest extends TestCase
         }
 
         self::assertSame(0, DB::table('authentication_sessions')->count());
+        self::assertSame([], $this->recordedClasses());
+    }
+
+    /**
+     * A deadline that passes between the selection and the session (a slow
+     * principal lookup or password rehash, say) refuses the sign-in as
+     * `session_expired` with the identity and principal, whether the session
+     * would start active or pending, before the proof is checked, the factor
+     * policy asked, or anything written or reported.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testADeadlinePassedSinceTheSelectionIsRefusedBeforeAnything(): void
+    {
+        $identity = $this->seedIdentity();
+        $guard    = $this->freshGuard();
+        $deadline = CarbonImmutable::now()->addSecond();
+
+        $this->recordEvents([SessionPending::class, SessionCreated::class, SignedIn::class]);
+
+        foreach ([false, true] as $factor) {
+
+            self::requireAFurtherFactor($factor);
+
+            CarbonImmutable::setTestNow($deadline->subSecond());
+
+            $selection = $this->establishment($guard)->select($identity, null, $this->context(notAfter: $deadline));
+
+            self::assertIsArray($selection);
+
+            CarbonImmutable::setTestNow($deadline);
+
+            $proof   = SignInProof::unattested('password', CarbonImmutable::now());
+            $refused = $this->establishment($guard)->proceed($identity, $selection, 'password', 'email', $this->context(notAfter: $deadline), $proof);
+
+            self::assertInstanceOf(Refused::class, $refused);
+            self::assertSame(FailureReason::SESSION_EXPIRED, $refused->reason);
+            self::assertSame($identity, $refused->identity);
+            self::assertSame($selection[0], $refused->principal);
+        }
+
+        self::assertSame(0, DB::table('authentication_sessions')->count());
+        self::assertSame([], $this->recordedClasses());
+    }
+
+    /**
+     * A sign-in naming a tenant its principal may not act in is refused as
+     * `tenant_ineligible`, with the principal and the session the client proved
+     * it holds, before the tenant's policy is asked or anything is written: the
+     * proven session stays live and nothing is reported.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATenantThePrincipalMayNotActInIsRefusedBeforeAnyWrite(): void
+    {
+        [$member, $membership] = $this->seedMember();
+
+        self::requireAFurtherFactor(false);
+
+        $policy       = $this->bindTenantPolicy(new TenantRequirement('v1'));
+        $establishing = $this->establishment($this->freshGuard('members'));
+        $proof        = SignInProof::unattested('password', CarbonImmutable::now());
+        $first        = self::outcome($establishing->proceed($member, [$membership, []], 'password', 'email', $this->context(), $proof))->session;
+
+        self::assertNotNull($first);
+
+        $elsewhere = ActivatableTenant::query()->create(['name' => 'Elsewhere', 'is_active' => true]);
+        $asked     = count($policy->asked);
+        $context   = SignInContext::fromRequest(app('request'), refreshToken: $first->tokens->refreshToken, tenant: TenantSelection::of($elsewhere->getKey()));
+
+        $this->recordEvents([SessionRevoked::class, SessionPending::class, SessionCreated::class, SignedIn::class]);
+
+        $refused = $establishing->proceed($member, [$membership, []], 'password', 'email', $context, $proof);
+
+        self::assertInstanceOf(Refused::class, $refused);
+        self::assertSame(FailureReason::TENANT_INELIGIBLE, $refused->reason);
+        self::assertSame($member, $refused->identity);
+        self::assertTrue($membership->is($refused->principal));
+        self::assertNull($refused->tenant);
+        self::assertInstanceOf(Session::class, $refused->session);
+        self::assertSame($first->record->getKey(), $refused->session->getKey());
+        self::assertCount($asked, $policy->asked);
+        self::assertSame(1, DB::table('authentication_sessions')->count());
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
         self::assertSame([], $this->recordedClasses());
     }
 
