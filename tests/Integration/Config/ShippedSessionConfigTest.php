@@ -7,6 +7,7 @@ namespace Tests\Integration\Config;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -16,8 +17,8 @@ use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\TestCase;
 
 /**
- * Integration tests for the last-use throttle in the shipped
- * `config/authentication.php`.
+ * Integration tests for the `session` block of the shipped
+ * `config/authentication.php`: the env vars it reads and the last-use throttle.
  *
  * Loads the shipped `session` block against a controlled environment, so a
  * renamed key or env var fails here rather than shipping silently: the listener
@@ -41,6 +42,7 @@ final class ShippedSessionConfigTest extends TestCase
         'AUTHENTICATION_SESSION_MODEL',
         'AUTHENTICATION_SESSION_TABLE',
         self::THROTTLE_ENV,
+        'AUTHENTICATION_SESSION_PRUNE_AFTER_DAYS',
     ];
 
     /** @var array<string, false|string> Ambient process-environment values of the session env vars, restored on teardown. */
@@ -137,6 +139,39 @@ final class ShippedSessionConfigTest extends TestCase
 
         self::assertIsString($stored);
         self::assertSame($lastUsedAt->getTimestamp() + 1, Carbon::parse($stored)->getTimestamp());
+    }
+
+    /**
+     * Rows of `[env var, value, key]`: an env var the shipped `session` block
+     * reads, a value for it, and the key it sets.
+     *
+     * @return iterable<string, array{0: string, 1: string, 2: string}>
+     */
+    public static function provideSessionEnvironment(): iterable
+    {
+        yield from [
+            'model'            => ['AUTHENTICATION_SESSION_MODEL', 'App\Models\CustomSession', 'model'],
+            'table'            => ['AUTHENTICATION_SESSION_TABLE', 'custom_sessions', 'table'],
+            'prune after days' => ['AUTHENTICATION_SESSION_PRUNE_AFTER_DAYS', '7', 'prune_after_days'],
+        ];
+    }
+
+    /**
+     * Each of the session block's other env vars sets its key.
+     *
+     * @param  string  $name
+     * @param  string  $value
+     * @param  string  $key
+     * @return void
+     */
+    #[DataProvider('provideSessionEnvironment')]
+    public function testShippedSessionBlockReadsTheEnvironment(string $name, string $value, string $key): void
+    {
+        self::assertNotSame($value, $this->shippedSessionConfig()[$key] ?? null);
+
+        putenv("{$name}={$value}");
+
+        self::assertSame($value, $this->shippedSessionConfig()[$key] ?? null);
     }
 
     /**

@@ -399,11 +399,13 @@ final class SessionWriterTest extends TestCase
     public static function provideChangesSinceTheProof(): iterable
     {
         yield from [
-            'rotated'           => [['refresh_key' => RefreshTokenHasher::hash('rotated')]],
-            'revoked'           => [['revoked_at' => '2026-04-06 12:30:00']],
-            'another owner'     => [['authenticatable_id' => '999']],
-            'another principal' => [['principal_id' => '999']],
-            'another guard'     => [['guard' => 'admin']],
+            'rotated'                => [['refresh_key' => RefreshTokenHasher::hash('rotated')]],
+            'revoked'                => [['revoked_at' => '2026-04-06 12:30:00']],
+            'another owner'          => [['authenticatable_id' => '999']],
+            'another owner type'     => [['authenticatable_type' => 'Other']],
+            'another principal'      => [['principal_id' => '999']],
+            'another principal type' => [['principal_type' => 'Other']],
+            'another guard'          => [['guard' => 'admin']],
         ];
     }
 

@@ -286,11 +286,22 @@ final class SessionTest extends TestCase
     }
 
     /**
+     * Asserts the model takes the `'authentication_sessions'` table when the
+     * session block has no `table` key at all.
+     *
+     * @return void
+     */
+    public function testTakesTheDefaultTableNameWhenTheKeyIsAbsent(): void
+    {
+        config()->set('authentication.session', ['model' => Session::class]);
+
+        self::assertFalse(config()->has('authentication.session.table'));
+        self::assertSame('authentication_sessions', (new Session)->getTable());
+    }
+
+    /**
      * Asserts the model falls back to `'authentication_sessions'` when the
-     * Config facade throws while reading `session.table`. We swap the bound
-     * config repository for a Mockery stub whose `string()` method raises so
-     * the constructor's catch branch is exercised. Pins the catch path in
-     * `Session::resolveConfiguredTable()`.
+     * Config facade throws while reading `session.table`.
      *
      * @return void
      *
