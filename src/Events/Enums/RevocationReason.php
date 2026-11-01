@@ -47,8 +47,8 @@ enum RevocationReason: string
     // `principalDeactivated()`
     case PRINCIPAL_DEACTIVATED = 'principal_deactivated';
 
-    // The tenant the session's principal acts within was deactivated:
-    // `tenantDeactivated()`
+    // The tenant was deactivated: a session acting as one of its principals, or
+    // acting in it: `tenantDeactivated()`
     case TENANT_DEACTIVATED = 'tenant_deactivated';
 
     // The authentication policy of the tenant the session is active in changed

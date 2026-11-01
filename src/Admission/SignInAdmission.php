@@ -21,9 +21,8 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * default unless the sign-in names one) is one it may act in and is active
  * (`TenantAdmission::select()`); that tenant is the session's active tenant.
  *
- * Shared by `attempt()` and the session service, so a password sign-in, a
- * sign-in started for an externally verified identity, and the completion of a
- * pending one are held to the same rules in the same order.
+ * It holds `attempt()` to these checks, as `PendingEvaluation` holds the
+ * session service's sign-ins.
  *
  * The application policy's identity-level answer (`admitIdentifier()`: with the
  * package's policy, an identifier the guard requires verified and is not) is

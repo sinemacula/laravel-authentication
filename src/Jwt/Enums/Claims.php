@@ -17,11 +17,12 @@ namespace SineMacula\Laravel\Authentication\Jwt\Enums;
  * access token names its subject in `sub` with its kind in `sub_type`, the
  * principal it acts as in `principal`, and, when it belongs to a session, the
  * session in `sid` with the time of the session's latest authentication in
- * `auth_time` and the methods it used in `amr`; `tenant_id` names the tenant
- * the principal acts within. A refresh token names its session in `sid`. An
- * access token a client credentials exchange issued carries the API key's id in
- * `cid` and the scopes it grants, space-separated, in `scope`. The token's type
- * is its JOSE header's `typ`, not a claim.
+ * `auth_time` and the methods it used in `amr`; `tenant_id` names the active
+ * tenant (for a session, the one it acts in; without one, the principal's own).
+ * A refresh token names its session in `sid`. An access token a client
+ * credentials exchange issued carries the API key's id in `cid` and the scopes
+ * it grants, space-separated, in `scope`. The token's type is its JOSE header's
+ * `typ`, not a claim.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

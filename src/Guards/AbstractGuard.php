@@ -360,9 +360,10 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      *
      * Previously bound state is cleared first so callers cannot inherit a stale
      * session from a prior login on the same instance. With a session, the
-     * active tenant is the one the session records (none when it no longer
-     * resolves or is inactive); without one, the principal's own. The events
-     * carry it and, with a session, the sign-in method the session records.
+     * active tenant is the one the session records; without one, the
+     * principal's own; either unchecked, as for `authenticateAs()` (see
+     * `tenant()`). The events carry it and, with a session, the sign-in method
+     * the session records.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal

@@ -397,24 +397,24 @@ Call the session service from your own flows when something about an identity's 
 affected sessions (pending ones included) as a bulk revocation, with its own reason, moves the scope's cutoff, and, for
 the four that end an identity's sessions, cancels its pending identifier changes:
 
-| Method                                             | Ends                                       | Reason                  |
-|----------------------------------------------------|--------------------------------------------|-------------------------|
-| `passwordChanged($identity, ?Session $except)`     | The identity's sessions, but `$except`     | `password_changed`      |
-| `passwordReset($identity)`                         | Every session of the identity              | `password_reset`        |
-| `factorRemoved($identity, ?Session $except)`       | The identity's sessions, but `$except`     | `factor_removed`        |
-| `identityDeactivated($identity)`                   | Every session of the identity              | `identity_deactivated`  |
-| `principalDeactivated($principal)`                 | Every session acting as the principal      | `principal_deactivated` |
-| `tenantDeactivated($tenant, iterable $principals)` | Every session acting as a listed principal | `tenant_deactivated`    |
+| Method                                             | Ends                                                        | Reason                  |
+|----------------------------------------------------|-------------------------------------------------------------|-------------------------|
+| `passwordChanged($identity, ?Session $except)`     | The identity's sessions, but `$except`                      | `password_changed`      |
+| `passwordReset($identity)`                         | Every session of the identity                               | `password_reset`        |
+| `factorRemoved($identity, ?Session $except)`       | The identity's sessions, but `$except`                      | `factor_removed`        |
+| `identityDeactivated($identity)`                   | Every session of the identity                               | `identity_deactivated`  |
+| `principalDeactivated($principal)`                 | Every session acting as the principal                       | `principal_deactivated` |
+| `tenantDeactivated($tenant, iterable $principals)` | Every session acting as a listed principal or in the tenant | `tenant_deactivated`    |
 
 Never call `passwordChanged()` for the automatic rehash of a password on sign-in: the password did not change. These
-methods end sessions and pending identifier changes only. A change or a reset set through
-`Auth::passwords()->set()` (see [Setting a password](passwords.md#setting-a-password)) calls them and also ends the
-other proofs that could take the account back without a session: the reset links and codes and the sign-in codes of the
-identity. A registration calls none of them and ends only the reset links and codes. A password your own flow saves
-another way leaves those proofs as they are. `factorRemoved()` is the seam a further-factor package calls when an
-identity removes a factor. Sessions record principals, not tenants, so `tenantDeactivated()` takes the tenant's
-principals from you: each must act within the tenant (read on the write connection from the principal as stored, so a
-`tenant` relation you loaded does not decide and Eloquent's strict mode does not stop the read), or an
+methods end sessions and pending identifier changes only. A change or a reset set through `Auth::passwords()->set()`
+(see [Setting a password](passwords.md#setting-a-password)) calls them and also ends the other proofs that could take
+the account back without a session: the reset links and codes and the sign-in codes of the identity. A registration
+calls none of them and ends only the reset links and codes. A password your own flow saves another way leaves those
+proofs as they are. `factorRemoved()` is the seam a further-factor package calls when an identity removes a factor. The
+tenant's principals are yours to list, so `tenantDeactivated()` takes them from you (it also ends every session acting
+in the tenant, whatever its principal): each must act within the tenant (read on the write connection from the principal
+as stored, so a `tenant` relation you loaded does not decide and Eloquent's strict mode does not stop the read), or an
 `InvalidArgumentException` is thrown before anything is written. A `CanBeActive` tenant already deleted or soft-deleted
 still works, since a principal whose `TenantUnavailableException` names that very tenant (its class and key, as
 `ActsAsPrincipal` reports it) acts within it, so restoring the tenant later revives no session; a tenant that does not
@@ -464,10 +464,10 @@ Membership::observe(RevokeSessionsOnDeactivation::class);
 - `RevokeSessionsOnDeactivation` observes a `CanBeActive` identity or principal model and answers an update that turns
   it from active to inactive with `identityDeactivated()` or `principalDeactivated()` (a 2D model is treated as the
   identity). It compares a copy holding the attributes from before the update with the model as it is now, so it suits
-  activity held in the model's own attributes (`ProvidesActiveState`); for activity derived from anything else, call
-  the method yourself. A tenant has no listener: sessions record principals, not tenants, so call
-  `tenantDeactivated()` with the tenant's principals. Registering the observer on a model that is neither an identity
-  nor a principal throws a `LogicException` when that model is deactivated.
+  activity held in the model's own attributes (`ProvidesActiveState`); for activity derived from anything else, call the
+  method yourself. A tenant has no listener: its principals are yours to list, so call `tenantDeactivated()` with them
+  (it also ends every session acting in the tenant). Registering the observer on a model that is neither an identity nor
+  a principal throws a `LogicException` when that model is deactivated.
 
 A password reset through Laravel's broker saves the new password through Eloquent before your code fires
 `PasswordReset`, so with both password listeners registered the observer revokes every session first, as
