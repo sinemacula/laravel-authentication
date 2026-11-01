@@ -213,6 +213,40 @@ final class BearerAuthenticationTest extends TestCase
     }
 
     /**
+     * A bearer request checks the tenant the session acts in without asking
+     * `TenantAccess`: access is decided at sign-in, on a switch and on refresh,
+     * never per request.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testABearerRequestNeverAsksTenantAccess(): void
+    {
+        [, , $own] = $this->seedMember();
+
+        $tree       = new DescendantTenants;
+        $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
+
+        $tree->place($descendant->getKey(), $own->getKey());
+
+        app()->instance(TenantAccess::class, $tree);
+        app()->instance(TenantResolver::class, $tree);
+
+        $context = new SignInContext(ClientContext::fromRequest(Request::create('/')), tenant: TenantSelection::of($descendant->getKey()));
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), $context)->session;
+
+        self::assertNotNull($session);
+
+        $access = \Mockery::mock(TenantAccess::class);
+        $access->shouldNotReceive('mayActIn');
+
+        app()->instance(TenantAccess::class, $access);
+
+        $this->bearer($session->tokens->accessToken, '/members/me')->assertOk();
+    }
+
+    /**
      * A request without a token attempts nothing and dispatches nothing.
      *
      * @return void
