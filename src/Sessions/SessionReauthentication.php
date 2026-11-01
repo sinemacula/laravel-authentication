@@ -54,10 +54,12 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
  * The locked row must still be the session that was verified, the same owner's
  * and started at the same second: a session model that reissues a key could
  * otherwise have put another session under it while the credential was checked,
- * which is `session_unknown`, reported for the session verified. The slots are
- * then given back, and `Reauthenticated` reports it once committed. A refusal
- * reports `AuthenticationFailed` (flow `reauthentication`) and is answered,
- * never thrown.
+ * which is `session_unknown`, reported for the session verified. A session of
+ * the same owner started in that same second is not told apart from it and
+ * takes the proof and the token, which that owner's own credential earned. The
+ * slots are then given back, and `Reauthenticated` reports it once committed. A
+ * refusal reports `AuthenticationFailed` (flow `reauthentication`) and is
+ * answered, never thrown.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
