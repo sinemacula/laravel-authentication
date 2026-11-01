@@ -13,6 +13,8 @@ use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchang
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsResult;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\BearerAuthentication;
+use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithMachineCredentials;
 
 /**
@@ -104,6 +106,31 @@ final class ClientCredentialsQueryBudgetTest extends PerformanceContractTestCase
         $mistaken = $this->assertQueryBudget(2, 2, static fn (): ClientCredentialsResult => PackageAuth::clientCredentials('m2m')->exchange($public, $wrong));
 
         self::assertSame($refused->toArray(), $mistaken->toArray());
+    }
+
+    /**
+     * A service account's exchange also costs its membership and the
+     * membership's tenant, each read once: the token's check that the tenant is
+     * the principal's own reads the tenant the admission loaded, not the
+     * database.
+     *
+     * @return void
+     */
+    public function testAServiceAccountsExchangeAlsoCostsItsMembershipAndTenant(): void
+    {
+        [$account, $membership, $tenant] = $this->seedAccount();
+
+        $issued = $this->apiKeys('m2m_accounts')->issue($account, $membership);
+        $public = $issued->summary->publicId;
+        $secret = substr($issued->key(), 20);
+
+        $this->startMachineRequest();
+
+        $granted = $this->assertQueryBudget(5, 1, static fn (): ClientCredentialsResult => PackageAuth::clientCredentials('m2m_accounts')->exchange($public, $secret));
+        $claims  = PackageAuth::manager()->jwt('m2m_accounts')->parse((string) $granted->accessToken);
+
+        self::assertTrue($granted->isGranted());
+        self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $claims[Claims::TENANT_ID->value] ?? null);
     }
 
     /**

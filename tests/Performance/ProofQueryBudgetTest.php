@@ -137,7 +137,8 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * The claims and freshness reads are one query each over a session with
-     * many step-ups, and each stays well within its ceiling.
+     * many step-ups, one a second after the sign-in, and each stays well within
+     * its ceiling.
      *
      * @return void
      *
@@ -148,14 +149,14 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
         $record = $this->signedIn()->record;
 
         foreach (range(1, self::MANY) as $index) {
-            self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now->copy()->subSeconds($index), ['otp'], new Evaluation(true, $index % 2 === 0));
+            self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now->copy()->addSeconds($index), ['otp'], new Evaluation(true, $index % 2 === 0));
         }
 
         $started = hrtime(true);
         $summary = $this->assertQueryBudget(1, 0, static fn (): AuthenticationSummary => AuthenticationClaims::forSession($record));
         $claims  = (hrtime(true) - $started) / 1e9;
 
-        $now         = $this->now->toImmutable();
+        $now         = $this->now->toImmutable()->addSeconds(self::MANY);
         $requirement = new FreshnessRequirement(900, [ProofKind::ADDITIONAL_FACTOR]);
 
         $started = hrtime(true);
@@ -163,7 +164,7 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
         $fresh   = (hrtime(true) - $started) / 1e9;
 
         self::assertSame(['pwd', 'otp', 'mfa'], $summary->methods);
-        self::assertNotNull($newest);
+        self::assertSame($now->getTimestamp(), $newest?->authenticatedAt->getTimestamp());
         self::assertLessThan(self::READ_CEILING_SECONDS, $claims);
         self::assertLessThan(self::READ_CEILING_SECONDS, $fresh);
     }
