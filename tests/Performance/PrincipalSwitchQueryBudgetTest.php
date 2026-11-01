@@ -148,10 +148,10 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * Choosing reads the pending choice, its identity, the chosen membership,
-     * its owner and its tenant, uses the choice up, writes the session, clears
-     * its key (one delete each from the proofs and the provenance), writes its
-     * first proof, reads the session's proofs, and gives each of the choice's
-     * three attempt slots back.
+     * its owner and its tenant, uses the choice up, writes the session, reads
+     * the proofs and the provenance left under its key (none, so nothing is
+     * deleted), writes its first proof, reads the session's proofs, and gives
+     * each of the choice's three attempt slots back.
      *
      * @return void
      *
@@ -163,7 +163,7 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
         $chosen = ChoosingMembership::query()->firstOrFail();
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(6, 8, static fn (): SignInResult => $sessions->choose($token, $chosen));
+        $result   = $this->assertQueryBudget(8, 6, static fn (): SignInResult => $sessions->choose($token, $chosen));
 
         self::assertTrue($result->isSignedIn());
     }
@@ -172,8 +172,9 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
      * Choosing the principal of the session the sign-in proved reads what a
      * choice reads and the proven session again on the write connection, uses
      * the choice up, revokes the proven session with one compare-and-swap,
-     * inserts the new session, clears its key (two deletes), inserts its first
-     * proof, reads its proofs, and gives the three slots back.
+     * inserts the new session, reads what was left under its key (two reads,
+     * which find nothing), inserts its first proof, reads its proofs, and gives
+     * the three slots back.
      *
      * @return void
      *
@@ -193,7 +194,7 @@ final class PrincipalSwitchQueryBudgetTest extends PerformanceContractTestCase
         self::assertNotNull($choice);
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(7, 9, static fn (): SignInResult => $sessions->choose($choice->token, $chosen));
+        $result   = $this->assertQueryBudget(9, 7, static fn (): SignInResult => $sessions->choose($choice->token, $chosen));
 
         self::assertNotSame($first->record->getKey(), $result->session?->record->getKey());
         self::assertSame('superseded', Session::query()->whereKey($first->record->getKey())->value('revoked_reason'));

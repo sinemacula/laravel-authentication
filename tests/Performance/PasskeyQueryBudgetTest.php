@@ -109,16 +109,16 @@ final class PasskeyQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A passkey sign-in reads the challenge, the passkey, the owner and the
-     * session's proofs once each; it writes the challenge's delete, the count,
-     * the session, the two deletes that clear its key and its first proof, and
-     * its limits (the IP and account counters taken on fresh windows and given
-     * back).
+     * session's proofs once each, and the proofs and the provenance left under
+     * the new key (none); it writes the challenge's delete, the count, the
+     * session and its first proof, and its limits (the IP and account counters
+     * taken on fresh windows and given back).
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAPasskeySignInReadsFourTimes(): void
+    public function testAPasskeySignInReadsSixTimes(): void
     {
         $this->registerPasskey($this->seedIdentity());
 
@@ -126,7 +126,7 @@ final class PasskeyQueryBudgetTest extends PerformanceContractTestCase
         $input    = ['challenge' => $options->challengeId, 'credential' => $this->authenticator()->get($options->options)];
         $sessions = $this->sessions();
 
-        self::assertTrue($this->assertQueryBudget(4, 12, static fn (): SignInResult => $sessions->signIn('passkey', $input))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(6, 10, static fn (): SignInResult => $sessions->signIn('passkey', $input))->isSignedIn());
     }
 
     /**

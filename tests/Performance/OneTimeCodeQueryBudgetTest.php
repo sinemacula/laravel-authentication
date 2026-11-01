@@ -135,9 +135,10 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A sign-in by code reads the identity, the code and the new session's
-     * proofs once each; it writes the sign-in and account reservations, the
-     * code's attempt and its use, the session, the two deletes that clear its
-     * key and its first proof, and gives the three slots back.
+     * proofs once each, and what an earlier session left under the new key in
+     * the proofs and the provenance (nothing, so nothing is deleted); it writes
+     * the sign-in and account reservations, the code's attempt and its use, the
+     * session and its first proof, and gives the three slots back.
      *
      * @return void
      *
@@ -153,7 +154,7 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
 
         $signIn = static fn (): SignInResult => $sessions->signIn('phone_code', ['phone' => self::PHONE, 'code' => self::CODE]);
 
-        self::assertTrue($this->assertQueryBudget(3, 15, $signIn)->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(5, 13, $signIn)->isSignedIn());
     }
 
     /**
@@ -179,7 +180,7 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
         $sessions = $this->sessions('mobile');
         $signIn   = static fn (): SignInResult => $sessions->signIn('email_code', ['email' => 'ada@example.test', 'code' => self::CODE]);
 
-        self::assertTrue($this->assertQueryBudget(3, 15, $signIn)->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(5, 13, $signIn)->isSignedIn());
     }
 
     /**

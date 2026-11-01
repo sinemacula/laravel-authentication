@@ -91,37 +91,39 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A sign-in on a new session reads the identity once, writes the session,
-     * deletes whatever proofs and provenance an earlier session left under its
-     * key (one delete each), writes its first proof, and reads its proofs once
-     * for the access token's `auth_time` and `amr`, besides the six reservation
-     * writes and three releases of its limits: binding it records no further
-     * use, since the session already records the sign-in as its last.
+     * looks for proofs and provenance an earlier session left under its key
+     * (one read each, which find none, so nothing is deleted), writes its first
+     * proof, and reads its proofs once for the access token's `auth_time` and
+     * `amr`, besides the six reservation writes and three releases of its
+     * limits: binding it records no further use, since the session already
+     * records the sign-in as its last.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testASignInOnANewSessionReadsTwiceAndWritesTheSessionAndItsProof(): void
+    public function testASignInOnANewSessionReadsFourTimesAndWritesTheSessionAndItsProof(): void
     {
         $this->seedIdentity();
 
         $sessions = $this->sessions();
 
-        self::assertTrue($this->assertQueryBudget(2, 13, static fn (): SignInResult => $sessions->signIn('password', self::credentials()))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(4, 11, static fn (): SignInResult => $sessions->signIn('password', self::credentials()))->isSignedIn());
     }
 
     /**
      * Replacing a proven session reads the identity and the session, writes one
-     * compare-and-swap that revokes it, one insert each of the new session and
-     * its first proof and the two deletes that clear the new session's key, and
-     * reads the new session's proofs once, besides reserving and releasing a
-     * slot on each of the three counters the first sign-in created.
+     * compare-and-swap that revokes it and one insert each of the new session
+     * and its first proof, and reads what was left under the new session's key
+     * (two reads, which find nothing) and its proofs once, besides reserving
+     * and releasing a slot on each of the three counters the first sign-in
+     * created.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testASignInOnAProvenSessionReadsThreeTimesAndWritesTheReplacement(): void
+    public function testASignInOnAProvenSessionReadsFiveTimesAndWritesTheReplacement(): void
     {
         $this->seedIdentity();
 
@@ -131,15 +133,15 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions();
         $context  = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken);
-        $again    = $this->assertQueryBudget(3, 11, static fn (): SignInResult => $sessions->signIn('password', self::credentials(), $context));
+        $again    = $this->assertQueryBudget(5, 9, static fn (): SignInResult => $sessions->signIn('password', self::credentials(), $context));
 
         self::assertNotSame($first->record->getKey(), $again->session?->record->getKey());
     }
 
     /**
      * Starting a session for an externally verified identity reloads it once,
-     * writes the session, clears its key with one delete each from the proofs
-     * and the provenance, writes its first proof, and reads its proofs once.
+     * writes the session, reads the proofs and the provenance left under its
+     * key (none), writes its first proof, and reads its proofs once.
      *
      * @return void
      *
@@ -150,7 +152,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $identity = $this->seedIdentity();
         $sessions = $this->sessions();
 
-        self::assertTrue($this->assertQueryBudget(2, 4, static fn (): SignInResult => $sessions->start($identity, null, 'sso'))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(4, 2, static fn (): SignInResult => $sessions->start($identity, null, 'sso'))->isSignedIn());
     }
 
     /**
@@ -167,7 +169,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $sessions   = $this->sessions();
         $provenance = new Provenance('connection-7', 'tenant-3');
 
-        self::assertTrue($this->assertQueryBudget(2, 5, static fn (): SignInResult => $sessions->start($identity, null, 'sso', null, $provenance))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(4, 3, static fn (): SignInResult => $sessions->start($identity, null, 'sso', null, $provenance))->isSignedIn());
     }
 
     /**
@@ -201,7 +203,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
             new ProofBinding($identity, 'api', $pending->id, Purpose::SIGN_IN),
         );
 
-        self::assertTrue($this->assertQueryBudget(3, 9, static fn (): SignInResult => $sessions->complete($pending->token, $proof))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(5, 7, static fn (): SignInResult => $sessions->complete($pending->token, $proof))->isSignedIn());
     }
 
     /**
@@ -209,8 +211,9 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
      * the pending sign-in once, besides its limits, whose slots it keeps (the
      * account's as well as the identifier's and the IP address's); looking that
      * up reads it and the identity; and completing it reads them, deletes it,
-     * writes the session, clears the session's key (two deletes), writes its
-     * first proof, reads the session's proofs and gives the three slots back.
+     * writes the session, reads what was left under the session's key (two
+     * reads, which find nothing), writes its first proof, reads the session's
+     * proofs and gives the three slots back.
      *
      * @return void
      *
@@ -233,16 +236,16 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions();
 
-        self::assertTrue($this->assertQueryBudget(3, 8, static fn (): SignInResult => $sessions->complete($pending->token))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(5, 6, static fn (): SignInResult => $sessions->complete($pending->token))->isSignedIn());
     }
 
     /**
      * Completing a pending sign-in that proved a session reads it and its
      * identity, reads the proven session again on the write connection, deletes
      * the pending sign-in, revokes the proven session with one
-     * compare-and-swap, inserts the new session, clears its key (two deletes),
-     * inserts its first proof, reads the new session's proofs and gives the
-     * three slots back.
+     * compare-and-swap, inserts the new session, reads what was left under its
+     * key (two reads, which find nothing), inserts its first proof, reads the
+     * new session's proofs and gives the three slots back.
      *
      * @return void
      *
@@ -264,7 +267,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         self::assertNotNull($pending);
 
         $sessions = $this->sessions();
-        $result   = $this->assertQueryBudget(4, 9, static fn (): SignInResult => $sessions->complete($pending->token));
+        $result   = $this->assertQueryBudget(6, 7, static fn (): SignInResult => $sessions->complete($pending->token));
 
         self::assertNotSame($first->record->getKey(), $result->session?->record->getKey());
         self::assertSame('superseded', Session::query()->whereKey($first->record->getKey())->value('revoked_reason'));

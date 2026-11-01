@@ -24,6 +24,9 @@ the token's claims and every freshness answer are worked out from them, never st
   counts for it. A sign-in deletes every proof and provenance recorded under its new session's key before it records
   its own (`ProofWriter::clear()`), so a key the database issues again (an integer key whose counter a truncation
   reset, after the sessions were deleted without their proofs) inherits nothing, the same identity's proofs included.
+  It finds them with a plain read on the write connection and deletes by their own keys only what it found: a delete
+  that matches nothing would lock the last gap of the proofs' and the provenance's indexes on MySQL, where every new
+  time-ordered key falls, and two sign-ins holding that lock while inserting their own proofs would deadlock.
 - Every read of proofs is on the write connection and bounded: the claims read one aggregate query grouped by kind,
   `amr` set and multifactor report (`SessionProofs::history()`), and freshness reads the newest proof a requirement
   takes with `LIMIT 1` on the session, kind and time index (`SessionProofs::newestMeeting()`), so a session with many
@@ -123,6 +126,8 @@ the token's claims and every freshness answer are worked out from them, never st
 - `tests/Integration/Sessions/ConcurrentSwitchAndRevocationTest.php`: a step-up and a revocation racing on the session's
   row lock.
 - `tests/Integration/Sessions/ReusedSessionKeyTest.php`: a key the database issues again inherits no proofs.
+- `tests/Integration/Sessions/ConcurrentFreshSignInsTest.php`: sign-ins of different identities neither wait on each
+  other nor deadlock while clearing their keys.
 - `tests/Integration/Proofs/ReplicaProofsTest.php`, `tests/Integration/Migration/ProofTablesSchemaTest.php`,
   `tests/Performance/ProofQueryBudgetTest.php`, `benchmarks/Proofs/ProofHistoryBench.php`.
 

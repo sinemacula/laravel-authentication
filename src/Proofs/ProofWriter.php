@@ -8,6 +8,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Models\SessionProvenance;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -113,6 +114,16 @@ final class ProofWriter
      * earlier session holding it left behind, which is bound to the same owner
      * and guard when the same identity signs in again.
      *
+     * The rows are found with a plain read on the write connection and deleted
+     * by their own keys only when there are any. A delete that matches nothing
+     * locks the gap its key would go in on MySQL (InnoDB at REPEATABLE READ),
+     * and a new session's key, time-ordered by default, falls in the last gap
+     * of the proofs' and the provenance's indexes, so two sign-ins that each
+     * held that lock and then inserted their own proof would deadlock. A plain
+     * read takes no lock, and a delete by the key of a row that exists locks
+     * only that row. Orphans under a new key were left by a session that ended
+     * before the key was issued again, so nothing writes them concurrently.
+     *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return void
      *
@@ -121,9 +132,17 @@ final class ProofWriter
     public static function clear(EloquentSession&Model $session): void
     {
         $sessionId = self::sessionId($session);
+        $proofs    = WriteConnection::query((new SessionProof)->newQuery()->where('session_id', $sessionId))->pluck('id')->all();
 
-        (new SessionProof)->newQuery()->where('session_id', $sessionId)->delete();
-        (new SessionProvenance)->newQuery()->where('session_id', $sessionId)->delete();
+        if ($proofs !== []) {
+            (new SessionProof)->newQuery()->whereKey($proofs)->delete();
+        }
+
+        if (!WriteConnection::query((new SessionProvenance)->newQuery()->whereKey($sessionId))->exists()) {
+            return;
+        }
+
+        (new SessionProvenance)->newQuery()->whereKey($sessionId)->delete();
     }
 
     /**
