@@ -84,7 +84,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
     private const string PACKAGE_ISSUER = 'package-default-issuer';
 
     /** @var string The package-wide audience. */
-    private const string PACKAGE_AUDIENCE = self::PACKAGE_AUDIENCE;
+    private const string PACKAGE_AUDIENCE = 'package-default-audience';
 
     /** @var string Secret material long enough for HS384 (48 bytes). */
     private const string HS384_SECRET = 'hs384-secret-material-with-at-least-48-bytes!!!!';
