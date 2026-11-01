@@ -52,7 +52,9 @@ the token's claims and every freshness answer are worked out from them, never st
   no earlier than the session started (`proof_invalid`), bound to the session's owner, this guard and the session's key
   (`proof_binding_mismatch`). A reauthentication runs an allowed, non-machine sign-in method under the `sign_in` limits
   and the credential timebox, and the identity it verifies must be the session's owner (`invalid_credentials`
-  otherwise); its proof is `first_factor_reauthentication`, made now.
+  otherwise); its proof is `first_factor_reauthentication`, made now. Its check on the locked row is that the row is
+  still the session verified, the same owner's and started at the same second, since a session model that reissues a
+  key could have put another session under it meanwhile (`session_unknown`, reported for the session verified).
 - Freshness is `Contracts\FreshnessPolicy`'s: a requirement per operation and application (proof kinds, maximum age of
   1 to 86400 seconds, multifactor, phishing resistance), the stricter of the configured one and the caller's, and the
   newest proof meeting it. The default, `Freshness\ConfiguredFreshness`, reads `authentication.freshness` and a guard's

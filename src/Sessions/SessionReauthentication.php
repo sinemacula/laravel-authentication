@@ -11,9 +11,11 @@ use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -48,10 +50,14 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
  * sign-in's are, for the session's own owner: another identity's credential is
  * `invalid_credentials`, never saying whose it was. A concealed reason is
  * answered as `invalid_credentials`. The proof is then recorded and the token
- * issued as `ProofIssuance` describes, the session locked and checked again;
- * the slots are then given back, and `Reauthenticated` reports it once
- * committed. A refusal reports `AuthenticationFailed` (flow `reauthentication`)
- * and is answered, never thrown.
+ * issued as `ProofIssuance` describes, the session locked and checked again.
+ * The locked row must still be the session that was verified, the same owner's
+ * and started at the same second: a session model that reissues a key could
+ * otherwise have put another session under it while the credential was checked,
+ * which is `session_unknown`, reported for the session verified. The slots are
+ * then given back, and `Reauthenticated` reports it once committed. A refusal
+ * reports `AuthenticationFailed` (flow `reauthentication`) and is answered,
+ * never thrown.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -108,11 +114,15 @@ final readonly class SessionReauthentication
 
         [$stored, $factor, $at, $attempt] = $outcome;
 
-        $proof  = new NewProof(ProofKind::FIRST_FACTOR_REAUTHENTICATION, Purpose::REAUTHENTICATE, $method, $factor->channel, null, $factor->observed, null, $factor->methods, $at);
-        $issued = $this->issuance->issue($stored->getSessionIdentifier(), $proof, static fn (): ?FailureReason => null);
+        $began   = self::signedInAt($stored);
+        $proof   = new NewProof(ProofKind::FIRST_FACTOR_REAUTHENTICATION, Purpose::REAUTHENTICATE, $method, $factor->channel, null, $factor->observed, null, $factor->methods, $at);
+        $accepts = static fn (EloquentSession&Model $locked): ?FailureReason => self::isSessionVerified($locked, $factor->identity, $began) ? null : FailureReason::SESSION_UNKNOWN;
+        $issued  = $this->issuance->issue($stored->getSessionIdentifier(), $proof, $accepts);
 
         if ($issued instanceof Refused) {
-            return $this->fail($issued, $method);
+            $refused = $issued->reason === FailureReason::SESSION_UNKNOWN ? new Refused(FailureReason::SESSION_UNKNOWN, session: $stored) : $issued;
+
+            return $this->fail($refused, $method);
         }
 
         [$admitted, $record, $token, $expires] = $issued;
@@ -209,6 +219,35 @@ final readonly class SessionReauthentication
         $timebox->returnEarly();
 
         return $verified;
+    }
+
+    /**
+     * Whether the locked row is still the session verified: the identity's, and
+     * started at the second the verified one started.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $locked
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?int  $began
+     * @return bool
+     *
+     * @throws \LogicException
+     */
+    private static function isSessionVerified(EloquentSession&Model $locked, Identity $identity, ?int $began): bool
+    {
+        return SessionOwnership::isOwner($locked, $identity) && self::signedInAt($locked) === $began;
+    }
+
+    /**
+     * When the session started, to the second, read on the write connection.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @return ?int
+     *
+     * @throws \LogicException
+     */
+    private static function signedInAt(EloquentSession&Model $session): ?int
+    {
+        return WriteConnection::during($session, static fn (): ?int => $session->getSignedInAt()?->getTimestamp());
     }
 
     /**

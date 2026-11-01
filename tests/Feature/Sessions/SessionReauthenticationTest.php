@@ -588,6 +588,47 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
+     * Another identity's session put under the verified session's key while the
+     * credential was checked, as a session model that reissues keys could, is
+     * not the session verified, even one started in the same second: the
+     * reauthentication is `session_unknown`, reported for the session verified,
+     * and nothing is recorded or issued.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnotherIdentitysSessionUnderTheKeyIsNotTheSessionVerified(): void
+    {
+        $signedIn = $this->signedIn();
+        $grace    = IdentifierCoercion::stringify($this->seedIdentity('grace@example.test')->getKey());
+
+        $result = $this->replacedDuringTheCheck($signedIn, ['authenticatable_id' => $grace, 'principal_id' => $grace]);
+
+        $this->assertNotTheSessionVerified($signedIn, $result);
+    }
+
+    /**
+     * A later session of the same identity put under the verified session's key
+     * while the credential was checked is not the session verified either: the
+     * reauthentication is `session_unknown`, and nothing is recorded or issued.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALaterSessionUnderTheKeyIsNotTheSessionVerified(): void
+    {
+        $signedIn = $this->signedIn();
+
+        $this->clockAt($this->now->addHour());
+
+        $result = $this->replacedDuringTheCheck($signedIn, ['signed_in_at' => $this->now->addHour()]);
+
+        $this->assertNotTheSessionVerified($signedIn, $result);
+    }
+
+    /**
      * Configure the session guards.
      *
      * @param  mixed  $app
@@ -619,6 +660,62 @@ final class SessionReauthenticationTest extends TestCase
         self::assertNotNull($session);
 
         return $session;
+    }
+
+    /**
+     * Reauthenticate the session with its owner's password, rewriting its row
+     * with the columns given once the credential is being checked, as if
+     * another session had been put under its key.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $signedIn
+     * @param  array<string, mixed>  $columns
+     * @return \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult
+     *
+     * @throws \Throwable
+     */
+    private function replacedDuringTheCheck(SignedInSession $signedIn, array $columns): AccessTokenResult
+    {
+        $replaced = false;
+
+        DB::listen(static function (QueryExecuted $query) use (&$replaced, $signedIn, $columns): void {
+            if ($replaced || !str_contains($query->sql, 'integration_identities')) {
+                return;
+            }
+
+            $replaced = true;
+
+            DB::table('authentication_sessions')->where('id', $signedIn->record->getKey())->update($columns);
+        });
+
+        $this->recordEvents([Reauthenticated::class, AuthenticationFailed::class]);
+
+        $result = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials());
+
+        self::assertTrue($replaced);
+
+        return $result;
+    }
+
+    /**
+     * Assert the reauthentication was refused as `session_unknown`, reported
+     * for the owner and key of the session verified, with nothing recorded or
+     * issued.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $signedIn
+     * @param  \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult  $result
+     * @return void
+     */
+    private function assertNotTheSessionVerified(SignedInSession $signedIn, AccessTokenResult $result): void
+    {
+        self::assertSame([FailureReason::SESSION_UNKNOWN, null, null], [$result->reason, $result->accessToken, $result->session]);
+        self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
+
+        $failure = $this->recordedEvent(AuthenticationFailed::class);
+
+        $verified = [IdentifierCoercion::stringify($signedIn->identity->getAuthIdentifier()), IdentifierCoercion::stringify($signedIn->record->getKey())];
+
+        self::assertSame([AuthenticationFlow::REAUTHENTICATION, ...$verified], [$failure->flow, $failure->context->identityId, $failure->context->sessionId]);
+        self::assertSame(0, SessionProof::query()->where('kind', 'first_factor_reauthentication')->count());
     }
 
     /**
