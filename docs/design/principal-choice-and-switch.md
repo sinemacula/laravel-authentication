@@ -70,7 +70,9 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   proofs and provenance (`TenantPolicyCheck::check()`, outside any transaction): connections the session was not
   established through refuse the switch (`sso_required`, nothing written); a further factor the session lacks returns it
   to pending with the destination recorded (`PendingTransitions::returnToPending()`, flow `switch`), a missed
-  compare-and-swap there judged as a missed switch swap is.
+  compare-and-swap there judged as a missed switch swap is. A return forgets a binding of the guard to the session
+  (`GuardBinding::forgetSession()`, no event), as a refresh's return does, so nothing later in the request acts in the
+  context it left.
 - The absolute deadline stays the session's, held to `signed_in_at` plus the guard's absolute lifetime
   (`session_expired` when that has passed), so a lifetime shortened or set since the sign-in applies and a switch never
   extends the session or lifts its deadline; a session with no absolute deadline under a guard with no absolute limit

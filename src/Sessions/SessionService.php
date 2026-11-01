@@ -446,9 +446,10 @@ final readonly class SessionService
      * destination whose tenant's authentication policy asks for a further
      * factor the session lacks returns the session to pending with the
      * destination recorded: the result carries the pending session and its
-     * credential, and binds nothing. A refused switch reports
-     * `AuthenticationFailed` (flow `switch`) and leaves the session as it was,
-     * unless the token proved a replay, which revokes the session.
+     * credential, binds nothing, and forgets a binding to that session. A
+     * refused switch reports `AuthenticationFailed` (flow `switch`) and leaves
+     * the session as it was, unless the token proved a replay, which revokes
+     * the session.
      *
      * @param  string  $refreshToken
      * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchTarget  $target
@@ -479,9 +480,14 @@ final readonly class SessionService
             return SwitchResult::failed($outcome->reason, $outcome->retryAfter);
         }
 
-        return $outcome instanceof ReturnedToPending
-            ? SwitchResult::pending($outcome->pending, $outcome->credential)
-            : $this->switched($outcome, $client);
+        if ($outcome instanceof ReturnedToPending) {
+
+            $this->binding->forgetSession($outcome->pending->session);
+
+            return SwitchResult::pending($outcome->pending, $outcome->credential);
+        }
+
+        return $this->switched($outcome, $client);
     }
 
     /**

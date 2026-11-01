@@ -1515,6 +1515,38 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
+     * A switch that returns the session to pending forgets a binding of the
+     * guard to that session in the same request, with no event, so nothing
+     * later in the request acts as the principal or in the tenant it left.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReturnToPendingForgetsTheGuardsBindingToThatSession(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $this->scriptPolicy([IdentifierCoercion::stringify($second->tenant_id) => new TenantRequirement('v1', new Requirement(multifactor: new RequirementPart))]);
+
+        $guard   = $this->freshGuard(self::GUARD);
+        $service = self::sessionsOf($guard);
+        $session = $service->signIn('password', self::credentials('member@example.test'))->session;
+
+        self::assertNotNull($session);
+        self::assertSame($session->record, $guard->session());
+
+        $this->advance(5);
+
+        self::assertTrue($service->switchTo($session->tokens->refreshToken, SwitchTarget::principal($second))->isPending());
+        self::assertFalse($guard->hasUser());
+        self::assertNull($guard->user());
+        self::assertNull($guard->principal());
+        self::assertNull($guard->session());
+        self::assertNull($guard->tenant());
+    }
+
+    /**
      * A switch whose destination's further factor the session already meets
      * switches as one with no requirement, and records the version the policy
      * answered; the requirement check is asked once.

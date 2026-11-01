@@ -251,9 +251,10 @@ Then the destination tenant's authentication policy judges the session, with the
 a policy that requires connections the session was not established through refuses the switch (`sso_required`) and
 leaves the session as it was, and one that asks for a further factor the session lacks returns the session to pending
 with the destination recorded, instead of re-issuing its pair. The result is then `isPending()`, carrying the pending
-session (`pending`) and its credential (`credential`, only ever in the response's body); the session's tokens are
-refused until the factor is given (see [Signing in](signing-in.md)), and it then activates as the destination. The
-identity-level additional-factor policy is not asked on a switch.
+session (`pending`) and its credential (`credential`, only ever in the response's body); a guard the request already
+bound to the session forgets it, with no event; the session's tokens are refused until the factor is given (see [Signing
+in](signing-in.md)), and it then activates as the destination. The identity-level additional-factor policy is not asked
+on a switch.
 
 With the current rotation id, the token's principal must be the one the session records (`session_principal_mismatch`).
 The switch keeps the session's absolute deadline, or its having none while the guard sets no limit, held to the guard's
@@ -543,11 +544,12 @@ binds its check). A session established through a connection carries it in its p
 `Provenance`). A session that meets the policy records the version of the answer in `tenant_policy_version`.
 
 A refresh that returns a session to pending hands out no pair: `RefreshResult::isPending()`, with `pending` (what it
-waits on, `["mfa"]`) and `credential`, and `SessionReturnedToPending` reports it. From then on the session's access
-tokens and its refresh token are refused (`session_pending`, never taken for a replay), until the factor is satisfied
-with `Auth::sessions()->satisfy($credential, $proof)` (see [Pending sessions](signing-in.md#pending-sessions)): the
-session activates again in place, same id and proofs, with a new pair, `SessionActivated` reports it, and every token
-issued before the return stays refused.
+waits on, `["mfa"]`) and `credential`, and `SessionReturnedToPending` reports it. A guard the request already bound to
+that session forgets it, with no event, as a switch's return does, so nothing later in the request acts in it. From then
+on the session's access tokens and its refresh token are refused (`session_pending`, never taken for a replay), until
+the factor is satisfied with `Auth::sessions()->satisfy($credential, $proof)` (see [Pending
+sessions](signing-in.md#pending-sessions)): the session activates again in place, same id and proofs, with a new pair,
+`SessionActivated` reports it, and every token issued before the return stays refused.
 
 When a tenant's policy changes, call the helper, which revokes the sessions that no longer meet it at once:
 

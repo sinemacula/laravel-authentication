@@ -115,4 +115,14 @@ interface GuardBinding
      * @return static
      */
     public function forgetUser(): static;
+
+    /**
+     * Forget the binding as `forgetUser()` does when it is bound to the
+     * session, without resolving the request: a flow that takes the session out
+     * of the active state calls it, so the request stops acting in it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @return void
+     */
+    public function forgetSession(Session $session): void;
 }

@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
 use Tests\Unit\Stubs\StubCredentialGuard;
+use Tests\Unit\Stubs\StubRequestResolvingGuard;
 
 /**
  * Feature tests proving every contextual accessor resolves the request on first
@@ -632,6 +633,51 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
         self::assertNull($guard->session());
         self::assertSame([], $this->contextsOf($events, SessionAuthenticated::class));
         self::assertNull($this->contextsOf($events, PrincipalAssigned::class)[0]->tenant);
+    }
+
+    /**
+     * `forgetSession()` resolves nothing and leaves a request not yet resolved
+     * alone; it leaves a binding to another session as it is, and forgets one
+     * to the session given, whichever instance names it, with no event, keeping
+     * the guard signed out for the rest of the request.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testForgetSessionForgetsOnlyABindingToThatSession(): void
+    {
+        $other  = $this->mockSession();
+        $same   = $this->mockSession();
+        $events = $this->recordEvents();
+        $guard  = new StubRequestResolvingGuard(self::GUARD_NAME, $this->provider, $this->resolver, $this->events, $this->request, $this->timebox);
+
+        $other->shouldReceive('getSessionIdentifier')->andReturn('session-2');
+
+        $guard->resolvable = $this->identity;
+
+        $guard->forgetSession($this->session);
+
+        self::assertSame(0, $guard->resolutions);
+        self::assertSame($this->identity, $guard->user());
+        self::assertSame(1, $guard->resolutions);
+
+        $guard->authenticateAs($this->identity, $this->principal, $this->session);
+        $guard->forgetSession($other);
+
+        self::assertSame($this->session, $guard->session());
+
+        $events->exchangeArray([]);
+
+        $guard->forgetSession($same);
+
+        self::assertSame([], $events->getArrayCopy());
+        self::assertNull($guard->user());
+        self::assertNull($guard->principal());
+        self::assertNull($guard->session());
+        self::assertNull($guard->tenant());
+        self::assertTrue($guard->guest());
+        self::assertSame(1, $guard->resolutions);
     }
 
     /**

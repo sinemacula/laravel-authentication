@@ -320,6 +320,41 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
+     * A refresh that returns a session to pending forgets a binding of the
+     * guard to that session in the same request, with no event, so nothing
+     * later in the request acts in it; a binding to another session is left as
+     * it is.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReturnToPendingForgetsOnlyTheGuardsBindingToThatSession(): void
+    {
+        $this->seedMember();
+
+        $guard   = $this->freshGuard('members');
+        $service = self::sessionsOf($guard);
+        $kept    = $service->signIn('password', self::credentials('member@example.test'))->session;
+
+        self::assertNotNull($kept);
+
+        $other = $this->signedIn();
+
+        $this->policy->requirement = new TenantRequirement('v2', new Requirement(new RequirementPart));
+
+        self::assertTrue($service->refresh($other->tokens->refreshToken)->isPending());
+        self::assertSame($kept->record, $guard->session());
+
+        self::assertTrue($service->refresh($kept->tokens->refreshToken)->isPending());
+        self::assertFalse($guard->hasUser());
+        self::assertNull($guard->user());
+        self::assertNull($guard->principal());
+        self::assertNull($guard->session());
+        self::assertNull($guard->tenant());
+    }
+
+    /**
      * A tenant that comes to require a connection the session was not
      * established through refuses its next refresh as `sso_required` and
      * revokes it (`tenant_policy_changed`), so it never refreshes again.

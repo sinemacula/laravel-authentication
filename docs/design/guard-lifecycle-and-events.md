@@ -72,7 +72,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `switchTo()` is no sign-in: it dispatches `PrincipalSwitched` once the switch commits on the session's connection,
   when it changed the principal or the tenant, and binds through `authenticateAs()` with the destination tenant
   (`Authenticated -> PrincipalAssigned -> SessionAuthenticated`, no `Validated` or `Login`); one whose destination asks
-  for a further factor binds nothing and emits `SessionReturnedToPending` (flow `switch`); a refusal emits only
+  for a further factor binds nothing, forgets a binding to that session (`forgetUser()`, no event), and emits
+  `SessionReturnedToPending` (flow `switch`), as a refresh's return to pending does; a refusal emits only
   `AuthenticationFailed` (flow `switch`), with `SessionRevoked` first for a replayed token.
 - Direct `login()` emits the same sequence without `Attempting`. This is the package's public entry point for
   out-of-band authentication such as refresh, OAuth, or SSO callbacks.

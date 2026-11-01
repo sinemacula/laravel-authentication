@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * Holds the identity -> principal -> session triple bound to a guard, with the
@@ -31,12 +32,14 @@ use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
  *
  * Expects the using class to hold the guard's `GuardContext` in
  * `$this->context`, whose name, dispatcher and request it reads, and to declare
- * `bindVerifiedContext()`, which `loginVerified()` binds through.
+ * `bindVerifiedContext()`, which `loginVerified()` binds through, and
+ * `forgetUser()`, which `forgetSession()` forgets through.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @phpstan-require-implements \SineMacula\Laravel\Authentication\Contracts\ContextualGuard
+ * @phpstan-require-implements \SineMacula\Laravel\Authentication\Contracts\GuardBinding
  *
  * @property \SineMacula\Laravel\Authentication\Runtime\GuardContext $context
  */
@@ -251,6 +254,24 @@ trait BindsContextualState
         $this->context->dispatch(new Validated($this->context->name(), $identity));
 
         $this->bindVerifiedContext($identity, $principal, $session, $tenant, $method, true);
+    }
+
+    /**
+     * Forget the identity, principal and session bound to the guard, as
+     * `forgetUser()` does, when the bound session is the one given; a binding
+     * to any other session, and a request not yet resolved, are left alone.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @return void
+     */
+    #[\Override]
+    public function forgetSession(Session $session): void
+    {
+        if ($this->session === null || !IdentifierCoercion::matches($this->session->getSessionIdentifier(), $session->getSessionIdentifier())) {
+            return;
+        }
+
+        $this->forgetUser();
     }
 
     /**
