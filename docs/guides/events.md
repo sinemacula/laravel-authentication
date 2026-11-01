@@ -76,8 +76,8 @@ final class AuthenticationAuditMapper implements EventMapper
     {
         $code = match ($event::class) {
             SignedIn::class             => 'authentication.signed_in',
-            SessionRevoked::class       => 'authentication.session_revoked',
-            AuthenticationFailed::class => 'authentication.failed',
+            SessionRevoked::class       => 'session.revoked',
+            AuthenticationFailed::class => 'authentication.sign_in_failed',
             default                     => null,
         };
 
@@ -99,7 +99,9 @@ final class AuthenticationAuditMapper implements EventMapper
 }
 ```
 
-A mapped event is recorded at once: the events that report a write are already dispatched after it commits.
+Codes follow the audit log's vocabulary: `authentication.` for signing in, `session.` for what happens to a session
+(`session.pending`, `session.returned_to_pending`, `session.activated`, `session.switched` for `PrincipalSwitched`). A
+mapped event is recorded at once: the events that report a write are already dispatched after it commits.
 
 The context holds the guard, the client of the request being served (IP address and user agent, cleaned as the session
 columns are), and as much as the event's flow established of the identity, the principal, the tenant it acts within, the
