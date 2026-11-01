@@ -58,6 +58,10 @@ return [
     | The shipped model opts in with the `PrunesSessions` trait, as a custom
     | model does.
     |
+    | `table` may be up to 47 characters: the migration names its indexes
+    | after it (`<table>_owner_index` and so on), and PostgreSQL cuts a longer
+    | index name short.
+    |
     */
 
     'session' => [

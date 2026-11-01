@@ -229,45 +229,27 @@ final class SessionsTableSchemaTest extends TestCase
      */
     public function testNamesIndexesAfterTheConfiguredTable(): void
     {
-        $names = [];
-
-        foreach (self::secondaryIndexes() as $index) {
-            $names[$index['name']] = implode(',', $index['columns']);
-        }
-
-        ksort($names);
-
-        self::assertSame([
-            self::TABLE . '_absolute_index'  => 'absolute_expires_at',
-            self::TABLE . '_guard_index'     => 'guard',
-            self::TABLE . '_idle_index'      => 'idle_expires_at',
-            self::TABLE . '_owner_index'     => 'authenticatable_type,authenticatable_id',
-            self::TABLE . '_principal_index' => 'principal_type,principal_id',
-            self::TABLE . '_revoked_index'   => 'revoked_at',
-        ], $names);
+        self::assertSame(self::indexNames(self::TABLE), self::secondaryIndexNames(self::TABLE));
     }
 
     /**
-     * A configured table name of 48 characters migrates on every engine: the
-     * longest index name it gives stays within MySQL's 64 characters, which
-     * Laravel's default name for the owner index already exceeds for the
-     * default table.
+     * A configured table name of 47 characters migrates on every engine with
+     * every index under its own full name: the longest stays within
+     * PostgreSQL's 63 characters, which would otherwise cut it short without an
+     * error, and so within MySQL's 64.
      *
      * @return void
      */
-    public function testMigratesATableNameOfFortyEightCharacters(): void
+    public function testMigratesATableNameOfFortySevenCharacters(): void
     {
-        $table = str_repeat('s', 48);
-
-        self::assertGreaterThan(64, strlen('authentication_sessions_authenticatable_type_authenticatable_id_index'));
+        $table = str_repeat('s', 47);
 
         config()->set('authentication.session.table', $table);
 
         try {
             \call_user_func([$this->loadMigration(), 'up']);
 
-            self::assertTrue(Schema::hasTable($table));
-            self::assertCount(6, array_filter(Schema::getIndexes($table), static fn (array $index): bool => !$index['primary']));
+            self::assertSame(self::indexNames($table), self::secondaryIndexNames($table));
         } finally {
             Schema::dropIfExists($table);
         }
@@ -302,14 +284,54 @@ final class SessionsTableSchemaTest extends TestCase
     /**
      * The indexes of the migrated table other than its primary key.
      *
+     * @param  string  $table
      * @return list<array{name: string, columns: list<string>, type: string, unique: bool, primary: bool}>
      */
-    private static function secondaryIndexes(): array
+    private static function secondaryIndexes(string $table = self::TABLE): array
     {
         return array_values(array_filter(
-            Schema::getIndexes(self::TABLE),
+            Schema::getIndexes($table),
             static fn (array $index): bool => !$index['primary'],
         ));
+    }
+
+    /**
+     * The columns of each index of the migrated table other than its primary
+     * key, by the index's name, sorted by name.
+     *
+     * @param  string  $table
+     * @return array<string, string>
+     */
+    private static function secondaryIndexNames(string $table): array
+    {
+        $names = [];
+
+        foreach (self::secondaryIndexes($table) as $index) {
+            $names[$index['name']] = implode(',', $index['columns']);
+        }
+
+        ksort($names);
+
+        return $names;
+    }
+
+    /**
+     * The columns of each index the migration declares for the table, by the
+     * index's name, sorted by name.
+     *
+     * @param  string  $table
+     * @return array<string, string>
+     */
+    private static function indexNames(string $table): array
+    {
+        return [
+            $table . '_absolute_index'  => 'absolute_expires_at',
+            $table . '_guard_index'     => 'guard',
+            $table . '_idle_index'      => 'idle_expires_at',
+            $table . '_owner_index'     => 'authenticatable_type,authenticatable_id',
+            $table . '_principal_index' => 'principal_type,principal_id',
+            $table . '_revoked_index'   => 'revoked_at',
+        ];
     }
 
     /**

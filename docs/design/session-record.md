@@ -29,7 +29,7 @@ gets a new session, so "the device" and "the record" are no longer one thing.
 - The table defaults to `authentication_sessions`, which keeps it clear of the `sessions` table of Laravel's database
   session driver, and its indexes are named `<table>_owner_index`, `_principal_index`, `_guard_index`, `_idle_index`,
   `_absolute_index` and `_revoked_index`. Laravel's default name for the owner index of the default table is 69
-  characters, over MySQL's 64; with these suffixes, a configured name of up to 48 characters fits.
+  characters, over MySQL's 64; with these suffixes, a configured name of up to 47 characters fits PostgreSQL's 63.
 - The access token still names its session in the `did` claim. Only the enum case says what it names
   (`Claims::SESSION_ID`); the claims change in an item of their own, and nothing here depends on the claim's name.
 - Every sign-in is a new session. What a client proves to have its previous session replaced (the device key, in the
@@ -39,8 +39,8 @@ gets a new session, so "the device" and "the record" are no longer one thing.
 - A replaced session is revoked with `RevocationReason::SUPERSEDED` (`superseded`), in the transaction that creates the
   new one.
 - `SignedInSession` and `SignedIn` carry no flag saying a session was created. Every sign-in creates one, so on
-  `SignedIn` the flag would always be `!$refresh`, and on `SignedInSession` it would only repeat which result carries it;
-  `SessionCreated` marks a creation.
+  `SignedIn` the flag would always be `!$refresh`, and on `SignedInSession` it would only repeat which result carries
+  it; `SessionCreated` marks a creation.
 
 ## Success Path
 
@@ -52,8 +52,9 @@ gets a new session, so "the device" and "the record" are no longer one thing.
 
 ## Failure / Edge Cases
 
-- A configured table name longer than 48 characters makes an index name longer than MySQL allows, and MySQL refuses it
-  when the migration runs. The migration does not check the name itself, as no package migration does.
+- A configured table name longer than 47 characters makes an index name longer than PostgreSQL allows, and PostgreSQL
+  cuts it short without an error, so the index is not under its documented name; past 48 MySQL refuses it when the
+  migration runs. The migration does not check the name itself, as no package migration does.
 - A refresh token that proves nothing (another identity's, another guard's or principal's, a revoked session's, a
   previous rotation id) replaces nothing: the sign-in creates a session and revokes none, and nothing is reported.
 - A proven session that changed before the replacement's compare-and-swap is not revoked; the sign-in is reconsidered
@@ -72,7 +73,7 @@ gets a new session, so "the device" and "the record" are no longer one thing.
 ## Authoritative Tests
 
 - `tests/Integration/Migration/SessionsTableSchemaTest.php`
-  `testNamesIndexesAfterTheConfiguredTable`, `testMigratesATableNameOfFortyEightCharacters`
+  `testNamesIndexesAfterTheConfiguredTable`, `testMigratesATableNameOfFortySevenCharacters`
 - `tests/Integration/Migration/SessionMigrationCollisionTest.php`
 - `tests/Unit/Jwt/Enums/ClaimsTest.php` `testEveryClaimKeepsItsWireName`
 - `tests/Unit/Contracts/ContractDeclarationTest.php` `testNoContractNamesAMethodAfterADevice`

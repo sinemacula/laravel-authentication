@@ -81,9 +81,10 @@ return new class extends Migration {
 
             $blueprint->datetimes(0);
 
-            // Named short, so a configured table name of up to 48 characters
-            // still fits MySQL's 64-character identifiers; Laravel's default
-            // name for the owner index alone would not fit the default table.
+            // Named short, so a configured table name of up to 47 characters
+            // gives index names within PostgreSQL's 63 characters (it cuts a
+            // longer one short without an error) and MySQL's 64; Laravel's
+            // default name for the owner index would not fit the default table.
             $blueprint->index(['authenticatable_type', 'authenticatable_id'], $table . '_owner_index');
             $blueprint->index(['principal_type', 'principal_id'], $table . '_principal_index');
             $blueprint->index('guard', $table . '_guard_index');

@@ -319,6 +319,9 @@ and how long a session that ended is kept before pruning:
 ],
 ```
 
+`table` may be up to 47 characters: the migration names its indexes after it (`<table>_owner_index` and so on), and a
+longer name gives index names that PostgreSQL cuts short without an error, or that MySQL refuses past 48.
+
 A session is one sign-in, on one application, on one device. The shipped migration creates these columns:
 
 | Column                                                 | Holds                                                  |
