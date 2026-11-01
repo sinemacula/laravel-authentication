@@ -905,7 +905,7 @@ final class EventSequenceTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testSigningOutEverywhereElseRevokesTheOtherDevices(): void
+    public function testSigningOutEverywhereElseRevokesTheOtherSessions(): void
     {
         $identity = $this->seedIdentity();
         $current  = $this->signedIn()->record;

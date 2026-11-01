@@ -339,7 +339,7 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
      *
      * @throws \Throwable
      */
-    public function testKeepingASessionlessSessionWritesNoCutoff(): void
+    public function testKeepingASessionlessTokenWritesNoCutoff(): void
     {
         $identity = $this->seedCutoffIdentity();
 

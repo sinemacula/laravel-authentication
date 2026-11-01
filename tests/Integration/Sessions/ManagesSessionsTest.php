@@ -104,7 +104,7 @@ final class ManagesSessionsTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testKeepingASessionlessSessionLeavesTheCutoff(): void
+    public function testKeepingASessionlessTokenLeavesTheCutoff(): void
     {
         $identity = $this->seedIdentity();
         $record   = $this->signIn($identity);
@@ -131,7 +131,7 @@ final class ManagesSessionsTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testSigningOutEverywhereEndsTheSessionlessSessionToo(): void
+    public function testSigningOutEverywhereEndsTheSessionlessTokenToo(): void
     {
         $identity = $this->seedIdentity();
         $current  = $this->tokens()->issueAccessToken($identity, $identity, null);
@@ -153,7 +153,7 @@ final class ManagesSessionsTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testKeepingASessionsSessionStillMovesTheCutoff(): void
+    public function testKeepingASessionStillMovesTheCutoff(): void
     {
         $identity    = $this->seedIdentity();
         $current     = $this->signIn($identity);

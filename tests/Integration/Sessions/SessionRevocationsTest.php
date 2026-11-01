@@ -90,7 +90,7 @@ final class SessionRevocationsTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testKeepingASessionlessSessionLeavesTheCutoff(): void
+    public function testKeepingASessionlessTokenLeavesTheCutoff(): void
     {
         $identity = $this->seedIdentity();
 
@@ -113,7 +113,7 @@ final class SessionRevocationsTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testKeepingASessionsSessionStillMovesTheCutoff(): void
+    public function testKeepingASessionStillMovesTheCutoff(): void
     {
         $identity = $this->seedIdentity();
         $guard    = $this->bearing($this->signIn($identity));
@@ -134,7 +134,7 @@ final class SessionRevocationsTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testNotKeepingASessionlessSessionMovesTheCutoff(): void
+    public function testNotKeepingASessionlessTokenMovesTheCutoff(): void
     {
         $identity = $this->seedIdentity();
         $guard    = $this->bearing($this->tokens()->issueAccessToken($identity, $identity, null));
