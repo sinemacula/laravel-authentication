@@ -63,6 +63,6 @@ trait InteractsWithJwtTokens
         $principal->shouldReceive('getPrincipalIdentifier')->andReturn('pid-1');
         $principal->shouldReceive('getTenant')->andReturn(null);
 
-        return $service->issueAccessToken($identity, $principal, null, null);
+        return $service->issueAccessToken($identity, $principal, null, null)->reveal();
     }
 }

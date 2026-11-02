@@ -100,7 +100,7 @@ final class SendIdentifierChangeCode implements ShouldBeEncrypted, ShouldQueue
             $this->binding->purpose,
             $this->binding->type,
             $this->binding->identifier,
-            $this->issued->code,
+            $this->issued->secret(),
             $this->issued->expiresAt,
             $recipient,
         ));

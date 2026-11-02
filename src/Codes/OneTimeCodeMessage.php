@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\Codes;
 use Carbon\CarbonImmutable;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
  * A one-time code to deliver: what `OneTimeCodeSender::send()` is given.
@@ -16,7 +17,8 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
  * the one the code is bound to: the recipient's own identifier of the type,
  * except for a `change_identifier` code, which goes to the new identifier the
  * identity does not hold yet. The identity is the recipient the job resolved.
- * The code is in clear, so the message must not be logged.
+ * The code is a `Secret`: reveal it only into the message to the recipient, and
+ * never log it.
  *
  * @api
  *
@@ -32,7 +34,7 @@ final readonly class OneTimeCodeMessage
      * @param  \SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose  $purpose
      * @param  string  $type
      * @param  string  $identifier
-     * @param  string  $code
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret  $code
      * @param  \Carbon\CarbonImmutable  $expiresAt
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      */
@@ -50,8 +52,8 @@ final readonly class OneTimeCodeMessage
         /** Destination, in its normal form: the recipient's own identifier of the type, or the new one a change would set. */
         #[\SensitiveParameter] public string $identifier,
 
-        /** The code, in clear. */
-        #[\SensitiveParameter] public string $code,
+        /** The code. */
+        public Secret $code,
 
         /** When the code stops working. */
         public CarbonImmutable $expiresAt,

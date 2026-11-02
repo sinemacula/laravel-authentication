@@ -293,7 +293,7 @@ final class ManagerServicesRequestsTest extends TestCase
 
             return [
                 'principal' => $session?->principal->getPrincipalIdentifier(),
-                'refresh'   => $session?->tokens->refreshToken,
+                'refresh'   => $session?->tokens->refreshToken->reveal(),
             ];
         });
 
@@ -302,7 +302,7 @@ final class ManagerServicesRequestsTest extends TestCase
             $this->recordInThisRequest(self::LIFECYCLE);
             $session = $sessions->refresh(request()->string('refresh')->value())->session;
 
-            return ['refresh' => $session?->tokens->refreshToken];
+            return ['refresh' => $session?->tokens->refreshToken->reveal()];
         });
 
         Route::post('/members/switch', function (): array {
@@ -313,7 +313,7 @@ final class ManagerServicesRequestsTest extends TestCase
 
             return [
                 'principal' => $result->session?->principal->getPrincipalIdentifier(),
-                'access'    => $result->session?->tokens->accessToken,
+                'access'    => $result->session?->tokens->accessToken->reveal(),
             ];
         });
 
@@ -336,7 +336,7 @@ final class ManagerServicesRequestsTest extends TestCase
             }
 
             $minutes = Auth::jwt('api')->lifetimes()->accessTtlMinutes;
-            $access  = Auth::sessions('api')->signIn('password', request()->only('email', 'password'))->session?->tokens->accessToken;
+            $access  = Auth::sessions('api')->signIn('password', request()->only('email', 'password'))->session?->tokens->accessToken->reveal();
             $claims  = $access === null ? null : Auth::jwt('api')->parse($access);
 
             self::assertIsArray($claims);

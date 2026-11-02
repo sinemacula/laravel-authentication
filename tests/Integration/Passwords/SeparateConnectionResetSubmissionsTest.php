@@ -156,7 +156,7 @@ final class SeparateConnectionResetSubmissionsTest extends TestCase
         self::assertInstanceOf(IssuedCode::class, $issued);
 
         try {
-            Auth::passwords('api')->reset(['email' => 'ada@example.test', 'token' => $issued->code, 'password' => 'a brand new passphrase']);
+            Auth::passwords('api')->reset(['email' => 'ada@example.test', 'token' => $issued->code(), 'password' => 'a brand new passphrase']);
             self::fail('A reset spanning two connections was made.');
         } catch (\LogicException $exception) {
             self::assertSame(self::REFUSAL, $exception->getMessage());

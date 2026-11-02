@@ -117,7 +117,7 @@ final class PendingTransitionsTest extends TestCase
         self::assertSame('v3', $session->getTenantPolicyVersion());
         self::assertFalse($session->isDirty());
 
-        [$key, $secret] = explode('.', $returned->credential, 2);
+        [$key, $secret] = explode('.', $returned->credential->reveal(), 2);
 
         self::assertSame(IdentifierCoercion::stringify($session->getKey()), $key);
 

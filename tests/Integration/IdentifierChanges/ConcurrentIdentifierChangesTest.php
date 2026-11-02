@@ -201,7 +201,7 @@ final class ConcurrentIdentifierChangesTest extends TestCase
      */
     private function requestByLink(ChangeableIdentity $identity, string $email): string
     {
-        $link = $this->changes()->requestByLink($identity, 'email', $email, self::freshSession($identity), 'email.confirm')->link();
+        $link = $this->changes()->requestByLink($identity, 'email', $email, self::freshSession($identity), 'email.confirm')->link()?->reveal();
 
         self::assertIsString($link);
 

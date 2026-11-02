@@ -168,7 +168,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $jwt = PackageAuth::jwt(self::GUARD);
         self::assertNotNull($jwt);
 
-        $token = $jwt->issueRefreshToken($session, $rotationId, $identity);
+        $token = $jwt->issueRefreshToken($session, $rotationId, $identity)->reveal();
         $guard = $this->freshJwtGuard(self::GUARD);
 
         $result = $this->assertQueryBudget(4, 1, static fn () => GuardSessions::of($guard)->refresh($token)->session?->tokens);
@@ -201,7 +201,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $jwt = PackageAuth::jwt(self::GUARD);
         self::assertNotNull($jwt);
 
-        app()->instance('request', Request::create('/auth/refresh', 'POST', ['refresh_token' => $jwt->issueRefreshToken($session, $rotationId, $identity)]));
+        app()->instance('request', Request::create('/auth/refresh', 'POST', ['refresh_token' => $jwt->issueRefreshToken($session, $rotationId, $identity)->reveal()]));
 
         $guard = $this->freshJwtGuard(self::GUARD);
 
@@ -233,7 +233,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $jwt = PackageAuth::jwt(self::COOKIE_GUARD);
         self::assertNotNull($jwt);
 
-        app()->instance('request', self::cookieRequest($jwt->issueRefreshToken($session, $rotationId, $identity), 'http://localhost'));
+        app()->instance('request', self::cookieRequest($jwt->issueRefreshToken($session, $rotationId, $identity)->reveal(), 'http://localhost'));
 
         $guard = $this->freshJwtGuard(self::COOKIE_GUARD);
 
@@ -290,7 +290,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $jwt = PackageAuth::jwt(self::GUARD);
         self::assertNotNull($jwt);
 
-        $token = $jwt->issueRefreshToken($missingSession, 'missing-session-rotation');
+        $token = $jwt->issueRefreshToken($missingSession, 'missing-session-rotation')->reveal();
 
         $guard = $this->freshJwtGuard(self::GUARD);
 
@@ -316,7 +316,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $jwt = PackageAuth::jwt(self::GUARD);
         self::assertNotNull($jwt);
 
-        $token = $jwt->issueRefreshToken($malformedSession, 'malformed-session-rotation');
+        $token = $jwt->issueRefreshToken($malformedSession, 'malformed-session-rotation')->reveal();
 
         $guard = $this->freshJwtGuard(self::GUARD);
 
@@ -339,7 +339,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $identity = $this->seedIdentity();
         $session  = $this->seedSession($identity, ['refresh_key' => RefreshTokenHasher::hash('stored-rotation-id')]);
 
-        $token = $this->tokens()->issueRefreshToken($session, 'replayed-rotation-id');
+        $token = $this->tokens()->issueRefreshToken($session, 'replayed-rotation-id')->reveal();
         $guard = $this->freshJwtGuard(self::GUARD);
 
         self::assertNull($this->assertQueryBudget(2, 5, static fn () => GuardSessions::of($guard)->refresh($token))->session);
@@ -365,7 +365,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
             'last_used_at'         => $this->now,
         ]);
 
-        $token = $this->tokens()->issueRefreshToken($session, 'previous-rotation-id', $identity);
+        $token = $this->tokens()->issueRefreshToken($session, 'previous-rotation-id', $identity)->reveal();
         $guard = $this->freshJwtGuard(self::GUARD);
 
         self::assertNotNull($this->assertQueryBudget(4, 0, static fn () => GuardSessions::of($guard)->refresh($token))->session);
@@ -389,7 +389,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
             'last_used_at' => $this->now,
         ]);
 
-        $token = $this->tokens()->issueRefreshToken($session, 'raced-rotation-id', $identity);
+        $token = $this->tokens()->issueRefreshToken($session, 'raced-rotation-id', $identity)->reveal();
         $guard = $this->freshJwtGuard(self::GUARD);
         $ran   = false;
 
@@ -428,7 +428,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $identity = $this->seedIdentity();
         $session  = $this->seedSession($identity, ['refresh_key' => null]);
 
-        $token  = $this->tokens()->issueRefreshToken($session, 'any-rotation-id');
+        $token  = $this->tokens()->issueRefreshToken($session, 'any-rotation-id')->reveal();
         $guard  = $this->freshJwtGuard(self::GUARD);
         $events = $this->recordRefreshEvents();
 
@@ -455,7 +455,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
             'revoked_reason'       => 'rotation_reuse',
         ]);
 
-        $token  = $this->tokens()->issueRefreshToken($session, 'replayed-rotation-id', $identity);
+        $token  = $this->tokens()->issueRefreshToken($session, 'replayed-rotation-id', $identity)->reveal();
         $guard  = $this->freshJwtGuard(self::GUARD);
         $events = $this->recordRefreshEvents();
 
@@ -524,7 +524,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $jwt = PackageAuth::jwt(self::GUARD);
         self::assertNotNull($jwt);
 
-        $token = $jwt->issueRefreshToken($session, $rotationId, $identity);
+        $token = $jwt->issueRefreshToken($session, $rotationId, $identity)->reveal();
 
         $session->forceFill(['idle_expires_at' => $this->now])->save();
 
@@ -547,7 +547,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     public function testGuardMismatchRefreshFailureStopsAtTheSessionLookup(): void
     {
         $session = $this->seedSession($this->seedIdentity(), ['guard' => 'other', 'refresh_key' => RefreshTokenHasher::hash('other-guard-rotation-id')]);
-        $token   = $this->tokens()->issueRefreshToken($session, 'other-guard-rotation-id');
+        $token   = $this->tokens()->issueRefreshToken($session, 'other-guard-rotation-id')->reveal();
         $guard   = $this->freshJwtGuard(self::GUARD);
         $events  = $this->recordRefreshEvents();
 
@@ -567,7 +567,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     {
         $identity = $this->seedIdentity();
         $session  = $this->seedSession($identity, ['sign_in_method' => 'sso', 'refresh_key' => RefreshTokenHasher::hash('sso-rotation-id')]);
-        $token    = $this->tokens()->issueRefreshToken($session, 'sso-rotation-id', $identity);
+        $token    = $this->tokens()->issueRefreshToken($session, 'sso-rotation-id', $identity)->reveal();
         $guard    = $this->freshJwtGuard(self::GUARD);
         $events   = $this->recordRefreshEvents();
 
@@ -587,7 +587,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     {
         $identity = $this->seedIdentity();
         $session  = $this->seedSession($identity, ['refresh_key' => RefreshTokenHasher::hash('ineligible-rotation-id')]);
-        $token    = $this->tokens()->issueRefreshToken($session, 'ineligible-rotation-id', $identity);
+        $token    = $this->tokens()->issueRefreshToken($session, 'ineligible-rotation-id', $identity)->reveal();
 
         app()->instance(ApplicationAccess::class, new RefusingApplicationAccess(static fn (): bool => true));
 
@@ -610,7 +610,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     public function testRateLimitedRefreshIsRefusedFromTheLimitsAlone(): void
     {
         $session = $this->seedSession($this->seedIdentity(), ['refresh_key' => RefreshTokenHasher::hash('limited-rotation-id')]);
-        $token   = $this->tokens()->issueRefreshToken($session, 'limited-rotation-id');
+        $token   = $this->tokens()->issueRefreshToken($session, 'limited-rotation-id')->reveal();
 
         $limits = ['refresh' => ['per_identifier' => ['max' => 1, 'decay_seconds' => 60], 'per_ip' => null]];
 
@@ -656,7 +656,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $jwt = PackageAuth::jwt(self::TENANT_AWARE_GUARD);
         self::assertNotNull($jwt);
 
-        $token = $jwt->issueRefreshToken($session, $rotationId, $principal);
+        $token = $jwt->issueRefreshToken($session, $rotationId, $principal)->reveal();
         $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
 
         $result = $this->assertQueryBudget(5, 1, static function () use ($guard, $token): ?TokenPair {
@@ -696,7 +696,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $jwt = PackageAuth::jwt(self::TENANT_AWARE_GUARD);
         self::assertNotNull($jwt);
 
-        $token = $jwt->issueRefreshToken($session, $rotationId, $secondaryPrincipal);
+        $token = $jwt->issueRefreshToken($session, $rotationId, $secondaryPrincipal)->reveal();
         $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
 
         $result = $this->assertQueryBudget(5, 1, static function () use ($guard, $token): ?TokenPair {
@@ -759,7 +759,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $jwt = PackageAuth::jwt(self::TENANT_AWARE_GUARD);
         self::assertNotNull($jwt);
 
-        $token  = $jwt->issueRefreshToken($session, $rotationId, $principal);
+        $token  = $jwt->issueRefreshToken($session, $rotationId, $principal)->reveal();
         $guard  = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
         $result = $this->assertQueryBudget(5, $writes, static fn (): RefreshResult => GuardSessions::of($guard)->refresh($token));
 
@@ -796,7 +796,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $jwt = PackageAuth::jwt(self::TENANT_AWARE_GUARD);
         self::assertNotNull($jwt);
 
-        $token = $jwt->issueRefreshToken($session, $rotationId, $principal);
+        $token = $jwt->issueRefreshToken($session, $rotationId, $principal)->reveal();
         $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
 
         $result = $this->assertQueryBudget(4, 4, static function () use ($guard, $token): ?TokenPair {
@@ -1057,6 +1057,6 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
             default => ['refresh_key' => RefreshTokenHasher::hash('another-rotation-id')],
         });
 
-        return $this->tokens()->issueRefreshToken($session, $rotationId, $identity);
+        return $this->tokens()->issueRefreshToken($session, $rotationId, $identity)->reveal();
     }
 }

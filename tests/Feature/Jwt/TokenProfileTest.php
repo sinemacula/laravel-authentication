@@ -108,11 +108,11 @@ final class TokenProfileTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $session  = $this->signedIn();
-        $access   = $this->claims($session->tokens->accessToken, TokenType::ACCESS);
-        $refresh  = $this->claims($session->tokens->refreshToken, TokenType::REFRESH);
+        $access   = $this->claims($session->tokens->accessToken->reveal(), TokenType::ACCESS);
+        $refresh  = $this->claims($session->tokens->refreshToken->reveal(), TokenType::REFRESH);
 
-        self::assertSame('at+jwt', $this->jwtHeader($session->tokens->accessToken)['typ'] ?? null);
-        self::assertSame('refresh+jwt', $this->jwtHeader($session->tokens->refreshToken)['typ'] ?? null);
+        self::assertSame('at+jwt', $this->jwtHeader($session->tokens->accessToken->reveal())['typ'] ?? null);
+        self::assertSame('refresh+jwt', $this->jwtHeader($session->tokens->refreshToken->reveal())['typ'] ?? null);
 
         self::assertSame([self::JWT_ISSUER, self::JWT_AUDIENCE, 'api'], [$access['iss'], $access['aud'], $access['client_id']]);
         $key = IdentifierCoercion::stringify($identity->getKey());
@@ -124,7 +124,7 @@ final class TokenProfileTest extends TestCase
         self::assertSame([self::JWT_ISSUER, self::JWT_AUDIENCE, 'api', $session->record->getKey()], [$refresh['iss'], $refresh['aud'], $refresh['client_id'], $refresh['sid']]);
         self::assertArrayNotHasKey('sub_type', $refresh);
 
-        $this->bearer($session->tokens->accessToken)->assertOk()->assertJson(['identity' => $identity->getKey()]);
+        $this->bearer($session->tokens->accessToken->reveal())->assertOk()->assertJson(['identity' => $identity->getKey()]);
     }
 
     /**
@@ -149,7 +149,7 @@ final class TokenProfileTest extends TestCase
             'signed_in_at'         => CarbonImmutable::now()->addSeconds(5),
         ])->save();
 
-        $token = Auth::jwt('api')->issueAccessToken($identity, $identity, null, $session);
+        $token = Auth::jwt('api')->issueAccessToken($identity, $identity, null, $session)->reveal();
 
         self::assertSame(CarbonImmutable::now()->getTimestamp(), $this->claims($token, TokenType::ACCESS)['auth_time'] ?? null);
     }
@@ -169,11 +169,11 @@ final class TokenProfileTest extends TestCase
         $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
 
         self::assertNotNull($session);
-        $claims = $this->claims($session->tokens->accessToken, TokenType::ACCESS, 'members');
+        $claims = $this->claims($session->tokens->accessToken->reveal(), TokenType::ACCESS, 'members');
 
         self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $claims['tenant_id'] ?? null);
 
-        $this->bearer($session->tokens->accessToken, '/members/me')->assertOk()->assertJson(['identity' => $member->getKey()]);
+        $this->bearer($session->tokens->accessToken->reveal(), '/members/me')->assertOk()->assertJson(['identity' => $member->getKey()]);
     }
 
     /**
@@ -192,14 +192,14 @@ final class TokenProfileTest extends TestCase
 
         $tokens = Auth::jwt('members');
 
-        $claims = $this->claims($tokens->issueAccessToken($member, $membership, $tenant, null), TokenType::ACCESS, 'members');
+        $claims = $this->claims($tokens->issueAccessToken($member, $membership, $tenant, null)->reveal(), TokenType::ACCESS, 'members');
 
         self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $claims['tenant_id'] ?? null);
 
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Cannot issue a token naming a tenant the principal does not act within');
 
-        $tokens->issueAccessToken($member, $membership, $other, null);
+        $tokens->issueAccessToken($member, $membership, $other, null)->reveal();
     }
 
     /**
@@ -228,7 +228,7 @@ final class TokenProfileTest extends TestCase
         foreach ([$other, null] as $given) {
 
             try {
-                $tokens->issueAccessToken($member, $membership, $given, $record);
+                $tokens->issueAccessToken($member, $membership, $given, $record)->reveal();
 
                 self::fail('Expected a tenant the session does not act in to be refused.');
             } catch (\InvalidArgumentException $exception) {
@@ -238,7 +238,7 @@ final class TokenProfileTest extends TestCase
 
         $record->forceFill(['tenant_id' => IdentifierCoercion::stringify($other->getKey())])->save();
 
-        $claims = $this->claims($tokens->issueAccessToken($member, $membership, $other, $record), TokenType::ACCESS, 'members');
+        $claims = $this->claims($tokens->issueAccessToken($member, $membership, $other, $record)->reveal(), TokenType::ACCESS, 'members');
 
         self::assertSame(IdentifierCoercion::stringify($other->getKey()), $claims['tenant_id'] ?? null);
         self::assertNotSame(IdentifierCoercion::stringify($tenant->getKey()), $claims['tenant_id']);
@@ -263,21 +263,24 @@ final class TokenProfileTest extends TestCase
 
         $this->clockAt(CarbonImmutable::now()->addMinute());
 
-        $refreshed = $this->sessions('members')->refresh($session->tokens->refreshToken)->session;
+        $refreshed = $this->sessions('members')->refresh($session->tokens->refreshToken->reveal())->session;
 
         self::assertNotNull($refreshed);
 
         $this->clockAt(CarbonImmutable::now()->addSeconds(5));
 
-        $retried = $this->sessions('members')->refresh($session->tokens->refreshToken)->session;
+        $retried = $this->sessions('members')->refresh($session->tokens->refreshToken->reveal())->session;
 
         self::assertNotNull($retried);
 
-        $current = $this->claims($refreshed->tokens->refreshToken, TokenType::REFRESH, 'members');
-        $handed  = $this->claims($retried->tokens->refreshToken, TokenType::REFRESH, 'members');
+        $current = $this->claims($refreshed->tokens->refreshToken->reveal(), TokenType::REFRESH, 'members');
+        $handed  = $this->claims($retried->tokens->refreshToken->reveal(), TokenType::REFRESH, 'members');
 
         self::assertSame($current['jti'] ?? null, $handed['jti'] ?? null);
-        self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $this->claims($retried->tokens->accessToken, TokenType::ACCESS, 'members')['tenant_id'] ?? null);
+        self::assertSame(
+            IdentifierCoercion::stringify($tenant->getKey()),
+            $this->claims($retried->tokens->accessToken->reveal(), TokenType::ACCESS, 'members')['tenant_id'] ?? null,
+        );
     }
 
     /**
@@ -325,7 +328,7 @@ final class TokenProfileTest extends TestCase
     {
         $this->seedIdentity();
 
-        $token = $this->resigned($this->signedIn()->tokens->accessToken, $merge, $remove, $typ);
+        $token = $this->resigned($this->signedIn()->tokens->accessToken->reveal(), $merge, $remove, $typ);
 
         $this->recordEvents([AuthenticationFailed::class]);
 
@@ -348,7 +351,7 @@ final class TokenProfileTest extends TestCase
         $session  = $this->signedIn();
 
         foreach (['application/at+jwt', 'Application/AT+JWT'] as $typ) {
-            $this->bearer($this->resigned($session->tokens->accessToken, [], [], $typ))->assertOk()->assertJson(['identity' => $identity->getKey()]);
+            $this->bearer($this->resigned($session->tokens->accessToken->reveal(), [], [], $typ))->assertOk()->assertJson(['identity' => $identity->getKey()]);
         }
     }
 
@@ -371,13 +374,13 @@ final class TokenProfileTest extends TestCase
 
         foreach ([[[], 'at+jwt'], [['iss' => 'https://elsewhere.example.test'], 'refresh+jwt']] as [$merge, $typ]) {
 
-            $proof = $this->resigned($first->tokens->refreshToken, [...$expired, ...$merge], [], $typ);
+            $proof = $this->resigned($first->tokens->refreshToken->reveal(), [...$expired, ...$merge], [], $typ);
 
             self::assertNotNull($this->signInWithProof($proof));
             self::assertNull($this->stored($first)->revoked_at);
         }
 
-        self::assertNotNull($this->signInWithProof($this->resigned($first->tokens->refreshToken, $expired, [], 'refresh+jwt')));
+        self::assertNotNull($this->signInWithProof($this->resigned($first->tokens->refreshToken->reveal(), $expired, [], 'refresh+jwt')));
         self::assertSame('superseded', $this->stored($first)->revoked_reason);
     }
 

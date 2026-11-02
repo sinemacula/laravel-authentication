@@ -19,6 +19,11 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
  * is allowed, and with one such as `fn (Identity $identity): bool => false`
  * every account has used up its attempts.
  *
+ * The input holds the client's secrets (a password, a code, an assertion), so
+ * it is kept in a private `\SensitiveParameterValue` and read through
+ * `input()`: no dump of the request, nor of a trace that holds it, shows it,
+ * and serialising the request throws.
+ *
  * @api
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -26,6 +31,9 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
  */
 final readonly class SignInRequest
 {
+    /** @var \SensitiveParameterValue The input the client sent, secrets included. */
+    private \SensitiveParameterValue $input;
+
     /**
      * Constructor.
      *
@@ -43,15 +51,29 @@ final readonly class SignInRequest
         /** The guard's identity provider, which looks identities up. */
         public IdentityProvider $provider,
 
-        /** Input the client sent, secrets included. */
-        #[\SensitiveParameter] public array $input,
+        // Input the client sent, secrets included.
+        #[\SensitiveParameter]
+        array $input,
 
         /** Client the input came from. */
         public ClientContext $client,
 
         /** Takes a slot on an account's limit for the sign-in and says whether it had one, or `null` for a request built outside a sign-in, which counts nothing. */
         private ?\Closure $reserveAccountAttempt = null,
-    ) {}
+    ) {
+        $this->input = new \SensitiveParameterValue($input);
+    }
+
+    /**
+     * The input the client sent, secrets included: read what the method needs
+     * from it, and never log it.
+     *
+     * @return array<array-key, mixed>
+     */
+    public function input(): array
+    {
+        return $this->input->getValue();
+    }
 
     /**
      * Count a check of a secret against the account it is for, before the check

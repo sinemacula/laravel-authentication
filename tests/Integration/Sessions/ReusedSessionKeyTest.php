@@ -135,7 +135,7 @@ final class ReusedSessionKeyTest extends TestCase
         self::assertNotNull($later);
 
         $key    = IdentifierCoercion::stringify($later->record->getKey());
-        $claims = Auth::manager()->jwt('api')->parse($later->tokens->accessToken, TokenType::ACCESS);
+        $claims = Auth::manager()->jwt('api')->parse($later->tokens->accessToken->reveal(), TokenType::ACCESS);
 
         self::assertSame(IdentifierCoercion::stringify($earlier->record->getKey()), $key);
         self::assertIsArray($claims);

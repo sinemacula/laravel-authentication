@@ -87,7 +87,7 @@ final class ConcurrentResetSubmissionsTest extends TestCase
 
         self::assertSame(ResetStatus::INVALID, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
         self::assertInstanceOf(IssuedCode::class, $fresh);
-        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $fresh->code, 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $fresh->code(), 'password' => self::NEW_PASSWORD])->status);
     }
 
     /**

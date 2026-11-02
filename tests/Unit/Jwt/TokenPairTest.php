@@ -7,6 +7,7 @@ namespace Tests\Unit\Jwt;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
  * Unit tests for the TokenPair value object.
@@ -27,9 +28,11 @@ final class TokenPairTest extends TestCase
      */
     public function testConstructorStoresAccessAndRefreshTokens(): void
     {
-        $result = new TokenPair('access-token', 'refresh-token');
+        $access  = new Secret('access-token');
+        $refresh = new Secret('refresh-token');
+        $result  = new TokenPair($access, $refresh);
 
-        self::assertSame('access-token', $result->accessToken);
-        self::assertSame('refresh-token', $result->refreshToken);
+        self::assertSame($access, $result->accessToken);
+        self::assertSame($refresh, $result->refreshToken);
     }
 }

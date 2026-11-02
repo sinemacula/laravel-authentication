@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\SubjectType;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Proofs\AuthenticationClaims;
 use SineMacula\Laravel\Authentication\Proofs\AuthenticationSummary;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionDeadlines;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -48,6 +49,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * - configurable clock skew via `leewaySeconds` on every verification
  * - token lifetimes from the guard's `TokenLifetimes`; a token for a session
  *   mirrors the session and is never issued for one that has ended
+ * - every token it issues is a `Secret`, revealed only where it is sent, and no
+ *   token or claim that is a secret ever reaches its logger
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -157,14 +160,14 @@ final class JwtTokenService
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\Carbon\CarbonInterface  $issuedAt
-     * @return string
+     * @return \SineMacula\Laravel\Authentication\Secrets\Secret
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      */
-    public function issueAccessToken(Identity $identity, Principal $principal, ?Tenant $tenant, ?Session $session, ?CarbonInterface $issuedAt = null): string
+    public function issueAccessToken(Identity $identity, Principal $principal, ?Tenant $tenant, ?Session $session, ?CarbonInterface $issuedAt = null): Secret
     {
         MachineTokens::refuseSession($identity instanceof MachineIdentity);
 
@@ -192,7 +195,7 @@ final class JwtTokenService
      * @param  list<string>  $scopes
      * @param  ?\Carbon\CarbonInterface  $notAfter
      * @param  ?\Carbon\CarbonInterface  $issuedAt
-     * @return string
+     * @return \SineMacula\Laravel\Authentication\Secrets\Secret
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
@@ -208,7 +211,7 @@ final class JwtTokenService
         array $scopes,
         ?CarbonInterface $notAfter = null,
         ?CarbonInterface $issuedAt = null,
-    ): string {
+    ): Secret {
         return $this->issueAccess($identity, $principal, $tenant, null, $issuedAt, $notAfter, MachineTokens::claims($credentialId, $scopes));
     }
 
@@ -233,12 +236,12 @@ final class JwtTokenService
      * @param  string  $rotationId
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\Carbon\CarbonInterface  $issuedAt
-     * @return string
+     * @return \SineMacula\Laravel\Authentication\Secrets\Secret
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public function issueRefreshToken(Session $session, #[\SensitiveParameter] string $rotationId, ?Principal $principal = null, ?CarbonInterface $issuedAt = null): string
+    public function issueRefreshToken(Session $session, #[\SensitiveParameter] string $rotationId, ?Principal $principal = null, ?CarbonInterface $issuedAt = null): Secret
     {
         $machineOwned = $session instanceof EloquentSession && $session instanceof Model && SessionOwnership::isMachineOwned($session);
 
@@ -272,15 +275,16 @@ final class JwtTokenService
      * name this service's guard, or whose `iss` or `aud` is not this service's
      * (an `aud` that is an array included), is always rejected, as is one
      * missing any claim its type requires, and an access token that breaks the
-     * profile's shape (see `TokenProfile::accessFailure()`).
+     * profile's shape (see `TokenProfile::accessFailure()`). The token is the
+     * one a request carried or one this service issued.
      *
-     * @param  string  $token
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $token
      * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $expectedType
      * @return ?array<string, mixed>
      */
-    public function parse(#[\SensitiveParameter] string $token, ?TokenType $expectedType = null): ?array
+    public function parse(#[\SensitiveParameter] Secret|string $token, ?TokenType $expectedType = null): ?array
     {
-        return $this->verifiedClaims($token, $expectedType, false);
+        return $this->verifiedClaims($token instanceof Secret ? $token->reveal() : $token, $expectedType, false);
     }
 
     /**
@@ -297,12 +301,12 @@ final class JwtTokenService
      * the session row decides what the proof is worth. Returns `null` on any
      * other failure.
      *
-     * @param  string  $token
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $token
      * @return ?array<string, mixed>
      */
-    public function parseRefreshProof(#[\SensitiveParameter] string $token): ?array
+    public function parseRefreshProof(#[\SensitiveParameter] Secret|string $token): ?array
     {
-        return $this->verifiedClaims($token, TokenType::REFRESH, true);
+        return $this->verifiedClaims($token instanceof Secret ? $token->reveal() : $token, TokenType::REFRESH, true);
     }
 
     /**
@@ -342,7 +346,7 @@ final class JwtTokenService
      * @param  ?\Carbon\CarbonInterface  $issuedAt
      * @param  ?\Carbon\CarbonInterface  $notAfter
      * @param  array<string, string>  $claims
-     * @return string
+     * @return \SineMacula\Laravel\Authentication\Secrets\Secret
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
@@ -357,7 +361,7 @@ final class JwtTokenService
         ?CarbonInterface $issuedAt,
         ?CarbonInterface $notAfter,
         array $claims,
-    ): string {
+    ): Secret {
         $issuedAt  = TokenLifetimes::issueTime($issuedAt);
         $ends      = $session === null ? TokenLifetimes::notAfter($notAfter, $issuedAt) : $this->sessionEnd($session, $issuedAt);
         $expiresAt = $this->lifetimes->accessExpiry($issuedAt, $ends);
@@ -484,21 +488,21 @@ final class JwtTokenService
     /**
      * Encode the claim payload as a JWT of the type with the keyring's active
      * key, signing under that key's algorithm and embedding its kid and the
-     * type in the header.
+     * type in the header, and hold it as a secret from the moment it exists.
      *
      * @param  array<string, mixed>  $payload
      * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
-     * @return string
+     * @return \SineMacula\Laravel\Authentication\Secrets\Secret
      */
-    private function encode(array $payload, TokenType $type): string
+    private function encode(array $payload, TokenType $type): Secret
     {
-        return JWT::encode(
+        return new Secret(JWT::encode(
             $payload,
             $this->keyring->activeKey()->getKeyMaterial(),
             $this->keyring->activeKey()->getAlgorithm(),
             $this->keyring->activeKid(),
             ['typ' => $type->value],
-        );
+        ));
     }
 
     /**

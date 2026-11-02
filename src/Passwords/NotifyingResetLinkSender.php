@@ -54,6 +54,6 @@ final readonly class NotifyingResetLinkSender implements PasswordResetLinkSender
             throw new \LogicException($message);
         }
 
-        $identity->sendPasswordResetNotification($message->token());
+        $identity->sendPasswordResetNotification($message->token()->reveal());
     }
 }

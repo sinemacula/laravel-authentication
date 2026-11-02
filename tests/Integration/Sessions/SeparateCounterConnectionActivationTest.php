@@ -351,7 +351,7 @@ final class SeparateCounterConnectionActivationTest extends TestCase
         self::assertNotNull($result->credential);
         self::assertSame([$held, $held, $held], $this->hits($identity));
 
-        return [$result->credential, self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN)];
+        return [$result->credential->reveal(), self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN)];
     }
 
     /**

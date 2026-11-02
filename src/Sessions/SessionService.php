@@ -514,7 +514,7 @@ final readonly class SessionService
         $presented = RefreshTokenTransport::forGuard($this->context->name(), $this->container->make(ConfigRepository::class))->read($request);
 
         if ($presented instanceof PresentedRefreshToken) {
-            return $this->switchTo($presented->token, $target)->withSource($presented->source);
+            return $this->switchTo($presented->token->reveal(), $target)->withSource($presented->source);
         }
 
         if ($presented !== null) {

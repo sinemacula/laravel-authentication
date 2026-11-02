@@ -118,7 +118,7 @@ final class ActiveSessionsTest extends TestCase
 
         $this->signIn('api', 'Other', 'grace@example.test');
 
-        $response = $this->list($laptop->tokens->accessToken)->assertOk();
+        $response = $this->list($laptop->tokens->accessToken->reveal())->assertOk();
 
         $response->assertJsonCount(3, 'data')->assertJsonPath('total', 3);
 
@@ -142,7 +142,7 @@ final class ActiveSessionsTest extends TestCase
         self::assertSame(self::CLIENT_AGENT, $console['created_user_agent']);
         $json = (string) json_encode($rows);
 
-        self::assertStringNotContainsString($laptop->tokens->refreshToken, $json);
+        self::assertStringNotContainsString($laptop->tokens->refreshToken->reveal(), $json);
         self::assertStringNotContainsString((string) $laptop->record->getRefreshKey(), $json);
     }
 
@@ -164,7 +164,7 @@ final class ActiveSessionsTest extends TestCase
         Session::query()->whereKey($ended->record->getKey())->update(['idle_expires_at' => now()]);
         Session::query()->whereKey($pending->record->getKey())->update(['status' => 'pending', 'requires' => '["mfa"]']);
 
-        $this->list($current->tokens->accessToken)->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.client_name', 'Phone');
+        $this->list($current->tokens->accessToken->reveal())->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.client_name', 'Phone');
     }
 
     /**
@@ -181,7 +181,7 @@ final class ActiveSessionsTest extends TestCase
         $this->signIn('api', 'Two');
         $this->signIn('api', 'Three');
 
-        $this->list($first->tokens->accessToken, '?per_page=2&page=2')
+        $this->list($first->tokens->accessToken->reveal(), '?per_page=2&page=2')
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('total', 3)

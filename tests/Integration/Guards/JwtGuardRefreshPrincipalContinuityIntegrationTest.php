@@ -126,7 +126,7 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
 
         $guard  = $this->freshGuard();
         $result = GuardSessions::of($guard)->refresh(
-            $jwt->issueRefreshToken($session, $plainRotationId, $staffPrincipal),
+            $jwt->issueRefreshToken($session, $plainRotationId, $staffPrincipal)->reveal(),
         )->session?->tokens;
 
         self::assertInstanceOf(TokenPair::class, $result);
@@ -135,12 +135,12 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
 
         $parseJwt = PackageAuth::jwt(self::GUARD);
 
-        $refreshClaims = $parseJwt->parse($result->refreshToken, TokenType::REFRESH);
+        $refreshClaims = $parseJwt->parse($result->refreshToken->reveal(), TokenType::REFRESH);
 
         self::assertIsArray($refreshClaims);
         self::assertSame('staff-actor', $refreshClaims[Claims::PRINCIPAL->value]);
 
-        $refreshedGuard = $this->guardForBearer($result->accessToken);
+        $refreshedGuard = $this->guardForBearer($result->accessToken->reveal());
 
         self::assertTrue($refreshedGuard->check());
         self::assertSame('staff-actor', $refreshedGuard->principal()?->getPrincipalIdentifier());

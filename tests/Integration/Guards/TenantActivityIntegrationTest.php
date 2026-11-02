@@ -154,7 +154,7 @@ final class TenantActivityIntegrationTest extends TestCase
     {
         [$member, $membership, $tenant] = $this->seedMembership();
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($member, $membership, null, null);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($member, $membership, null, null)->reveal();
 
         Route::middleware('auth:api')->get('/me', static function (): array {
 
@@ -196,7 +196,7 @@ final class TenantActivityIntegrationTest extends TestCase
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $membership);
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $membership)->reveal();
 
         $tenant->forceFill(['is_active' => false])->save();
 
@@ -249,7 +249,7 @@ final class TenantActivityIntegrationTest extends TestCase
     {
         [$member, $membership, $tenant] = $this->seedMembership();
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($member, $membership, null, null);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($member, $membership, null, null)->reveal();
 
         $tenant->delete();
 
@@ -268,7 +268,7 @@ final class TenantActivityIntegrationTest extends TestCase
     {
         [$member, $membership, $tenant] = $this->seedMembership();
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($member, $membership, null, null);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($member, $membership, null, null)->reveal();
 
         $tenant->forceDelete();
 
@@ -418,7 +418,7 @@ final class TenantActivityIntegrationTest extends TestCase
         $membership = $this->seedMorphMembership();
         $member     = ActivatableTenantMember::query()->findOrFail($membership->identity_id);
 
-        $token   = $this->authManager()->jwt('api')->issueAccessToken($member, $membership, null, null);
+        $token   = $this->authManager()->jwt('api')->issueAccessToken($member, $membership, null, null)->reveal();
         $partial = MorphTenantMembership::query()->select(['id', 'identity_id', 'tenant_id'])->findOrFail($membership->getKey());
 
         $guard = $this->bearerGuard($token)->setPrincipalResolver(new StubFixedPrincipalResolver($partial));
@@ -444,7 +444,7 @@ final class TenantActivityIntegrationTest extends TestCase
         $member     = ActivatableTenantMember::query()->findOrFail($membership->identity_id);
         $session    = $this->seedSession($member);
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $membership);
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $membership)->reveal();
 
         MorphTenantMembership::query()->whereKey($membership->getKey())->update(['tenant_type' => '']);
 
@@ -508,7 +508,7 @@ final class TenantActivityIntegrationTest extends TestCase
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $membership);
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $membership)->reveal();
 
         $tenant->delete();
 

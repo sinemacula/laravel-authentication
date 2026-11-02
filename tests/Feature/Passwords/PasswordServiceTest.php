@@ -712,8 +712,8 @@ final class PasswordServiceTest extends TestCase
     {
         self::seedPasswordIdentity();
 
-        $current = $this->signInWithPassword()->tokens->accessToken;
-        $other   = $this->signInWithPassword()->tokens->accessToken;
+        $current = $this->signInWithPassword()->tokens->accessToken->reveal();
+        $other   = $this->signInWithPassword()->tokens->accessToken->reveal();
 
         Auth::forgetGuards();
 
@@ -756,8 +756,8 @@ final class PasswordServiceTest extends TestCase
     {
         self::seedPasswordIdentity();
 
-        $current = $this->signInWithPassword()->tokens->accessToken;
-        $other   = $this->signInWithPassword()->tokens->accessToken;
+        $current = $this->signInWithPassword()->tokens->accessToken->reveal();
+        $other   = $this->signInWithPassword()->tokens->accessToken->reveal();
 
         Auth::forgetGuards();
         DB::table('rate_limits')->delete();
@@ -820,7 +820,7 @@ final class PasswordServiceTest extends TestCase
     public function testTheDocumentedChangeIgnoresAnotherIdentityNowHoldingTheAddress(): void
     {
         $identity = self::seedPasswordIdentity();
-        $access   = $this->signInWithPassword()->tokens->accessToken;
+        $access   = $this->signInWithPassword()->tokens->accessToken->reveal();
         $moved    = false;
 
         Auth::forgetGuards();

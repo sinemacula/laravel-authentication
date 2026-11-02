@@ -139,8 +139,8 @@ final class ApplicationPolicyIntegrationTest extends TestCase
     public function testAccessTokensLiveForTheirGuardsLifetime(): void
     {
         $membership = $this->seedMembership('client_staff', 'staff');
-        $token      = $this->tokens()->issueAccessToken($membership->getIdentity(), $membership, null, null);
-        $other      = $this->tokens(self::OTHER_GUARD)->issueAccessToken($membership->getIdentity(), $membership, null, null);
+        $token      = $this->tokens()->issueAccessToken($membership->getIdentity(), $membership, null, null)->reveal();
+        $other      = $this->tokens(self::OTHER_GUARD)->issueAccessToken($membership->getIdentity(), $membership, null, null)->reveal();
 
         $this->assertExpiresInMinutes(2, $token);
         $this->assertExpiresInMinutes(15, $other, self::OTHER_GUARD);
@@ -187,7 +187,7 @@ final class ApplicationPolicyIntegrationTest extends TestCase
             'absolute_expires_at'  => $absolute,
         ])->save();
 
-        $refreshToken = $this->tokens()->issueRefreshToken($record, self::ROTATION_ID, $membership);
+        $refreshToken = $this->tokens()->issueRefreshToken($record, self::ROTATION_ID, $membership)->reveal();
         $refreshed    = Auth::manager()->guard(self::GUARD);
 
         self::assertInstanceOf(JwtGuard::class, $refreshed);
@@ -195,7 +195,7 @@ final class ApplicationPolicyIntegrationTest extends TestCase
         $result = GuardSessions::of($refreshed)->refresh($refreshToken)->session?->tokens;
 
         self::assertNotNull($result);
-        $this->assertExpiresInMinutes(2, $result->accessToken);
+        $this->assertExpiresInMinutes(2, $result->accessToken->reveal());
         self::assertSame($absolute->getTimestamp(), $this->claims($refreshToken, TokenType::REFRESH)[Claims::EXPIRES_AT->value]);
     }
 
@@ -221,20 +221,20 @@ final class ApplicationPolicyIntegrationTest extends TestCase
 
         Auth::forgetGuards();
 
-        $refreshed = Auth::sessions(self::GUARD)->refresh($signedIn->tokens->refreshToken)->session;
+        $refreshed = Auth::sessions(self::GUARD)->refresh($signedIn->tokens->refreshToken->reveal())->session;
 
         self::assertNotNull($refreshed);
 
         Auth::forgetGuards();
 
-        $switched = Auth::sessions(self::GUARD)->switchTo($refreshed->tokens->refreshToken, SwitchTarget::principal($second))->session;
+        $switched = Auth::sessions(self::GUARD)->switchTo($refreshed->tokens->refreshToken->reveal(), SwitchTarget::principal($second))->session;
 
         self::assertNotNull($switched);
         self::assertSame($second->getKey(), $switched->principal->getPrincipalIdentifier());
 
         foreach ([$signedIn, $refreshed, $switched] as $session) {
-            self::assertArrayNotHasKey('pty', $this->claims($session->tokens->accessToken));
-            self::assertArrayNotHasKey('pty', $this->claims($session->tokens->refreshToken, TokenType::REFRESH));
+            self::assertArrayNotHasKey('pty', $this->claims($session->tokens->accessToken->reveal()));
+            self::assertArrayNotHasKey('pty', $this->claims($session->tokens->refreshToken->reveal(), TokenType::REFRESH));
         }
     }
 
@@ -249,7 +249,7 @@ final class ApplicationPolicyIntegrationTest extends TestCase
     public function testATokenCarryingAPrincipalTypeAuthenticates(): void
     {
         $membership = $this->seedMembership('client_staff', 'staff');
-        $claims     = $this->claims($this->tokens()->issueAccessToken($membership->getIdentity(), $membership, null, null));
+        $claims     = $this->claims($this->tokens()->issueAccessToken($membership->getIdentity(), $membership, null, null)->reveal());
         $kid        = config('authentication.jwt.active_kid');
 
         self::assertIsString($kid);

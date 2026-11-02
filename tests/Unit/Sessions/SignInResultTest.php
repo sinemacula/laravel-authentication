@@ -15,6 +15,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingSession;
@@ -46,7 +47,7 @@ final class SignInResultTest extends TestCase
         $identity  = \Mockery::mock(Identity::class);
         $principal = \Mockery::mock(Principal::class);
         $record    = \Mockery::mock(Model::class, EloquentSession::class);
-        $tokens    = new TokenPair('access', 'refresh');
+        $tokens    = new TokenPair(new Secret('access'), new Secret('refresh'));
         $session   = new SignedInSession($identity, $principal, $record, $tokens, 'password');
         $result    = SignInResult::signedIn($session);
 
@@ -107,15 +108,16 @@ final class SignInResultTest extends TestCase
             CarbonImmutable::now(),
             $record,
         );
-        $issued = SignInResult::pending($pending, 'session-1.secret');
-        $kept   = SignInResult::pending($pending);
+        $credential = new Secret('session-1.secret');
+        $issued     = SignInResult::pending($pending, $credential);
+        $kept       = SignInResult::pending($pending);
 
         self::assertSame(SignInStatus::PENDING, $issued->status);
         self::assertTrue($issued->isPending());
         self::assertFalse($issued->isSignedIn());
         self::assertFalse($issued->isFailed());
         self::assertSame($pending, $issued->pending);
-        self::assertSame('session-1.secret', $issued->credential);
+        self::assertSame($credential, $issued->credential);
         self::assertNull($issued->session);
         self::assertNull($issued->reason);
         self::assertNull($issued->retryAfter);

@@ -81,7 +81,7 @@ final readonly class ProofIssuance
      * @param  mixed  $sessionId
      * @param  \SineMacula\Laravel\Authentication\Proofs\NewProof  $proof
      * @param  \Closure(\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, \Carbon\CarbonInterface): ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $accepts
-     * @return array{0: \SineMacula\Laravel\Authentication\Admission\Admitted, 1: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 2: string, 3: \Carbon\CarbonImmutable}|\SineMacula\Laravel\Authentication\Admission\Refused
+     * @return array{0: \SineMacula\Laravel\Authentication\Admission\Admitted, 1: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 2: \SineMacula\Laravel\Authentication\Secrets\Secret, 3: \Carbon\CarbonImmutable}|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -104,7 +104,7 @@ final readonly class ProofIssuance
      * @param  mixed  $sessionId
      * @param  \SineMacula\Laravel\Authentication\Proofs\NewProof  $proof
      * @param  \Closure(\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, \Carbon\CarbonInterface): ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $accepts
-     * @return array{0: \SineMacula\Laravel\Authentication\Admission\Admitted, 1: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 2: string, 3: \Carbon\CarbonImmutable}|\SineMacula\Laravel\Authentication\Admission\Refused
+     * @return array{0: \SineMacula\Laravel\Authentication\Admission\Admitted, 1: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 2: \SineMacula\Laravel\Authentication\Secrets\Secret, 3: \Carbon\CarbonImmutable}|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *

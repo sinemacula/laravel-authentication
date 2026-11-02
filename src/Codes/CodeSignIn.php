@@ -147,8 +147,8 @@ final readonly class CodeSignIn implements SignInMethod
     #[\Override]
     public function authenticate(SignInRequest $request): FailureReason|FirstFactor
     {
-        $binding = $this->binding($request->guard, $request->input);
-        $code    = $request->input[self::CODE_KEY] ?? null;
+        $binding = $this->binding($request->guard, $request->input());
+        $code    = $request->input()[self::CODE_KEY] ?? null;
 
         if ($binding === null || !is_string($code) || !$this->codes->isWellFormed($code)) {
             return FailureReason::INVALID_CREDENTIALS;

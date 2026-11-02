@@ -233,7 +233,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
 
         [$identity, $session] = $this->signIn($replayAt);
 
-        $token     = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity);
+        $token     = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
         $rotatedAt = $replayAt->toImmutable()->subMinutes(50);
 
         self::assertTrue($this->store()->rotate($session, self::ROTATION_ID, RefreshTokenHasher::successor(self::ROTATION_ID), $rotatedAt->addHours(3), $rotatedAt));
@@ -260,7 +260,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
 
         [$identity, $session] = $this->signIn($now);
 
-        $token = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity);
+        $token = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
 
         try {
             GuardSessions::of($this->guard())->refresh($token);
@@ -290,7 +290,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
 
         [$identity, $session] = $this->signIn($signedInAt, $stored);
 
-        $token = $this->tokens()->issueRefreshToken($this->stored($session), self::ROTATION_ID, $identity);
+        $token = $this->tokens()->issueRefreshToken($this->stored($session), self::ROTATION_ID, $identity)->reveal();
 
         self::assertSame($stored->getTimestamp() - 3600, $this->tokens()->parse($token, TokenType::REFRESH)[Claims::EXPIRES_AT->value] ?? null);
 
@@ -298,7 +298,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
 
         $this->expectException(\InvalidArgumentException::class);
 
-        $this->tokens()->issueRefreshToken($this->stored($session), self::ROTATION_ID, $identity);
+        $this->tokens()->issueRefreshToken($this->stored($session), self::ROTATION_ID, $identity)->reveal();
     }
 
     /**
@@ -317,13 +317,13 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
 
         [$identity, $session] = $this->signIn($firstUse);
 
-        $this->withToken($this->tokens()->issueAccessToken($identity, $identity, null, $session))->getJson('/me')->assertOk();
+        $this->withToken($this->tokens()->issueAccessToken($identity, $identity, null, $session)->reveal())->getJson('/me')->assertOk();
 
         self::assertSame('2026-10-25 01:30:00', $this->storedRow($session)['last_used_at']);
 
         $this->moveClockTo($firstUse->copy()->addSeconds(30));
 
-        $this->withToken($this->tokens()->issueAccessToken($identity, $identity, null, $session))->getJson('/me')->assertOk();
+        $this->withToken($this->tokens()->issueAccessToken($identity, $identity, null, $session)->reveal())->getJson('/me')->assertOk();
 
         self::assertSame('2026-10-25 01:30:30', $this->storedRow($session)['last_used_at']);
     }
@@ -430,7 +430,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
 
         [$identity, $session] = $this->signIn($retryAt);
 
-        $token     = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity);
+        $token     = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
         $rotatedAt = $retryAt->toImmutable()->subSeconds(15);
 
         self::assertTrue($this->store()->rotate($session, self::ROTATION_ID, RefreshTokenHasher::successor(self::ROTATION_ID), $rotatedAt->addHour(), $rotatedAt));

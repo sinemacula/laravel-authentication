@@ -129,7 +129,7 @@ final class IdentifierChangeRequestsTest extends TestCase
         self::assertCount(1, $jobs);
         self::assertInstanceOf(SendIdentifierChangeCode::class, $jobs[0]);
         self::assertSame(self::bindingDigest($binding), self::bindingDigest($jobs[0]->binding));
-        self::assertSame([$row['request_id'], self::CODE], [$jobs[0]->requestId, $jobs[0]->issued->code]);
+        self::assertSame([$row['request_id'], self::CODE], [$jobs[0]->requestId, $jobs[0]->issued->code()]);
         self::assertTrue($jobs[0]->identity->is($identity));
 
         self::assertSame(1, DB::table('one_time_codes')->where('id', self::bindingDigest($binding))->count());
@@ -145,7 +145,7 @@ final class IdentifierChangeRequestsTest extends TestCase
         $message = $this->sender->sent()[0];
 
         self::assertSame(['web', CodePurpose::CHANGE_IDENTIFIER, 'email'], [$message->guard, $message->purpose, $message->type]);
-        self::assertSame([self::NEW_EMAIL, self::CODE], [$message->identifier, $message->code]);
+        self::assertSame([self::NEW_EMAIL, self::CODE], [$message->identifier, $message->code->reveal()]);
         self::assertTrue($identity->is($message->identity));
     }
 
@@ -189,7 +189,7 @@ final class IdentifierChangeRequestsTest extends TestCase
             'tenant.email.confirm',
             ['tenant' => 'acme', 'locale' => 'en'],
         );
-        $link = (string) $request->link();
+        $link = (string) $request->link()?->reveal();
 
         parse_str((string) parse_url($link, PHP_URL_QUERY), $query);
 

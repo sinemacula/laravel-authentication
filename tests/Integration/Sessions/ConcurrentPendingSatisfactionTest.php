@@ -249,7 +249,7 @@ final class ConcurrentPendingSatisfactionTest extends TestCase
         self::assertNotNull($result->credential);
         self::assertSame([2, 2], [$this->identifierHits(), $this->accountHits()]);
 
-        return [$result->credential, self::adapterProof($result->pending->identity, 'api', $result->pending->id, Purpose::SIGN_IN)];
+        return [$result->credential->reveal(), self::adapterProof($result->pending->identity, 'api', $result->pending->id, Purpose::SIGN_IN)];
     }
 
     /**

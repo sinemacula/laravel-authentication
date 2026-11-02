@@ -54,7 +54,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
 
         $service = $this->makeService();
 
-        $token  = $service->issueAccessToken($identity, $principal, null, null);
+        $token  = $service->issueAccessToken($identity, $principal, null, null)->reveal();
         $claims = $service->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
@@ -86,8 +86,8 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $tenant    = $this->mockTenant(9);
         $principal = $this->principalIn('principal-3', $tenant);
 
-        $tenanted   = $service->parse($service->issueAccessToken($identity, $principal, $tenant, null), TokenType::ACCESS);
-        $untenanted = $service->parse($service->issueAccessToken($identity, $principal, null, null), TokenType::ACCESS);
+        $tenanted   = $service->parse($service->issueAccessToken($identity, $principal, $tenant, null)->reveal(), TokenType::ACCESS);
+        $untenanted = $service->parse($service->issueAccessToken($identity, $principal, null, null)->reveal(), TokenType::ACCESS);
 
         self::assertIsArray($tenanted);
         self::assertIsArray($untenanted);
@@ -126,7 +126,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Cannot issue a token naming a tenant the principal does not act within');
 
-        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $principal, $this->mockTenant(9), null);
+        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $principal, $this->mockTenant(9), null)->reveal();
     }
 
     /**
@@ -153,8 +153,8 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $machine->shouldReceive('getAuthIdentifier')->andReturn('client-4');
 
         $issues = [
-            fn (): string => $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $principal, $this->mockTenant(9), null),
-            fn (): string => $this->makeService()->issueClientAccessToken($machine, $principal, $this->mockTenant(9), '0196a1d2-7c3e-7b8a-9f10-2a3b4c5d6e7f', []),
+            fn (): string => $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $principal, $this->mockTenant(9), null)->reveal(),
+            fn (): string => $this->makeService()->issueClientAccessToken($machine, $principal, $this->mockTenant(9), '0196a1d2-7c3e-7b8a-9f10-2a3b4c5d6e7f', [])->reveal(),
         ];
 
         foreach ($issues as $issue) {
@@ -199,7 +199,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('without its `tenant_id` claim');
 
-        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), $this->mockTenant($identifier), null);
+        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), $this->mockTenant($identifier), null)->reveal();
     }
 
     /**
@@ -218,8 +218,8 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
 
         $service = $this->makeService();
 
-        $first  = $service->parse($service->issueAccessToken($identity, $principal, null, null), TokenType::ACCESS);
-        $second = $service->parse($service->issueAccessToken($identity, $principal, null, null), TokenType::ACCESS);
+        $first  = $service->parse($service->issueAccessToken($identity, $principal, null, null)->reveal(), TokenType::ACCESS);
+        $second = $service->parse($service->issueAccessToken($identity, $principal, null, null)->reveal(), TokenType::ACCESS);
 
         self::assertIsArray($first);
         self::assertIsArray($second);
@@ -246,7 +246,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
 
         $service = $this->makeService();
 
-        $token  = $service->issueAccessToken($identity, $principal, null, null);
+        $token  = $service->issueAccessToken($identity, $principal, null, null)->reveal();
         $claims = $service->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
@@ -269,7 +269,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
 
         $service = $this->makeService();
 
-        $token  = $service->issueAccessToken($identity, $principal, null, null);
+        $token  = $service->issueAccessToken($identity, $principal, null, null)->reveal();
         $claims = $service->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
@@ -294,7 +294,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
 
         $service = $this->makeService();
 
-        $token  = $service->issueRefreshToken($session, 'opaque-rotation-id');
+        $token  = $service->issueRefreshToken($session, 'opaque-rotation-id')->reveal();
         $claims = $service->parse($token, TokenType::REFRESH);
 
         self::assertSame('refresh+jwt', $this->jwtHeader($token)['typ'] ?? null);
@@ -322,7 +322,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
 
         $service = $this->makeService();
 
-        $token  = $service->issueRefreshToken($session, 'opaque-rotation-id', $principal);
+        $token  = $service->issueRefreshToken($session, 'opaque-rotation-id', $principal)->reveal();
         $claims = $service->parse($token, TokenType::REFRESH);
 
         self::assertIsArray($claims);
@@ -346,7 +346,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('without its `sub` claim');
 
-        $this->makeService()->issueAccessToken($this->mockIdentity($identifier), $this->mockPrincipal('principal-3'), null, null);
+        $this->makeService()->issueAccessToken($this->mockIdentity($identifier), $this->mockPrincipal('principal-3'), null, null)->reveal();
     }
 
     /**
@@ -364,7 +364,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('without its `principal` claim');
 
-        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal($identifier), null, null);
+        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal($identifier), null, null)->reveal();
     }
 
     /**
@@ -382,7 +382,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('without its `sid` claim');
 
-        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, $this->mockSession($identifier));
+        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, $this->mockSession($identifier))->reveal();
     }
 
     /**
@@ -398,7 +398,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('without its `sid` claim');
 
-        $this->makeService()->issueRefreshToken($this->mockSession($identifier), 'opaque-rotation-id');
+        $this->makeService()->issueRefreshToken($this->mockSession($identifier), 'opaque-rotation-id')->reveal();
     }
 
     /**
@@ -415,7 +415,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('without its `principal` claim');
 
-        $this->makeService()->issueRefreshToken($this->mockSession('session-42'), 'opaque-rotation-id', $this->mockPrincipal($identifier));
+        $this->makeService()->issueRefreshToken($this->mockSession('session-42'), 'opaque-rotation-id', $this->mockPrincipal($identifier))->reveal();
     }
 
     /**
@@ -429,7 +429,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('without its `jti` claim');
 
-        $this->makeService()->issueRefreshToken($this->mockSession('session-42'), '');
+        $this->makeService()->issueRefreshToken($this->mockSession('session-42'), '')->reveal();
     }
 
     /**

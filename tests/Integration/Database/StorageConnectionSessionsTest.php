@@ -113,7 +113,7 @@ final class StorageConnectionSessionsTest extends TestCase
 
         $digest = $this->records()->value('refresh_key');
 
-        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
+        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken->reveal())->session);
         self::assertNotSame($digest, $this->records()->value('refresh_key'));
     }
 
@@ -154,7 +154,7 @@ final class StorageConnectionSessionsTest extends TestCase
 
         self::assertInstanceOf(IssuedCode::class, $issued);
         self::assertSame(1, DB::connection(self::STORAGE)->table('one_time_codes')->count());
-        self::assertSame(CodeCheck::ACCEPTED, $codes->check($binding, $issued->code, $now));
+        self::assertSame(CodeCheck::ACCEPTED, $codes->check($binding, $issued->code(), $now));
         self::assertNotNull(DB::connection(self::STORAGE)->table('one_time_codes')->value('consumed_at'));
     }
 
@@ -186,7 +186,7 @@ final class StorageConnectionSessionsTest extends TestCase
         });
 
         try {
-            $this->sessions()->satisfy($result->credential, $proof);
+            $this->sessions()->satisfy($result->credential->reveal(), $proof);
 
             self::fail('Expected the proof write to fail.');
         } catch (\RuntimeException $exception) {
@@ -198,9 +198,9 @@ final class StorageConnectionSessionsTest extends TestCase
 
         SessionProof::flushEventListeners();
 
-        self::assertTrue($this->sessions()->satisfy($result->credential, $proof)->isSignedIn());
+        self::assertTrue($this->sessions()->satisfy($result->credential->reveal(), $proof)->isSignedIn());
         self::assertSame(1, $this->records()->where('status', 'active')->count());
-        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($result->credential, $proof)->reason);
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($result->credential->reveal(), $proof)->reason);
     }
 
     /**

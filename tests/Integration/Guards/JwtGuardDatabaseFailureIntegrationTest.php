@@ -96,7 +96,7 @@ final class JwtGuardDatabaseFailureIntegrationTest extends TestCase
         $session = new UnreachableSession;
         $session->forceFill([...self::liveSession(), 'id' => self::SESSION_ID]);
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, 'rotation-id');
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, 'rotation-id')->reveal();
 
         app()->instance('request', Request::create('/refresh', 'POST'));
 
@@ -135,7 +135,7 @@ final class JwtGuardDatabaseFailureIntegrationTest extends TestCase
         // out of reach.
         self::recordProof($session, ProofKind::FIRST_FACTOR, Carbon::now(), ['pwd']);
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session)->reveal();
 
         Route::middleware('auth:api')->get('/me', static fn (): string => 'ok');
 

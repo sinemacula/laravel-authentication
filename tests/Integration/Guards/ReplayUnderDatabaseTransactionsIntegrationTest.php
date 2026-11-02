@@ -262,7 +262,7 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
      */
     private function replay(Session $session): string
     {
-        return $this->tokens()->issueRefreshToken($this->stored($session), self::ROTATION_ID);
+        return $this->tokens()->issueRefreshToken($this->stored($session), self::ROTATION_ID)->reveal();
     }
 
     /**

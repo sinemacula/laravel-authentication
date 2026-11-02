@@ -70,8 +70,8 @@ final class FakePasswordResetLinkSender implements PasswordResetLinkSender
     }
 
     /**
-     * The token last sent to the identifier, as delivered (in its normal form);
-     * `null` when none was.
+     * The token last sent to the identifier, as delivered (in its normal form),
+     * revealed for the test to submit; `null` when none was.
      *
      * @param  string  $identifier
      * @return ?string
@@ -80,7 +80,7 @@ final class FakePasswordResetLinkSender implements PasswordResetLinkSender
     {
         $sent = $this->sent(static fn (PasswordResetLink $link): bool => $link->identifier === $identifier);
 
-        return $sent === [] ? null : $sent[count($sent) - 1]->token();
+        return $sent === [] ? null : $sent[count($sent) - 1]->token()->reveal();
     }
 
     /**

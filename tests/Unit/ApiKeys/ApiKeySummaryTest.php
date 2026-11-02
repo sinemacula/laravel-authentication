@@ -9,6 +9,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeySummary;
 use SineMacula\Laravel\Authentication\ApiKeys\IssuedApiKey;
+use SineMacula\Laravel\Authentication\Exceptions\SecretNotRevealedException;
 use Symfony\Component\VarDumper\Cloner\VarCloner;
 use Symfony\Component\VarDumper\Dumper\CliDumper;
 
@@ -90,7 +91,7 @@ final class ApiKeySummaryTest extends TestCase
         $key    = 'ak_abcdefghijklmnop_' . $secret;
         $issued = new IssuedApiKey('key-1', $key, self::summary());
 
-        self::assertSame($key, $issued->key());
+        self::assertSame($key, $issued->key()->reveal());
 
         $dumps = [
             (string) (new CliDumper)->dump((new VarCloner)->cloneVar($issued), true),
@@ -107,7 +108,7 @@ final class ApiKeySummaryTest extends TestCase
 
         self::assertNotSame([], $parameter->getAttributes(\SensitiveParameter::class));
 
-        $this->expectExceptionMessage('Serialization of \'SensitiveParameterValue\' is not allowed');
+        $this->expectException(SecretNotRevealedException::class);
 
         serialize($issued);
     }

@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions;
 
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 
 /**
@@ -19,7 +20,8 @@ use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
  * The pending credential travels only in the response body, never in a URL or a
  * cookie, and is handed out once: an action that leaves the session pending
  * answers without it, and the client keeps the one it holds. Like the token
- * pair, it is a plain string here.
+ * pair, it is a `Secret`, revealed only into the response body that hands it to
+ * the client.
  *
  * @api
  *
@@ -34,7 +36,7 @@ final readonly class SignInResult
      * @param  \SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus  $status
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\PendingSession  $pending
-     * @param  ?string  $credential
+     * @param  ?\SineMacula\Laravel\Authentication\Secrets\Secret  $credential
      * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  ?int  $retryAfter
      */
@@ -50,8 +52,7 @@ final readonly class SignInResult
         public ?PendingSession $pending = null,
 
         /** The pending credential, when the call issued one. */
-        #[\SensitiveParameter]
-        public ?string $credential = null,
+        public ?Secret $credential = null,
 
         /** Why the sign-in failed, when it did. */
         public ?FailureReason $reason = null,
@@ -76,10 +77,10 @@ final readonly class SignInResult
      * credential when the call issued one.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\PendingSession  $pending
-     * @param  ?string  $credential
+     * @param  ?\SineMacula\Laravel\Authentication\Secrets\Secret  $credential
      * @return self
      */
-    public static function pending(PendingSession $pending, #[\SensitiveParameter] ?string $credential = null): self
+    public static function pending(PendingSession $pending, ?Secret $credential = null): self
     {
         return new self(SignInStatus::PENDING, pending: $pending, credential: $credential);
     }

@@ -107,7 +107,7 @@ final class ActivationOptInIntegrationTest extends TestCase
     public function testUserWithoutActiveColumnAuthenticatesBearerRequest(): void
     {
         $user  = $this->seedUser();
-        $token = $this->authManager()->jwt('api')->issueAccessToken($user, $user, null, null);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($user, $user, null, null)->reveal();
 
         Route::middleware('auth:api')->get('/me', static fn (): array => ['id' => Auth::id()]);
 
@@ -136,7 +136,7 @@ final class ActivationOptInIntegrationTest extends TestCase
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $user);
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $user)->reveal();
 
         $guard = $this->freshGuard();
 

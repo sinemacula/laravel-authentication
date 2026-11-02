@@ -4,6 +4,8 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Jwt;
 
+use SineMacula\Laravel\Authentication\Secrets\Secret;
+
 /**
  * Immutable token pair: the first pair of a session the session service
  * started, or the pair a refresh or a switch rotated in.
@@ -16,6 +18,11 @@ namespace SineMacula\Laravel\Authentication\Jwt;
  * one that proved the client's previous session revokes it, so that session's
  * refresh tokens are refused as revoked from then on.
  *
+ * Both tokens are `Secret`s: reveal them only into the response that hands them
+ * to the client, such as with `SecretResponse::json()`.
+ *
+ * @api
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
@@ -24,15 +31,15 @@ final readonly class TokenPair
     /**
      * Constructor.
      *
-     * @param  string  $accessToken
-     * @param  string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret  $accessToken
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret  $refreshToken
      */
     public function __construct(
 
         /** Newly issued access token returned to the client. */
-        #[\SensitiveParameter] public string $accessToken,
+        public Secret $accessToken,
 
         /** Newly issued refresh token carrying the session's current rotation id. */
-        #[\SensitiveParameter] public string $refreshToken,
+        public Secret $refreshToken,
     ) {}
 }

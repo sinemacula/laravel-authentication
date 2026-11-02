@@ -72,7 +72,8 @@ final class FakeOneTimeCodeSender implements OneTimeCodeSender
 
     /**
      * The code last sent to the identifier, as delivered (in its normal form),
-     * for the purpose when one is given; `null` when none was.
+     * for the purpose when one is given, revealed for the test to submit;
+     * `null` when none was.
      *
      * @param  string  $identifier
      * @param  ?\SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose  $purpose
@@ -82,7 +83,7 @@ final class FakeOneTimeCodeSender implements OneTimeCodeSender
     {
         $sent = $this->sent(static fn (OneTimeCodeMessage $message): bool => $message->identifier === $identifier && ($purpose === null || $message->purpose === $purpose));
 
-        return $sent === [] ? null : $sent[count($sent) - 1]->code;
+        return $sent === [] ? null : $sent[count($sent) - 1]->code->reveal();
     }
 
     /**

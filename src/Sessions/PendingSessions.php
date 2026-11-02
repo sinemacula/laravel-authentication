@@ -171,9 +171,13 @@ final readonly class PendingSessions
      */
     public function satisfy(#[\SensitiveParameter] string $credential, ProofResult $proof, CarbonImmutable $now): Refused|SignInResult
     {
-        return $this->atomically(function () use ($credential, $proof, $now): Refused|SignInResult {
+        // `#[\SensitiveParameter]` does not cover what a closure captures,
+        // which a dump of the trace shows.
+        $held = new \SensitiveParameterValue($credential);
 
-            $found = $this->find($credential, $now, true);
+        return $this->atomically(function () use ($held, $proof, $now): Refused|SignInResult {
+
+            $found = $this->find($held->getValue(), $now, true);
 
             if ($found === null) {
                 return new Refused(FailureReason::PENDING_INVALID);
@@ -216,9 +220,11 @@ final readonly class PendingSessions
      */
     public function choose(#[\SensitiveParameter] string $credential, Principal $chosen, ?TenantSelection $selection, CarbonImmutable $now): Refused|SignInResult
     {
-        return $this->atomically(function () use ($credential, $chosen, $selection, $now): Refused|SignInResult {
+        $held = new \SensitiveParameterValue($credential);
 
-            $found = $this->find($credential, $now, true);
+        return $this->atomically(function () use ($held, $chosen, $selection, $now): Refused|SignInResult {
+
+            $found = $this->find($held->getValue(), $now, true);
 
             if ($found === null) {
                 return new Refused(FailureReason::PENDING_INVALID);
@@ -255,9 +261,11 @@ final readonly class PendingSessions
      */
     public function discard(#[\SensitiveParameter] string $credential, CarbonImmutable $now): bool
     {
-        return SessionLookup::model()->getConnection()->transaction(function () use ($credential, $now): bool {
+        $held = new \SensitiveParameterValue($credential);
 
-            $found = $this->find($credential, $now, true);
+        return SessionLookup::model()->getConnection()->transaction(function () use ($held, $now): bool {
+
+            $found = $this->find($held->getValue(), $now, true);
 
             if ($found === null) {
                 return false;
@@ -564,10 +572,11 @@ final readonly class PendingSessions
     private function isLive(EloquentSession&Model $session, #[\SensitiveParameter] string $secret, CarbonImmutable $now): bool
     {
         $guard = $this->context->name();
+        $held  = new \SensitiveParameterValue($secret);
 
-        return WriteConnection::during($session, static function () use ($session, $secret, $guard, $now): bool {
+        return WriteConnection::during($session, static function () use ($session, $held, $guard, $now): bool {
 
-            if (!RefreshTokenHasher::verify($secret, $session->getPendingKey() ?? '') || $session->getGuard() !== $guard) {
+            if (!RefreshTokenHasher::verify($held->getValue(), $session->getPendingKey() ?? '') || $session->getGuard() !== $guard) {
                 return false;
             }
 

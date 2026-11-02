@@ -98,6 +98,7 @@ has no `sessions()` method, so code written as `Auth::guard('api')->sessions()` 
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 
 // Validating first answers malformed input (a missing field, a list where a
@@ -134,18 +135,18 @@ if ($result->isFailed()) {
 if ($result->isPending()) {
     // No token yet: the session waits on a further factor, a choice of
     // principal, or both (see Pending sessions).
-    return [
+    return SecretResponse::json([
         'status'             => 'pending',
         'id'                 => $result->pending->id,
         'requires'           => array_map(fn ($requirement) => $requirement->value, $result->pending->requires),
         'pending_credential' => $result->credential,
-    ];
+    ]);
 }
 
-return [
+return SecretResponse::json([
     'access_token'  => $result->session->tokens->accessToken,
     'refresh_token' => $result->session->tokens->refreshToken,
-];
+]);
 ```
 
 `signIn()` runs, in order: Laravel's `Attempting` (with only the identifier the method names, never the input); the
@@ -245,7 +246,40 @@ no later than it.
 row, so the session service signs in only identities that implement `HasSessions`: for any other identity `signIn()`,
 `start()` throw a `LogicException` naming its class, since the access token it would issue names a
 session the guard could never find again. Access-only guards (identities without `HasSessions`) sign in with `attempt()`
-and issue access tokens with `Auth::jwt('api')->issueAccessToken()`.
+and issue access tokens with `Auth::jwt('api')->issueAccessToken()`, a `Secret` to send as the others are (see [Secrets
+in responses](#secrets-in-responses)).
+
+### Secrets in responses
+
+Every secret the package hands out is a `Secrets\Secret`: the access and refresh tokens of a `TokenPair` (and the access
+token `Auth::jwt()` issues), the pending credential of a `SignInResult`, `RefreshResult` or `SwitchResult`, the access
+token of a step-up, a reauthentication or a client credentials grant, the key of an `IssuedApiKey`, the code of a
+`OneTimeCodeMessage`, the token of a `PasswordResetLink`, an identifier change's signed link and a verification link.
+The plaintext leaves only through `reveal()`, where you send it. Casting a secret to a string, encoding it as JSON
+(`json_encode()`, `response()->json()`), serialising it (into a queued job, a cache, the session) or unserialising one
+throws `Exceptions\SecretNotRevealedException`, a `LogicException`: a bug in the calling code, never a result to handle.
+`var_dump`, `print_r` and Laravel's `dump` and `dd` show `[redacted]` (`Secret::REDACTED`), and a stack trace that
+records arguments holds the object, never the plaintext. The values your code hands in (a password, the input a client
+sent, a refresh token or pending credential a request carried) are strings, covered by `#[\SensitiveParameter]`.
+
+Answer with `Secrets\SecretResponse::json($data, $status, $headers)`: it reveals every `Secret` in `$data`, at any depth
+of arrays, and marks the response `Cache-Control: no-store` and `Pragma: no-cache`, replacing any caching headers, so no
+browser, proxy or shared cache keeps a copy. `SecretResponse::withoutStoring($response)` marks a response you built
+yourself the same way. To cover every response of a route, the `401` of `auth`, a refused route binding's `404`, an
+error your controller raises and the secrets other packages return (a factor's secret, recovery codes) included, list
+the `authentication.no-store` middleware on the route:
+
+```php
+Route::middleware(['auth:api', 'authentication.no-store'])->post('/factors', AddFactorController::class);
+```
+
+The middleware is opt-in per route and reads no body. The package puts it first in the HTTP kernel's middleware
+priority, so wherever a route lists it, it runs outside every other route middleware the kernel sorts (`auth`,
+`SubstituteBindings`, throttling) and sets the headers last: nothing a later middleware does can drop them. The kernel
+sorts only middleware in its priority list, so list it before any middleware of your own that is not in that list.
+Global middleware runs outside route middleware altogether. An application that sets the whole priority list itself
+with `withMiddleware()`'s `priority()` keeps the package's entry, which is added once the kernel is resolved; one that
+replaces the list later must put `SineMacula\Laravel\Authentication\Http\Middleware\NoStore` first itself.
 
 ## Signing in with a one-time code
 
@@ -270,6 +304,7 @@ Two routes of your own ask for a code and sign in with it, through `Auth::codes(
 ```php
 use SineMacula\Laravel\Authentication\Codes\Enums\CodeRequestStatus;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 
 Route::post('/codes', function (Request $request) {
     $input  = $request->validate(['phone' => ['required', 'string']]);
@@ -290,7 +325,7 @@ Route::post('/sign-in/code', function (Request $request) {
 
     abort_unless($result->isSignedIn(), 401);
 
-    return ['access_token' => $result->session->tokens->accessToken, 'refresh_token' => $result->session->tokens->refreshToken];
+    return SecretResponse::json(['access_token' => $result->session->tokens->accessToken, 'refresh_token' => $result->session->tokens->refreshToken]);
 });
 ```
 
@@ -546,8 +581,8 @@ final readonly class BadgeSignIn implements SignInMethod
 
     public function authenticate(SignInRequest $request): FirstFactor|FailureReason
     {
-        $badge    = $this->identifier($request->guard, $request->input);
-        $pin      = $request->input['pin'] ?? null;
+        $badge    = $this->identifier($request->guard, $request->input());
+        $pin      = $request->input()['pin'] ?? null;
         $identity = $badge === null ? null : $request->provider->retrieveByCredentials(['badge_number' => $badge]);
 
         if (! $identity instanceof Identity || ! is_string($pin) || ! $request->reserveAccountAttempt($identity)) {
@@ -597,6 +632,10 @@ the error is reported to your exception handler rather than thrown: the session 
 the commit's later callbacks (another session's events, your own `DB::afterCommit()` work) from running. The slots not
 given back stay counted.
 
+The request's input holds the client's secrets, so it is read through `$request->input()` and kept in a private
+`\SensitiveParameterValue`: no dump of the request, nor a trace that holds it, shows the password or code. Read what
+the method needs from it, and never log it.
+
 To unit-test a method, build its request yourself. `new SignInRequest('kiosk', $provider, $input, $client)` allows every
 account check; a fifth argument decides them instead, so `fn (Identity $identity): bool => false` gives you a request
 whose accounts have used up their attempts, to test the `invalid_credentials` answer.
@@ -640,12 +679,12 @@ never in a URL or a cookie:
 
 ```php
 if ($result->isPending()) {
-    return [
+    return SecretResponse::json([
         'status'             => 'pending',
         'id'                 => $result->pending->id,
         'requires'           => array_map(fn ($requirement) => $requirement->value, $result->pending->requires),
         'pending_credential' => $result->credential,
-    ];
+    ]);
 }
 ```
 
@@ -653,7 +692,8 @@ The session keeps its id from pending to active, and the id grants nothing. The 
 only key: only the digest of its secret is stored, it is not a JWT (so it authenticates no request and refreshes
 nothing, and no token is ever accepted as one), it works only for this guard, and it expires
 `session.pending_ttl_seconds` after it is issued (five minutes by default, never past the session's absolute deadline),
-when the pending session has simply ended. It is a plain string here, as the token pair is.
+when the pending session has simply ended. It is a `Secret` here, as the token pair's tokens are, which
+`SecretResponse::json()` reveals into the body (see [Secrets in responses](#secrets-in-responses)).
 
 ### In order
 

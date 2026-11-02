@@ -4,11 +4,16 @@ declare(strict_types = 1);
 
 namespace Tests\Concerns;
 
+use Symfony\Component\VarDumper\Cloner\VarCloner;
+use Symfony\Component\VarDumper\Dumper\CliDumper;
+
 /**
  * Looks through an exception's trace for a secret the way a reporter that dumps
  * frames would find it: among the arguments of each frame, at any depth of an
  * array, and among the variables a closure argument captured, which
- * `#[\SensitiveParameter]` does not cover. Arguments are recorded only while
+ * `#[\SensitiveParameter]` does not cover; and, with `dumpsInTrace()`, in the
+ * whole object graph of every argument as Symfony's VarDumper shows it, private
+ * properties and `__debugInfo()` included. Arguments are recorded only while
  * `zend.exception_ignore_args` is off, so `withArgumentsInTraces()` turns it
  * off for the call it runs.
  *
@@ -87,5 +92,45 @@ trait InspectsTraces
         $frames = array_filter($exception->getTrace(), static fn (array $frame): bool => !str_starts_with($frame['class'] ?? '', 'Tests\\'));
 
         return self::carries(array_column($frames, 'args'), is_string($secret) ? static fn (string $value): bool => $value === $secret : $secret);
+    }
+
+    /**
+     * Whether the trace carries the secret as `hasInTrace()` finds it, or the
+     * dump of the frames' arguments outside the tests themselves shows it
+     * anywhere in their object graphs, the way VarDumper (behind Laravel's
+     * `dump` and `dd`) shows them: each object's private properties and its
+     * `__debugInfo()`, and each closure's captures and bound object.
+     *
+     * @param  \Throwable  $exception
+     * @param  \Closure(string): bool|string  $secret
+     * @return bool
+     */
+    protected static function dumpsInTrace(\Throwable $exception, #[\SensitiveParameter] \Closure|string $secret): bool
+    {
+        if (self::hasInTrace($exception, $secret)) {
+            return true;
+        }
+
+        $frames = array_filter($exception->getTrace(), static fn (array $frame): bool => !str_starts_with($frame['class'] ?? '', 'Tests\\'));
+        $cloner = new VarCloner;
+        $dumper = new CliDumper;
+
+        $cloner->setMaxItems(20000);
+        $dumper->setColors(false);
+
+        $dump = (string) $dumper->dump($cloner->cloneVar(array_column($frames, 'args')), true);
+
+        return is_string($secret) ? str_contains($dump, $secret) : $secret($dump);
+    }
+
+    /**
+     * A matcher for a signed token anywhere in a value: the three base64url
+     * segments of a JWT, whose header and payload both start `eyJ`.
+     *
+     * @return \Closure(string): bool
+     */
+    protected static function anyJwt(): \Closure
+    {
+        return static fn (string $value): bool => preg_match('/eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/', $value) === 1;
     }
 }

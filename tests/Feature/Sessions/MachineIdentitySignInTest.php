@@ -260,20 +260,20 @@ final class MachineIdentitySignInTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken->reveal())->session);
         self::assertSame(FailureReason::MACHINE_IDENTITY, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertSame(AuthenticationFlow::REFRESH, $this->recordedEvent(AuthenticationFailed::class)->flow);
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $switched = $this->sessions()->switchTo($session->tokens->refreshToken, SwitchTarget::principal($session->principal));
+        $switched = $this->sessions()->switchTo($session->tokens->refreshToken->reveal(), SwitchTarget::principal($session->principal));
 
         self::assertSame(FailureReason::MACHINE_IDENTITY, $switched->reason);
 
         $this->recordEvents([AuthenticationFailed::class]);
         Auth::forgetGuards();
 
-        $this->withToken($session->tokens->accessToken)->getJson('/me')->assertUnauthorized();
+        $this->withToken($session->tokens->accessToken->reveal())->getJson('/me')->assertUnauthorized();
 
         $failure = $this->recordedEvent(AuthenticationFailed::class);
 
@@ -304,9 +304,9 @@ final class MachineIdentitySignInTest extends TestCase
         ]);
 
         $issues = [
-            'an access token'                  => static fn (): string => $tokens->issueAccessToken($machine, $machine, null, null),
-            'a refresh token for its session'  => static fn (): string => $tokens->issueRefreshToken($owned, 'rotation-id'),
-            'a refresh token as its principal' => static fn (): string => $tokens->issueRefreshToken($unowned, 'rotation-id', $machine),
+            'an access token'                  => static fn (): string => $tokens->issueAccessToken($machine, $machine, null, null)->reveal(),
+            'a refresh token for its session'  => static fn (): string => $tokens->issueRefreshToken($owned, 'rotation-id')->reveal(),
+            'a refresh token as its principal' => static fn (): string => $tokens->issueRefreshToken($unowned, 'rotation-id', $machine)->reveal(),
         ];
 
         foreach ($issues as $name => $issue) {
@@ -319,7 +319,7 @@ final class MachineIdentitySignInTest extends TestCase
             }
         }
 
-        self::assertNotSame('', $tokens->issueRefreshToken($unowned, 'rotation-id'));
+        self::assertNotSame('', $tokens->issueRefreshToken($unowned, 'rotation-id')->reveal());
     }
 
     /**

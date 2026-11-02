@@ -13,6 +13,7 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
@@ -59,13 +60,13 @@ final readonly class ProvenSessions
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
-     * @param  string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
      * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \LogicException
      */
-    public function provenSession(string $guard, Admitted $admitted, #[\SensitiveParameter] string $refreshToken): (EloquentSession&Model)|null
+    public function provenSession(string $guard, Admitted $admitted, #[\SensitiveParameter] Secret|string $refreshToken): (EloquentSession&Model)|null
     {
         return $this->provenSessionOf($guard, $admitted->identity, $admitted->principal, $refreshToken);
     }
@@ -78,13 +79,13 @@ final readonly class ProvenSessions
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
      * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \LogicException
      */
-    public function provenSessionOf(string $guard, Identity $identity, ?Principal $principal, #[\SensitiveParameter] string $refreshToken): (EloquentSession&Model)|null
+    public function provenSessionOf(string $guard, Identity $identity, ?Principal $principal, #[\SensitiveParameter] Secret|string $refreshToken): (EloquentSession&Model)|null
     {
         $claims     = $this->tokens->parseRefreshProof($refreshToken);
         $rotationId = $claims[Claims::JWT_ID->value] ?? null;

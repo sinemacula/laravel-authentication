@@ -57,7 +57,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
             self::AUDIENCE,
         );
 
-        $token = $issuer->issueAccessToken($identity, $principal, null, null);
+        $token = $issuer->issueAccessToken($identity, $principal, null, null)->reveal();
 
         self::assertNull($verifier->parse($token, TokenType::ACCESS));
     }
@@ -75,7 +75,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         $principal = $this->mockPrincipal('principal-3');
 
         $service = $this->makeService();
-        $token   = $service->issueAccessToken($identity, $principal, null, null);
+        $token   = $service->issueAccessToken($identity, $principal, null, null)->reveal();
 
         $this->advanceClock(self::ACCESS_TTL_MINUTES + 1);
 
@@ -93,7 +93,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         $session = $this->mockSession('session-42');
 
         $service = $this->makeService();
-        $token   = $service->issueRefreshToken($session, 'rotation-id');
+        $token   = $service->issueRefreshToken($session, 'rotation-id')->reveal();
 
         self::assertNull($service->parse($token, TokenType::ACCESS));
     }
@@ -112,7 +112,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         $principal = $this->mockPrincipal('principal-3');
 
         $service = $this->makeService();
-        $token   = $service->issueAccessToken($identity, $principal, null, null);
+        $token   = $service->issueAccessToken($identity, $principal, null, null)->reveal();
 
         self::assertNull($service->parse($token, TokenType::REFRESH));
     }
@@ -129,7 +129,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     {
         $service = $this->makeServiceWith(self::ISSUER_A, 'https://audience.example.test');
 
-        foreach ([$this->accessToken($service), $service->issueRefreshToken($this->mockSession('session-42'), 'rotation-id')] as $token) {
+        foreach ([$this->accessToken($service), $service->issueRefreshToken($this->mockSession('session-42'), 'rotation-id')->reveal()] as $token) {
 
             $claims = $service->parse($token);
 
@@ -153,7 +153,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         $verifier = $this->makeServiceWith(self::ISSUER_B);
 
         self::assertNull($verifier->parse($this->accessToken($issuer), TokenType::ACCESS));
-        self::assertNull($verifier->parse($issuer->issueRefreshToken($this->mockSession('session-42'), 'rotation-id'), TokenType::REFRESH));
+        self::assertNull($verifier->parse($issuer->issueRefreshToken($this->mockSession('session-42'), 'rotation-id')->reveal(), TokenType::REFRESH));
     }
 
     /**
@@ -170,7 +170,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         $verifier = $this->makeServiceWith(self::ISSUER, 'https://audience-b.example.test');
 
         self::assertNull($verifier->parse($this->accessToken($issuer), TokenType::ACCESS));
-        self::assertNull($verifier->parse($issuer->issueRefreshToken($this->mockSession('session-42'), 'rotation-id'), TokenType::REFRESH));
+        self::assertNull($verifier->parse($issuer->issueRefreshToken($this->mockSession('session-42'), 'rotation-id')->reveal(), TokenType::REFRESH));
     }
 
     /**
@@ -195,7 +195,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
             self::AUDIENCE,
         );
 
-        $token = $service->issueAccessToken($identity, $principal, null, null);
+        $token = $service->issueAccessToken($identity, $principal, null, null)->reveal();
 
         // Advance past exp but within the 30-second leeway window.
         $advanced = $this->now->copy()->addSeconds(65);
@@ -234,7 +234,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
                 self::AUDIENCE,
             );
 
-            $token  = $service->issueAccessToken($identity, $principal, null, null);
+            $token  = $service->issueAccessToken($identity, $principal, null, null)->reveal();
             $claims = $service->parse($token, TokenType::ACCESS);
 
             self::assertIsArray($claims);
@@ -349,6 +349,6 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
      */
     private function accessToken(JwtTokenService $service): string
     {
-        return $service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null);
+        return $service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null)->reveal();
     }
 }

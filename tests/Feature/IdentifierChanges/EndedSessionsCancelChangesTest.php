@@ -130,7 +130,13 @@ final class EndedSessionsCancelChangesTest extends TestCase
     {
         $identity = self::seedChangeable(self::EMAIL, self::PHONE);
         $other    = self::seedChangeable('grace@example.test');
-        $link     = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::session(self::seedSession($identity)), 'email.confirm')->link();
+        $link     = $this->changes()->requestByLink(
+            $identity,
+            'email',
+            self::NEW_EMAIL,
+            Reauthentication::session(self::seedSession($identity)),
+            'email.confirm',
+        )->link()?->reveal();
 
         self::assertIsString($link);
         self::assertTrue($this->changes('admin')->requestByCode($identity, 'phone', self::NEW_PHONE, self::freshSession($identity, 'admin'))->isSent());
@@ -175,7 +181,7 @@ final class EndedSessionsCancelChangesTest extends TestCase
     {
         $identity = self::seedChangeable();
         $session  = self::seedSession($identity);
-        $link     = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::session($session), 'email.confirm')->link();
+        $link     = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::session($session), 'email.confirm')->link()?->reveal();
 
         self::assertIsString($link);
 

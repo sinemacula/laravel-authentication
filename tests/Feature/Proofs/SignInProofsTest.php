@@ -246,7 +246,7 @@ final class SignInProofsTest extends TestCase
         self::assertSame($this->now->getTimestamp(), $stored->created_at->getTimestamp());
         self::assertArrayNotHasKey('accepted_evidence', $stored->toArray());
 
-        $claims = Auth::manager()->jwt('api')->parse($session->tokens->accessToken, TokenType::ACCESS);
+        $claims = Auth::manager()->jwt('api')->parse($session->tokens->accessToken->reveal(), TokenType::ACCESS);
 
         self::assertIsArray($claims);
         self::assertSame(
@@ -465,7 +465,7 @@ final class SignInProofsTest extends TestCase
         self::assertSame($authenticated->getTimestamp(), self::proofsOf($session->record)[0]->authenticated_at->getTimestamp());
         self::assertSame($deadline->getTimestamp(), $session->record->getAbsoluteExpiresAt()?->getTimestamp());
 
-        $claims = Auth::manager()->jwt('api')->parse($session->tokens->accessToken, TokenType::ACCESS);
+        $claims = Auth::manager()->jwt('api')->parse($session->tokens->accessToken->reveal(), TokenType::ACCESS);
 
         self::assertSame($authenticated->getTimestamp(), $claims['auth_time'] ?? null);
     }
@@ -489,7 +489,7 @@ final class SignInProofsTest extends TestCase
 
         $this->clockAt($this->now->addHour());
 
-        $context = SignInContext::fromRequest(app('request'), refreshToken: $first->tokens->refreshToken);
+        $context = SignInContext::fromRequest(app('request'), refreshToken: $first->tokens->refreshToken->reveal());
         $second  = $this->sessions()->signIn('password', self::credentials(), $context)->session;
 
         self::assertNotNull($second);
@@ -961,7 +961,7 @@ final class SignInProofsTest extends TestCase
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);
 
-        return [$result->pending, $result->credential];
+        return [$result->pending, $result->credential->reveal()];
     }
 
     /**

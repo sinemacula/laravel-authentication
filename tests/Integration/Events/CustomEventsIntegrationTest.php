@@ -356,7 +356,7 @@ final class CustomEventsIntegrationTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $guard);
         self::assertNotNull($tokens);
-        self::assertTrue(GuardSessions::of($guard)->refresh($tokens->issueRefreshToken($session, 'stored-rotation-id', $user))->isRefreshed());
+        self::assertTrue(GuardSessions::of($guard)->refresh($tokens->issueRefreshToken($session, 'stored-rotation-id', $user)->reveal())->isRefreshed());
 
         self::assertSame([
             'AuthenticationFailed:api',

@@ -88,19 +88,19 @@ final class StorageConnectionApiKeysTest extends TestCase
         $issued  = $this->apiKeys()->issue($machine, $machine, ['read']);
 
         self::assertSame(1, $this->keys()->count());
-        self::assertTrue($this->authenticates($issued->key()));
+        self::assertTrue($this->authenticates($issued->key()->reveal()));
         self::assertNotNull($this->keys()->where('id', $issued->id)->value('last_used_at'));
 
         $rotated = $this->apiKeys()->rotate($machine, $issued->id, 0);
 
         self::assertNotNull($rotated);
         self::assertSame(2, $this->keys()->count());
-        self::assertFalse($this->authenticates($issued->key()));
-        self::assertTrue($this->authenticates($rotated->key()));
+        self::assertFalse($this->authenticates($issued->key()->reveal()));
+        self::assertTrue($this->authenticates($rotated->key()->reveal()));
 
         self::assertTrue($this->apiKeys()->revoke($machine, $rotated->id));
         self::assertNotNull($this->keys()->where('id', $rotated->id)->value('revoked_at'));
-        self::assertFalse($this->authenticates($rotated->key()));
+        self::assertFalse($this->authenticates($rotated->key()->reveal()));
     }
 
     /**

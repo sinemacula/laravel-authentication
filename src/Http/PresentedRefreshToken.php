@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Http;
 
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
  * A refresh token a request carried, with where it carried it, so a refresh
@@ -21,13 +22,13 @@ final readonly class PresentedRefreshToken
     /**
      * Constructor.
      *
-     * @param  string  $token
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret  $token
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
      */
     public function __construct(
 
         /** The refresh token, as the request carried it. */
-        #[\SensitiveParameter] public string $token,
+        public Secret $token,
 
         /** Where the request carried it. */
         public RefreshTokenSource $source,

@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\HoldsARotatedSession;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\PendingSession;
@@ -45,8 +46,14 @@ final class SwitchResultTest extends TestCase
     public function testASwitchedResultCarriesTheSession(): void
     {
         $record  = \Mockery::mock(Model::class, EloquentSession::class);
-        $session = new SignedInSession(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), $record, new TokenPair('access', 'refresh'), 'password');
-        $result  = SwitchResult::switched($session);
+        $session = new SignedInSession(
+            \Mockery::mock(Identity::class),
+            \Mockery::mock(Principal::class),
+            $record,
+            new TokenPair(new Secret('access'), new Secret('refresh')),
+            'password',
+        );
+        $result = SwitchResult::switched($session);
 
         self::assertTrue($result->isSwitched());
         self::assertFalse($result->isFailed());
@@ -75,7 +82,13 @@ final class SwitchResultTest extends TestCase
         self::assertSame(30, $read->retryAfter);
 
         $record  = \Mockery::mock(Model::class, EloquentSession::class);
-        $session = new SignedInSession(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), $record, new TokenPair('access', 'refresh'), 'password');
+        $session = new SignedInSession(
+            \Mockery::mock(Identity::class),
+            \Mockery::mock(Principal::class),
+            $record,
+            new TokenPair(new Secret('access'), new Secret('refresh')),
+            'password',
+        );
 
         self::assertSame($session, SwitchResult::switched($session)->withSource(RefreshTokenSource::BODY)->session);
     }
@@ -129,13 +142,14 @@ final class SwitchResultTest extends TestCase
             \Mockery::mock(Session::class),
         );
 
-        $result = SwitchResult::pending($pending, 'session-key.secret');
+        $credential = new Secret('session-key.secret');
+        $result     = SwitchResult::pending($pending, $credential);
 
         self::assertTrue($result->isPending());
         self::assertFalse($result->isSwitched());
         self::assertFalse($result->isFailed());
         self::assertSame($pending, $result->pending);
-        self::assertSame('session-key.secret', $result->credential);
+        self::assertSame($credential, $result->credential);
         self::assertNull($result->session);
         self::assertNull($result->reason);
         self::assertNull($result->retryAfter);
@@ -143,7 +157,7 @@ final class SwitchResultTest extends TestCase
         $read = $result->withSource(RefreshTokenSource::COOKIE);
 
         self::assertSame($pending, $read->pending);
-        self::assertSame('session-key.secret', $read->credential);
+        self::assertSame($credential, $read->credential);
         self::assertSame(RefreshTokenSource::COOKIE, $read->source);
     }
 }

@@ -123,7 +123,7 @@ final class JwtGuardEagerLoadWriteConnectionIntegrationTest extends TestCase
         $this->copyRowToReplica('activatable_tenant_members', $member->getKey());
         $this->copyRowToReplica('activatable_tenant_memberships', $membership->getKey());
 
-        $token   = $this->authManager()->jwt('members')->issueAccessToken($member, $membership, null, null);
+        $token   = $this->authManager()->jwt('members')->issueAccessToken($member, $membership, null, null)->reveal();
         $request = Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]);
 
         self::assertTrue($member->is($this->guardForRequest($request, 'members')->user()));
@@ -147,7 +147,7 @@ final class JwtGuardEagerLoadWriteConnectionIntegrationTest extends TestCase
     {
         $user = $this->seedUser($this->seedTenant());
 
-        $token   = $this->authManager()->jwt('users')->issueAccessToken($user, $user, null, null);
+        $token   = $this->authManager()->jwt('users')->issueAccessToken($user, $user, null, null)->reveal();
         $request = Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]);
 
         self::assertTrue($user->is($this->guardForRequest($request, 'users')->user()));

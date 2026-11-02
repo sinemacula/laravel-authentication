@@ -123,7 +123,7 @@ final class QueuedPasswordResetTest extends TestCase
         self::assertNotNull($link);
         self::assertSame('web', $link->guard);
         self::assertTrue($identity->is($link->identity));
-        self::assertTrue($this->passwords()->reset(['email' => self::EMAIL, 'token' => $link->token(), 'password' => self::NEW_PASSWORD])->isReset());
+        self::assertTrue($this->passwords()->reset(['email' => self::EMAIL, 'token' => $link->token()->reveal(), 'password' => self::NEW_PASSWORD])->isReset());
     }
 
     /**

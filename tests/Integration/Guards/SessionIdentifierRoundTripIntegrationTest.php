@@ -91,7 +91,7 @@ final class SessionIdentifierRoundTripIntegrationTest extends TestCase
     {
         [$identity, $session] = $this->seedIdentityWithSession();
 
-        $token = $this->tokens()->issueAccessToken($identity, $identity, null, $session);
+        $token = $this->tokens()->issueAccessToken($identity, $identity, null, $session)->reveal();
 
         self::assertSame($session->getKey(), $this->tokens()->parse($token, TokenType::ACCESS)[Claims::SESSION_ID->value] ?? null);
 
@@ -115,7 +115,7 @@ final class SessionIdentifierRoundTripIntegrationTest extends TestCase
     {
         [$identity, $session] = $this->seedIdentityWithSession();
 
-        $tokens = GuardSessions::of($this->guard())->refresh($this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity))->session?->tokens;
+        $tokens = GuardSessions::of($this->guard())->refresh($this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal())->session?->tokens;
 
         self::assertNotNull($tokens);
         self::assertNotSame(RefreshTokenHasher::hash(self::ROTATION_ID), RenamedKeySession::query()->whereKey($session->getKey())->firstOrFail()->getRefreshKey());

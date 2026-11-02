@@ -125,7 +125,7 @@ final class ApiKeyGuardTest extends TestCase
 
         $this->dispatched = [];
 
-        $this->getWithKey('/machine/me', $issued->key())->assertOk()->assertExactJson([
+        $this->getWithKey('/machine/me', $issued->key()->reveal())->assertOk()->assertExactJson([
             'identity'  => $machine->getKey(),
             'principal' => $machine->getKey(),
             'tenant'    => null,
@@ -156,7 +156,7 @@ final class ApiKeyGuardTest extends TestCase
         $scopes  = self::longestScopes();
         $issued  = $this->apiKeys()->issue($machine, $machine, $scopes);
 
-        $this->getWithKey('/machine/me', $issued->key())->assertOk()->assertJsonPath('scopes', $scopes);
+        $this->getWithKey('/machine/me', $issued->key()->reveal())->assertOk()->assertJsonPath('scopes', $scopes);
     }
 
     /**
@@ -170,7 +170,7 @@ final class ApiKeyGuardTest extends TestCase
 
         $issued = $this->apiKeys('accounts')->issue($account, $membership, ['reports']);
 
-        $this->getWithKey('/accounts/me', $issued->key())->assertOk()->assertExactJson([
+        $this->getWithKey('/accounts/me', $issued->key()->reveal())->assertOk()->assertExactJson([
             'identity'  => $account->getKey(),
             'principal' => $membership->getKey(),
             'tenant'    => $tenant->getKey(),
@@ -199,7 +199,7 @@ final class ApiKeyGuardTest extends TestCase
         self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), IdentifierCoercion::stringify($workspace->getKey()));
 
         $this->dispatched = [];
-        $this->getWithKey('/accounts/me', $issued->key())->assertUnauthorized();
+        $this->getWithKey('/accounts/me', $issued->key()->reveal())->assertUnauthorized();
         $this->assertRefused(FailureReason::PRINCIPAL_MISMATCH, $issued->id);
 
         $rotated = $this->apiKeys('accounts')->rotate($membership, $issued->id, 60);
@@ -207,12 +207,12 @@ final class ApiKeyGuardTest extends TestCase
         self::assertNotNull($rotated);
 
         $this->dispatched = [];
-        $this->getWithKey('/accounts/me', $rotated->key())->assertUnauthorized();
+        $this->getWithKey('/accounts/me', $rotated->key()->reveal())->assertUnauthorized();
         $this->assertRefused(FailureReason::PRINCIPAL_MISMATCH, $rotated->id);
 
         $membership->forceFill(['tenant_type' => $tenant->getMorphClass()])->save();
-        $this->getWithKey('/accounts/me', $issued->key())->assertOk()->assertJsonPath('tenant', $tenant->getKey());
-        $this->getWithKey('/accounts/me', $rotated->key())->assertOk()->assertJsonPath('tenant', $tenant->getKey());
+        $this->getWithKey('/accounts/me', $issued->key()->reveal())->assertOk()->assertJsonPath('tenant', $tenant->getKey());
+        $this->getWithKey('/accounts/me', $rotated->key()->reveal())->assertOk()->assertJsonPath('tenant', $tenant->getKey());
     }
 
     /**
@@ -300,7 +300,7 @@ final class ApiKeyGuardTest extends TestCase
         $machine = $this->seedMachine();
         $issued  = $this->apiKeys('m2m')->issue($machine, $machine);
 
-        $this->getWithKey('/machine/me', $issued->key())->assertUnauthorized();
+        $this->getWithKey('/machine/me', $issued->key()->reveal())->assertUnauthorized();
 
         $this->assertRefused(FailureReason::CREDENTIAL_GUARD_MISMATCH, $issued->id);
     }
@@ -315,13 +315,13 @@ final class ApiKeyGuardTest extends TestCase
         $machine = $this->seedMachine();
         $issued  = $this->apiKeys()->issue($machine, $machine);
 
-        $this->getWithKey('/machine/me', $issued->key())->assertOk();
+        $this->getWithKey('/machine/me', $issued->key()->reveal())->assertOk();
 
         $this->apiKeys()->revoke($machine, $issued->id);
 
         $this->dispatched = [];
 
-        $this->getWithKey('/machine/me', $issued->key())->assertUnauthorized();
+        $this->getWithKey('/machine/me', $issued->key()->reveal())->assertUnauthorized();
 
         $this->assertRefused(FailureReason::CREDENTIAL_REVOKED, $issued->id);
     }
@@ -341,13 +341,13 @@ final class ApiKeyGuardTest extends TestCase
 
         self::travelMachineClock(299);
 
-        $this->getWithKey('/machine/me', $issued->key())->assertOk();
+        $this->getWithKey('/machine/me', $issued->key()->reveal())->assertOk();
 
         self::travelMachineClock(1);
 
         $this->dispatched = [];
 
-        $this->getWithKey('/machine/me', $issued->key())->assertUnauthorized();
+        $this->getWithKey('/machine/me', $issued->key()->reveal())->assertUnauthorized();
 
         $this->assertRefused(FailureReason::CREDENTIAL_EXPIRED, $issued->id);
     }
@@ -369,17 +369,17 @@ final class ApiKeyGuardTest extends TestCase
 
         self::assertNotNull($rotated);
 
-        $this->getWithKey('/machine/me', $previous->key())->assertOk();
-        $this->getWithKey('/machine/me', $rotated->key())->assertOk();
+        $this->getWithKey('/machine/me', $previous->key()->reveal())->assertOk();
+        $this->getWithKey('/machine/me', $rotated->key()->reveal())->assertOk();
 
         self::travelMachineClock(60);
 
         $this->dispatched = [];
 
-        $this->getWithKey('/machine/me', $previous->key())->assertUnauthorized();
+        $this->getWithKey('/machine/me', $previous->key()->reveal())->assertUnauthorized();
         $this->assertRefused(FailureReason::CREDENTIAL_EXPIRED, $previous->id);
 
-        $this->getWithKey('/machine/me', $rotated->key())->assertOk();
+        $this->getWithKey('/machine/me', $rotated->key()->reveal())->assertOk();
     }
 
     /**
@@ -409,7 +409,7 @@ final class ApiKeyGuardTest extends TestCase
 
         config()->set('auth.guards.machine.application', $application);
 
-        $this->getWithKey('/machine/me', $issued->key())->assertUnauthorized();
+        $this->getWithKey('/machine/me', $issued->key()->reveal())->assertUnauthorized();
 
         $this->assertRefused(FailureReason::METHOD_NOT_ALLOWED, $issued->id);
     }
@@ -427,7 +427,7 @@ final class ApiKeyGuardTest extends TestCase
 
         $machine->forceFill(['is_active' => false])->save();
 
-        $this->getWithKey('/machine/me', $issued->key())->assertUnauthorized();
+        $this->getWithKey('/machine/me', $issued->key()->reveal())->assertUnauthorized();
         $this->assertRefused(FailureReason::IDENTITY_INACTIVE, $issued->id);
         self::assertTrue($machine->is($this->dispatchedOf(AuthenticationFailed::class)[0]->context->identity));
 
@@ -435,7 +435,7 @@ final class ApiKeyGuardTest extends TestCase
 
         $this->dispatched = [];
 
-        $this->getWithKey('/machine/me', $issued->key())->assertUnauthorized();
+        $this->getWithKey('/machine/me', $issued->key()->reveal())->assertUnauthorized();
         $this->assertRefused(FailureReason::IDENTITY_UNKNOWN, $issued->id);
     }
 
@@ -453,14 +453,14 @@ final class ApiKeyGuardTest extends TestCase
 
         DB::table('api_keys')->where('id', $issued->id)->update(['authenticatable_type' => MachineAccount::class]);
 
-        $this->getWithKey('/machine/me', $issued->key())->assertUnauthorized();
+        $this->getWithKey('/machine/me', $issued->key()->reveal())->assertUnauthorized();
         $this->assertRefused(FailureReason::IDENTITY_UNKNOWN, $issued->id);
 
         DB::table('api_keys')->where('id', $issued->id)->update(['authenticatable_type' => MachineClient::class, 'principal_type' => MachineMembership::class]);
 
         $this->dispatched = [];
 
-        $this->getWithKey('/machine/me', $issued->key())->assertUnauthorized();
+        $this->getWithKey('/machine/me', $issued->key()->reveal())->assertUnauthorized();
         $this->assertRefused(FailureReason::PRINCIPAL_MISMATCH, $issued->id);
 
         $human   = IntegrationIdentity::query()->create(['email' => 'ada@example.test']);
@@ -477,7 +477,7 @@ final class ApiKeyGuardTest extends TestCase
 
         $this->dispatched = [];
 
-        $this->getWithKey('/machine/me', $issued->key())->assertUnauthorized();
+        $this->getWithKey('/machine/me', $issued->key()->reveal())->assertUnauthorized();
         $this->assertRefused(FailureReason::CREDENTIAL_INVALID, $issued->id);
     }
 
@@ -498,43 +498,43 @@ final class ApiKeyGuardTest extends TestCase
 
         $this->refuseMembershipsOfType('robot');
         $membership->forceFill(['type' => 'robot'])->save();
-        $this->getWithKey('/accounts/me', $issued->key())->assertUnauthorized();
+        $this->getWithKey('/accounts/me', $issued->key()->reveal())->assertUnauthorized();
         $this->assertRefused(FailureReason::PRINCIPAL_INELIGIBLE, $issued->id);
 
         $other = $tenant->replicate();
         $other->save();
         $membership->forceFill(['tenant_id' => $other->getKey()])->save();
         $this->dispatched = [];
-        $this->getWithKey('/accounts/me', $issued->key())->assertUnauthorized();
+        $this->getWithKey('/accounts/me', $issued->key()->reveal())->assertUnauthorized();
         $this->assertRefused(FailureReason::PRINCIPAL_MISMATCH, $issued->id);
 
         $membership->forceFill(['type' => 'service'])->save();
         $this->dispatched = [];
-        $this->getWithKey('/accounts/me', $issued->key())->assertUnauthorized();
+        $this->getWithKey('/accounts/me', $issued->key()->reveal())->assertUnauthorized();
         $this->assertRefused(FailureReason::PRINCIPAL_MISMATCH, $issued->id);
 
         $membership->forceFill(['tenant_id' => $tenant->getKey()])->save();
         $tenant->forceFill(['is_active' => false])->save();
         $this->dispatched = [];
-        $this->getWithKey('/accounts/me', $issued->key())->assertUnauthorized();
+        $this->getWithKey('/accounts/me', $issued->key()->reveal())->assertUnauthorized();
         $this->assertRefused(FailureReason::TENANT_INACTIVE, $issued->id);
 
         $tenant->forceFill(['is_active' => true])->save();
         $membership->forceFill(['is_active' => false])->save();
         $this->dispatched = [];
-        $this->getWithKey('/accounts/me', $issued->key())->assertUnauthorized();
+        $this->getWithKey('/accounts/me', $issued->key()->reveal())->assertUnauthorized();
         $this->assertRefused(FailureReason::PRINCIPAL_INACTIVE, $issued->id);
 
         $stranger = MachineAccount::query()->create(['name' => 'Stranger']);
 
         $membership->forceFill(['is_active' => true, 'account_id' => $stranger->getKey()])->save();
         $this->dispatched = [];
-        $this->getWithKey('/accounts/me', $issued->key())->assertUnauthorized();
+        $this->getWithKey('/accounts/me', $issued->key()->reveal())->assertUnauthorized();
         $this->assertRefused(FailureReason::PRINCIPAL_MISMATCH, $issued->id);
 
         $membership->forceFill(['account_id' => $account->getKey()])->save();
         $this->dispatched = [];
-        $this->getWithKey('/accounts/me', $issued->key())->assertOk();
+        $this->getWithKey('/accounts/me', $issued->key()->reveal())->assertOk();
     }
 
     /**
@@ -572,25 +572,25 @@ final class ApiKeyGuardTest extends TestCase
 
         DB::table('api_keys')->where('id', $stale->id)->update(['last_used_at' => '2026-04-01 12:00:00']);
 
-        $this->getWithKey('/machine/me', $issued->key())->assertOk();
+        $this->getWithKey('/machine/me', $issued->key()->reveal())->assertOk();
 
         self::travelMachineClock(59);
 
-        $within = $this->countQueries(fn (): bool => Auth::guard('machine')->check(), $issued->key(), 'update');
+        $within = $this->countQueries(fn (): bool => Auth::guard('machine')->check(), $issued->key()->reveal(), 'update');
 
         self::assertSame(0, $within);
         self::assertSame('2026-04-06 12:00:00', DB::table('api_keys')->where('id', $issued->id)->value('last_used_at'));
 
         self::travelMachineClock(1);
 
-        $after = $this->countQueries(fn (): bool => Auth::guard('machine')->check(), $issued->key(), 'update');
+        $after = $this->countQueries(fn (): bool => Auth::guard('machine')->check(), $issued->key()->reveal(), 'update');
 
         self::assertSame(1, $after);
         self::assertSame('2026-04-06 12:01:00', DB::table('api_keys')->where('id', $issued->id)->value('last_used_at'));
 
         config()->set('authentication.api_keys.last_used_throttle_seconds', 0);
 
-        self::assertSame(1, $this->countQueries(fn (): bool => Auth::guard('machine')->check(), $issued->key(), 'update'));
+        self::assertSame(1, $this->countQueries(fn (): bool => Auth::guard('machine')->check(), $issued->key()->reveal(), 'update'));
         self::assertNull(DB::table('api_keys')->where('id', $unused->id)->value('last_used_at'));
         self::assertSame('2026-04-01 12:00:00', DB::table('api_keys')->where('id', $stale->id)->value('last_used_at'));
     }
@@ -674,8 +674,8 @@ final class ApiKeyGuardTest extends TestCase
 
         $guard = Auth::guard('machine');
 
-        self::assertTrue($guard->validate(['api_key' => $issued->key()]));
-        self::assertFalse($guard->validate(['api_key' => $revoked->key()]));
+        self::assertTrue($guard->validate(['api_key' => $issued->key()->reveal()]));
+        self::assertFalse($guard->validate(['api_key' => $revoked->key()->reveal()]));
         self::assertFalse($guard->validate(['api_key' => 'nonsense']));
         self::assertFalse($guard->validate(['api_key' => 5]));
         self::assertFalse($guard->validate([]));
@@ -695,7 +695,7 @@ final class ApiKeyGuardTest extends TestCase
         $machine = $this->seedMachine();
         $issued  = $this->apiKeys()->issue($machine, $machine, ['read']);
 
-        $this->startMachineRequest($issued->key());
+        $this->startMachineRequest($issued->key()->reveal());
 
         $guard = self::keyGuard('machine');
 
@@ -707,7 +707,7 @@ final class ApiKeyGuardTest extends TestCase
         self::assertNull($guard->scopes());
         self::assertCount(1, $this->dispatchedOf(Logout::class));
 
-        $this->getWithKey('/machine/me', $issued->key())->assertOk();
+        $this->getWithKey('/machine/me', $issued->key()->reveal())->assertOk();
     }
 
     /**
@@ -720,7 +720,7 @@ final class ApiKeyGuardTest extends TestCase
         $machine = $this->seedMachine();
         $issued  = $this->apiKeys()->issue($machine, $machine, ['a', 'b']);
 
-        $this->startMachineRequest($issued->key());
+        $this->startMachineRequest($issued->key()->reveal());
 
         Auth::shouldUse('machine');
 

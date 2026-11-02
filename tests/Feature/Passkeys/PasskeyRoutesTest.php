@@ -94,7 +94,7 @@ final class PasskeyRoutesTest extends TestCase
     {
         $this->seedIdentity();
 
-        $access = $this->sessions()->signIn('password', self::credentials())->session?->tokens->accessToken;
+        $access = $this->sessions()->signIn('password', self::credentials())->session?->tokens->accessToken->reveal();
 
         self::assertIsString($access);
 
@@ -149,7 +149,7 @@ final class PasskeyRoutesTest extends TestCase
     {
         $this->seedIdentity();
 
-        $access = $this->sessions()->signIn('password', self::credentials())->session?->tokens->accessToken;
+        $access = $this->sessions()->signIn('password', self::credentials())->session?->tokens->accessToken->reveal();
 
         self::assertIsString($access);
 
@@ -299,8 +299,8 @@ final class PasskeyRoutesTest extends TestCase
         abort_if($result->isFailed(), 401);
 
         return [
-            'access_token'  => $result->session?->tokens->accessToken,
-            'refresh_token' => $result->session?->tokens->refreshToken,
+            'access_token'  => $result->session?->tokens->accessToken->reveal(),
+            'refresh_token' => $result->session?->tokens->refreshToken->reveal(),
         ];
     }
 

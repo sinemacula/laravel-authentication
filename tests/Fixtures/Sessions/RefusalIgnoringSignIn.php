@@ -59,7 +59,7 @@ final readonly class RefusalIgnoringSignIn implements SignInMethod
     #[\Override]
     public function authenticate(SignInRequest $request): FailureReason|FirstFactor
     {
-        $email    = $this->identifier($request->guard, $request->input);
+        $email    = $this->identifier($request->guard, $request->input());
         $identity = $email === null ? null : $request->provider->retrieveByCredentials(['email' => $email]);
 
         if (!$identity instanceof Identity) {
@@ -68,7 +68,7 @@ final readonly class RefusalIgnoringSignIn implements SignInMethod
 
         $request->reserveAccountAttempt($identity);
 
-        return $request->provider->validateCredentials($identity, ['password' => $request->input['password'] ?? null])
+        return $request->provider->validateCredentials($identity, ['password' => $request->input()['password'] ?? null])
             ? new FirstFactor($identity, new Channel(ChannelKind::PASSWORD), methods: ['pwd'])
             : FailureReason::INVALID_CREDENTIALS;
     }

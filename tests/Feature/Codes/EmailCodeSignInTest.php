@@ -428,7 +428,7 @@ final class EmailCodeSignInTest extends TestCase
 
             abort_unless($result->isSignedIn(), 401);
 
-            return ['access_token' => $result->session?->tokens->accessToken];
+            return ['access_token' => $result->session?->tokens->accessToken->reveal()];
         });
 
         Route::middleware('auth:mobile')->get('/me', static function (): array {

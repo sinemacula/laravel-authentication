@@ -7,6 +7,7 @@ token transport:
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 
 $result = Auth::sessions('api')->refreshFromRequest();
 
@@ -23,22 +24,24 @@ if ($result->isFailed()) {
 
 if ($result->isPending()) {
     // The session's tenant now asks for a further factor: no pair, only a pending credential.
-    return ['pending_credential' => $result->credential, 'requires' => ['mfa']];
+    return SecretResponse::json(['pending_credential' => $result->credential, 'requires' => ['mfa']]);
 }
 
-return [
+return SecretResponse::json([
     'access_token'  => $result->session->tokens->accessToken,
     'refresh_token' => $result->session->tokens->refreshToken,
-];
+]);
 ```
 
 A refresh rotates the session's refresh token and binds the guard to the refreshed session for the rest of the request.
 The result's `session` is that session: its `identity`, `principal`, `record` (the session row to set a refresh cookie
-for), the `method` its sign-in used, and the new pair in `tokens`. Every refusal is returned, never thrown, with its
-`reason`; `rate_limited` also carries the seconds to wait in `retryAfter`, which the route answers with a 429 and
-`Retry-After` so the client waits. A refresh that finds the session's tenant now asking for a further factor the
-session lacks returns it to pending instead: `isPending()`, with `pending` and `credential` and no `session`, until the
-factor is satisfied (see [Tenant authentication policies](sessions.md#tenant-authentication-policies)).
+for), the `method` its sign-in used, and the new pair in `tokens`, whose tokens are secrets `SecretResponse::json()`
+reveals into a body that is never stored (see [Secrets in responses](signing-in.md#secrets-in-responses)). Every refusal
+is returned, never thrown, with its `reason`; `rate_limited` also carries the seconds to wait in `retryAfter`, which the
+route answers with a 429 and `Retry-After` so the client waits. A refresh that finds the session's tenant now asking for
+a further factor the session lacks returns it to pending instead: `isPending()`, with `pending` and `credential` and no
+`session`, until the factor is satisfied (see [Tenant authentication
+policies](sessions.md#tenant-authentication-policies)).
 
 The guard reads the token only from the sources its `refresh_token` settings list: `body` and `header` by default, the
 `refresh_token` field of the JSON or form body (never the query string) and the `X-Refresh-Token` header, or the

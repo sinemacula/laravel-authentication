@@ -11,6 +11,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\AccessTokenResult;
 
 /**
@@ -38,11 +39,12 @@ final class AccessTokenResultTest extends TestCase
     {
         $session = \Mockery::mock(Model::class, EloquentSession::class);
         $expires = CarbonImmutable::parse('2026-04-06 12:15:00');
-        $result  = AccessTokenResult::issued('access', $session, $expires);
+        $token   = new Secret('access');
+        $result  = AccessTokenResult::issued($token, $session, $expires);
 
         self::assertTrue($result->isIssued());
         self::assertFalse($result->isFailed());
-        self::assertSame(['access', $session, $expires, null, null], [$result->accessToken, $result->session, $result->expiresAt, $result->reason, $result->retryAfter]);
+        self::assertSame([$token, $session, $expires, null, null], [$result->accessToken, $result->session, $result->expiresAt, $result->reason, $result->retryAfter]);
     }
 
     /**

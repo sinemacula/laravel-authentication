@@ -56,6 +56,9 @@ are caught on the server.
 - **Access contracts**: whether a principal may use an application and whether it may act in a tenant, answered by your
   application from its own tree and roles (by default any principal may use any application, in its own tenant only).
 - **Database rate limits**, enumeration-resistant responses, and read-replica and Octane safety.
+- **Secrets held, never stored**: every token, pending credential, API key, code and link the package hands out is a
+  `Secret` that refuses to be cast to a string, encoded, serialised or dumped until your code reveals it, and
+  `SecretResponse::json()` and the `authentication.no-store` route middleware answer with `Cache-Control: no-store`.
 - **Events** for every sign-in, refresh, revocation and failure, with one shared context and never a secret.
 - **Localisable messages**: the `401` and `429` messages translate through your `lang/{locale}.json`, and every other
   answer is a code your application words.
@@ -138,6 +141,7 @@ Sign in through the guard's session service, and protect routes as with any Lara
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 
 Route::post('/login', function (Request $request) {
@@ -150,10 +154,11 @@ Route::post('/login', function (Request $request) {
 
     abort_unless($result->isSignedIn(), 401);
 
-    return [
+    // The tokens are secrets: SecretResponse reveals them into the body and marks it not to be stored.
+    return SecretResponse::json([
         'access_token'  => $result->session->tokens->accessToken,
         'refresh_token' => $result->session->tokens->refreshToken,
-    ];
+    ]);
 });
 
 Route::middleware('auth:api')->get('/me', fn () => Auth::identity());

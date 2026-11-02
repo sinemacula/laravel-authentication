@@ -182,9 +182,9 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
 
         Auth::forgetGuards();
 
-        $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken])->getJson('/me')->assertUnauthorized();
+        $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken->reveal()])->getJson('/me')->assertUnauthorized();
 
-        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken->reveal())->session);
     }
 
     /**
@@ -264,13 +264,13 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
 
         Auth::forgetGuards();
 
-        $this->withHeaders(['Authorization' => 'Bearer ' . $between->tokens->accessToken])->getJson('/me')->assertUnauthorized();
+        $this->withHeaders(['Authorization' => 'Bearer ' . $between->tokens->accessToken->reveal()])->getJson('/me')->assertUnauthorized();
 
-        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($between->tokens->refreshToken)->session);
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($between->tokens->refreshToken->reveal())->session);
 
         Auth::forgetGuards();
 
-        $this->withHeaders(['Authorization' => 'Bearer ' . $outer->tokens->accessToken])->getJson('/me')->assertOk();
+        $this->withHeaders(['Authorization' => 'Bearer ' . $outer->tokens->accessToken->reveal()])->getJson('/me')->assertOk();
     }
 
     /**
@@ -650,9 +650,9 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
 
         Auth::forgetGuards();
 
-        $this->withHeaders(['Authorization' => 'Bearer ' . $between->tokens->accessToken])->getJson('/me')->assertUnauthorized();
+        $this->withHeaders(['Authorization' => 'Bearer ' . $between->tokens->accessToken->reveal()])->getJson('/me')->assertUnauthorized();
 
-        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($between->tokens->refreshToken)->session);
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($between->tokens->refreshToken->reveal())->session);
     }
 
     /**
@@ -719,9 +719,9 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
 
         Auth::forgetGuards();
 
-        $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken])->getJson('/me')->assertOk();
+        $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken->reveal()])->getJson('/me')->assertOk();
 
-        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
+        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken->reveal())->session);
     }
 
     /**
@@ -844,9 +844,9 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
 
         Auth::forgetGuards();
 
-        $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken])->getJson('/me')->assertUnauthorized();
+        $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken->reveal()])->getJson('/me')->assertUnauthorized();
 
-        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken->reveal())->session);
     }
 
     /**

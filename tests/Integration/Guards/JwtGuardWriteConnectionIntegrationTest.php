@@ -159,7 +159,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $identity = $this->seedIdentity();
         $session  = $this->seedSession($identity);
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session)->reveal();
 
         $guard = $this->guardForRequest(Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]));
 
@@ -185,7 +185,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         Session::query()->whereKey($session->getKey())->update(['revoked_at' => Carbon::now()]);
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session)->reveal();
 
         $guard = $this->guardForRequest(Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]));
 
@@ -208,7 +208,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $this->copyRowToReplica('stub_principals', $identity->getKey());
         $this->copyRowToReplica('authentication_sessions', $session->getKey());
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session)->reveal();
 
         Session::query()->whereKey($session->getKey())->update(['idle_expires_at' => Carbon::now()]);
 
@@ -239,13 +239,13 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         $this->rotateOnThePrimary($session, Carbon::now()->subSeconds(5));
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $identity);
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
         $updates      = $this->recordUpdates();
 
         $pair = GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST')))->refresh($refreshToken)->session?->tokens;
 
         self::assertNotNull($pair);
-        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->authManager()->jwt('api')->parse($pair->refreshToken)['jti'] ?? null);
+        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->authManager()->jwt('api')->parse($pair->refreshToken->reveal())['jti'] ?? null);
         self::assertSame([], $updates->getArrayCopy());
     }
 
@@ -268,7 +268,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         $this->rotateOnThePrimary($session, Carbon::now()->subHour());
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $identity);
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
         $updates      = $this->recordUpdates();
 
         self::assertNull(GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST')))->refresh($refreshToken)->session);
@@ -322,7 +322,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     {
         [$identity, $session] = $this->seedRevocationLogSession();
 
-        $token   = $this->authManager()->jwt('revocation_log')->issueAccessToken($identity, $identity, null, $session);
+        $token   = $this->authManager()->jwt('revocation_log')->issueAccessToken($identity, $identity, null, $session)->reveal();
         $request = Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]);
 
         self::assertTrue($identity->is($this->guardForRequest($request, 'revocation_log')->user()));
@@ -346,7 +346,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     {
         [$identity, $session] = $this->seedRevocationLogSession();
 
-        $token   = $this->authManager()->jwt('revocation_log')->issueAccessToken($identity, $identity, null, $session);
+        $token   = $this->authManager()->jwt('revocation_log')->issueAccessToken($identity, $identity, null, $session)->reveal();
         $request = Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]);
 
         self::assertTrue($identity->is($this->guardForRequest($request, 'revocation_log')->user()));
@@ -398,7 +398,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         [$identity, $session] = $this->seedRevocationLogSession();
 
-        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($session, self::ROTATION_ID, $identity);
+        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
 
         $this->recordSessionEnd($session);
 
@@ -429,7 +429,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         [$identity, $session] = $this->seedRevocationLogSession();
 
-        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($session, self::ROTATION_ID, $identity);
+        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
         $sessionEnd   = Carbon::now()->addMinutes(3);
 
         $this->recordSessionEnd($session, $sessionEnd);
@@ -440,8 +440,8 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $stored = DB::connection(self::PRIMARY_CONNECTION)->table('authentication_sessions')->where('id', $session->getKey())->value('refresh_key');
 
         self::assertNotNull($pair);
-        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->accessToken)['exp'] ?? null);
-        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->refreshToken)['exp'] ?? null);
+        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->accessToken->reveal())['exp'] ?? null);
+        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->refreshToken->reveal())['exp'] ?? null);
         self::assertSame(RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)), $stored);
     }
 
@@ -463,7 +463,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         $this->rotateOnThePrimary($session, Carbon::now()->subSeconds(5));
 
-        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($session, self::ROTATION_ID, $identity);
+        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
         $sessionEnd   = Carbon::now()->addMinute();
 
         $this->recordSessionEnd($session, $sessionEnd);
@@ -472,9 +472,9 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $tokens = $this->authManager()->jwt('revocation_log');
 
         self::assertNotNull($pair);
-        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->accessToken)['exp'] ?? null);
-        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->refreshToken)['exp'] ?? null);
-        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $tokens->parse($pair->refreshToken)['jti'] ?? null);
+        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->accessToken->reveal())['exp'] ?? null);
+        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->refreshToken->reveal())['exp'] ?? null);
+        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $tokens->parse($pair->refreshToken->reveal())['jti'] ?? null);
     }
 
     /**
@@ -496,8 +496,8 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         $tokens = $this->authManager()->jwt('revocation_log');
 
-        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($tokens->issueAccessToken($identity, $identity, null, $session))['exp'] ?? null);
-        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($tokens->issueRefreshToken($session, self::ROTATION_ID, $identity))['exp'] ?? null);
+        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($tokens->issueAccessToken($identity, $identity, null, $session)->reveal())['exp'] ?? null);
+        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($tokens->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal())['exp'] ?? null);
     }
 
     /**
@@ -532,7 +532,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         [$identity, $session] = $this->seedRevocationLogSession($model);
 
-        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($session, self::ROTATION_ID, $identity);
+        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
 
         $this->recordRevocation($session);
 
@@ -565,7 +565,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         [$identity, $session] = $this->seedRevocationLogSession($model);
 
-        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($session, self::ROTATION_ID, $identity);
+        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
         $raced        = false;
 
         DB::connection()->beforeExecuting(function (string $query) use (&$raced, $session): void {
@@ -634,7 +634,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         DB::connection(self::REPLICA_CONNECTION)->table('session_origins')->insert(['session_id' => $session->getKey(), 'guard' => 'api', 'sign_in_method' => 'password']);
         DB::connection(self::PRIMARY_CONNECTION)->table('session_origins')->insert(['session_id' => $session->getKey(), ...$origin]);
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $identity);
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
         $reasons      = [];
 
         Event::listen(AuthenticationFailed::class, static function (AuthenticationFailed $event) use (&$reasons): void {
@@ -661,7 +661,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $identity = $this->seedIdentity();
         $session  = $this->seedSession($identity);
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $identity);
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
 
         $guard = $this->guardForRequest(Request::create('/refresh', 'POST'));
 
@@ -693,7 +693,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $this->copyRowToReplica('activatable_tenant_members', $member->getKey());
         $this->copyRowToReplica('activatable_tenant_memberships', $membership->getKey());
 
-        $token   = $this->authManager()->jwt('members')->issueAccessToken($member, $membership, null, null);
+        $token   = $this->authManager()->jwt('members')->issueAccessToken($member, $membership, null, null)->reveal();
         $request = Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]);
 
         self::assertTrue($member->is($this->guardForRequest($request, 'members')->user()));
@@ -728,7 +728,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         self::assertFalse($membership->relationLoaded('tenant'));
 
         $tokens = $this->authManager()->jwt('members');
-        $token  = $tokens->issueAccessToken($member, $membership, $tenant, null);
+        $token  = $tokens->issueAccessToken($member, $membership, $tenant, null)->reveal();
 
         self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $tokens->parse($token)['tenant_id'] ?? null);
     }
@@ -788,7 +788,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         $this->copyRowToReplica('suspendable_users', $user->getKey());
 
-        $token   = $this->authManager()->jwt('suspendable')->issueAccessToken($user, $user, null, null);
+        $token   = $this->authManager()->jwt('suspendable')->issueAccessToken($user, $user, null, null)->reveal();
         $request = Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]);
 
         self::assertTrue($user->is($this->guardForRequest($request, 'suspendable')->user()));

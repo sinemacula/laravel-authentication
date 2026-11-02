@@ -12,6 +12,7 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionDeadlines;
 use Symfony\Component\HttpFoundation\Cookie;
 
@@ -249,7 +250,7 @@ final readonly class RefreshTokenTransport
 
         $value = count($values) === 1 ? reset($values) : null;
 
-        return is_string($value) && $value !== '' ? new PresentedRefreshToken($value, $source) : FailureReason::TOKEN_INVALID;
+        return is_string($value) && $value !== '' ? new PresentedRefreshToken(new Secret($value), $source) : FailureReason::TOKEN_INVALID;
     }
 
     /**

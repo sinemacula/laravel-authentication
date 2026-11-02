@@ -105,7 +105,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
         $jwt = PackageAuth::jwt(self::GUARD);
 
-        $token = $jwt->issueAccessToken($identity, $principal, null, null);
+        $token = $jwt->issueAccessToken($identity, $principal, null, null)->reveal();
 
         self::assertTrue($this->guardForBearer($token)->check());
 
@@ -134,7 +134,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
         $jwt = PackageAuth::jwt(self::GUARD);
 
-        $token = $jwt->issueAccessToken($identity, $activePrincipal, null, null);
+        $token = $jwt->issueAccessToken($identity, $activePrincipal, null, null)->reveal();
 
         self::assertTrue($this->guardForBearer($token)->check());
 
@@ -161,7 +161,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
         $jwt = PackageAuth::jwt(self::GUARD);
 
-        $token = $jwt->issueAccessToken($identity, $identity, null, $session);
+        $token = $jwt->issueAccessToken($identity, $identity, null, $session)->reveal();
 
         self::assertTrue($this->guardForBearer($token)->check());
 
@@ -184,7 +184,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
         $jwt = PackageAuth::jwt(self::GUARD);
 
-        $token = $jwt->issueRefreshToken($session, 'stored-rotation-id', $identity);
+        $token = $jwt->issueRefreshToken($session, 'stored-rotation-id', $identity)->reveal();
 
         $identity->is_active = false;
         $identity->save();
@@ -210,7 +210,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
         $jwt = PackageAuth::jwt(self::GUARD);
 
-        $token = $jwt->issueRefreshToken($session, 'refresh-principal-rotation', $activePrincipal);
+        $token = $jwt->issueRefreshToken($session, 'refresh-principal-rotation', $activePrincipal)->reveal();
 
         $this->resolver()->setHintedPrincipal('principal-refresh', $inactivePrincipal);
 
@@ -232,7 +232,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
         $jwt = PackageAuth::jwt(self::GUARD);
 
-        $token = $jwt->issueRefreshToken($session, 'refresh-session-delete', $identity);
+        $token = $jwt->issueRefreshToken($session, 'refresh-session-delete', $identity)->reveal();
 
         $session->delete();
 

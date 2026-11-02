@@ -71,7 +71,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
 
             return match (true) {
                 $result === null          => new JsonResponse(['reason' => null], 400),
-                $result->session !== null => new JsonResponse(['source' => $result->source?->value, 'refresh_token' => $result->session->tokens->refreshToken]),
+                $result->session !== null => new JsonResponse(['source' => $result->source?->value, 'refresh_token' => $result->session->tokens->refreshToken->reveal()]),
                 default                   => new JsonResponse(['reason' => $result->reason?->value], 401),
             };
         });
@@ -289,7 +289,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
 
         $headers = $this->transformHeadersToServerVars(['Origin' => 'http://localhost', 'X-Requested-With' => 'XMLHttpRequest']);
 
-        $this->call('POST', '/auth/admin/refresh', [], ['__Host-refresh_token' => $admin->tokens->refreshToken], [], $headers)
+        $this->call('POST', '/auth/admin/refresh', [], ['__Host-refresh_token' => $admin->tokens->refreshToken->reveal()], [], $headers)
             ->assertOk()
             ->assertJson(['source' => 'cookie']);
     }
@@ -382,7 +382,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
 
         self::assertNotNull($session);
 
-        return $session->tokens->refreshToken;
+        return $session->tokens->refreshToken->reveal();
     }
 
     /**

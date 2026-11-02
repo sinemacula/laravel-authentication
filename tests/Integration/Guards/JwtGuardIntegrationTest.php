@@ -333,7 +333,7 @@ final class JwtGuardIntegrationTest extends TestCase
         ]);
 
         $manager      = $this->freshAuthManager();
-        $refreshToken = $manager->jwt('api')->issueRefreshToken($session, 'stored-rotation-id');
+        $refreshToken = $manager->jwt('api')->issueRefreshToken($session, 'stored-rotation-id')->reveal();
 
         Session::query()
             ->whereKey($session->getKey())

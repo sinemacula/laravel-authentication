@@ -190,8 +190,8 @@ final readonly class PasswordSignIn implements SignInMethod
     #[\Override]
     public function authenticate(SignInRequest $request): FailureReason|FirstFactor
     {
-        $identifier = $this->identifier($request->guard, $request->input);
-        $password   = $request->input[self::PASSWORD_KEY] ?? null;
+        $identifier = $this->identifier($request->guard, $request->input());
+        $password   = $request->input()[self::PASSWORD_KEY] ?? null;
 
         if ($identifier === null) {
             return FailureReason::INVALID_CREDENTIALS;
@@ -246,8 +246,12 @@ final readonly class PasswordSignIn implements SignInMethod
             return;
         }
 
-        Container::getInstance()->make(Rehashing::class)->during($identity, $credentials['password'] ?? null, static function () use ($provider, $identity, $credentials): void {
-            $provider->rehashPasswordIfRequired($identity, $credentials);
+        // `#[\SensitiveParameter]` does not cover what a closure captures,
+        // which a dump of the trace shows.
+        $held = new \SensitiveParameterValue($credentials);
+
+        Container::getInstance()->make(Rehashing::class)->during($identity, $credentials['password'] ?? null, static function () use ($provider, $identity, $held): void {
+            $provider->rehashPasswordIfRequired($identity, $held->getValue());
         });
     }
 

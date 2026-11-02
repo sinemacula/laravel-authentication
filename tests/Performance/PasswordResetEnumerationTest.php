@@ -424,7 +424,7 @@ final class PasswordResetEnumerationTest extends PerformanceContractTestCase
 
         self::assertInstanceOf(IssuedCode::class, $issued);
 
-        return $issued->code;
+        return $issued->code();
     }
 
     /**
@@ -517,9 +517,9 @@ final class PasswordResetEnumerationTest extends PerformanceContractTestCase
 
         self::assertInstanceOf(IssuedCode::class, $issued);
 
-        $zeros = str_repeat('0', strlen($issued->code));
+        $zeros = str_repeat('0', strlen($issued->code()));
 
-        return $issued->code === $zeros ? str_repeat('1', strlen($issued->code)) : $zeros;
+        return $issued->code() === $zeros ? str_repeat('1', strlen($issued->code())) : $zeros;
     }
 
     /**

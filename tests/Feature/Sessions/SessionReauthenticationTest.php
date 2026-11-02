@@ -105,7 +105,7 @@ final class SessionReauthenticationTest extends TestCase
                 ['email' => $request->string('email')->toString(), 'password' => $request->string('password')->toString()],
             );
 
-            return ['access_token' => $result->accessToken, 'reason' => $result->reason?->value];
+            return ['access_token' => $result->accessToken?->reveal(), 'reason' => $result->reason?->value];
         });
     }
 
@@ -143,13 +143,13 @@ final class SessionReauthenticationTest extends TestCase
 
         $this->clockAt($this->now->addMinutes(10));
 
-        $answer = $this->withToken($signedIn->tokens->accessToken)->postJson('/reauthenticate', self::credentials())->assertOk()->json();
+        $answer = $this->withToken($signedIn->tokens->accessToken->reveal())->postJson('/reauthenticate', self::credentials())->assertOk()->json();
 
         self::assertIsArray($answer);
         self::assertNull($answer['reason']);
         self::assertIsString($answer['access_token']);
         self::assertSame($before, self::refreshState());
-        self::assertTrue($this->sessions()->refresh($signedIn->tokens->refreshToken)->isRefreshed());
+        self::assertTrue($this->sessions()->refresh($signedIn->tokens->refreshToken->reveal())->isRefreshed());
     }
 
     /**
@@ -205,7 +205,7 @@ final class SessionReauthenticationTest extends TestCase
         $this->clockAt($this->now->addHour());
 
         $result = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials());
-        $claims = Auth::manager()->jwt('api')->parse((string) $result->accessToken, TokenType::ACCESS);
+        $claims = Auth::manager()->jwt('api')->parse((string) $result->accessToken?->reveal(), TokenType::ACCESS);
 
         self::assertIsArray($claims);
         self::assertSame([$this->now->addHour()->getTimestamp(), ['pwd']], [$claims['auth_time'] ?? null, $claims['amr'] ?? null]);
@@ -526,7 +526,7 @@ final class SessionReauthenticationTest extends TestCase
         self::assertNotNull($signedIn);
 
         $result = $this->sessions('members')->reauthenticate($signedIn->record, 'password', self::credentials('member@example.test'));
-        $claims = Auth::manager()->jwt('members')->parse((string) $result->accessToken, TokenType::ACCESS);
+        $claims = Auth::manager()->jwt('members')->parse((string) $result->accessToken?->reveal(), TokenType::ACCESS);
 
         self::assertIsArray($claims);
         self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $claims['tenant_id'] ?? null);

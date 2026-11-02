@@ -63,7 +63,7 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
         $identity  = $this->mockIdentity('identity-7');
         $principal = $this->mockPrincipal('principal-3');
 
-        $token = $service->issueAccessToken($identity, $principal, null, null);
+        $token = $service->issueAccessToken($identity, $principal, null, null)->reveal();
 
         self::assertSame(self::NEW_KID, $this->jwtHeader($token)['kid'] ?? null);
     }
@@ -96,7 +96,7 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
         $identity  = $this->mockIdentity('identity-7');
         $principal = $this->mockPrincipal('principal-3');
 
-        $token = $oldOnlyService->issueAccessToken($identity, $principal, null, null);
+        $token = $oldOnlyService->issueAccessToken($identity, $principal, null, null)->reveal();
 
         $claims = $rotatedService->parse($token, TokenType::ACCESS);
 
@@ -128,7 +128,7 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
         $identity  = $this->mockIdentity('identity-7');
         $principal = $this->mockPrincipal('principal-3');
 
-        $token = $retiredOnlyService->issueAccessToken($identity, $principal, null, null);
+        $token = $retiredOnlyService->issueAccessToken($identity, $principal, null, null)->reveal();
 
         self::assertNull($newOnlyService->parse($token, TokenType::ACCESS));
     }
@@ -148,7 +148,7 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
         $identity  = $this->mockIdentity('identity-7');
         $principal = $this->mockPrincipal('principal-3');
 
-        $token = $service->issueAccessToken($identity, $principal, null, null);
+        $token = $service->issueAccessToken($identity, $principal, null, null)->reveal();
 
         self::assertSame(self::KID, $this->jwtHeader($token)['kid'] ?? null);
     }

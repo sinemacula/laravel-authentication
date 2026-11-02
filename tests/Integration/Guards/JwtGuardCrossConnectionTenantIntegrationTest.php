@@ -264,7 +264,7 @@ final class JwtGuardCrossConnectionTenantIntegrationTest extends TestCase
      */
     private function bearerRequest(string $guard, Identity $member, LandlordTenantMembership $membership): Request
     {
-        $token = $this->authManager()->jwt($guard)->issueAccessToken($member, $membership, null, null);
+        $token = $this->authManager()->jwt($guard)->issueAccessToken($member, $membership, null, null)->reveal();
 
         return Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]);
     }

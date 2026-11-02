@@ -155,13 +155,13 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
 
         $below->save();
 
-        $this->bindRequestWithBearer('/perf/tenant', $tokens->issueAccessToken($member, $membership, $own, $inOwn));
+        $this->bindRequestWithBearer('/perf/tenant', $tokens->issueAccessToken($member, $membership, $own, $inOwn)->reveal());
 
         $owned = $this->freshJwtGuard('members');
 
         self::assertTrue($this->assertQueryBudget(4, 0, static fn (): bool => $owned->check()));
 
-        $this->bindRequestWithBearer('/perf/tenant', $tokens->issueAccessToken($member, $membership, $descendant, $below));
+        $this->bindRequestWithBearer('/perf/tenant', $tokens->issueAccessToken($member, $membership, $descendant, $below)->reveal());
 
         $placed = $this->freshJwtGuard('members');
 
@@ -194,7 +194,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
 
         $below->save();
 
-        $this->bindRequestWithBearer('/perf/tenant', $this->tokensFor('members')->issueAccessToken($member, $membership, $descendant, $below));
+        $this->bindRequestWithBearer('/perf/tenant', $this->tokensFor('members')->issueAccessToken($member, $membership, $descendant, $below)->reveal());
 
         $descendant->forceFill(['is_active' => false])->save();
 
@@ -235,7 +235,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     {
         [$member, $membership, $tenant] = $this->seedMembership($guard);
 
-        $this->bindRequestWithBearer('/perf/tenant', $this->tokensFor($guard)->issueAccessToken($member, $membership, null, null));
+        $this->bindRequestWithBearer('/perf/tenant', $this->tokensFor($guard)->issueAccessToken($member, $membership, null, null)->reveal());
 
         $resolved = $this->freshJwtGuard($guard);
 
@@ -258,7 +258,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     {
         [$member, $membership] = $this->seedMembership($guard, false);
 
-        $this->bindRequestWithBearer('/perf/tenant', $this->tokensFor($guard)->issueAccessToken($member, $membership, null, null));
+        $this->bindRequestWithBearer('/perf/tenant', $this->tokensFor($guard)->issueAccessToken($member, $membership, null, null)->reveal());
 
         $resolved = $this->freshJwtGuard($guard);
 
@@ -282,7 +282,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
         [$member, $membership] = $this->seedMembership($guard);
 
         $session = $this->seedSession($member, $guard, $membership);
-        $token   = $this->tokensFor($guard)->issueRefreshToken($session, self::ROTATION_ID, $membership);
+        $token   = $this->tokensFor($guard)->issueRefreshToken($session, self::ROTATION_ID, $membership)->reveal();
 
         app()->instance('request', Request::create('/refresh', 'POST'));
 
@@ -309,7 +309,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
         [$member, $membership] = $this->seedMembership($guard, false);
 
         $session = $this->seedSession($member, $guard);
-        $token   = $this->tokensFor($guard)->issueRefreshToken($session, self::ROTATION_ID, $membership);
+        $token   = $this->tokensFor($guard)->issueRefreshToken($session, self::ROTATION_ID, $membership)->reveal();
 
         app()->instance('request', Request::create('/refresh', 'POST'));
 
@@ -335,7 +335,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
         $user = new UncheckedTenantUser;
         $user->forceFill(['email' => 'unchecked@example.test', 'password' => 'irrelevant', 'tenant_id' => $tenant->getKey()])->save();
 
-        $this->bindRequestWithBearer('/perf/unchecked-tenant', $this->tokensFor('unchecked')->issueAccessToken($user, $user, null, null));
+        $this->bindRequestWithBearer('/perf/unchecked-tenant', $this->tokensFor('unchecked')->issueAccessToken($user, $user, null, null)->reveal());
 
         $guard = $this->freshJwtGuard('unchecked');
 

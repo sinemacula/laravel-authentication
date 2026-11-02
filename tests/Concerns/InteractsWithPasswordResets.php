@@ -198,7 +198,7 @@ trait InteractsWithPasswordResets
 
         self::assertInstanceOf(IssuedCode::class, $issued);
 
-        return $issued->code;
+        return $issued->code();
     }
 
     /**

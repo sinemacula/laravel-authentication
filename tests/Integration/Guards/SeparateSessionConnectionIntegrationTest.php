@@ -124,13 +124,13 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     {
         [$identity, $session] = $this->signIn();
 
-        $pair = GuardSessions::of($this->guard())->refresh($this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity))->session?->tokens;
+        $pair = GuardSessions::of($this->guard())->refresh($this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal())->session?->tokens;
 
         self::assertNotNull($pair);
         self::assertSame(RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)), $this->row($session)['refresh_key']);
         self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), $this->row($session)['previous_refresh_key']);
 
-        $this->withHeaders(['Authorization' => 'Bearer ' . $pair->accessToken])->getJson('/me')->assertOk()->assertJson(['session' => $session->id]);
+        $this->withHeaders(['Authorization' => 'Bearer ' . $pair->accessToken->reveal()])->getJson('/me')->assertOk()->assertJson(['session' => $session->id]);
 
         self::assertFalse(Schema::hasTable('authentication_sessions'));
     }
@@ -243,7 +243,7 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertNotNull(GuardSessions::of($this->guard())->refresh($this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity))->session);
+        self::assertNotNull(GuardSessions::of($this->guard())->refresh($this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal())->session);
         self::assertSame(['Refreshed'], $this->dispatched->getArrayCopy());
 
         DB::rollBack();
@@ -265,7 +265,7 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     {
         [$identity, $session] = $this->signIn();
 
-        $token      = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity);
+        $token      = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
         $connection = DB::connection(SeparateConnectionSession::CONNECTION);
 
         $connection->beginTransaction();
@@ -357,7 +357,7 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
             'refresh_rotated_at'   => $this->now->copy()->subHour()->format('Y-m-d H:i:s'),
         ]);
 
-        return $this->tokens()->issueRefreshToken($this->record(), self::ROTATION_ID, $identity);
+        return $this->tokens()->issueRefreshToken($this->record(), self::ROTATION_ID, $identity)->reveal();
     }
 
     /**

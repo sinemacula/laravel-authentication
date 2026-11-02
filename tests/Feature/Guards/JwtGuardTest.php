@@ -270,8 +270,8 @@ final class JwtGuardTest extends JwtGuardTestCase
 
         self::assertTrue($read?->isRefreshed());
         self::assertSame(RefreshTokenSource::HEADER, $read->source);
-        self::assertNotSame('', $read->session?->tokens->accessToken);
-        self::assertIsArray($this->tokens->parse((string) $read->session?->tokens->refreshToken, TokenType::REFRESH));
+        self::assertNotSame('', $read->session?->tokens->accessToken->reveal());
+        self::assertIsArray($this->tokens->parse((string) $read->session?->tokens->refreshToken->reveal(), TokenType::REFRESH));
         self::assertTrue($passed->isRefreshed());
         self::assertNull($passed->source);
     }

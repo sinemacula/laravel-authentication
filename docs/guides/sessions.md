@@ -50,13 +50,14 @@ proof on the session and issues the session a new access token, and nothing else
 
 ```php
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 
 Route::middleware('auth:api')->post('/step-up', function (Request $request) {
     $proof  = $factors->verify(Auth::identity(), Auth::session(), $request->input('code')); // your adapter's ProofResult
     $result = Auth::sessions('api')->stepUp($proof);
 
     return $result->isIssued()
-        ? response()->json(['access_token' => $result->accessToken, 'expires_at' => $result->expiresAt->toIso8601String()])
+        ? SecretResponse::json(['access_token' => $result->accessToken, 'expires_at' => $result->expiresAt->toIso8601String()])
         : response()->json(['message' => 'The code was not accepted.'], 403);
 });
 ```
@@ -87,12 +88,13 @@ and the input the client sent:
 ```php
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 
 Route::middleware('auth:api')->post('/reauthenticate', function (Request $request) {
     $result = Auth::sessions('api')->reauthenticate(Auth::session(), 'password', $request->only('email', 'password'));
 
     return match (true) {
-        $result->isIssued()                                => response()->json(['access_token' => $result->accessToken]),
+        $result->isIssued()                                => SecretResponse::json(['access_token' => $result->accessToken]),
         $result->reason === FailureReason::RATE_LIMITED    => response()->json([], 429, ['Retry-After' => $result->retryAfter]),
         default                                            => response()->json(['message' => 'Those details are not correct.'], 403),
     };
@@ -184,6 +186,7 @@ use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 
@@ -207,15 +210,15 @@ if ($result->isFailed()) {
 
 if ($result->isPending()) {
     // The destination's tenant asks for a further factor the session lacks.
-    return response()->json(['pending' => $result->credential, 'actions' => $result->pending->actions()]);
+    return SecretResponse::json(['pending' => $result->credential, 'actions' => $result->pending->actions()]);
 }
 
 $tokens = $result->session->tokens;
 
 return $result->source === RefreshTokenSource::COOKIE
-    ? response()->json(['access_token' => $tokens->accessToken])
-        ->withCookie(Auth::refreshTransport('api')->cookie($tokens->refreshToken, $result->session->record))
-    : response()->json(['access_token' => $tokens->accessToken, 'refresh_token' => $tokens->refreshToken]);
+    ? SecretResponse::json(['access_token' => $tokens->accessToken])
+        ->withCookie(Auth::refreshTransport('api')->cookie($tokens->refreshToken->reveal(), $result->session->record))
+    : SecretResponse::json(['access_token' => $tokens->accessToken, 'refresh_token' => $tokens->refreshToken]);
 ```
 
 `SwitchTarget::principal($principal)` switches to another principal of the identity in its default tenant (its own),

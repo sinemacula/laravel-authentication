@@ -113,7 +113,7 @@ final class PartiallySelectedActivationIntegrationTest extends TestCase
     public function testBearerAnswersAnIdentityLoadedWithoutItsActiveFlagWithAServerError(): void
     {
         $identity = $this->seedIdentity();
-        $token    = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, null);
+        $token    = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, null)->reveal();
 
         Route::middleware('auth:api')->get('/me', static fn (): string => 'ok');
 
@@ -146,7 +146,7 @@ final class PartiallySelectedActivationIntegrationTest extends TestCase
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $identity);
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
         $guard        = $this->guardForRequest(Request::create('/refresh', 'POST'));
 
         try {

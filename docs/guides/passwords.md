@@ -277,8 +277,8 @@ final class ResetLinkMailer implements PasswordResetLinkSender
 {
     public function send(PasswordResetLink $message): void
     {
-        // $message->token() is in clear: put it only in the link, never in a log.
-        $url = url("/{$message->guard}/password/reset?token={$message->token()}&{$message->type}=" . urlencode($message->identifier));
+        // $message->token() is a Secret: reveal it only into the link, never into a log.
+        $url = url("/{$message->guard}/password/reset?token={$message->token()->reveal()}&{$message->type}=" . urlencode($message->identifier));
 
         Mail::to($message->identifier)->send(new ResetLinkMail($url, $message->expiresAt));
     }

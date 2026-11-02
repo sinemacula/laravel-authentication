@@ -135,7 +135,7 @@ final readonly class SessionRefresh
             ->read($this->context->request());
 
         if ($presented instanceof PresentedRefreshToken) {
-            return $this->refresh($presented->token)->withSource($presented->source);
+            return $this->refresh($presented->token->reveal())->withSource($presented->source);
         }
 
         if ($presented === null) {

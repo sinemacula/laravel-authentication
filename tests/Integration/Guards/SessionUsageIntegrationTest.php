@@ -170,7 +170,7 @@ final class SessionUsageIntegrationTest extends TestCase
 
         $request = Request::create('/session', 'GET', server: [
             'REMOTE_ADDR'        => '198.51.100.1',
-            'HTTP_AUTHORIZATION' => 'Bearer ' . $this->tokens()->issueAccessToken($identity, $identity, null, $session),
+            'HTTP_AUTHORIZATION' => 'Bearer ' . $this->tokens()->issueAccessToken($identity, $identity, null, $session)->reveal(),
         ]);
 
         $request->server->remove('HTTP_USER_AGENT');
@@ -198,7 +198,7 @@ final class SessionUsageIntegrationTest extends TestCase
 
         $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.10'])
             ->withHeaders(['User-Agent' => 'Refresher/3.1'])
-            ->postJson('/refresh', ['refresh_token' => $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)])
+            ->postJson('/refresh', ['refresh_token' => $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal()])
             ->assertOk()
             ->assertExactJson(['refreshed' => true]);
 
@@ -238,7 +238,7 @@ final class SessionUsageIntegrationTest extends TestCase
 
         $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.10'])
             ->withHeaders(['User-Agent' => 'Refresher/3.1'])
-            ->postJson('/refresh', ['refresh_token' => $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)])
+            ->postJson('/refresh', ['refresh_token' => $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal()])
             ->assertExactJson(['refreshed' => true]);
 
         self::assertSame('192.0.2.10', $this->storedUsage($session)[1]);
@@ -460,8 +460,8 @@ final class SessionUsageIntegrationTest extends TestCase
 
             return [
                 'session'       => $session->getKey(),
-                'access_token'  => $tokens->issueAccessToken($identity, $identity, null, $session),
-                'refresh_token' => $tokens->issueRefreshToken($session, $rotation, $identity),
+                'access_token'  => $tokens->issueAccessToken($identity, $identity, null, $session)->reveal(),
+                'refresh_token' => $tokens->issueRefreshToken($session, $rotation, $identity)->reveal(),
             ];
         });
     }
@@ -480,7 +480,7 @@ final class SessionUsageIntegrationTest extends TestCase
      */
     private function bearerRequest(StubPrincipal $identity, Session $session, string $ip, string $userAgent): TestResponse
     {
-        $token = $this->tokens()->issueAccessToken($identity, $identity, null, $session);
+        $token = $this->tokens()->issueAccessToken($identity, $identity, null, $session)->reveal();
 
         return $this->withServerVariables(['REMOTE_ADDR' => $ip])
             ->withHeaders(['Authorization' => 'Bearer ' . $token, 'User-Agent' => $userAgent])

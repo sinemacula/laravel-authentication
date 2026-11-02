@@ -80,7 +80,7 @@ final class RefreshTokenTransportTest extends TestCase
         $presented = self::transport(['cookie', 'body', 'header'])->read($request());
 
         self::assertInstanceOf(PresentedRefreshToken::class, $presented);
-        self::assertSame(self::TOKEN, $presented->token);
+        self::assertSame(self::TOKEN, $presented->token->reveal());
         self::assertSame($source, $presented->source);
     }
 
@@ -212,7 +212,7 @@ final class RefreshTokenTransportTest extends TestCase
         $request = self::cookie(self::TOKEN, 'http://localhost', 'XMLHttpRequest');
         $request->headers->set('Cookie', $header);
 
-        self::assertSame(self::TOKEN, self::presented(self::transport(['cookie'])->read($request))->token);
+        self::assertSame(self::TOKEN, self::presented(self::transport(['cookie'])->read($request))->token->reveal());
     }
 
     /**

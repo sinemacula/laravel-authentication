@@ -361,8 +361,8 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
 
         assert($session !== null);
 
-        return (new JsonResponse(['access_token' => $session->tokens->accessToken]))
-            ->withCookie($transport->cookie($session->tokens->refreshToken, $session->record));
+        return (new JsonResponse(['access_token' => $session->tokens->accessToken->reveal()]))
+            ->withCookie($transport->cookie($session->tokens->refreshToken->reveal(), $session->record));
     }
 
     /**
@@ -388,8 +388,8 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
 
         $tokens = $result->session->tokens;
 
-        return (new JsonResponse(['access_token' => $tokens->accessToken, 'source' => $result->source?->value]))
-            ->withCookie(Auth::refreshTransport(self::GUARD)->cookie($tokens->refreshToken, $result->session->record));
+        return (new JsonResponse(['access_token' => $tokens->accessToken->reveal(), 'source' => $result->source?->value]))
+            ->withCookie(Auth::refreshTransport(self::GUARD)->cookie($tokens->refreshToken->reveal(), $result->session->record));
     }
 
     /**
@@ -416,10 +416,10 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
             return new JsonResponse(['reason' => $result?->reason?->value], 401);
         }
 
-        $response = new JsonResponse(['access_token' => $result->session->tokens->accessToken, 'principal' => $result->session->principal->getPrincipalIdentifier()]);
+        $response = new JsonResponse(['access_token' => $result->session->tokens->accessToken->reveal(), 'principal' => $result->session->principal->getPrincipalIdentifier()]);
 
         return $result->source === RefreshTokenSource::COOKIE
-            ? $response->withCookie(Auth::refreshTransport(self::GUARD)->cookie($result->session->tokens->refreshToken, $result->session->record))
+            ? $response->withCookie(Auth::refreshTransport(self::GUARD)->cookie($result->session->tokens->refreshToken->reveal(), $result->session->record))
             : $response;
     }
 

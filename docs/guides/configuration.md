@@ -638,10 +638,11 @@ final class SmsCodeSender implements OneTimeCodeSender
 
     public function send(OneTimeCodeMessage $message): void
     {
-        // $message->identifier is the recipient's own number or address; $message->code is in clear: never log it.
+        // $message->identifier is the recipient's own number or address; $message->code is a Secret: reveal it
+        // only into the message, never into a log.
         match ($message->type) {
-            'phone' => $this->sms->send($message->identifier, "Your code is {$message->code}."),
-            'email' => Mail::to($message->identifier)->send(new CodeMail($message->code, $message->expiresAt)),
+            'phone' => $this->sms->send($message->identifier, "Your code is {$message->code->reveal()}."),
+            'email' => Mail::to($message->identifier)->send(new CodeMail($message->code->reveal(), $message->expiresAt)),
         };
     }
 }

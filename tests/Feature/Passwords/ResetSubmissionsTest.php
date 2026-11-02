@@ -85,7 +85,7 @@ final class ResetSubmissionsTest extends TestCase
         self::assertTrue(PasswordIdentity::query()->sole()->is($link->identity));
         self::assertSame(0, $this->codes->count());
 
-        $token = $link->token();
+        $token = $link->token()->reveal();
 
         $this->postJson('/password/reset', ['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])
             ->assertExactJson(['status' => 'reset', 'revoked' => 2, 'violations' => []]);

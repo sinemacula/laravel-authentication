@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Sessions\Concerns;
 
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\PendingSession;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 
@@ -34,7 +35,7 @@ trait HoldsARotatedSession
      * @param  ?int  $retryAfter
      * @param  ?\SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\PendingSession  $pending
-     * @param  ?string  $credential
+     * @param  ?\SineMacula\Laravel\Authentication\Secrets\Secret  $credential
      */
     private function __construct(
 
@@ -54,8 +55,7 @@ trait HoldsARotatedSession
         public readonly ?PendingSession $pending = null,
 
         /** The pending credential the returned session now holds. */
-        #[\SensitiveParameter]
-        public readonly ?string $credential = null,
+        public readonly ?Secret $credential = null,
     ) {}
 
     /**
@@ -121,10 +121,10 @@ trait HoldsARotatedSession
      * it now holds; the result using the trait names it `pending()`.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\PendingSession  $pending
-     * @param  string  $credential
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret  $credential
      * @return self
      */
-    private static function returned(PendingSession $pending, #[\SensitiveParameter] string $credential): self
+    private static function returned(PendingSession $pending, Secret $credential): self
     {
         return new self(pending: $pending, credential: $credential);
     }

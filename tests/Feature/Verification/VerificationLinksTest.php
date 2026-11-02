@@ -30,6 +30,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\IdentifierVerified;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 use Tests\Concerns\InteractsWithVerifiableIdentities;
 use Tests\Integration\Fixtures\VerifiableIdentity;
@@ -210,7 +211,7 @@ final class VerificationLinksTest extends TestCase
     {
         $identity = self::seedVerifiableIdentity();
         $hour     = $this->link($identity, ['channel' => 'mail']);
-        $day      = $this->links()->create(self::GUARD, $identity, 'email', self::ROUTE, ['channel' => 'mail'], 1440);
+        $day      = $this->links()->create(self::GUARD, $identity, 'email', self::ROUTE, ['channel' => 'mail'], 1440)->reveal();
 
         Carbon::setTestNow(Carbon::now()->addHour()->addSecond());
 
@@ -412,7 +413,7 @@ final class VerificationLinksTest extends TestCase
     {
         $identity = self::seedVerifiableIdentity();
 
-        $create = fn (string $guard, Identity $identity, array $parameters = ['channel' => 'mail'], string $type = 'email'): \Closure => fn (): string => $this->links()->create(
+        $create = fn (string $guard, Identity $identity, array $parameters = ['channel' => 'mail'], string $type = 'email'): \Closure => fn (): Secret => $this->links()->create(
             $guard,
             $identity,
             $type,
@@ -452,7 +453,7 @@ final class VerificationLinksTest extends TestCase
         $this->assertRefused(
             \InvalidArgumentException::class,
             'Verification route [verification.placeholders] may not use the reserved names as placeholders: type, hash.',
-            fn (): string => $this->links()->create(self::GUARD, $identity, 'email', 'verification.placeholders'),
+            fn (): Secret => $this->links()->create(self::GUARD, $identity, 'email', 'verification.placeholders'),
         );
 
         $signed = URL::temporarySignedRoute('verification.placeholders', Carbon::now()->addHour(), [
@@ -519,7 +520,7 @@ final class VerificationLinksTest extends TestCase
         config()->set('authentication.verification.link_ttl_minutes', '10080');
 
         self::assertStringContainsString('expires=' . Carbon::now()->addWeek()->getTimestamp(), $this->link($identity, ['channel' => 'mail']));
-        $minute = $this->links()->create(self::GUARD, $identity, 'email', self::ROUTE, ['channel' => 'mail'], 1);
+        $minute = $this->links()->create(self::GUARD, $identity, 'email', self::ROUTE, ['channel' => 'mail'], 1)->reveal();
 
         self::assertStringContainsString('expires=' . Carbon::now()->addMinute()->getTimestamp(), $minute);
     }
@@ -586,7 +587,7 @@ final class VerificationLinksTest extends TestCase
 
     /**
      * A link for the identity's identifier of the type, with the default
-     * lifetime.
+     * lifetime, revealed.
      *
      * @param  \Tests\Integration\Fixtures\VerifiableIdentity  $identity
      * @param  array<string, mixed>  $parameters
@@ -595,7 +596,7 @@ final class VerificationLinksTest extends TestCase
      */
     private function link(VerifiableIdentity $identity, array $parameters, string $type = 'email'): string
     {
-        return $this->links()->create(self::GUARD, $identity, $type, self::ROUTE, $parameters);
+        return $this->links()->create(self::GUARD, $identity, $type, self::ROUTE, $parameters)->reveal();
     }
 
     /**

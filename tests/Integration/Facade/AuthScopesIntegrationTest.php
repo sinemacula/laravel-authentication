@@ -77,7 +77,7 @@ final class AuthScopesIntegrationTest extends TestCase
 
         self::assertNotNull($result->session);
 
-        $this->withToken($result->session->tokens->accessToken)
+        $this->withToken($result->session->tokens->accessToken->reveal())
             ->getJson('/scopes')
             ->assertOk()
             ->assertExactJson(['scopes' => null]);

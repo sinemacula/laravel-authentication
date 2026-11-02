@@ -127,8 +127,8 @@ final readonly class PasskeySignIn implements SignInMethod
             $rp,
             ChallengePurpose::SIGN_IN,
             null,
-            $request->input[self::CHALLENGE_KEY]  ?? null,
-            $request->input[self::CREDENTIAL_KEY] ?? null,
+            $request->input()[self::CHALLENGE_KEY]  ?? null,
+            $request->input()[self::CREDENTIAL_KEY] ?? null,
             static function (Passkey $passkey) use ($request): FailureReason|Identity {
                 $owner = PasskeyOwner::load($passkey, $request->provider);
 

@@ -231,7 +231,7 @@ final class PasskeySignInTest extends TestCase
         );
         self::assertSame([true, true, true], [$proof->user_presence, $proof->user_verification, $proof->phishing_resistant]);
 
-        $claims = Auth::manager()->jwt('api')->parse((string) $result->accessToken, TokenType::ACCESS);
+        $claims = Auth::manager()->jwt('api')->parse((string) $result->accessToken?->reveal(), TokenType::ACCESS);
 
         self::assertIsArray($claims);
         self::assertSame([$later->getTimestamp(), ['pwd']], [$claims['auth_time'] ?? null, $claims['amr'] ?? null]);

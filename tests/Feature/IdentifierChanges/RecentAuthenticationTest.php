@@ -314,7 +314,7 @@ final class RecentAuthenticationTest extends TestCase
 
         $this->moveTo($this->now->addSeconds(1000));
 
-        self::assertNotNull(self::sessionsOf($this->freshGuard('web'))->refresh($session->tokens->refreshToken)->session);
+        self::assertNotNull(self::sessionsOf($this->freshGuard('web'))->refresh($session->tokens->refreshToken->reveal())->session);
 
         $refreshed = Session::query()->findOrFail($session->record->getKey());
         $check     = new RecentAuthentication($this->guardContext(), $this->app);

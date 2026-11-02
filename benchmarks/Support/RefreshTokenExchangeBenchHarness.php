@@ -379,7 +379,7 @@ final class RefreshTokenExchangeBenchHarness
 
             BenchSchema::recordFirstFactor($session);
 
-            $pool[] = $this->tokens->issueRefreshToken($session, $rotationId, $principal);
+            $pool[] = $this->tokens->issueRefreshToken($session, $rotationId, $principal)->reveal();
         }
 
         return $pool;
@@ -475,7 +475,7 @@ final class RefreshTokenExchangeBenchHarness
         // rather than the shape check that rejects malformed ids before it.
         $missingSession = new Session;
         $missingSession->forceFill([...BenchSchema::signedIn('api'), 'id' => '0190f1d2-7c4e-7a3b-9f10-000000000000']);
-        $this->unknownSessionToken = $this->tokens->issueRefreshToken($missingSession, 'bench-missing-session-rotation');
+        $this->unknownSessionToken = $this->tokens->issueRefreshToken($missingSession, 'bench-missing-session-rotation')->reveal();
 
         if ($this->rotationMismatchTokens !== []) {
             return;
@@ -509,7 +509,7 @@ final class RefreshTokenExchangeBenchHarness
             'refresh_key'          => RefreshTokenHasher::hash('stored-rotation-id'),
         ])->save();
 
-        return $this->tokens->issueRefreshToken($session, 'tampered-rotation-id');
+        return $this->tokens->issueRefreshToken($session, 'tampered-rotation-id')->reveal();
     }
 
     /**

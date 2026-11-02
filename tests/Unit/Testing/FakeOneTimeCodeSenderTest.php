@@ -11,6 +11,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodeMessage;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
@@ -132,6 +133,14 @@ final class FakeOneTimeCodeSenderTest extends TestCase
      */
     private static function message(string $identifier, string $code, CodePurpose $purpose = CodePurpose::SIGN_IN): OneTimeCodeMessage
     {
-        return new OneTimeCodeMessage('mobile', $purpose, 'phone', $identifier, $code, CarbonImmutable::createStrict(2026, 4, 6, 12, 10, 0), new PlainIdentityFixture(1));
+        return new OneTimeCodeMessage(
+            'mobile',
+            $purpose,
+            'phone',
+            $identifier,
+            new Secret($code),
+            CarbonImmutable::createStrict(2026, 4, 6, 12, 10, 0),
+            new PlainIdentityFixture(1),
+        );
     }
 }

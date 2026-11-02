@@ -123,7 +123,7 @@ final class CodeServiceTest extends TestCase
                 && $job->identity                                                                                         === null
                 && $job->binding->purpose                                                                                 === CodePurpose::SIGN_IN
                 && [$job->binding->guard, $job->binding->type, $job->binding->identifier]                                 === ['mobile', 'phone', self::PHONE]
-                && $job->issued->code                                                                                     === self::CODE
+                && $job->issued->code()                                                                                   === self::CODE
                 && $job->issued->issueId                                                                                  === DB::table('one_time_codes')->value('issue_id'));
 
         Event::assertNotDispatched(AuthenticationFailed::class);

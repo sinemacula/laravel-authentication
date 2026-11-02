@@ -678,7 +678,7 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame($identity, $result->identity);
         self::assertSame($principal, $result->principal);
 
-        $claims = $this->tokens->parse($result->tokens->refreshToken, TokenType::REFRESH);
+        $claims = $this->tokens->parse($result->tokens->refreshToken->reveal(), TokenType::REFRESH);
 
         self::assertIsArray($claims);
         self::assertSame('p-12', $claims[Claims::PRINCIPAL->value]);
@@ -945,8 +945,8 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame($this->now->getTimestamp(), $stored->refresh_rotated_at?->getTimestamp());
         self::assertSame($expectedIdle, $stored->idle_expires_at?->getTimestamp());
         self::assertSame($absolute->getTimestamp(), $stored->absolute_expires_at?->getTimestamp());
-        self::assertSame($successor, $this->refreshClaims($result->tokens->refreshToken)[Claims::JWT_ID->value]);
-        self::assertSame($expectedIdle, $this->refreshClaims($result->tokens->refreshToken)[Claims::EXPIRES_AT->value]);
+        self::assertSame($successor, $this->refreshClaims($result->tokens->refreshToken->reveal())[Claims::JWT_ID->value]);
+        self::assertSame($expectedIdle, $this->refreshClaims($result->tokens->refreshToken->reveal())[Claims::EXPIRES_AT->value]);
         self::assertSame($stored->refresh_key, $result->record->getRefreshKey());
         self::assertSame($stored->previous_refresh_key, $result->record->getPreviousRefreshKey());
         self::assertSame($expectedIdle, $result->record->getIdleExpiresAt()?->getTimestamp());
@@ -986,7 +986,7 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame($expectedIdle, $stored->idle_expires_at?->getTimestamp());
         self::assertNull($stored->absolute_expires_at);
         self::assertNull($result->record->getAbsoluteExpiresAt());
-        self::assertSame($expectedIdle, $this->refreshClaims($result->tokens->refreshToken)[Claims::EXPIRES_AT->value]);
+        self::assertSame($expectedIdle, $this->refreshClaims($result->tokens->refreshToken->reveal())[Claims::EXPIRES_AT->value]);
     }
 
     /**
@@ -1014,8 +1014,8 @@ final class RefreshTokenExchangeTest extends TestCase
         $result = $this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client());
 
         self::assertInstanceOf(ExchangedRefresh::class, $result);
-        self::assertSame($current, $this->refreshClaims($result->tokens->refreshToken)[Claims::JWT_ID->value]);
-        self::assertSame($idle->getTimestamp(), $this->refreshClaims($result->tokens->refreshToken)[Claims::EXPIRES_AT->value]);
+        self::assertSame($current, $this->refreshClaims($result->tokens->refreshToken->reveal())[Claims::JWT_ID->value]);
+        self::assertSame($idle->getTimestamp(), $this->refreshClaims($result->tokens->refreshToken->reveal())[Claims::EXPIRES_AT->value]);
         self::assertSame($before, $this->row($session));
         self::assertSame([], $this->dispatched);
     }
@@ -1047,7 +1047,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $result = $this->makeExchange()->exchange($this->tokenFor($retried, self::ROTATION_ID), self::client());
 
         self::assertInstanceOf(ExchangedRefresh::class, $result);
-        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->refreshClaims($result->tokens->refreshToken)[Claims::JWT_ID->value]);
+        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->refreshClaims($result->tokens->refreshToken->reveal())[Claims::JWT_ID->value]);
 
         $policyGrace['seconds'] = TokenLifetimes::MAX_GRACE_SECONDS;
 
@@ -1147,7 +1147,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         self::assertInstanceOf(ExchangedRefresh::class, $second);
 
-        $third = $this->makeExchange()->exchange($second->tokens->refreshToken, self::client());
+        $third = $this->makeExchange()->exchange($second->tokens->refreshToken->reveal(), self::client());
 
         self::assertInstanceOf(ExchangedRefresh::class, $third);
         $this->refused($this->makeExchange()->exchange($this->tokenFor($session, $first), self::client()));
@@ -1310,7 +1310,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $result = $this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client());
 
         self::assertInstanceOf(ExchangedRefresh::class, $result);
-        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->refreshClaims($result->tokens->refreshToken)[Claims::JWT_ID->value]);
+        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->refreshClaims($result->tokens->refreshToken->reveal())[Claims::JWT_ID->value]);
         self::assertSame(RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)), $this->storedDigest($session->id));
         self::assertSame($result->record->getRefreshKey(), $this->storedDigest($session->id));
         self::assertSame([], $this->dispatched);
@@ -1742,7 +1742,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         self::assertInstanceOf(ExchangedRefresh::class, $result);
         self::assertSame($this->now->getTimestamp() + (45 * 60), StubSession::query()->findOrFail($session->id)->idle_expires_at?->getTimestamp());
-        self::assertSame($this->now->getTimestamp() + (45 * 60), $this->refreshClaims($result->tokens->refreshToken)[Claims::EXPIRES_AT->value]);
+        self::assertSame($this->now->getTimestamp() + (45 * 60), $this->refreshClaims($result->tokens->refreshToken->reveal())[Claims::EXPIRES_AT->value]);
     }
 
     /**

@@ -112,7 +112,7 @@ final class RequestSequenceTest extends TestCase
 
             assert($guard instanceof JwtGuard);
 
-            return ['access' => $result->session?->tokens->accessToken, 'principal' => $guard->principal()?->getPrincipalIdentifier()];
+            return ['access' => $result->session?->tokens->accessToken->reveal(), 'principal' => $guard->principal()?->getPrincipalIdentifier()];
         });
     }
 
@@ -217,7 +217,7 @@ final class RequestSequenceTest extends TestCase
         [, $first]        = $this->signedIn('ada@example.test');
         [$grace, $second] = $this->signedIn('grace@example.test');
 
-        $this->withToken($first->tokens->accessToken)->postJson('/logout')->assertJson(['identity' => null]);
+        $this->withToken($first->tokens->accessToken->reveal())->postJson('/logout')->assertJson(['identity' => null]);
         $this->me($second)->assertJson(['identity' => $grace->getKey()]);
     }
 
@@ -265,11 +265,11 @@ final class RequestSequenceTest extends TestCase
         self::assertNotNull($session);
 
         $this->flushHeaders();
-        $this->withToken($session->tokens->accessToken)->getJson('/members/me')->assertExactJson(['principal' => $first->getKey()]);
+        $this->withToken($session->tokens->accessToken->reveal())->getJson('/members/me')->assertExactJson(['principal' => $first->getKey()]);
 
         $this->flushHeaders();
 
-        $switched = $this->postJson('/members/switch', ['refresh' => $session->tokens->refreshToken, 'membership' => $second->getKey()]);
+        $switched = $this->postJson('/members/switch', ['refresh' => $session->tokens->refreshToken->reveal(), 'membership' => $second->getKey()]);
 
         $switched->assertJson(['principal' => $second->getKey()]);
 
@@ -278,7 +278,7 @@ final class RequestSequenceTest extends TestCase
         self::assertIsString($access);
 
         $this->flushHeaders();
-        $this->withToken($session->tokens->accessToken)->getJson('/members/me')->assertExactJson(['principal' => null]);
+        $this->withToken($session->tokens->accessToken->reveal())->getJson('/members/me')->assertExactJson(['principal' => null]);
 
         $this->flushHeaders();
         $this->withToken($access)->getJson('/members/me')->assertExactJson(['principal' => $second->getKey()]);
@@ -299,7 +299,7 @@ final class RequestSequenceTest extends TestCase
 
         $guard = $this->apiGuard();
 
-        self::assertNotNull(self::sessionsOf($guard)->refresh($session->tokens->refreshToken)->session);
+        self::assertNotNull(self::sessionsOf($guard)->refresh($session->tokens->refreshToken->reveal())->session);
 
         Event::fake([AuthenticationFailed::class, SessionRevoked::class, SignedIn::class]);
 
@@ -310,7 +310,7 @@ final class RequestSequenceTest extends TestCase
 
         JWT::$timestamp = $later->getTimestamp();
 
-        self::assertNull(self::sessionsOf($guard)->refresh($session->tokens->refreshToken)->session);
+        self::assertNull(self::sessionsOf($guard)->refresh($session->tokens->refreshToken->reveal())->session);
 
         self::sessionsOf($guard)->signIn('password', self::credentials('ada@example.test'));
 
@@ -366,7 +366,7 @@ final class RequestSequenceTest extends TestCase
 
         Event::fake([PrincipalSwitched::class, SessionRevoked::class, SignedOutEverywhere::class]);
 
-        self::assertTrue(self::sessionsOf($guard)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($second))->isSwitched());
+        self::assertTrue(self::sessionsOf($guard)->switchTo($session->tokens->refreshToken->reveal(), SwitchTarget::principal($second))->isSwitched());
         self::assertSame(1, self::sessionsOf($guard)->signOutEverywhere());
 
         Event::assertDispatched(PrincipalSwitched::class, static fn (PrincipalSwitched $event): bool => $event->previousPrincipalId === (string) $first->id);
@@ -396,7 +396,7 @@ final class RequestSequenceTest extends TestCase
 
         $this->app?->instance(PrincipalResolver::class, $resolver);
 
-        $result = self::sessionsOf($guard)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($second));
+        $result = self::sessionsOf($guard)->switchTo($session->tokens->refreshToken->reveal(), SwitchTarget::principal($second));
 
         self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $result->reason);
     }
@@ -448,7 +448,7 @@ final class RequestSequenceTest extends TestCase
     {
         $this->flushHeaders();
 
-        return $session === null ? $this->getJson('/me') : $this->withToken($session->tokens->accessToken)->getJson('/me');
+        return $session === null ? $this->getJson('/me') : $this->withToken($session->tokens->accessToken->reveal())->getJson('/me');
     }
 
     /**

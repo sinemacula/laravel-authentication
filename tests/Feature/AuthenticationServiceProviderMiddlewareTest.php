@@ -1,0 +1,164 @@
+<?php
+
+declare(strict_types = 1);
+
+namespace Tests\Feature;
+
+use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
+use Illuminate\Contracts\Http\Kernel as HttpKernel;
+use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Http\Kernel;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Routing\Middleware\SubstituteBindings;
+use Illuminate\Routing\Router;
+use Illuminate\Support\Facades\Route;
+use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
+use SineMacula\Laravel\Authentication\Http\Middleware\NoStore;
+use Tests\Concerns\InteractsWithSessions;
+use Tests\TestCase;
+
+/**
+ * Feature tests for the middleware the provider registers: the opt-in alias,
+ * and the place `authentication.no-store` takes in the HTTP kernel's priority,
+ * even against an application that sets the whole priority list itself.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited
+ *
+ * @internal
+ */
+#[CoversClass(AuthenticationServiceProvider::class)]
+final class AuthenticationServiceProviderMiddlewareTest extends TestCase
+{
+    use InteractsWithSessions;
+
+    /** @var list<class-string> The priority list the application sets itself. */
+    private const array APPLICATION_PRIORITY = [AuthenticatesRequests::class, SubstituteBindings::class];
+
+    /**
+     * Create the tables and a route that lists `auth` before the middleware.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->createSessionTables();
+
+        Route::middleware(['auth:api', 'authentication.no-store'])
+            ->get('/recovery-codes', static fn (): JsonResponse => new JsonResponse(['codes' => ['code-one']]));
+    }
+
+    /**
+     * Drop the tables.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function tearDown(): void
+    {
+        $this->dropSessionTables();
+
+        parent::tearDown();
+    }
+
+    /**
+     * The alias names the middleware, and the middleware comes first in the
+     * kernel's priority, once, ahead of the application's own order, and in the
+     * router's, which the kernel keeps in step.
+     *
+     * @return void
+     */
+    public function testTheMiddlewareComesFirstAheadOfTheApplicationsPriority(): void
+    {
+        $kernel = app()->make(HttpKernel::class);
+        $router = app()->make(Router::class);
+
+        self::assertInstanceOf(Kernel::class, $kernel);
+        self::assertSame([NoStore::class, ...self::APPLICATION_PRIORITY], $kernel->getMiddlewarePriority());
+        self::assertSame([NoStore::class, ...self::APPLICATION_PRIORITY], $router->middlewarePriority);
+        self::assertSame(NoStore::class, $router->getMiddleware()['authentication.no-store']);
+    }
+
+    /**
+     * On a route that lists `auth` before the middleware, the `401` still
+     * leaves through it, so it is never stored.
+     *
+     * @return void
+     */
+    public function testAnUnauthenticatedResponseLeavesThroughTheMiddleware(): void
+    {
+        $response = $this->getJson('/recovery-codes')->assertUnauthorized();
+
+        self::assertTrue($response->baseResponse->headers->hasCacheControlDirective('no-store'));
+        self::assertSame('no-cache', $response->baseResponse->headers->get('Pragma'));
+    }
+
+    /**
+     * A kernel resolved again, as a fresh worker resolves it, takes the
+     * middleware first again, and only once.
+     *
+     * @return void
+     */
+    public function testAKernelResolvedAgainTakesTheMiddlewareFirstAgain(): void
+    {
+        app()->make(HttpKernel::class);
+        app()->forgetInstance(HttpKernel::class);
+
+        $kernel = app()->make(HttpKernel::class);
+
+        self::assertInstanceOf(Kernel::class, $kernel);
+        self::assertSame([NoStore::class, ...self::APPLICATION_PRIORITY], $kernel->getMiddlewarePriority());
+    }
+
+    /**
+     * A kernel that is not the foundation's has no priority list to join, and
+     * is left as it is.
+     *
+     * @return void
+     */
+    public function testAKernelOfItsOwnIsLeftAsItIs(): void
+    {
+        $kernel = \Mockery::mock(HttpKernel::class);
+
+        app()->forgetInstance(HttpKernel::class);
+        app()->singleton(HttpKernel::class, static fn (): HttpKernel => $kernel);
+
+        app()->make(HttpKernel::class);
+
+        self::assertTrue(app()->resolved(HttpKernel::class));
+    }
+
+    /**
+     * Configure the guards, and an application that sets the kernel's whole
+     * priority list itself when the kernel is resolved, as `withMiddleware()`
+     * does before any provider boots.
+     *
+     * @param  mixed  $app
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    #[\Override]
+    protected function defineEnvironment(mixed $app): void
+    {
+        parent::defineEnvironment($app);
+
+        assert($app instanceof Application);
+
+        self::configureSessionGuards($app->make(ConfigRepository::class));
+
+        $app->afterResolving(HttpKernel::class, static function (mixed $kernel): void {
+
+            if (!$kernel instanceof Kernel) {
+                return;
+            }
+
+            $kernel->setMiddlewarePriority(self::APPLICATION_PRIORITY);
+        });
+    }
+}

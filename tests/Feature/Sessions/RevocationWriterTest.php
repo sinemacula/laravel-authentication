@@ -142,7 +142,7 @@ final class RevocationWriterTest extends TestCase
         $session  = $this->signIn();
         $guard    = $this->freshGuard();
 
-        $guard->setRequest(Request::create('/', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $session->tokens->accessToken]));
+        $guard->setRequest(Request::create('/', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $session->tokens->accessToken->reveal()]));
         $guard->login($identity, $identity, new PlainSessionFixture('plain-session'));
 
         $this->recordEvents([SessionRevoked::class, Logout::class]);
@@ -721,7 +721,7 @@ final class RevocationWriterTest extends TestCase
 
         $id = (string) IdentifierCoercion::stringify($result->pending->id);
 
-        return [$id, $result->credential, self::adapterProof($result->pending->identity, 'api', $result->pending->id, Purpose::SIGN_IN)];
+        return [$id, $result->credential->reveal(), self::adapterProof($result->pending->identity, 'api', $result->pending->id, Purpose::SIGN_IN)];
     }
 
     /**

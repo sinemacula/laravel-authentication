@@ -145,7 +145,7 @@ final readonly class PendingSignInBenchHarness
     {
         $result     = $this->sessions()->signIn('password', ['email' => self::EMAIL, 'password' => self::PASSWORD]);
         $pending    = $result->pending;
-        $credential = $result->credential;
+        $credential = $result->credential?->reveal();
 
         if ($pending === null || $credential === null) {
             throw new \LogicException('The pending sign-in benchmark does not reach the outcome it measures; fix its fixtures before timing it.');
