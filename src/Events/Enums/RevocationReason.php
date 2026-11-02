@@ -63,4 +63,16 @@ enum RevocationReason: string
 
     // The identity's further factors were reset: `factorReset()`
     case FACTOR_RESET = 'factor_reset';
+
+    // The connection the session was established through was disabled:
+    // `connectionDisabled()`
+    case CONNECTION_DISABLED = 'connection_disabled';
+
+    // The connection the session was established through was deleted:
+    // `connectionDeleted()`
+    case CONNECTION_DELETED = 'connection_deleted';
+
+    // The identity's link to the connection the session was established through
+    // was removed: `linkRemoved()`
+    case LINK_REMOVED = 'link_removed';
 }

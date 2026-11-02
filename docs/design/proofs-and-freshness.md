@@ -125,8 +125,9 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
   accepted, so an external reauthentication would never count for MFA or `amr`.
 - `external_reauthentication`: a reserved kind that nothing records; there is no reauthentication handoff from the
   provider, and step-up and `satisfy()` refuse it.
-- Provenance by connection or tenant: only the indexes exist. There is no lookup, listing or revocation of the
-  sessions of a connection or of a tenant's connections.
+- Provenance by connection or tenant: the connection index finds the sessions a connection established for
+  `connectionDisabled()` and `connectionDeleted()` (`Sessions\ConnectionRevocations`); there is no lookup or listing of
+  the sessions of a connection or of a tenant's connections, and the tenant index has no reader yet.
 - The freshness requirement (proof kinds, maximum age, multifactor, phishing resistance) is what the stored proofs can
   show. A tenant's further factor is a `Requirements\Requirement` instead (additional verification, multifactor, a
   minimum assurance level, phishing resistance, each with an optional maximum age), and whether a session's proofs meet

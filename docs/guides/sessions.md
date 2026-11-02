@@ -29,8 +29,8 @@ connection and its tenant, the provider's authentication time, no evidence (noth
 evidence is accepted, so none is recorded), the provider's deadline for its session (which also caps the session's
 absolute deadline, the earlier of it and the sign-in's own winning) and the policy version the caller checked. A later
 reauthentication at the provider is a proof of its own and never rewrites how the session began. The provenance is
-indexed by connection and by tenant, for finding the sessions of a connection or of a tenant's connections, but the
-package has no lookup or revocation by connection or tenant yet: only the indexes.
+indexed by connection and by tenant: the sessions a connection established are revoked through it (see [Connections and
+links](#connections-and-links)); there is no lookup by connection or tenant yet.
 
 Proofs and provenance belong to the session's key, so they carry unchanged from a pending session to the active one it
 becomes, and across every refresh and switch. A sign-in that replaces a session the client proved it holds is a new
@@ -674,6 +674,32 @@ package first, and the factor package then calls `factorRemoved()`. `RevokeSessi
 session on any passkey's removal, the current one included, once committed: with the factor package, register it only
 if that is what you want.
 
+### Connections and links
+
+When an external provider's connection is disabled or deleted, or an identity's link to one is removed, end the sessions
+it established from the same transaction:
+
+```php
+DB::transaction(function () use ($connection) {
+    $connection->update(['enabled' => false]);
+
+    Auth::sessions()->connectionDisabled($connection->id);
+});
+
+Auth::sessions()->connectionDeleted($connectionId);
+Auth::sessions()->linkRemoved($user, $connectionId);
+```
+
+`connectionDisabled()` and `connectionDeleted()` revoke every live session whose provenance records the connection (of
+every guard and identity, pending ones included; one already past a deadline is left for pruning), as
+`connection_disabled` or `connection_deleted`; `linkRemoved()` revokes only the identity's, as `link_removed`. Each
+returns how many it revoked. They are found through the provenance's connection index (a link's through the identity's
+sessions) 500 at a time, each chunk locked in key order, in one transaction on the storage connection, a savepoint
+inside yours; `SessionRevoked` reports each once that commits. No cutoff moves and no `SignedOutEverywhere` is
+reported: the scope is how the sessions began, not the identity, whose other sessions stay. Each is on by default and
+turned off by its `authentication.revocation.*` setting (see [Revocation by
+connection](configuration.md#revocation-by-connection)); a connection id may not be empty.
+
 ### Access tokens without a session
 
 An access token issued without a session (access-only mode, see
@@ -783,6 +809,9 @@ Every revocation records one of these reasons in the session's `revoked_reason` 
 | `tenant_deactivated`    | `tenantDeactivated()`                                                                                                                      |
 | `tenant_policy_changed` | `tenantPolicyChanged()`, or a refresh that finds the tenant now requires a connection the session was not established through              |
 | `factor_reset`          | The factor package's `factorReset()`: every session of the identity                                                                        |
+| `connection_disabled`   | `connectionDisabled()`: the sessions the connection established                                                                            |
+| `connection_deleted`    | `connectionDeleted()`: the sessions the connection established                                                                             |
+| `link_removed`          | `linkRemoved()`: the identity's sessions the connection established                                                                        |
 
 `revokeSession()`, `revokeSessions()` and `revokePrincipalSessions()` take the reason as an argument (`REVOKED` in the
 examples above); the others set their own.

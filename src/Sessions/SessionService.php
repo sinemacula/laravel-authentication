@@ -39,6 +39,7 @@ use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsConnectionSessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\GatesFactorChanges;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\LooksUpSessions;
@@ -96,8 +97,9 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * (`SwitchesSessions`), lists sessions, looks one session or principal up
  * (`LooksUpSessions`), and signs out, revokes sessions and ends sessions on
  * security changes through `SessionRevocations` (`EndsSessions`), which the
- * guard's `logout()` and password changes use too, and signs out by refresh
- * credential through `SessionSignOut`.
+ * guard's `logout()` and password changes use too, signs out by refresh
+ * credential through `SessionSignOut`, and ends the sessions a connection
+ * established through `ConnectionRevocations` (`EndsConnectionSessions`).
  *
  * Failures are results, not exceptions: Laravel's `Failed` and the package's
  * `AuthenticationFailed` report them. Exceptions are kept for misconfiguration
@@ -114,7 +116,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  */
 final readonly class SessionService
 {
-    use EndsSessions, GatesFactorChanges, LooksUpSessions, ProvesSessions, RefreshesSessions, SwitchesSessions;
+    use EndsConnectionSessions, EndsSessions, GatesFactorChanges, LooksUpSessions, ProvesSessions, RefreshesSessions, SwitchesSessions;
 
     /** @var \SineMacula\Laravel\Authentication\Sessions\SessionEstablishment Takes an admitted sign-in to its session, active or pending, never binding. */
     private SessionEstablishment $establishment;
@@ -181,7 +183,17 @@ final readonly class SessionService
         $this->refreshes = new SessionRefresh($context, $binding, $exchange, $this->afterCommit, $container, $refreshProof);
         $this->signOuts  = new SessionSignOut($context, $binding, $this->revocations, $sessions, $refreshProof, $container);
 
-        $this->factorRevocations = new FactorRevocations($context, $binding, $this->revocations, $sessions, $this->evaluation, $this->transitions, $this->afterCommit, $container);
+        $this->connectionRevocations = new ConnectionRevocations($context, $sessions, $container);
+        $this->factorRevocations     = new FactorRevocations(
+            $context,
+            $binding,
+            $this->revocations,
+            $sessions,
+            $this->evaluation,
+            $this->transitions,
+            $this->afterCommit,
+            $container,
+        );
 
         $issuance = new ProofIssuance($context, $tokens);
 

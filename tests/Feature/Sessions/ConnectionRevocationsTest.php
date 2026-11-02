@@ -1,0 +1,409 @@
+<?php
+
+declare(strict_types = 1);
+
+namespace Tests\Feature\Sessions;
+
+use Carbon\CarbonImmutable;
+use Firebase\JWT\JWT;
+use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Foundation\Application;
+use Illuminate\Support\Carbon;
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
+use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
+use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Proofs\Provenance;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsConnectionSessions;
+use SineMacula\Laravel\Authentication\Sessions\ConnectionRevocations;
+use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
+use Tests\Integration\Fixtures\IntegrationIdentity;
+use Tests\TestCase;
+
+/**
+ * Feature tests of the revocations by connection, through the session service
+ * against a real database: a connection disabled or deleted ends every live
+ * session it established, of every guard, pending ones included, and an
+ * identity's removed link only that identity's sessions through it; each can be
+ * turned off, and ends nothing that has already ended.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited
+ *
+ * @internal
+ */
+#[CoversClass(ConnectionRevocations::class)]
+#[CoversTrait(EndsConnectionSessions::class)]
+final class ConnectionRevocationsTest extends TestCase
+{
+    use InteractsWithSessions;
+
+    /**
+     * Freeze the clocks and create the tables.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $now = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
+
+        Carbon::setTestNow($now);
+        CarbonImmutable::setTestNow($now);
+
+        JWT::$timestamp = $now->getTimestamp();
+
+        $this->createSessionTables();
+    }
+
+    /**
+     * Release the clocks and drop the tables.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function tearDown(): void
+    {
+        $this->dropSessionTables();
+
+        Carbon::setTestNow();
+        CarbonImmutable::setTestNow();
+
+        JWT::$timestamp = null;
+
+        parent::tearDown();
+    }
+
+    /**
+     * Rows of `[the revocation of a connection, the reason it records]`.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, string): int, 1: \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    public static function provideConnectionRevocations(): iterable
+    {
+        yield 'disabled' => [
+            static fn (SessionService $sessions, string $connection): int => $sessions->connectionDisabled($connection),
+            RevocationReason::CONNECTION_DISABLED,
+        ];
+
+        yield 'deleted' => [
+            static fn (SessionService $sessions, string $connection): int => $sessions->connectionDeleted($connection),
+            RevocationReason::CONNECTION_DELETED,
+        ];
+    }
+
+    /**
+     * A connection disabled or deleted ends every live session it established,
+     * of every guard and identity, with its reason, reporting each revocation
+     * and no logout everywhere; another connection's sessions and a password
+     * session stay.
+     *
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, string): int  $revoke
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideConnectionRevocations')]
+    public function testAConnectionsEndEndsEverySessionItEstablished(\Closure $revoke, RevocationReason $reason): void
+    {
+        $ada   = $this->seedIdentity();
+        $grace = $this->seedIdentity('grace@example.test');
+
+        $ended = [
+            $this->external($ada, 'conn-a'),
+            $this->external($ada, 'conn-a', 'admin'),
+            $this->external($grace, 'conn-a'),
+        ];
+
+        $kept = [
+            $this->external($ada, 'conn-b'),
+            $this->passwordSession(),
+        ];
+
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class]);
+
+        self::assertSame(3, $revoke($this->sessions(), 'conn-a'));
+        self::assertSame(array_fill(0, 3, $reason->value), $this->reasonsOf($ended));
+        self::assertSame([null, null], $this->reasonsOf($kept));
+        self::assertSame([SessionRevoked::class, SessionRevoked::class, SessionRevoked::class], $this->recordedClasses());
+    }
+
+    /**
+     * A pending session the connection established is a session too, and ends
+     * with the rest, so its credential cannot activate it afterwards.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingSessionTheConnectionEstablishedEnds(): void
+    {
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        $identity = $this->seedIdentity();
+        $result   = $this->sessions()->start($identity, null, 'sso', null, new Provenance('conn-a'));
+
+        self::assertTrue($result->isPending());
+        self::assertSame(1, $this->sessions()->connectionDisabled('conn-a'));
+        self::assertSame(RevocationReason::CONNECTION_DISABLED->value, Session::query()->whereKey($result->pending?->id)->value('revoked_reason'));
+    }
+
+    /**
+     * A removed link ends only the identity's sessions the connection
+     * established: its other sessions and the connection's sessions of other
+     * identities stay.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARemovedLinkEndsOnlyTheIdentitysSessionsThroughTheConnection(): void
+    {
+        $ada   = $this->seedIdentity();
+        $grace = $this->seedIdentity('grace@example.test');
+
+        $ended = [$this->external($ada, 'conn-a'), $this->external($ada, 'conn-a', 'admin')];
+        $kept  = [$this->external($ada, 'conn-b'), $this->passwordSession(), $this->external($grace, 'conn-a')];
+
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class]);
+
+        self::assertSame(2, $this->sessions()->linkRemoved($ada, 'conn-a'));
+        self::assertSame(array_fill(0, 2, RevocationReason::LINK_REMOVED->value), $this->reasonsOf($ended));
+        self::assertSame([null, null, null], $this->reasonsOf($kept));
+        self::assertSame([SessionRevoked::class, SessionRevoked::class], $this->recordedClasses());
+
+        foreach ($this->recorded as $event) {
+            self::assertInstanceOf(SessionRevoked::class, $event);
+            self::assertSame($ada, $event->context->identity);
+        }
+    }
+
+    /**
+     * Rows of `[the trigger, its setting]`.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Identity): int, 1: string}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    public static function provideTriggers(): iterable
+    {
+        yield 'a connection disabled' => [static fn (SessionService $sessions): int => $sessions->connectionDisabled('conn-a'), 'connection_disabled'];
+        yield 'a connection deleted' => [static fn (SessionService $sessions): int => $sessions->connectionDeleted('conn-a'), 'connection_deleted'];
+        yield 'a link removed' => [static fn (SessionService $sessions, Identity $identity): int => $sessions->linkRemoved($identity, 'conn-a'), 'link_removed'];
+    }
+
+    /**
+     * A trigger turned off ends nothing and reports nothing.
+     *
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Identity): int  $trigger
+     * @param  string  $setting
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideTriggers')]
+    public function testATriggerTurnedOffEndsNothing(\Closure $trigger, string $setting): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->external($identity, 'conn-a');
+
+        config()->set('authentication.revocation.' . $setting, false);
+
+        $this->recordEvents([SessionRevoked::class]);
+
+        self::assertSame(0, $trigger($this->sessions(), $identity));
+        self::assertSame([null], $this->reasonsOf([$session]));
+        self::assertSame([], $this->recorded);
+    }
+
+    /**
+     * A setting that is not a boolean fails closed before anything is written.
+     *
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Identity): int  $trigger
+     * @param  string  $setting
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideTriggers')]
+    public function testAMalformedSettingFailsClosed(\Closure $trigger, string $setting): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->external($identity, 'conn-a');
+
+        config()->set('authentication.revocation.' . $setting, 'false');
+
+        try {
+            $trigger($this->sessions(), $identity);
+
+            self::fail('Expected the malformed setting to be refused.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertSame("authentication.revocation.{$setting} must be true or false.", $exception->getMessage());
+        }
+
+        self::assertSame([null], $this->reasonsOf([$session]));
+    }
+
+    /**
+     * A connection id that names nothing is refused.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnEmptyConnectionIdIsRefused(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('A connection is named by its id, which may not be empty.');
+
+        $this->sessions()->connectionDisabled('');
+    }
+
+    /**
+     * Sessions that have already ended, by revocation or past a deadline, are
+     * neither revoked again nor counted, for a connection or a link.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSessionsThatHaveEndedAreLeftAlone(): void
+    {
+        $identity = $this->seedIdentity();
+        $revoked  = $this->external($identity, 'conn-a');
+        $idle     = $this->external($identity, 'conn-a');
+        $absolute = $this->external($identity, 'conn-a');
+
+        Session::query()->whereKey($revoked)->update(['revoked_at' => CarbonImmutable::now(), 'revoked_reason' => 'revoked']);
+        Session::query()->whereKey($idle)->update(['idle_expires_at' => CarbonImmutable::now()]);
+        Session::query()->whereKey($absolute)->update(['absolute_expires_at' => CarbonImmutable::now()]);
+
+        self::assertSame(0, $this->sessions()->linkRemoved($identity, 'conn-a'));
+        self::assertSame(0, $this->sessions()->connectionDeleted('conn-a'));
+        self::assertSame(['revoked', null, null], $this->reasonsOf([$revoked, $idle, $absolute]));
+    }
+
+    /**
+     * A session with no absolute deadline is live until its idle one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionWithoutAnAbsoluteDeadlineEnds(): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->external($identity, 'conn-a');
+
+        Session::query()->whereKey($session)->update(['absolute_expires_at' => null]);
+
+        self::assertSame(1, $this->sessions()->linkRemoved($identity, 'conn-a'));
+    }
+
+    /**
+     * An identity that is not an Eloquent model has no sessions to end.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentityThatIsNotAModelHasNoSessionsThroughALink(): void
+    {
+        $this->external($this->seedIdentity(), 'conn-a');
+
+        self::assertSame(0, $this->sessions()->linkRemoved(\Mockery::mock(Identity::class), 'conn-a'));
+        self::assertSame(0, Session::query()->whereNotNull('revoked_at')->count());
+    }
+
+    /**
+     * Register the session guards.
+     *
+     * @param  mixed  $app
+     * @return void
+     */
+    #[\Override]
+    protected function defineEnvironment(mixed $app): void
+    {
+        parent::defineEnvironment($app);
+
+        assert($app instanceof Application);
+
+        self::configureSessionGuards($app->make(ConfigRepository::class));
+    }
+
+    /**
+     * The key of a session the identity started through the connection on the
+     * guard.
+     *
+     * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
+     * @param  string  $connection
+     * @param  string  $guard
+     * @return mixed
+     *
+     * @throws \Throwable
+     */
+    private function external(IntegrationIdentity $identity, string $connection, string $guard = 'api'): mixed
+    {
+        $session = $this->sessions($guard)->start($identity, null, 'sso', null, new Provenance($connection))->session;
+
+        self::assertNotNull($session);
+
+        return $session->record->getKey();
+    }
+
+    /**
+     * The key of a session the seeded identity signed in to with its password.
+     *
+     * @return mixed
+     *
+     * @throws \Throwable
+     */
+    private function passwordSession(): mixed
+    {
+        $session = Auth::sessions('api')->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($session);
+
+        return $session->record->getKey();
+    }
+
+    /**
+     * The revocation reason each session records, in the order given.
+     *
+     * @param  list<mixed>  $keys
+     * @return list<?string>
+     */
+    private function reasonsOf(array $keys): array
+    {
+        return array_map(static function (mixed $key): ?string {
+            $reason = Session::query()->whereKey($key)->value('revoked_reason');
+
+            return is_string($reason) ? $reason : null;
+        }, $keys);
+    }
+}

@@ -31,6 +31,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 use SineMacula\Laravel\Authentication\Sessions\PendingState;
+use SineMacula\Laravel\Authentication\Sessions\RevocationSettings;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use Symfony\Component\Console\Attribute\AsCommand;
 
@@ -143,8 +144,9 @@ final class CheckConfigurationCommand extends Command
      * package's tables live on, the session model and how long pruning keeps a
      * session and the lifetime and body field of a pending session's credential
      * (only while a `jwt` guard, which keeps sessions, is configured), the API
-     * key settings, the identifier change settings and the freshness
-     * requirements, each of which otherwise fails only when it is first used.
+     * key settings, the identifier change settings, the revocation settings and
+     * the freshness requirements, each of which otherwise fails only when it is
+     * first used.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @param  list<string>  $checked
@@ -186,7 +188,12 @@ final class CheckConfigurationCommand extends Command
                 static fn (): int => ApiKeySettings::pruneAfterDays(),
             ],
             'identifier_changes' => self::identifierChangeChecks($config),
-            'freshness'          => [
+            'revocation'         => [
+                static function () use ($config): void {
+                    (new RevocationSettings($config))->validate();
+                },
+            ],
+            'freshness' => [
                 static function () use ($config): void {
                     (new FreshnessSettings($config))->validate();
                 },

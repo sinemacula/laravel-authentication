@@ -121,6 +121,27 @@ return [
 
     /*
     |---------------------------------------------------------------------------
+    | Revocation by connection
+    |---------------------------------------------------------------------------
+    |
+    | The session service's `connectionDisabled()` and `connectionDeleted()`
+    | end every live session an external provider's connection established,
+    | and `linkRemoved()` an identity's sessions through it, found through the
+    | provenance (`connection_disabled`, `connection_deleted`, `link_removed`).
+    | Each is on unless its setting here is `false`, when it returns `0` and
+    | writes nothing. A value that is not a boolean fails closed when the
+    | method is first called, and `authentication:check` reports it.
+    |
+    */
+
+    'revocation' => [
+        'connection_disabled' => true,
+        'connection_deleted'  => true,
+        'link_removed'        => true,
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
     | Sign-in
     |---------------------------------------------------------------------------
     |

@@ -19,6 +19,9 @@ JWT settings are read once and kept (see [Configuration lifetimes](operations.md
 | `session.pending_credential_field`                   | `pending_credential`                                                         | `AUTHENTICATION_SESSION_PENDING_CREDENTIAL_FIELD`         |           | [The caller of a request](sessions.md#the-caller-of-a-request)        |
 | `proofs.table`                                       | `authentication_proofs`                                                      | `AUTHENTICATION_PROOFS_TABLE`                             |           | [Proofs](#proofs)                                                     |
 | `proofs.provenance_table`                            | `authentication_provenance`                                                  | `AUTHENTICATION_PROOFS_PROVENANCE_TABLE`                  |           | [Proofs](#proofs)                                                     |
+| `revocation.connection_disabled`                     | `true`                                                                       |                                                           |           | [Revocation by connection](#revocation-by-connection)                 |
+| `revocation.connection_deleted`                      | `true`                                                                       |                                                           |           | [Revocation by connection](#revocation-by-connection)                 |
+| `revocation.link_removed`                            | `true`                                                                       |                                                           |           | [Revocation by connection](#revocation-by-connection)                 |
 | `sign_in.password_identifier`                        | `email`                                                                      | `AUTHENTICATION_SIGN_IN_PASSWORD_IDENTIFIER`              | yes       | [Sign-in](#sign-in)                                                   |
 | `timebox.credentials_microseconds`                   | `400000`                                                                     | `AUTHENTICATION_TIMEBOX_CREDENTIALS_US`                   |           | [Credential validation timing](#credential-validation-timing)         |
 | `events.redacted_credential_keys`                    | `[]`                                                                         |                                                           |           | [Events](events.md#events)                                            |
@@ -506,6 +509,21 @@ provenance](sessions.md#proofs-and-provenance)). Both live on the storage connec
 written in one transaction, and both are read from the write connection. Each name may be up to 47 characters: the
 migrations name their indexes after it (`<table>_session_index` and so on), and PostgreSQL cuts a longer index name
 short. They are pruned with their sessions (see [Pruning](operations.md#pruning)).
+
+## Revocation by connection
+
+```php
+'revocation' => [
+    'connection_disabled' => true,
+    'connection_deleted'  => true,
+    'link_removed'        => true,
+],
+```
+
+`Auth::sessions()->connectionDisabled()`, `connectionDeleted()` and `linkRemoved()` end the sessions an external
+provider's connection established (see [Connections and links](sessions.md#connections-and-links)). Each is on unless
+its setting is `false`, when it returns `0` and writes nothing. A value that is not `true` or `false` fails closed with
+an `InvalidArgumentException` when the method is first called, and `authentication:check` reports it.
 
 ## Freshness
 

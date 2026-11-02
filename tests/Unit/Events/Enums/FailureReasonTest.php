@@ -181,6 +181,9 @@ final class FailureReasonTest extends TestCase
             'tenant_policy_changed',
             'password_established',
             'factor_reset',
+            'connection_disabled',
+            'connection_deleted',
+            'link_removed',
         ], array_map(static fn (RevocationReason $reason): string => $reason->value, RevocationReason::cases()));
     }
 }
