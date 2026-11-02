@@ -406,13 +406,14 @@ seam has a default that works alone.
   channel, factor, what it observed (`null` for anything it did not), its `Evaluation` (accepted, and multifactor as it
   judged it: `amr` carries `mfa` only from there, never counted from the values, and a proof's own values may not name
   `mfa`), its `amr` values (at most 8, each 1 to 48 printable ASCII characters other than `"` and `\`; anything else is
-  an `InvalidArgumentException`), its time and its `ProofBinding` (identity, application, session, purpose).
-  Satisfy a pending session with `satisfy($credential, $proof)`, bound to `PendingSession::$id` for `sign_in`,
-  or `enrollment` for the factor that confirms a bootstrap enrolment (see
-  [Satisfying a further factor](signing-in.md#satisfying-a-further-factor)). Nothing a factor package keeps about a
-  session survives a sign-in: every sign-in starts a new session with a new id and its own proofs, and the session the
-  client proved (`AdditionalFactorContext::$provenSession`) is revoked with its proofs left on it when the new one first
-  activates.
+  an `InvalidArgumentException`), its time and its `ProofBinding` (identity, application, session, purpose). Satisfy a
+  pending session with `satisfy($credential, $proof)`, bound to `PendingSession::$id` for `sign_in`, or `enrollment` for
+  the factor that confirms a bootstrap enrolment (see [Satisfying a further
+  factor](signing-in.md#satisfying-a-further-factor)). Called inside the factor package's own transaction, on the
+  storage connection, the activation commits with it: the guard is bound, and the sign-in's slots given back, only once
+  that transaction commits, and never when it rolls back. Nothing a factor package keeps about a session survives a
+  sign-in: every sign-in starts a new session with a new id and its own proofs, and the session the client proved
+  (`AdditionalFactorContext::$provenSession`) is revoked with its proofs left on it when the new one first activates.
 - Step a signed-in session up with a factor the factor package has just verified: `Auth::sessions()->stepUp($proof)`,
   with the `ProofResult` bound to the session's key for `step_up`. The session keeps its refresh token and deadlines,
   and every access token issued for it from then on carries the factor in `auth_time` and `amr`; the session then

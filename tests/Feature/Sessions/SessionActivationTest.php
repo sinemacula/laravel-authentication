@@ -12,7 +12,6 @@ use Illuminate\Database\DatabaseTransactionsManager;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -293,12 +292,11 @@ final class SessionActivationTest extends TestCase
     }
 
     /**
-     * A first activation inside a transaction queues its reports and, only when
-     * its sign-in held slots, their give-back after them; nothing is reported
-     * or given back before the commit. Once committed, each slot held is given
-     * back as reserved: for the guard's sign-in flow, the identifier type and
-     * IP address the session records, with the windows stored; a sign-in that
-     * held none gives nothing back.
+     * A first activation inside a transaction queues its reports, and nothing
+     * is reported before the commit; it gives nothing back itself, but hands
+     * up, with the session, each slot its sign-in held, as reserved: for the
+     * guard's sign-in flow, the identifier type and IP address the session
+     * records, with the windows stored. A sign-in that held none hands up none.
      *
      * @param  bool  $held
      * @return void
@@ -306,7 +304,7 @@ final class SessionActivationTest extends TestCase
      * @throws \Throwable
      */
     #[DataProvider('provideSignInsAndTheSlotsTheyHeld')]
-    public function testAFirstActivationGivesBackTheSlotsItsSignInHeldOnceCommitted(bool $held): void
+    public function testAFirstActivationHandsUpTheSlotsItsSignInHeld(bool $held): void
     {
         [$member, $membership, $tenant] = $this->seedMember();
 
@@ -324,10 +322,11 @@ final class SessionActivationTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertNotNull($this->activation()->activate($pending, new Admitted($member, $membership, $tenant), null, self::client(), $this->now));
-        self::assertCount($held ? 2 : 1, $this->queuedCallbacks());
+        $activated = $this->activation()->activate($pending, new Admitted($member, $membership, $tenant), null, self::client(), $this->now);
+
+        self::assertNotNull($activated);
+        self::assertCount(1, $this->queuedCallbacks());
         self::assertSame([], $this->recordedClasses());
-        self::assertCount(0, $limiter->released);
 
         DB::commit();
 
@@ -341,41 +340,8 @@ final class SessionActivationTest extends TestCase
         }
 
         self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
-        self::assertEquals($given, $limiter->released);
-    }
-
-    /**
-     * A first activation whose limiter cannot give the slots back reports the
-     * failure instead of throwing it, and stops giving back at the failure: the
-     * session stands active, and the sign-in was reported before it.
-     *
-     * @return void
-     *
-     * @throws \Throwable
-     */
-    public function testAGiveBackThatFailsIsReportedAndTheSessionStands(): void
-    {
-        [$member, $membership, $tenant] = $this->seedMember();
-
-        $pending = $this->pendingSession();
-
-        DB::table('authentication_sessions')->where('id', $pending->getKey())->update(['attempt_windows' => json_encode([['ip' => '1:60'], ['identifier' => '1:60']])]);
-
-        $pending    = Session::query()->whereKey($pending->getKey())->firstOrFail();
-        $failure    = new \RuntimeException('The counters are unreachable.');
-        $exceptions = Exceptions::fake([\RuntimeException::class]);
-        $limiter    = \Mockery::mock(AttemptLimiter::class);
-
-        $limiter->shouldReceive('release')->once()->andThrow($failure);
-
-        app()->instance(AttemptLimiter::class, $limiter);
-
-        $this->recordEvents([SessionCreated::class, SignedIn::class]);
-
-        self::assertNotNull($this->activation()->activate($pending, new Admitted($member, $membership, $tenant), null, self::client(), $this->now));
-        self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
-        self::assertSame([$failure], $exceptions->reported());
-        self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
+        self::assertEquals($given, $activated->heldSlots);
+        self::assertCount(0, $limiter->released);
     }
 
     /**

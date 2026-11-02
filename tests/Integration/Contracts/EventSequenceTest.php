@@ -43,11 +43,11 @@ use Tests\TestCase;
 /**
  * Pins what the flows that write a session and then bind the guard do around
  * the database's transactions and the listeners they run: a sign-in inside a
- * transaction that commits or rolls back, a refresh rolled back, a bind
- * listener and a lifecycle listener that throw (and what becomes of the
- * attempt-limit slots), a request or dispatcher rebound between the scheduling
- * of the lifecycle events and their dispatch, and a completion whose session
- * write fails.
+ * transaction that commits or rolls back, whose bind waits for the commit, a
+ * refresh rolled back, a bind listener and a lifecycle listener that throw (and
+ * what becomes of the attempt-limit slots), a request or dispatcher rebound
+ * between the scheduling of the lifecycle events and their dispatch, and a
+ * completion whose session write fails.
  *
  * Each assertion records what the code does today, for the refactors of the
  * session service and the guard to keep.
@@ -125,9 +125,9 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * Inside a transaction on the session's connection, a sign-in binds at once
-     * and reports its session when the transaction commits; its slots are given
-     * back.
+     * Inside a transaction on the session's connection, a sign-in binds nothing
+     * and gives nothing back until the transaction commits; then it reports its
+     * session, binds the guard and gives its slots back, in that order.
      *
      * @return void
      *
@@ -142,19 +142,20 @@ final class EventSequenceTest extends TestCase
         DB::beginTransaction();
 
         self::assertTrue($sessions->signIn('password', self::credentials())->isSignedIn());
-        self::assertSame(['Attempting api', ...self::BIND], $this->recordedSequence());
+        self::assertSame(['Attempting api'], $this->recordedSequence());
+        self::assertSame([1, 1], self::slotsTaken());
 
         DB::commit();
 
-        self::assertSame(['Attempting api', ...self::BIND, ...self::REPORT], $this->recordedSequence());
+        self::assertSame(['Attempting api', ...self::REPORT, ...self::BIND], $this->recordedSequence());
         self::assertSame([0, 0], self::slotsTaken());
         self::assertSame(1, Session::query()->count());
         self::assertSame('s1', $this->nameOfSession(Session::query()->sole()));
     }
 
     /**
-     * Inside a transaction that rolls back, a sign-in binds the guard to a
-     * session that is never written or reported, and nothing stays counted.
+     * Inside a transaction that rolls back, a sign-in never binds the guard,
+     * and its session is never written or reported; nothing stays counted.
      *
      * @return void
      *
@@ -172,10 +173,10 @@ final class EventSequenceTest extends TestCase
 
         DB::rollBack();
 
-        self::assertSame(['Attempting api', ...self::BIND], $this->recordedSequence());
+        self::assertSame(['Attempting api'], $this->recordedSequence());
         self::assertSame([0, 0], self::slotsTaken());
         self::assertSame(0, Session::query()->count());
-        self::assertTrue($guard->hasUser());
+        self::assertFalse($guard->hasUser());
     }
 
     /**
@@ -230,14 +231,14 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * An activation whose bind listener throws still gives back the slots its
-     * sign-in took: the give-back was scheduled before the bind.
+     * An activation whose bind listener throws keeps the slots its sign-in took
+     * counted: they are given back only once the bind returned.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAnActivationWhoseBindListenerThrowsGivesItsSlotsBack(): void
+    public function testAnActivationWhoseBindListenerThrowsKeepsItsSlots(): void
     {
         [$credential, $proof] = $this->pendingSession();
 
@@ -250,7 +251,7 @@ final class EventSequenceTest extends TestCase
 
         self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => $sessions->satisfy($credential, $proof)));
         self::assertSame([...self::REPORT, 'Validated api i1', 'Login api i1', 'Authenticated api i1'], $this->recordedSequence());
-        self::assertSame([0, 0], self::slotsTaken());
+        self::assertSame([1, 1], self::slotsTaken());
         self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
         self::assertSame('s1', $this->nameOfSession(Session::query()->sole()));
     }
@@ -304,9 +305,10 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * A request rebound between the scheduling of the lifecycle events and the
-     * commit resets the guard, and the events report the client the sign-in
-     * came from.
+     * A request rebound between the sign-in and the commit resets the guard,
+     * which the sign-in's bind, waiting for the commit, then leaves alone: the
+     * guard serves another request now. The events report the client the
+     * sign-in came from, and the slots are given back.
      *
      * @return void
      *
@@ -329,7 +331,9 @@ final class EventSequenceTest extends TestCase
 
         DB::commit();
 
-        self::assertSame(['Attempting api', ...self::BIND, ...self::REPORT], $this->recordedSequence());
+        self::assertSame(['Attempting api', ...self::REPORT], $this->recordedSequence());
+        self::assertFalse($guard->hasUser());
+        self::assertSame([0, 0], self::slotsTaken());
         self::assertSame([self::CLIENT_IP, self::CLIENT_IP], array_map(static fn (SessionCreated|SignedIn $event): ?string => $event->context->client->ip, $this->recorded));
         self::assertSame('s1', $this->nameOfSession(Session::query()->sole()));
     }

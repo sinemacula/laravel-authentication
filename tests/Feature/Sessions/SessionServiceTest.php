@@ -1146,14 +1146,15 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * An activation whose bind listener throws is reported, and still gives the
-     * slots its sign-in took back: both were scheduled before the bind.
+     * An activation whose bind listener throws is reported, its report being
+     * scheduled before the bind, but keeps the slots its sign-in took counted:
+     * they are given back only once the bind returned.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAnActivationWhoseBindListenerThrowsIsStillReportedAndGivesItsSlotsBack(): void
+    public function testAnActivationWhoseBindListenerThrowsIsStillReportedAndKeepsItsSlots(): void
     {
         $identity = $this->seedIdentity();
         $limiter  = new RecordingAttemptLimiter;
@@ -1170,16 +1171,48 @@ final class SessionServiceTest extends TestCase
 
         self::assertSame('listener failed', self::failureOf(fn (): SignInResult => $this->sessions()->satisfy($credential, $proof)));
         self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
-        self::assertCount(count($limiter->reservations), $limiter->released);
+        self::assertCount(0, $limiter->released);
         self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
     }
 
     /**
-     * Inside a caller's transaction, an activation whose bind listener throws
-     * reports the session and gives its sign-in's slots back only once the
-     * caller commits. A rollback withdraws both with the activation and leaves
-     * the session pending, so its credential can satisfy it again; the slots
-     * are given back once, for the activation that committed.
+     * An activation gives back, once it has bound the session, exactly the
+     * slots its sign-in held while pending: one for each window the session
+     * kept.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnActivationGivesBackTheSlotsItsSignInHeldOnceBound(): void
+    {
+        $identity = $this->seedIdentity();
+        $limiter  = new RecordingAttemptLimiter;
+
+        app()->instance(AttemptLimiter::class, $limiter);
+
+        [$credential, $proof] = $this->pendingWithProof($identity);
+
+        $held = $limiter->reservations;
+
+        Event::listen(Login::class, static function () use ($limiter): void {
+            self::assertCount(0, $limiter->released);
+        });
+
+        self::assertTrue($this->sessions()->satisfy($credential, $proof)->isSignedIn());
+        self::assertCount(count($held), $limiter->released);
+        $windows = static fn (AttemptReservation $reservation): array => $reservation->windows;
+
+        self::assertSame(array_map($windows, $held), array_map($windows, $limiter->released));
+    }
+
+    /**
+     * Inside a caller's transaction, an activation binds nothing until the
+     * caller commits: a rollback withdraws its report and its bind with the
+     * activation and leaves the session pending, so its credential can satisfy
+     * it again; a commit reports the session, then binds it, and the bind
+     * listener's exception reaches the caller's commit, leaving the slots
+     * counted.
      *
      * @return void
      *
@@ -1204,25 +1237,144 @@ final class SessionServiceTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertSame('listener failed', self::failureOf($satisfy));
+        self::assertTrue($satisfy()->isSignedIn());
 
         DB::rollBack();
 
         self::assertSame([], $this->recordedClasses());
         self::assertCount(0, $limiter->released);
         self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
+        self::assertFalse(Auth::guard('api')->hasUser());
 
         DB::beginTransaction();
 
-        self::assertSame('listener failed', self::failureOf($satisfy));
+        self::assertTrue($satisfy()->isSignedIn());
+        self::assertSame([], $this->recordedClasses());
+
+        try {
+            DB::commit();
+
+            self::fail('Expected the bind listener to throw at the commit.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('listener failed', $exception->getMessage());
+        }
+
+        self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertCount(0, $limiter->released);
+        self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
+    }
+
+    /**
+     * A satisfaction inside a caller's transaction binds the guard only when it
+     * commits: one that rolls back binds nothing, dispatches no `Login` and
+     * keeps the slots counted; one that commits binds once, with one `Login`,
+     * then gives the slots back.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASatisfactionBindsTheGuardOnlyOnceItCommits(): void
+    {
+        $identity = $this->seedIdentity();
+        $limiter  = new RecordingAttemptLimiter;
+
+        app()->instance(AttemptLimiter::class, $limiter);
+
+        [$credential, $proof] = $this->pendingWithProof($identity);
+
+        $this->recordEvents([Login::class]);
+
+        $sessions = $this->sessions();
+        $guard    = Auth::guard('api');
+
+        DB::beginTransaction();
+
+        self::assertTrue($sessions->satisfy($credential, $proof)->isSignedIn());
+        self::assertFalse($guard->hasUser());
+
+        DB::rollBack();
+
+        self::assertFalse($guard->hasUser());
         self::assertSame([], $this->recordedClasses());
         self::assertCount(0, $limiter->released);
 
-        DB::commit();
+        DB::transaction(static fn (): bool => $sessions->satisfy($credential, $proof)->isSignedIn());
 
-        self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame($identity->getKey(), $guard->id());
+        self::assertSame([Login::class], $this->recordedClasses());
         self::assertCount(count($limiter->reservations), $limiter->released);
-        self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
+    }
+
+    /**
+     * Rows of what the caller's transaction does to the session after the
+     * sign-in, before it commits.
+     *
+     * @return iterable<string, array{0: array<string, mixed>}>
+     */
+    public static function provideChangesBeforeTheCommit(): iterable
+    {
+        yield 'revoked' => [['revoked_at' => '2026-04-06 12:00:00', 'revoked_reason' => 'signed_out']];
+        yield 'returned to pending' => [['status' => 'pending']];
+        yield 'another session put under its key' => [['generation' => '00000000-0000-7000-8000-000000000000']];
+    }
+
+    /**
+     * A bind that waited for the commit reads the session again first: one the
+     * same transaction revoked, returned to pending or replaced is never bound,
+     * though its sign-in is reported and its slots given back.
+     *
+     * @param  array<string, mixed>  $change
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideChangesBeforeTheCommit')]
+    public function testABindThatWaitedIsNotMadeForASessionChangedBeforeTheCommit(array $change): void
+    {
+        $this->seedIdentity();
+
+        $limiter = new RecordingAttemptLimiter;
+
+        app()->instance(AttemptLimiter::class, $limiter);
+
+        $this->recordEvents([SignedIn::class, Login::class]);
+
+        $sessions = $this->sessions();
+
+        DB::transaction(static function () use ($sessions, $change): void {
+            self::assertTrue($sessions->signIn('password', self::credentials())->isSignedIn());
+
+            DB::table('authentication_sessions')->update($change);
+        });
+
+        self::assertFalse(Auth::guard('api')->hasUser());
+        self::assertSame([SignedIn::class], $this->recordedClasses());
+        self::assertCount(count($limiter->reservations), $limiter->released);
+    }
+
+    /**
+     * A transaction open on another connection neither delays nor withdraws the
+     * bind: the session's writes were not made in it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATransactionOnAnotherConnectionDoesNotDelayTheBind(): void
+    {
+        $this->seedIdentity();
+
+        $elsewhere = DB::connection('elsewhere');
+
+        $elsewhere->beginTransaction();
+
+        self::assertTrue($this->sessions()->signIn('password', self::credentials())->isSignedIn());
+        self::assertTrue(Auth::guard('api')->hasUser());
+
+        $elsewhere->rollBack();
+
+        self::assertTrue(Auth::guard('api')->hasUser());
     }
 
     /**
@@ -1316,6 +1468,7 @@ final class SessionServiceTest extends TestCase
         $config->set('auth.guards.plain', ['driver' => 'jwt', 'provider' => 'plain', 'application' => ['methods' => ['password']]]);
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
         $config->set('auth.guards.choosers', ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password', 'sso']]]);
+        $config->set('database.connections.elsewhere', ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
     }
 
     /**

@@ -10,6 +10,7 @@ use Illuminate\Auth\Events\Failed;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Admission\Refused;
@@ -35,6 +36,9 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
+use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
+use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
+use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\GatesFactorChanges;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\LooksUpSessions;
@@ -80,10 +84,11 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  *
  * The session is established by `SessionEstablishment`, which writes it and
  * schedules what reports it but never binds; the service binds the guard only
- * once that has returned. Pending sessions are acted on through
- * `PendingSessions`. The service also refreshes a session through
- * `SessionRefresh` (`RefreshesSessions`), steps a session up and
- * reauthenticates it through `SessionStepUp` and `SessionReauthentication`
+ * once that has returned, and only once the session's writes commit, so a
+ * sign-in inside a caller's transaction that rolls back never binds. Pending
+ * sessions are acted on through `PendingSessions`. The service also refreshes a
+ * session through `SessionRefresh` (`RefreshesSessions`), steps a session up
+ * and reauthenticates it through `SessionStepUp` and `SessionReauthentication`
  * (`ProvesSessions`), each of which issues a new access token only, gates the
  * factor package's changes to an identity's further factors through
  * `FactorChangeGate` (`GatesFactorChanges`), lets a session switch the
@@ -120,7 +125,7 @@ final readonly class SessionService
     /** @var \SineMacula\Laravel\Authentication\Sessions\PendingSessions Reads, satisfies, chooses for and discards pending sessions. */
     private PendingSessions $pendings;
 
-    /** @var \SineMacula\Laravel\Authentication\Database\AfterCommit Defers the report of a switch or a refresh until it commits. */
+    /** @var \SineMacula\Laravel\Authentication\Database\AfterCommit Defers the report of a switch or a refresh, and a sign-in's bind, until it commits. */
     private AfterCommit $afterCommit;
 
     /** @var \SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore The guarded switch write and its locking re-read. */
@@ -476,30 +481,7 @@ final readonly class SessionService
 
         $outcome = $verified instanceof Refused ? $verified : $this->continueVerified($driver, $input, $context, $subject->identifierType, $attempt, $verified);
 
-        return $outcome instanceof Refused ? $outcome : $this->settle($outcome, $attempt, $transport);
-    }
-
-    /**
-     * Bind the guard to the session a sign-in started, then give back the
-     * attempt-limit slots of one that started active, so a bind listener that
-     * throws leaves them counted; a pending sign-in keeps them.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInResult  $result
-     * @param  \SineMacula\Laravel\Authentication\Sessions\CredentialAttempt  $attempt
-     * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
-     * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
-     *
-     * @throws \Throwable
-     */
-    private function settle(SignInResult $result, CredentialAttempt $attempt, RefreshTokenTransport $transport): SignInResult
-    {
-        $bound = $this->bound($result, $transport);
-
-        if ($bound->isSignedIn()) {
-            $attempt->release();
-        }
-
-        return $bound;
+        return $outcome instanceof Refused ? $outcome : $this->bound($outcome, $transport, $attempt);
     }
 
     /**
@@ -675,22 +657,33 @@ final readonly class SessionService
     }
 
     /**
-     * Bind the guard to the session a sign-in started, once establishment has
-     * scheduled what reports it (`Validated`, `Login`, `Authenticated`,
-     * `PrincipalAssigned` and `SessionAuthenticated`), and answer the result
-     * with the session's pair delivered as the application's transport says (a
-     * cookie application's refresh token only in its cookie); a result without
-     * a session binds nothing and is answered as it is. The transport is built
-     * before the sign-in or the action begins, so one that is misconfigured
-     * fails it before anything is written or reported.
+     * Answer the result with the session's pair delivered as the application's
+     * transport says (a cookie application's refresh token only in its cookie),
+     * and bind the guard to the session once the writes on the session's
+     * connection commit, through `AfterCommit`, after what reports the session
+     * (`SessionCreated`, `SignedIn`), which was scheduled first: at once with
+     * no transaction open there, otherwise at the commit, and never when it
+     * rolls back. Only once the bind returned are the attempt-limit slots the
+     * sign-in took given back (the attempt's, for a sign-in that started
+     * active, or the ones a pending session held), so a bind listener that
+     * throws leaves them counted and a rolled-back sign-in gives nothing back.
+     * A bind that waited for the commit binds only while the guard still serves
+     * the request that signed in (a request rebound meanwhile is another's),
+     * and reads the session again on the write connection first, binding it
+     * only while it is still that session, live and active: a session revoked
+     * or returned to pending later in the same transaction is never bound. A
+     * result without a session binds nothing and is answered as it is. The
+     * transport is built before the sign-in or the action begins, so one that
+     * is misconfigured fails it before anything is written or reported.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInResult  $result
      * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
+     * @param  ?\SineMacula\Laravel\Authentication\Sessions\CredentialAttempt  $attempt
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \InvalidArgumentException
      */
-    private function bound(SignInResult $result, RefreshTokenTransport $transport): SignInResult
+    private function bound(SignInResult $result, RefreshTokenTransport $transport, ?CredentialAttempt $attempt = null): SignInResult
     {
         $session = $result->session;
 
@@ -698,11 +691,68 @@ final readonly class SessionService
             return $result;
         }
 
-        $tokens = $transport->deliver($session->tokens, $session->record);
+        $tokens   = $transport->deliver($session->tokens, $session->record);
+        $deferred = $this->afterCommit->defers($session->record);
+        $request  = $this->context->request();
 
-        $this->binding->login($session->identity, $session->principal, $session->record);
+        $this->afterCommit->run($session->record, function () use ($session, $deferred, $request, $attempt): void {
+
+            if (!$deferred || ($this->context->request() === $request && $this->isStillActive($session))) {
+                $this->binding->login($session->identity, $session->principal, $session->record);
+            }
+
+            $this->giveBack($session->heldSlots, $attempt);
+        });
 
         return SignInResult::signedIn(new SignedInSession($session->identity, $session->principal, $session->record, $tokens, $session->method));
+    }
+
+    /**
+     * Whether the committed session is still the one a sign-in started, read
+     * again on the write connection: the same row (generation and owner), of
+     * this guard, unrevoked, active and not ended.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
+     * @return bool
+     *
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     */
+    private function isStillActive(SignedInSession $session): bool
+    {
+        $stored = SessionLookup::find($session->record->getSessionIdentifier());
+
+        return SessionOwnership::isSameSession($session->record, $stored)
+            && OwnedSession::refusal($stored, $this->context->name(), CarbonImmutable::now()->startOfSecond()) === null;
+    }
+
+    /**
+     * Give back the attempt-limit slots a bound sign-in took: the attempt's, or
+     * the ones its pending session held.
+     *
+     * A failure is reported, not thrown: the session already stands and is
+     * bound, and Laravel runs a commit's callbacks in order without catching,
+     * so a throw here would stop the callbacks queued after this one (another
+     * session's events, the caller's own) from running. The slots not given
+     * back stay counted.
+     *
+     * @param  list<\SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation>  $held
+     * @param  ?\SineMacula\Laravel\Authentication\Sessions\CredentialAttempt  $attempt
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    private function giveBack(array $held, ?CredentialAttempt $attempt): void
+    {
+        try {
+            $attempt?->release();
+
+            foreach ($held as $reservation) {
+                $this->container->make(AttemptLimiter::class)->release($reservation);
+            }
+        } catch (\Throwable $exception) {
+            $this->container->make(ExceptionHandler::class)->report($exception);
+        }
     }
 
     /**

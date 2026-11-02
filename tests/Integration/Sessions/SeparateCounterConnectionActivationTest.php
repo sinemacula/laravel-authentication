@@ -6,6 +6,7 @@ namespace Tests\Integration\Sessions;
 
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
+use Illuminate\Auth\Events\Login;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Application;
@@ -204,8 +205,9 @@ final class SeparateCounterConnectionActivationTest extends TestCase
 
     /**
      * Two activations in one transaction, the first of which cannot give its
-     * slots back: the second session is still reported and gives its own slots
-     * back, and a callback the caller queued after both still runs.
+     * slots back once it is bound: the second session is still reported, bound,
+     * and gives its own slots back, and a callback the caller queued after both
+     * still runs.
      *
      * @return void
      *
@@ -217,13 +219,13 @@ final class SeparateCounterConnectionActivationTest extends TestCase
         $first      = $this->pendingSession($identity);
         $second     = $this->pendingSession($identity, 3);
         $exceptions = Exceptions::fake([QueryException::class]);
-        $signedIn   = 0;
+        $bound      = 0;
         $callerRan  = false;
 
         $this->recordEvents([SessionCreated::class, SignedIn::class]);
 
-        Event::listen(SignedIn::class, function () use (&$signedIn): void {
-            if (++$signedIn !== 2) {
+        Event::listen(Login::class, function () use (&$bound): void {
+            if (++$bound !== 2) {
                 return;
             }
 
@@ -232,10 +234,12 @@ final class SeparateCounterConnectionActivationTest extends TestCase
 
         $this->makeCountersUnreachable();
 
-        DB::transaction(function () use ($first, $second, &$callerRan): void {
+        $sessions = $this->sessions();
 
-            self::assertTrue($this->sessions()->satisfy(...$first)->isSignedIn());
-            self::assertTrue($this->sessions()->satisfy(...$second)->isSignedIn());
+        DB::transaction(static function () use ($sessions, $first, $second, &$callerRan): void {
+
+            self::assertTrue($sessions->satisfy(...$first)->isSignedIn());
+            self::assertTrue($sessions->satisfy(...$second)->isSignedIn());
 
             DB::afterCommit(static function () use (&$callerRan): void {
                 $callerRan = true;
@@ -243,6 +247,7 @@ final class SeparateCounterConnectionActivationTest extends TestCase
         });
 
         self::assertTrue($callerRan);
+        self::assertSame(2, $bound);
         self::assertSame([SessionCreated::class, SignedIn::class, SessionCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertSame([2, 2, 2], $this->hits($identity));
         self::assertSame(2, Session::query()->where('status', SessionStatus::ACTIVE->value)->count());

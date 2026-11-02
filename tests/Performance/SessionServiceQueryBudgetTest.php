@@ -7,6 +7,7 @@ namespace Tests\Performance;
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
@@ -114,6 +115,27 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $sessions = $this->sessions();
 
         self::assertTrue($this->assertQueryBudget(4, 11, static fn (): SignInResult => $sessions->signIn('password', self::credentials()))->isSignedIn());
+    }
+
+    /**
+     * Inside a caller's transaction a sign-in costs what one alone does, and
+     * one read more at the commit: its bind, which waited for the commit, reads
+     * the session again before binding it. With no transaction open the bind
+     * runs at once and reads nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testABindThatWaitsForTheCommitReadsTheSessionOnce(): void
+    {
+        $this->seedIdentity();
+
+        $sessions = $this->sessions();
+
+        $signIn = static fn (): SignInResult => $sessions->signIn('password', self::credentials());
+
+        self::assertTrue($this->assertQueryBudget(5, 11, static fn (): SignInResult => DB::transaction($signIn))->isSignedIn());
     }
 
     /**

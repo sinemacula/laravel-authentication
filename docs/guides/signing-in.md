@@ -195,15 +195,19 @@ the sign-in's own deadline, if it gives one, and `null` when neither sets one), 
 sign-in verified, with the time it was verified (see [Proofs and provenance](sessions.md#proofs-and-provenance)). The
 session, its proofs and provenance are written and the pair issued in one transaction on the session's connection, so a
 failure while issuing leaves none of them behind. `SessionCreated` and `SignedIn` are then scheduled for the session's
-commit on its own connection before the guard is bound (`Validated`, `Login`, `Authenticated`, `PrincipalAssigned` and
-`SessionAuthenticated` fire at once). Outside a transaction the session is already committed, so `SessionCreated` and
-`SignedIn` are dispatched before the bind events: a listener on them reads the event's context, not the guard. Inside
-your transaction they wait for it to commit, after the bind events, and are never dispatched when it is rolled back. Do
-not roll back around a sign-in: the guard stays bound, and unless `rate_limits.connection` names a connection of its own
-the sign-in's attempt counts are rolled back too, so it goes uncounted (see [Rate
-limits](configuration.md#rate-limits)). A listener that throws on a bind event fails the call, so the pair is lost, but
-cannot keep the session from being reported: outside a transaction `SignedIn` has already been dispatched, and inside
-one it follows your commit (a rollback discards the session with it). Keep those listeners from throwing or queue them.
+commit on its own connection, and after them the guard's bind (`Validated`, `Login`, `Authenticated`,
+`PrincipalAssigned` and `SessionAuthenticated`) and then the give-back of the sign-in's attempt slots. Outside a
+transaction the session is already committed, so all three run at once, the events before the bind: a listener on them
+reads the event's context, not the guard. Inside your transaction all three wait for it to commit, in that order, and
+none runs when it is rolled back: a sign-in you roll back never binds the guard and gives no slots back. The result
+answers at once either way, with the pair (a cookie application's refresh cookie in it, which the package never queues:
+attach it only once your transaction has committed). A bind that waited for your commit binds only while the guard
+still serves the request that signed in, and reads the session again first, binding it only while it is still that
+session, live and active, so a session your transaction revoked or returned to pending after signing it in is never
+bound. Unless `rate_limits.connection` names a connection of its own, a rollback rolls the sign-in's attempt counts back
+too, so it goes uncounted (see [Rate limits](configuration.md#rate-limits)). A listener that throws on a bind event
+fails the call (or your commit, inside a transaction), so the pair is lost, but cannot keep the session from being
+reported, which comes first, and leaves the sign-in's slots counted. Keep those listeners from throwing or queue them.
 
 Every sign-in starts a new session, with a new id and a new rotation id. A client that signs in again with its current
 refresh token in the context proves it holds its previous session, even when that has expired, and the sign-in then
@@ -628,12 +632,12 @@ attempts); the session service refuses the sign-in then even if the method retur
 account by many spellings of its identifier, and through every guard whose provider returns it, so only the account's
 own count, held to the most permissive limit among those guards, bounds the guesses at its secret, and at a further
 factor its sign-in waits for. Reserve before each secret you check: a method that checks two (a password and a PIN, say)
-takes two slots. The slots belong to the sign-in: they are all given back when the session starts, or when its pending
-sign-in's completion commits. A completion that your transaction rolls back gives nothing back, since the pending
-sign-in it used comes back with the rollback and can be completed again. If giving them back fails after the commit,
-the error is reported to your exception handler rather than thrown: the session already stands, and a throw would stop
-the commit's later callbacks (another session's events, your own `DB::afterCommit()` work) from running. The slots not
-given back stay counted.
+takes two slots. The slots belong to the sign-in: they are all given back once its session started, or its pending
+sign-in's completion committed, and the guard is bound to it. A sign-in or a completion that your transaction rolls back
+gives nothing back, since the pending sign-in it used comes back with the rollback and can be completed again. If giving
+them back fails, the error is reported to your exception handler rather than thrown: the session already stands, and a
+throw would stop the commit's later callbacks (another session's events, your own `DB::afterCommit()` work) from
+running. The slots not given back stay counted.
 
 The request's input holds the client's secrets, so it is read through `$request->input()` and kept in a private
 `\SensitiveParameterValue`: no dump of the request, nor a trace that holds it, shows the password or code. Read what

@@ -74,7 +74,8 @@ final class SignInResultTest extends TestCase
     /**
      * A started session says nothing about whether it is new: every sign-in
      * creates one, so the session carries exactly who, as whom, its record, its
-     * tokens and how.
+     * tokens and how, and, for the session service alone, the slots a pending
+     * sign-in held, none unless given.
      *
      * @return void
      */
@@ -83,9 +84,10 @@ final class SignInResultTest extends TestCase
         $parameters = (new \ReflectionMethod(SignedInSession::class, '__construct'))->getParameters();
 
         self::assertSame(
-            ['identity', 'principal', 'record', 'tokens', 'method'],
+            ['identity', 'principal', 'record', 'tokens', 'method', 'heldSlots'],
             array_map(static fn (\ReflectionParameter $parameter): string => $parameter->getName(), $parameters),
         );
+        self::assertSame([], $parameters[5]->getDefaultValue());
     }
 
     /**

@@ -456,9 +456,9 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction the guard is bound at once, but
-     * `SessionCreated` and `SignedIn` wait for the commit, and a rollback
-     * withdraws them with the session.
+     * Inside a caller's transaction `SessionCreated` and `SignedIn` wait for
+     * the commit, and the guard's bind after them; a rollback withdraws the
+     * events and the bind with the session.
      *
      * @return void
      *
@@ -474,11 +474,11 @@ final class SessionServiceTest extends TestCase
 
         $this->signIn();
 
-        self::assertSame([SessionAuthenticated::class], $this->recordedClasses());
+        self::assertSame([], $this->recordedClasses());
 
         DB::commit();
 
-        self::assertSame([SessionAuthenticated::class, SessionCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame([SessionCreated::class, SignedIn::class, SessionAuthenticated::class], $this->recordedClasses());
 
         $this->recordEvents([SessionAuthenticated::class, SessionCreated::class, SignedIn::class]);
 
@@ -488,7 +488,7 @@ final class SessionServiceTest extends TestCase
 
         DB::rollBack();
 
-        self::assertSame([SessionAuthenticated::class], $this->recordedClasses());
+        self::assertSame([], $this->recordedClasses());
         self::assertNull(Session::query()->whereKey($rolledBack->record->getKey())->first());
     }
 
@@ -584,9 +584,10 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction that catches a throwing bind listener and
-     * commits, the session's events follow the commit; one that rolls back
-     * withdraws them with the session.
+     * Inside a caller's transaction a throwing bind listener runs only at the
+     * commit, after the session's events, and its exception reaches the
+     * caller's commit; a transaction that rolls back never binds, so the
+     * listener never runs and nothing is reported.
      *
      * @return void
      *
@@ -602,19 +603,26 @@ final class SessionServiceTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertSame('listener failed', $this->failedSignIn());
+        self::assertTrue($this->signIn()->record->exists);
         self::assertSame([], $this->recordedClasses());
 
-        DB::commit();
+        try {
+            DB::commit();
+
+            self::fail('Expected the bind listener to throw at the commit.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('listener failed', $exception->getMessage());
+        }
 
         self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertSame(1, Session::query()->count());
+        self::assertSame(0, DB::transactionLevel());
 
         $this->recordEvents([SessionCreated::class, SignedIn::class]);
 
         DB::beginTransaction();
 
-        self::assertSame('listener failed', $this->failedSignIn());
+        $this->signIn();
 
         DB::rollBack();
 

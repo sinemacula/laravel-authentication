@@ -36,6 +36,7 @@ use SineMacula\Laravel\Authentication\Sessions\Concerns\SwitchesSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionRefresh;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SessionSignOut;
+use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -197,6 +198,54 @@ final class CookieTransportTest extends TestCase
 
         self::assertNotNull($session);
         self::assertCookiePair(self::BROWSER, $session->tokens, $session->record);
+    }
+
+    /**
+     * Inside a caller's transaction the activation's result carries the cookie
+     * at once, for the application to attach, while the package queues none and
+     * binds the guard only once the transaction commits: a rollback leaves the
+     * guard unbound with nothing queued.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnActivationInsideATransactionQueuesNoCookieAndBindsOnCommit(): void
+    {
+        $identity = $this->seedIdentity();
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        $pending = $this->sessions(self::BROWSER)->signIn('password', self::credentials());
+
+        self::assertNotNull($pending->pending);
+        self::assertNotNull($pending->credential);
+
+        $sessions   = $this->sessions(self::BROWSER);
+        $guard      = Auth::guard(self::BROWSER);
+        $credential = $pending->credential->reveal();
+        $proof      = self::adapterProof($identity, self::BROWSER, $pending->pending->id, Purpose::SIGN_IN);
+
+        DB::beginTransaction();
+
+        $session = $sessions->satisfy($credential, $proof)->session;
+
+        self::assertNotNull($session);
+        self::assertNotNull($session->tokens->refreshCookie);
+        self::assertFalse($guard->hasUser());
+
+        DB::rollBack();
+
+        self::assertFalse($guard->hasUser());
+        self::assertSame([], app('cookie')->getQueuedCookies());
+
+        $committed = DB::transaction(static fn (): ?SignedInSession => $sessions->satisfy($credential, $proof)->session);
+
+        self::assertNotNull($committed);
+        self::assertCookiePair(self::BROWSER, $committed->tokens, $committed->record);
+        self::assertTrue($guard->hasUser());
+        self::assertSame([], app('cookie')->getQueuedCookies());
     }
 
     /**
