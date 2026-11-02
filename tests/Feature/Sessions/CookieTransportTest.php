@@ -77,6 +77,9 @@ final class CookieTransportTest extends TestCase
     /** @var string The cookie application on the root path, over members with memberships. */
     private const string MEMBERS = 'members';
 
+    /** @var string The body application whose guard's name makes no cookie name. */
+    private const string UNNAMED = 'my app';
+
     /** @var array<string, array{0: string, 1: string}> The cookie name and path each cookie application derives. */
     private const array COOKIES = [
         self::BROWSER => ['__Secure-admin_refresh_token', '/auth'],
@@ -543,6 +546,50 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
+     * A body application whose guard's name makes no cookie name needs no
+     * cookie configuration and looks for no cookie of its own: through the
+     * session service it signs in with the refresh token in its pair, refreshes
+     * from the body while a stray cookie rides along, neither refused as the
+     * wrong transport nor in conflict, and signs out by the body with nothing
+     * to clear.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testABodyApplicationWhoseNameMakesNoCookieNameSignsInRefreshesAndSignsOut(): void
+    {
+        $this->seedIdentity();
+
+        $session = $this->sessions(self::UNNAMED)->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($session);
+        self::assertNull($session->tokens->refreshCookie);
+
+        $token = $session->tokens->refreshToken;
+
+        self::assertNotNull($token);
+
+        $stray     = ['__Secure-my_app_refresh_token' => 'stray', '__Secure-api_refresh_token' => 'stray'];
+        $refreshed = $this->request(self::UNNAMED, ['refresh_token' => $token->reveal()], $stray)->refreshFromRequest();
+
+        self::assertNotNull($refreshed);
+        self::assertTrue($refreshed->isRefreshed());
+        self::assertSame(RefreshTokenSource::BODY, $refreshed->source);
+
+        $rotated = $refreshed->session?->tokens->refreshToken;
+
+        self::assertNotNull($rotated);
+
+        $signedOut = $this->request(self::UNNAMED, ['refresh_token' => $rotated->reveal()], $stray)->signOutFromRequest();
+
+        self::assertTrue($signedOut->isSignedOut());
+        self::assertSame(RefreshTokenSource::BODY, $signedOut->source);
+        self::assertNull($signedOut->forgetCookie);
+        self::assertSame('signed_out', Session::query()->whereKey($session->record->getKey())->value('revoked_reason'));
+    }
+
+    /**
      * The cookie, the application and the session must agree: another
      * application's cookie is not this one's (nothing is read); this
      * application's cookie carrying another application's token fails the
@@ -584,8 +631,9 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * Configure the guards: `api` keeps the body transport, `admin` travels by
-     * cookie under `/auth`, and `members` by cookie on the root path.
+     * Configure the guards: `api` keeps the body transport, as does `my app`,
+     * whose name makes no cookie name, `admin` travels by cookie under `/auth`,
+     * and `members` by cookie on the root path.
      *
      * @param  mixed  $app
      * @return void
@@ -603,6 +651,7 @@ final class CookieTransportTest extends TestCase
 
         self::configureSessionGuards($config);
 
+        $config->set('auth.guards.' . self::UNNAMED, ['driver' => 'jwt', 'provider' => 'identities', 'application' => ['methods' => ['password']]]);
         $config->set('auth.guards.' . self::BROWSER . '.refresh_token', ['transport' => 'cookie', 'cookie' => ['path' => '/auth']]);
         $config->set('auth.guards.' . self::MEMBERS . '.refresh_token', ['transport' => 'cookie', 'cookie' => ['path' => '/']]);
     }
