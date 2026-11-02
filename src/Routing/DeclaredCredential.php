@@ -118,7 +118,7 @@ final readonly class DeclaredCredential
     {
         $declared = $request->attributes->get(self::ATTRIBUTE);
 
-        if ($declared instanceof self && $declared !== $this) {
+        if ($declared instanceof self && [$declared->credential, $declared->guard, $declared->action] !== [$this->credential, $this->guard, $this->action]) {
             throw new \LogicException('A route reads its caller from one credential: it declares authentication.refresh or authentication.pending once.');
         }
 
