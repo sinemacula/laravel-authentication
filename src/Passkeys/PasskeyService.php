@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\PasskeyFactorGate;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PasskeyAdded;
 use SineMacula\Laravel\Authentication\Events\PasskeyRemoved;
@@ -20,17 +21,21 @@ use SineMacula\Laravel\Authentication\Http\ClientText;
 use SineMacula\Laravel\Authentication\Http\ConsumerMessages;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose;
+use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * The passkeys of a JWT guard, scoped to the guard's relying party: the
  * registration ceremony, the options of a usernameless sign-in (which the
  * `passkey` sign-in method completes through `Auth::sessions()->signIn()`), the
- * factor ceremony through which a further-factor package verifies one of an
- * identity's passkeys, and the listing and removal of an identity's passkeys.
+ * factor ceremony through which a further-factor package verifies one of the
+ * passkeys it associated as an identity's factors, and the listing and removal
+ * of an identity's passkeys. A registration and a removal ask the factor gate
+ * (`Contracts\PasskeyFactorGate`) inside the transaction that makes them.
  *
  * Every ceremony hands out options with a single-use challenge stored in the
  * database, which the response must answer within its lifetime, through the
@@ -54,6 +59,9 @@ final readonly class PasskeyService
     /** @var int Longest name a passkey is stored with, in characters. */
     private const int NAME_MAX_LENGTH = 255;
 
+    /** @var int Longest session key a ceremony's binding may name, in characters. */
+    private const int SESSION_MAX_LENGTH = 255;
+
     /**
      * Constructor.
      *
@@ -76,11 +84,17 @@ final readonly class PasskeyService
      * under the user handle its passkeys there were registered with (a random
      * one for its first). The user name and display name are what the browser
      * shows (the display name defaults to the user name); choose them from the
-     * identity's own record, never from the request.
+     * identity's own record, never from the request. A factor package that asks
+     * for the registration on a session (a pending session enrolling its
+     * factor, say) gives its binding, which must name this identity and this
+     * guard (an `InvalidArgumentException` otherwise); its session and purpose
+     * are kept on the challenge and handed to the factor gate when the
+     * registration completes.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $userName
      * @param  ?string  $displayName
+     * @param  ?\SineMacula\Laravel\Authentication\Proofs\ProofBinding  $binding
      * @return \SineMacula\Laravel\Authentication\Passkeys\CeremonyOptions
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -90,13 +104,18 @@ final readonly class PasskeyService
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Symfony\Component\Serializer\Exception\ExceptionInterface
      */
-    public function registrationOptions(Identity $identity, string $userName, ?string $displayName = null): CeremonyOptions
+    public function registrationOptions(Identity $identity, string $userName, ?string $displayName = null, ?ProofBinding $binding = null): CeremonyOptions
     {
         $owner = PasskeyOwner::of($identity);
 
         self::assertNames($userName, $displayName);
 
-        $rp       = $this->relyingParty();
+        $rp = $this->relyingParty();
+
+        if ($binding !== null) {
+            self::assertBinding($binding, $owner, $rp);
+        }
+
         $passkeys = PasskeyCredentials::of($rp, $owner);
         $handle   = $passkeys === [] ? random_bytes(self::RANDOM_BYTES) : PasskeyCredentials::userHandle($passkeys[0]);
 
@@ -111,20 +130,32 @@ final readonly class PasskeyService
             $challenges->ttlSeconds() * 1000,
         );
 
-        return $challenges->issue(ChallengePurpose::REGISTER, $rp, $owner, $options, CarbonImmutable::now()->startOfSecond());
+        return $challenges->issue(ChallengePurpose::REGISTER, $rp, $owner, $options, CarbonImmutable::now()->startOfSecond(), $binding);
     }
 
     /**
      * Register the passkey the browser created in answer to the identity's
      * registration challenge, under the name given (cleaned of NUL bytes and
      * invalid UTF-8, and cut to 255 characters). The challenge is used up
-     * whatever the outcome. Refused as `challenge_invalid` when the challenge
-     * is not a live registration challenge of this guard for the identity,
+     * whatever the outcome (unless a transaction of the caller's around the
+     * call rolls back). Refused as `challenge_invalid` when the challenge is
+     * not a live registration challenge of this guard for the identity,
      * `response_invalid` when the response is malformed or does not verify
      * (origin, relying party, user presence and verification, challenge,
      * algorithm, attestation statement), and `already_registered` when the
-     * credential is registered already. A passkey registered is `registered`,
-     * with its summary, and dispatches `PasskeyAdded` once its row is
+     * credential is registered already, before the factor gate is asked.
+     *
+     * Then, in one transaction on the passkey model's connection (the storage
+     * connection; a savepoint in the caller's), the factor gate is asked first
+     * (`PasskeyFactorGate::registering()`), with the passkey as the
+     * registration showed it and the challenge's binding, and the passkey's row
+     * is written only after it: a gate that throws refuses the registration,
+     * rolling back everything it did, and its exception reaches the caller. A
+     * credential registered concurrently, found only by the insert, rolls the
+     * whole change back, the gate's work (its association, a pending session it
+     * satisfied) with it, and is answered as `already_registered`. A passkey
+     * registered is `registered`, with its summary and the factor association
+     * the gate answered, if any, and dispatches `PasskeyAdded` once its row is
      * committed.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -138,6 +169,7 @@ final readonly class PasskeyService
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Symfony\Component\Serializer\Exception\ExceptionInterface
+     * @throws \Throwable
      */
     public function register(
         Identity $identity,
@@ -150,29 +182,40 @@ final readonly class PasskeyService
         $rp    = $this->relyingParty();
         $now   = CarbonImmutable::now()->startOfSecond();
 
-        $options = $this->assertions()->challenges()->consume($challenge, ChallengePurpose::REGISTER, $rp, $owner, $now);
+        $consumed = $this->assertions()->challenges()->consume($challenge, ChallengePurpose::REGISTER, $rp, $owner, $now);
 
-        if ($options === null) {
+        if ($consumed === null) {
             return PasskeyRegistration::challengeInvalid();
         }
 
         $webauthn = $this->webauthn();
         $parsed   = $webauthn->credential($credential);
-        $record   = $parsed === null ? null : $webauthn->register($rp, $options, $parsed);
+        $verified = $parsed === null ? null : $webauthn->register($rp, $consumed->options, $parsed);
 
-        if ($record === null) {
+        if ($verified === null) {
             return PasskeyRegistration::responseInvalid();
         }
 
-        $passkey = PasskeyCredentials::register($rp, $owner, $record, ClientText::clean($name, self::NAME_MAX_LENGTH), $now);
+        [$record, $observed] = $verified;
 
-        if ($passkey === null) {
+        if (PasskeyCredentials::isRegistered($record->publicKeyCredentialId)) {
+            return PasskeyRegistration::alreadyRegistered();
+        }
+
+        $cleaned = ClientText::clean($name, self::NAME_MAX_LENGTH);
+        $passkey = PasskeyCredentials::draft($rp, $owner, $record, $cleaned, $now);
+        $seen    = new RegisteredPasskey($passkey->id, $passkey->credential_id, $rp->id, $observed, $now);
+        $binding = PasskeyChallenges::bindingOf($consumed, $owner);
+
+        try {
+            $association = $passkey->getConnection()->transaction(fn (): ?PasskeyFactorAssociation => $this->store($owner, $rp, $passkey, [$seen, $binding, $cleaned]));
+        } catch (ConcurrentPasskeyChange) {
             return PasskeyRegistration::alreadyRegistered();
         }
 
         $this->dispatchOnceCommitted($passkey, new PasskeyAdded(PasskeyAssertions::context($rp, $this->client($client), $owner, $passkey->id)));
 
-        return PasskeyRegistration::registered(PasskeySummary::of($passkey));
+        return PasskeyRegistration::registered(PasskeySummary::of($passkey), $association);
     }
 
     /**
@@ -205,13 +248,23 @@ final readonly class PasskeyService
     }
 
     /**
-     * Hand out the options of a factor ceremony for the identity: user
-     * verification required, allowing only its passkeys for the guard's relying
-     * party. The seam a further-factor package verifies a passkey through, with
+     * Hand out the options of a factor ceremony for the identity, bound to the
+     * factor package's binding (which must name this identity and this guard,
+     * and a session), allowing only those of the identity's passkeys for the
+     * guard's relying party whose credential id is one given: the ones the
+     * factor package associated as its factors, each as canonical unpadded
+     * base64url (an `InvalidArgumentException` otherwise). User verification is
+     * required unless the factor package asks only to prefer it. `null`, with
+     * no challenge written, when none of the identity's passkeys is among them:
+     * an empty list would let the browser offer any credential it holds. The
+     * seam a further-factor package verifies a passkey through, with
      * `verifyFactor()`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @return \SineMacula\Laravel\Authentication\Passkeys\CeremonyOptions
+     * @param  \SineMacula\Laravel\Authentication\Proofs\ProofBinding  $binding
+     * @param  array<array-key, mixed>  $credentialIds
+     * @param  bool  $requireUserVerification
+     * @return ?\SineMacula\Laravel\Authentication\Passkeys\CeremonyOptions
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
@@ -220,25 +273,51 @@ final readonly class PasskeyService
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Symfony\Component\Serializer\Exception\ExceptionInterface
      */
-    public function factorOptions(Identity $identity): CeremonyOptions
+    public function factorOptions(Identity $identity, ProofBinding $binding, #[\SensitiveParameter] array $credentialIds, bool $requireUserVerification = true): ?CeremonyOptions
     {
         $owner = PasskeyOwner::of($identity);
         $rp    = $this->relyingParty();
 
-        return $this->assertionOptions(ChallengePurpose::FACTOR, $rp, $owner, array_map(PasskeyCredentials::descriptor(...), PasskeyCredentials::of($rp, $owner)));
+        self::assertBinding($binding, $owner, $rp);
+        self::assertCredentialIds($credentialIds);
+
+        $allowed = array_values(array_filter(PasskeyCredentials::of($rp, $owner), static fn (Passkey $passkey): bool => in_array($passkey->credential_id, $credentialIds, true)));
+
+        if ($allowed === []) {
+            return null;
+        }
+
+        $challenges = $this->assertions()->challenges();
+        $options    = $this->webauthn()->requestOptions(
+            $rp,
+            random_bytes(self::RANDOM_BYTES),
+            array_map(PasskeyCredentials::descriptor(...), $allowed),
+            $challenges->ttlSeconds() * 1000,
+            $requireUserVerification,
+        );
+
+        return $challenges->issue(ChallengePurpose::FACTOR, $rp, $owner, $options, CarbonImmutable::now()->startOfSecond(), $binding);
     }
 
     /**
-     * Verify the identity's passkey as a further factor, in answer to its
-     * factor challenge: verified, with the passkey's summary, or failed with
-     * why (`passkey_challenge_invalid`; `invalid_credentials` for a malformed
-     * or unverified response or a passkey that is not the identity's;
-     * `passkey_counter_regressed`). The same checks and sign counter rule as a
-     * sign-in apply. A verified passkey records its use and dispatches
+     * Verify one of the identity's passkeys as a further factor, in answer to
+     * its factor challenge for the binding: verified, with what the assertion
+     * showed, or failed with why. The challenge must be a live factor
+     * challenge of this guard and relying party for the identity and the
+     * binding's session and purpose (`passkey_challenge_invalid`); the passkey
+     * asserted must be one the challenge allowed, compared exactly, and the
+     * identity's (`invalid_credentials`, as for a malformed or unverified
+     * response); then the origin, the relying party id hash, user presence,
+     * user verification where the challenge required it, the signature and the
+     * challenge are verified, and the sign counter rule applies, with its
+     * tolerance of a counter that stays at zero (`passkey_counter_regressed`).
+     * The assertion reports what its authenticator data showed, never what the
+     * ceremony asked for. A verified passkey records its use and dispatches
      * `PasskeyUsed`; nothing else is dispatched and nothing counted, since the
      * factor's outcome is the further-factor package's to report and limit.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Proofs\ProofBinding  $binding
      * @param  string  $challenge
      * @param  array<array-key, mixed>|string  $credential
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -249,11 +328,19 @@ final readonly class PasskeyService
      * @throws \LogicException
      * @throws \Symfony\Component\Serializer\Exception\ExceptionInterface
      */
-    public function verifyFactor(Identity $identity, string $challenge, #[\SensitiveParameter] array|string $credential, ?ClientContext $client = null): PasskeyFactorResult
-    {
+    public function verifyFactor(
+        Identity $identity,
+        ProofBinding $binding,
+        string $challenge,
+        #[\SensitiveParameter] array|string $credential,
+        ?ClientContext $client = null,
+    ): PasskeyFactorResult {
         $owner      = PasskeyOwner::of($identity);
         $rp         = $this->relyingParty();
         $assertions = $this->assertions();
+        $now        = CarbonImmutable::now()->startOfSecond();
+
+        self::assertBinding($binding, $owner, $rp);
 
         $verified = $assertions->verify(
             $rp,
@@ -262,16 +349,19 @@ final readonly class PasskeyService
             $challenge,
             $credential,
             static fn (Passkey $passkey): FailureReason|Identity => PasskeyOwner::owns($owner, $passkey) ? $owner : FailureReason::INVALID_CREDENTIALS,
-            CarbonImmutable::now()->startOfSecond(),
+            $now,
+            $binding,
         );
 
         if ($verified instanceof FailureReason) {
             return PasskeyFactorResult::failed($verified);
         }
 
-        $assertions->used($rp, $this->client($client), $owner, $verified[1], $this->context->dispatch(...));
+        [, $passkey, $observed] = $verified;
 
-        return PasskeyFactorResult::verified(PasskeySummary::of($verified[1]));
+        $assertions->used($rp, $this->client($client), $owner, $passkey, $this->context->dispatch(...));
+
+        return PasskeyFactorResult::verified(new PasskeyFactorAssertion($passkey->id, $passkey->credential_id, $observed, $now, PasskeySummary::of($passkey)));
     }
 
     /**
@@ -291,11 +381,18 @@ final readonly class PasskeyService
     }
 
     /**
-     * Remove the identity's passkey with the id, for the guard's relying party.
-     * Returns whether this call removed it, and only then dispatches
-     * `PasskeyRemoved`, once the removal is committed. Ending the identity's
-     * sessions when it loses a factor is the optional
-     * `RevokeSessionsOnPasskeyRemoval` listener's.
+     * Remove the identity's passkey with the id, for the guard's relying party,
+     * found on the write connection. In one transaction on the passkey model's
+     * connection (the storage connection; a savepoint in the caller's), the
+     * factor gate is asked first (`PasskeyFactorGate::removing()`), then the
+     * row is deleted: a gate that throws refuses the removal, keeping the
+     * passkey, and its exception reaches the caller; a passkey removed
+     * concurrently rolls the gate's work back. Returns whether this call
+     * removed it, and only then dispatches `PasskeyRemoved`, once the removal
+     * is committed. Ending the identity's sessions when it loses a first-factor
+     * credential is the optional `RevokeSessionsOnPasskeyRemoval` listener's;
+     * a factor package calls its own mandatory helper when the passkey was one
+     * of its factors.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $passkeyId
@@ -305,17 +402,32 @@ final readonly class PasskeyService
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
+     * @throws \Throwable
      */
     public function remove(Identity $identity, string $passkeyId, ?ClientContext $client = null): bool
     {
-        $owner = PasskeyOwner::of($identity);
-        $rp    = $this->relyingParty();
+        $owner   = PasskeyOwner::of($identity);
+        $rp      = $this->relyingParty();
+        $passkey = PasskeyCredentials::owned($rp, $owner, $passkeyId);
 
-        if (!PasskeyCredentials::remove($rp, $owner, $passkeyId)) {
+        if ($passkey === null) {
             return false;
         }
 
-        $this->dispatchOnceCommitted(new Passkey, new PasskeyRemoved(PasskeyAssertions::context($rp, $this->client($client), $owner, $passkeyId)));
+        $gate = $this->gate();
+
+        try {
+            $passkey->getConnection()->transaction(static function () use ($gate, $owner, $rp, $passkey): void {
+
+                $gate->removing($owner, $rp->guard, $passkey->id, $passkey->credential_id);
+
+                PasskeyCredentials::delete($passkey) || throw new ConcurrentPasskeyChange;
+            });
+        } catch (ConcurrentPasskeyChange) {
+            return false;
+        }
+
+        $this->dispatchOnceCommitted($passkey, new PasskeyRemoved(PasskeyAssertions::context($rp, $this->client($client), $owner, $passkey->id)));
 
         return true;
     }
@@ -342,6 +454,77 @@ final readonly class PasskeyService
         $options    = $this->webauthn()->requestOptions($rp, random_bytes(self::RANDOM_BYTES), $allow, $challenges->ttlSeconds() * 1000);
 
         return $challenges->issue($purpose, $rp, $owner, $options, CarbonImmutable::now()->startOfSecond());
+    }
+
+    /**
+     * Ask the factor gate about the passkey, then store it, inside the
+     * registration's transaction; a credential the insert finds registered
+     * already throws, so the transaction rolls back whatever the gate did.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
+     * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
+     * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
+     * @param  array{0: \SineMacula\Laravel\Authentication\Passkeys\RegisteredPasskey, 1: ?\SineMacula\Laravel\Authentication\Proofs\ProofBinding, 2: ?string}  $registration
+     * @return ?\SineMacula\Laravel\Authentication\Passkeys\PasskeyFactorAssociation
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     *
+     * @throws \SineMacula\Laravel\Authentication\Passkeys\ConcurrentPasskeyChange
+     */
+    private function store(Identity&Model $owner, RelyingParty $rp, Passkey $passkey, array $registration): ?PasskeyFactorAssociation
+    {
+        [$seen, $binding, $name] = $registration;
+
+        $association = $this->gate()->registering($owner, $rp->guard, $seen, $binding, $name);
+
+        PasskeyCredentials::insert($passkey) || throw new ConcurrentPasskeyChange;
+
+        return $association;
+    }
+
+    /**
+     * Refuse a binding that names another identity, another application, or no
+     * session (a key of 1 to 255 characters).
+     *
+     * @param  \SineMacula\Laravel\Authentication\Proofs\ProofBinding  $binding
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
+     * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
+     * @return void
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function assertBinding(ProofBinding $binding, Identity&Model $owner, RelyingParty $rp): void
+    {
+        $bound   = $binding->identity instanceof Model && $binding->identity->is($owner);
+        $session = IdentifierCoercion::stringify($binding->sessionId) ?? '';
+
+        if (!$bound || $binding->application !== $rp->guard || $session === '' || mb_strlen($session) > self::SESSION_MAX_LENGTH) {
+            throw new \InvalidArgumentException(sprintf('A passkey ceremony\'s binding must name the identity it is for, the guard [%s] and a session.', $rp->guard));
+        }
+    }
+
+    /**
+     * Refuse credential ids that are not each a canonical unpadded base64url
+     * string.
+     *
+     * @param  array<array-key, mixed>  $credentialIds
+     * @return void
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function assertCredentialIds(#[\SensitiveParameter] array $credentialIds): void
+    {
+        foreach ($credentialIds as $credentialId) {
+            if (!is_string($credentialId) || !PasskeyCredentials::isCanonical($credentialId)) {
+                throw new \InvalidArgumentException('A passkey factor ceremony allows credential ids given as canonical unpadded base64url.');
+            }
+        }
     }
 
     /**
@@ -414,6 +597,18 @@ final readonly class PasskeyService
     private function client(?ClientContext $client): ClientContext
     {
         return $client ?? $this->context->client();
+    }
+
+    /**
+     * The factor gate bound now.
+     *
+     * @return \SineMacula\Laravel\Authentication\Contracts\PasskeyFactorGate
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    private function gate(): PasskeyFactorGate
+    {
+        return $this->container->make(PasskeyFactorGate::class);
     }
 
     /**

@@ -87,10 +87,10 @@ final class ReplicaPasskeysTest extends TestCase
         self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('passkeys')->count());
         self::assertCount(1, Auth::passkeys('api')->passkeys($identity));
 
-        $factor = Auth::passkeys('api')->factorOptions($identity);
+        $factor = self::factorCeremony(Auth::passkeys('api'), $identity);
 
         self::assertCount(1, (array) $factor->options['allowCredentials']);
-        self::assertTrue(Auth::passkeys('api')->verifyFactor($identity, $factor->challengeId, $this->authenticator()->get($factor->options))->isVerified());
+        self::assertTrue(self::verifyPasskeyFactor($identity, $factor->challengeId, $this->authenticator()->get($factor->options))->isVerified());
 
         self::assertTrue($this->signInWithPasskey()->isSignedIn());
         self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('passkey_challenges')->count());

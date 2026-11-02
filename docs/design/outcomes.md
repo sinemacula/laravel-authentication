@@ -49,10 +49,11 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
 - `sessions()->refresh()` and `refreshFromRequest()` answer a `RefreshResult`: refreshed on the same session, with its
   rotated `TokenPair`, or failed with the exchange's or the transport's reason, `rate_limited` with `retryAfter`; one
   read from the request says where its token came from (`source`).
-- `passkeys()->verifyFactor()` answers a `PasskeyFactorResult`: verified with the passkey's summary as its use left it,
-  or failed with the reason (not concealed: the caller already holds the identity).
-- `passkeys()->register()` answers a `PasskeyRegistration`: `registered` with the passkey's summary, or
-  `challenge_invalid`, `response_invalid` or `already_registered`.
+- `passkeys()->verifyFactor()` answers a `PasskeyFactorResult`: verified with a `PasskeyFactorAssertion` (the passkey,
+  its observed properties and its summary as its use left it), or failed with the reason (not concealed: the caller
+  already holds the identity).
+- `passkeys()->register()` answers a `PasskeyRegistration`: `registered` with the passkey's summary and the factor
+  gate's association, if any, or `challenge_invalid`, `response_invalid` or `already_registered`.
 - `codes()->verify()` answers a `VerificationOutcome`: `verified`, `already_verified` or `mismatch` as the
   `IdentifierVerifier` answered an accepted code, or `invalid`, `expired` or `exhausted` for a code that was not.
   `AuthenticationFailed` still carries the `FailureReason` (`invalid_credentials`, `code_expired`, `code_exhausted`).

@@ -16,7 +16,6 @@ use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
-use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
 /**
@@ -141,19 +140,11 @@ final readonly class PasskeySignIn implements SignInMethod
             return $verified;
         }
 
-        [$identity, $passkey] = $verified;
+        [$identity, $passkey, $observed] = $verified;
 
         $assertions->used($rp, $request->client, $identity, $passkey, function (object $event): void {
             $this->container->make(Dispatcher::class)->dispatch($event);
         });
-
-        $observed = new ObservedProperties(
-            userPresence: true,
-            userVerification: true,
-            backupEligible: $passkey->backup_eligible,
-            backupState: $passkey->backup_state,
-            phishingResistant: true,
-        );
 
         return new FirstFactor($identity, new Channel(ChannelKind::PASSKEY, $passkey->id), $observed, [self::AMR]);
     }

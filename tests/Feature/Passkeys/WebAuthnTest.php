@@ -587,12 +587,12 @@ final class WebAuthnTest extends TestCase
      */
     private function registered(VirtualAuthenticator $authenticator, string $handle): CredentialRecord
     {
-        $options = $this->creation($handle);
-        $record  = $this->webauthn->register($this->rp, $options, $this->parsed($authenticator->create($options)));
+        $options    = $this->creation($handle);
+        $registered = $this->webauthn->register($this->rp, $options, $this->parsed($authenticator->create($options)));
 
-        self::assertNotNull($record);
+        self::assertNotNull($registered);
 
-        return $record;
+        return $registered[0];
     }
 
     /**
@@ -609,7 +609,7 @@ final class WebAuthnTest extends TestCase
     {
         $options = $this->request();
 
-        return $this->webauthn->assert($this->rp, $options, $this->parsed($authenticator->get($options)), $record, $handle);
+        return $this->webauthn->assert($this->rp, $options, $this->parsed($authenticator->get($options)), $record, $handle)[0] ?? null;
     }
 
     /**

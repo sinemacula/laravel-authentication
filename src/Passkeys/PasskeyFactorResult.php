@@ -8,8 +8,8 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 
 /**
  * How verifying one of an identity's passkeys as a further factor ended:
- * verified, with the summary of the passkey as its use left it, or refused,
- * with why.
+ * verified, with what the assertion showed (`PasskeyFactorAssertion`), or
+ * refused, with why.
  *
  * The reason is not concealed, since the caller already holds the identity, and
  * nothing reports or counts a refusal: the factor's outcome is the
@@ -25,13 +25,13 @@ final readonly class PasskeyFactorResult
     /**
      * Constructor.
      *
-     * @param  ?\SineMacula\Laravel\Authentication\Passkeys\PasskeySummary  $passkey
+     * @param  ?\SineMacula\Laravel\Authentication\Passkeys\PasskeyFactorAssertion  $assertion
      * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      */
     private function __construct(
 
-        /** The passkey that verified, when one did. */
-        public ?PasskeySummary $passkey = null,
+        /** What the verified assertion showed, when one verified. */
+        public ?PasskeyFactorAssertion $assertion = null,
 
         /** Why the passkey did not verify, when it did not. */
         public ?FailureReason $reason = null,
@@ -40,12 +40,12 @@ final readonly class PasskeyFactorResult
     /**
      * The identity's passkey verified.
      *
-     * @param  \SineMacula\Laravel\Authentication\Passkeys\PasskeySummary  $passkey
+     * @param  \SineMacula\Laravel\Authentication\Passkeys\PasskeyFactorAssertion  $assertion
      * @return self
      */
-    public static function verified(PasskeySummary $passkey): self
+    public static function verified(PasskeyFactorAssertion $assertion): self
     {
-        return new self(passkey: $passkey);
+        return new self(assertion: $assertion);
     }
 
     /**
@@ -66,7 +66,7 @@ final readonly class PasskeyFactorResult
      */
     public function isVerified(): bool
     {
-        return $this->passkey !== null;
+        return $this->assertion !== null;
     }
 
     /**
@@ -76,6 +76,6 @@ final readonly class PasskeyFactorResult
      */
     public function isFailed(): bool
     {
-        return $this->passkey === null;
+        return $this->assertion === null;
     }
 }

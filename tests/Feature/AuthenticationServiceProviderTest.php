@@ -44,6 +44,7 @@ use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
+use SineMacula\Laravel\Authentication\Contracts\PasskeyFactorGate;
 use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
@@ -70,6 +71,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
 use SineMacula\Laravel\Authentication\Listeners\RecordSessionUsage;
 use SineMacula\Laravel\Authentication\Listeners\TrackCredentialAttempts;
+use SineMacula\Laravel\Authentication\Passkeys\NoPasskeyFactors;
 use SineMacula\Laravel\Authentication\Passkeys\WebAuthn;
 use SineMacula\Laravel\Authentication\Passwords\NoBreachedPasswordCheck;
 use SineMacula\Laravel\Authentication\Passwords\NotifyingResetLinkSender;
@@ -564,6 +566,8 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         self::assertTrue($app->isShared(AdditionalFactorPolicy::class));
         self::assertInstanceOf(NeverRequireAdditionalFactor::class, app(AdditionalFactorPolicy::class));
+        self::assertTrue($app->isShared(PasskeyFactorGate::class));
+        self::assertInstanceOf(NoPasskeyFactors::class, app(PasskeyFactorGate::class));
     }
 
     /**

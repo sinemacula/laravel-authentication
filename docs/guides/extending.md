@@ -21,6 +21,7 @@ inheritance:
 | Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy` in the container; call `factorRemoved()` when a factor is removed         |
 | Gating factor changes             | Call `Auth::sessions()->factorChange()` before adding, replacing or removing a factor or making recovery codes   |
 | Passkeys as a further factor      | Call `Auth::passkeys()->factorOptions()` and `verifyFactor()` from your further-factor package                   |
+| Passkeys registered as factors    | Bind your own `PasskeyFactorGate`; it is asked inside each passkey registration and removal                      |
 | Application decisions             | Implement `ApplicationPolicy` (methods, lifetimes, identifiers) and bind it in the container                     |
 | Who may use an application        | Implement `ApplicationAccess` and bind it in the container                                                       |
 | Tenants a principal may act in    | Implement `TenantAccess` and bind it in the container                                                            |
@@ -308,13 +309,13 @@ driver was registered.
 ### Binding order
 
 Every default the package binds is bound only when nothing is bound yet: `PrincipalResolver`, `ApplicationPolicy`,
-`AttemptLimiter`, `AdditionalFactorPolicy`, `ScopeRegistry`, `BreachedPasswordChecker`, `PasswordResetLinkSender`, and
-the `IdentifierNormalizers` and `SignInMethodManager` registries. Bind yours in a service provider's `register()`,
-before or after the package's provider: one bound before is kept, and one bound after replaces the default, so a factor
-policy is never replaced by `NeverRequireAdditionalFactor`, nor a scope registry by `AcceptAnyScope`. A `bind()` or
-`singleton()` replaces a default even once it has resolved, for every caller that resolves it afterwards; a deferred
-provider does not, as Laravel loads one only for a service that has no instance yet. Resolve none of them while
-providers register, or a deferred provider's binding of it is passed over.
+`AttemptLimiter`, `AdditionalFactorPolicy`, `PasskeyFactorGate`, `ScopeRegistry`, `BreachedPasswordChecker`,
+`PasswordResetLinkSender`, and the `IdentifierNormalizers` and `SignInMethodManager` registries. Bind yours in a service
+provider's `register()`, before or after the package's provider: one bound before is kept, and one bound after replaces
+the default, so a factor policy is never replaced by `NeverRequireAdditionalFactor`, nor a scope registry by
+`AcceptAnyScope`. A `bind()` or `singleton()` replaces a default even once it has resolved, for every caller that
+resolves it afterwards; a deferred provider does not, as Laravel loads one only for a service that has no instance yet.
+Resolve none of them while providers register, or a deferred provider's binding of it is passed over.
 
 Register a sign-in method once the registry resolves, which works in either order (a registry made with `make()` before
 the package registers is not the one the package uses):
@@ -397,9 +398,16 @@ seam has a default that works alone.
   session stops being fresh for it, for a grant that outlives the request), or the reason; it writes and reports
   nothing.
 - A factor removed ends the identity's other sessions: `Auth::sessions()->factorRemoved($identity, Auth::session())`.
-- Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity)` and `verifyFactor()`, which count and
-  report nothing: the factor's outcome is the factor package's to limit and report. `verifyFactor()` answers a
-  `PasskeyFactorResult` (see [Using passkeys](signing-in.md#using-passkeys)), never `null`.
+- Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity, $binding, $credentialIds)` and
+  `verifyFactor($identity, $binding, $challenge, $credential)`, which count and report nothing: the factor's outcome is
+  the factor package's to limit and report. The ceremony is bound to the `ProofBinding`'s session and purpose and allows
+  only the credential ids named; `verifyFactor()` answers a `PasskeyFactorResult` (see [Using
+  passkeys](signing-in.md#using-passkeys)), never `null`, whose `PasskeyFactorAssertion` carries the assertion's own
+  observed properties for the factor package's `ProofResult`.
+- Bind a `Contracts\PasskeyFactorGate` to take part in the passkeys' lifecycle: `registering()` is asked inside the
+  transaction that inserts a new passkey and may associate it as a factor (`PasskeyFactorAssociation`, carried in the
+  `PasskeyRegistration`'s `factor`), and `removing()` inside the one that deletes it; either may refuse by throwing,
+  which rolls the change back whole. The default, `Passkeys\NoPasskeyFactors`, associates nothing and refuses nothing.
 - A factor package's credentials and enrolments are its own; the proofs of a session are this package's (see [Proofs and
   provenance](sessions.md#proofs-and-provenance)). The adapter hands each factor it verified to the session service as a
   `Proofs\ProofResult`: its kind (`additional_factor`, or `recovery_code` for the fallback, kept apart), method,
@@ -437,7 +445,7 @@ seam has a default that works alone.
 `verifyFactor()` answers a result: ask it, never check it for `null` or truthiness:
 
 ```php
-$result = Auth::passkeys()->verifyFactor($identity, $challenge, $credential);
+$result = Auth::passkeys()->verifyFactor($identity, $binding, $challenge, $credential);
 $passed = $result->isVerified();   // else $result->reason
 ```
 

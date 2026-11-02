@@ -472,63 +472,56 @@ without a counter, so no session starts once the removal is committed. A verifie
 state and last use and dispatches `PasskeyUsed` whether or not the session service then admits its owner: the passkey
 was used.
 
-A further-factor package verifies one of an identity's passkeys through the same checks:
+A further-factor package verifies one of the passkeys it associated as an identity's factors through the same checks,
+on a ceremony bound to the session and purpose it verifies for:
 
 ```php
-// Allows only the identity's passkeys.
-$options = Auth::passkeys('api')->factorOptions($identity);
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 
-// Verified, with the passkey, or failed with the reason.
-$result = Auth::passkeys('api')->verifyFactor($identity, $challenge, $credential);
+$binding = new ProofBinding($identity, 'api', $pending->id, Purpose::SIGN_IN);
+
+// Allows only the credentials named that the identity holds; null when it holds none of them.
+$options = Auth::passkeys('api')->factorOptions($identity, $binding, $credentialIds);
+
+$result = Auth::passkeys('api')->verifyFactor($identity, $binding, $challenge, $credential);
 
 if ($result->isFailed()) {
     // $result->reason
 }
+
+$observed = $result->assertion->observed;
 ```
 
-`verifyFactor()` answers a `PasskeyFactorResult`: verified once the identity's own passkey verified (with
-`PasskeyUsed`), its `passkey` the `PasskeySummary` as the use left it, or failed with its `reason`:
-`passkey_challenge_invalid`, `invalid_credentials` (malformed, not verified, or not the identity's) or
-`passkey_counter_regressed`, which the caller already holding the identity may see. It counts nothing and reports no
-failure: the factor's outcome is the further-factor package's to limit and report.
+`factorOptions()` takes the factor package's binding, which must name the identity, this guard and a session (an
+`InvalidArgumentException` otherwise), and the credential ids it associated, each as canonical unpadded base64url (the
+`credentialId` a registration or an assertion hands it). It allows only those of the identity's passkeys for the
+relying party, compared exactly, and answers `null`, writing nothing, when none is left: an empty list would let the
+browser offer any credential it holds. It requires user verification, or only prefers it when the factor package passes
+`false` as its last argument. Its challenge is bound to the binding's session and purpose as well as the guard, the
+relying party and the identity.
 
-Both answers changed shape, and a check written for the old ones still runs, wrongly: `verifyFactor()` answered `null`
-once verified, so a `null` or truthiness check on it now treats every answer as a failure, and `register()` answered the
-`PasskeySummary` or a `PasskeyRegistrationFailure`, so an `instanceof PasskeySummary` check is never true. Ask the
-result instead (see `docs/design/outcomes.md`):
+`verifyFactor()` answers a `PasskeyFactorResult`: verified once one of the passkeys the challenge allowed verified for
+the identity (with `PasskeyUsed`), its `assertion` a `PasskeyFactorAssertion` (`passkeyId`, `credentialId`, `observed`,
+`assertedAt` and the `passkey`'s `PasskeySummary` as the use left it), or failed with its `reason`:
+`passkey_challenge_invalid` (not a live factor challenge of this guard for the identity, the binding's session and its
+purpose), `invalid_credentials` (malformed, not verified, not one the challenge allowed, or not the identity's) or
+`passkey_counter_regressed`, which the caller already holding the identity may see. It checks the origin, the relying
+party id hash, user presence, user verification where the challenge required it, the signature and the challenge, and
+the sign counter rule above, a counter that stays at zero included. `observed` is what this assertion's authenticator
+data showed (user presence, user verification, backup eligibility and backup state; resistant to phishing; no key
+protection), never what the ceremony asked for: under preferred user verification an authenticator that did not verify
+the user is reported as unverified. It counts nothing and reports no failure: the factor's outcome is the further-factor
+package's to limit and report.
 
-```php
-// Before
-use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationFailure;
-use SineMacula\Laravel\Authentication\Passkeys\PasskeySummary;
-
-if (Auth::passkeys('api')->verifyFactor($identity, $challenge, $credential) !== null) { /* refused */ }
-if (Auth::passkeys('api')->verifyFactor($identity, $challenge, $credential)) { /* refused */ }
-
-$outcome = Auth::passkeys('api')->register($identity, $challenge, $credential);
-$passkey = $outcome instanceof PasskeySummary ? $outcome : null;
-
-match ($outcome) {
-    PasskeyRegistrationFailure::ALREADY_REGISTERED => 409,
-    default                                        => 422,
-};
-
-// After
-use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
-
-if (Auth::passkeys('api')->verifyFactor($identity, $challenge, $credential)->isFailed()) { /* refused */ }
-
-$result  = Auth::passkeys('api')->register($identity, $challenge, $credential);
-$passkey = $result->passkey;
-
-match ($result->status) {
-    PasskeyRegistrationStatus::REGISTERED         => 201,
-    PasskeyRegistrationStatus::ALREADY_REGISTERED => 409,
-    default                                       => 422,
-};
-```
+A registration and a removal ask the bound `Contracts\PasskeyFactorGate`, synchronously, inside the transaction on the
+storage connection that writes or deletes the passkey's row, before it does: a gate that throws refuses the change,
+which rolls back whole, and its exception reaches the caller. The default, `Passkeys\NoPasskeyFactors`, associates
+nothing and refuses nothing. When the factor package enables passkeys as a factor, its gate associates a new passkey in
+that same change, confirmed by the registration's own observed properties, and `register()`'s `PasskeyRegistration`
+carries the association in `factor`; a registration the factor package asked for on a session passes its binding to
+`registrationOptions($identity, $userName, binding: $binding)`, and the gate gets it back. A credential registered by
+another while the gate runs rolls the whole change back, the gate's work with it, and is answered `already_registered`.
 
 `Auth::passkeys('api')->passkeys($identity)` lists the identity's passkeys for the relying party, oldest first, as
 `PasskeySummary` (id, name, transports, AAGUID, backup state, created and last used), never the credential id, public
@@ -548,7 +541,10 @@ Event::listen(PasskeyRemoved::class, RevokeSessionsOnPasskeyRemoval::class);
 ```
 
 It ends every session of the identity with `factor_removed`; to keep the current session signed in, call
-`Auth::sessions()->factorRemoved($identity, Auth::session())` yourself instead. See `docs/design/passkeys.md`.
+`Auth::sessions()->credentialRemoved($identity, Auth::session())` yourself instead. With a factor package, a passkey it
+associated as a factor is removed through `remove()` (its gate first), and the factor package then ends sessions itself;
+register the listener alongside it only if every passkey removal should end every session. See
+`docs/design/passkeys.md`.
 
 ## Writing a sign-in method
 

@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
+use SineMacula\Laravel\Authentication\Contracts\PasskeyFactorGate;
 use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
@@ -57,6 +58,7 @@ final class ProviderBindingOrderTest extends TestCase
             ApplicationPolicy::class,
             AttemptLimiter::class,
             AdditionalFactorPolicy::class,
+            PasskeyFactorGate::class,
             FreshnessPolicy::class,
             ScopeRegistry::class,
             BreachedPasswordChecker::class,

@@ -104,11 +104,11 @@ final class LargePasskeyOptionsTest extends TestCase
     public function testFactorOptionsLongerThanATextColumnAreStoredAndAnswered(): void
     {
         $identity = $this->withPasskeys(self::PASSKEYS);
-        $options  = Auth::passkeys('api')->factorOptions($identity);
+        $options  = self::factorCeremony(Auth::passkeys('api'), $identity);
 
         self::assertCount(self::PASSKEYS, (array) $options->options['allowCredentials']);
         self::assertGreaterThan(self::TEXT_BYTES, $this->storedBytes($options->challengeId));
-        self::assertTrue(Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $this->authenticator()->get($options->options))->isVerified());
+        self::assertTrue(self::verifyPasskeyFactor($identity, $options->challengeId, $this->authenticator()->get($options->options))->isVerified());
         self::assertSame(0, DB::table('passkey_challenges')->count());
     }
 

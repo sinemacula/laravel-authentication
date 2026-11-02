@@ -140,12 +140,12 @@ final class PasskeyOutcomesTest extends TestCase
 
         self::freezeAt($this->now->addSeconds(60));
 
-        $options = Auth::passkeys('api')->factorOptions($identity);
-        $result  = Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $this->authenticator()->get($options->options));
+        $options = self::factorCeremony(Auth::passkeys('api'), $identity);
+        $result  = Auth::passkeys('api')->verifyFactor($identity, self::factorBinding($identity), $options->challengeId, $this->authenticator()->get($options->options));
         $stored  = Auth::passkeys('api')->passkeys($identity)[0];
 
         self::assertTrue($result->isVerified());
-        self::assertSame($stored->toArray(), $result->passkey?->toArray());
+        self::assertSame($stored->toArray(), $result->assertion?->passkey->toArray());
         self::assertTrue($stored->lastUsedAt?->equalTo($this->now->addSeconds(60)));
         self::assertSame(1, Passkey::query()->sole()->sign_count);
     }
@@ -164,9 +164,9 @@ final class PasskeyOutcomesTest extends TestCase
 
         $this->registerPasskey($identity);
 
-        $first = Auth::passkeys('api')->factorOptions($identity);
+        $first = self::factorCeremony(Auth::passkeys('api'), $identity);
 
-        self::assertTrue(Auth::passkeys('api')->verifyFactor($identity, $first->challengeId, $this->authenticator()->get($first->options))->isVerified());
+        self::assertTrue(self::verifyPasskeyFactor($identity, $first->challengeId, $this->authenticator()->get($first->options))->isVerified());
 
         $before = Passkey::query()->sole()->only(['sign_count', 'last_used_at', 'updated_at']);
 
@@ -174,10 +174,10 @@ final class PasskeyOutcomesTest extends TestCase
 
         $this->authenticator()->setCounter($this->authenticator()->lastCredentialId(), 0);
 
-        $again  = Auth::passkeys('api')->factorOptions($identity);
-        $result = Auth::passkeys('api')->verifyFactor($identity, $again->challengeId, $this->authenticator()->get($again->options));
+        $again  = self::factorCeremony(Auth::passkeys('api'), $identity);
+        $result = Auth::passkeys('api')->verifyFactor($identity, self::factorBinding($identity), $again->challengeId, $this->authenticator()->get($again->options));
 
-        self::assertSame([FailureReason::PASSKEY_COUNTER_REGRESSED, null], [$result->reason, $result->passkey]);
+        self::assertSame([FailureReason::PASSKEY_COUNTER_REGRESSED, null], [$result->reason, $result->assertion]);
         self::assertEquals($before, Passkey::query()->sole()->only(['sign_count', 'last_used_at', 'updated_at']));
     }
 

@@ -22,11 +22,12 @@ package's.
 - A passkey belongs to a saved Eloquent identity that is not a `MachineIdentity`, recorded as sessions record their
   owner: its morph class and its key as a string. A machine identity is refused with an `InvalidArgumentException`
   (it has no interactive sign-in), an identity that is not a model or has no key with a `LogicException`.
-- Every ceremony's options carry 32 random bytes as the challenge, require user verification, and are stored with the
-  challenge in `passkey_challenges`, bound to the purpose (`register`, `sign_in`, `factor`), the guard, the relying
-  party id and, for a registration or a factor, the identity. An answer uses the challenge up with one conditional
-  `DELETE` matching all of them and `expires_at > now` (after a writer `SELECT` that reads the options), before the
-  answer is verified, so of two answers only one uses it and a failed answer burns it. A challenge lives
+- Every ceremony's options carry 32 random bytes as the challenge, require user verification (a factor's may only
+  prefer it, when its caller asks), and are stored with the challenge in `passkey_challenges`, bound to the purpose
+  (`register`, `sign_in`, `factor`), the guard, the relying party id, for a registration or a factor the identity, and
+  for a factor (or a registration given one) the `ProofBinding`'s session and purpose. An answer uses the challenge up
+  with one conditional `DELETE` matching all of them and `expires_at > now` (after a writer `SELECT` that reads the
+  options), before the answer is verified, so of two answers only one uses it and a failed answer burns it. A challenge lives
   `challenge_ttl_seconds` (30 to 600, 300 by default), which is also the options' `timeout`.
 - Registration asks for a discoverable credential (`residentKey: required`), `attestation: none`, and ES256, EdDSA
   (when sodium is loaded) and RS256, excluding the identity's passkeys. The statement formats webauthn-lib checks
@@ -41,8 +42,9 @@ package's.
   `crossOrigin: true` is refused by `WebAuthn` itself, with or without `topOrigin`, since webauthn-lib's
   `CheckTopOrigin` only acts when the browser names a `topOrigin`, which WebAuthn Level 2 browsers do not.
 - An assertion must come from one of the relying party's origins, unframed, with the relying party id's hash, user
-  presence and verification, a valid signature over the challenge, and the passkey's own user handle (usernameless, the
-  answer must carry it; for a factor the identity is known, so the passkey's handle is the one checked).
+  presence, user verification where the options required it, a valid signature over the challenge, and the passkey's
+  own user handle (usernameless, the answer must carry it; for a factor the identity is known, so the passkey's handle
+  is the one checked, and the passkey must be one the options allowed).
 - The sign counter rule (`Passkeys\SignCounter`), with `s` stored and `p` presented: `s = 0` and `p = 0` accepted, the
   count stays 0; `p > s` accepted, the count set to `p` by `UPDATE ... WHERE id = ? AND sign_count = s`, so of two
   assertions read against one count only one moves it; anything else refused as `passkey_counter_regressed`, with
@@ -53,7 +55,9 @@ package's.
   after the removal (and after `RevokeSessionsOnPasskeyRemoval`) committed.
 - Every read that decides a ceremony (challenge, passkey, the identity's passkeys and handle) is on the write
   connection; every write is one conditional statement (registration an `insertOrIgnore` on the digest, so a duplicate
-  is `already_registered` without a caught violation).
+  is `already_registered` without a caught violation). A registration and a removal run the factor gate and that
+  statement in one transaction on the passkey's connection, so the gate's own writes there commit or roll back with
+  the passkey's row.
 - The owner columns are matched in the statement and then compared exactly (`PasskeyOwner::owns()` and the relying party
   id for a passkey found, listed or removed; for a challenge used up, its recorded ceremony, guard and relying party as
   well as the type and key), since a column's collation, such as MySQL's default `_ci`, can count distinct values like
@@ -80,13 +84,27 @@ package's.
   slot on the owner's account limit, verifies the assertion and applies the counter rule; `PasskeyUsed` once the use is
   committed, whether or not the session service then admits the owner. The session records the method `passkey` and no
   identifier type.
-- Factor (the seam for a further-factor package): `factorOptions($identity)` writes a `factor` challenge allowing only
-  the identity's passkeys; `verifyFactor($identity, $challenge, $credential)` applies the same checks for that identity
-  and answers `PasskeyFactorResult::verified()` with the passkey's summary as its use left it, with `PasskeyUsed`. It
-  counts nothing and reports no failure: the factor's outcome is the further-factor package's.
-- Management: `passkeys($identity)` lists summaries oldest first; `remove($identity, $id)` deletes the identity's
-  passkey of the relying party with one conditional `DELETE` and reports `PasskeyRemoved` from the call that removed it.
-  The optional `Listeners\RevokeSessionsOnPasskeyRemoval` then ends the identity's sessions (`factor_removed`).
+- Factor (the seam for a further-factor package): `factorOptions($identity, $binding, $credentialIds)` checks the
+  `ProofBinding` names the identity, this guard and a session, and writes a `factor` challenge bound to that session
+  and purpose, allowing only the named credential ids (canonical unpadded base64url) the identity holds for the relying
+  party, compared exactly, or answers `null`, writing nothing, when none is left. User verification is required, or
+  preferred when the caller asks. `verifyFactor($identity, $binding, $challenge, $credential)` uses up only a challenge
+  of that binding, refuses a passkey the challenge did not allow, applies the same checks for that identity and answers
+  `PasskeyFactorResult::verified()` with a `PasskeyFactorAssertion`: the passkey's id and credential id, the
+  `ObservedProperties` its authenticator data showed (never what the ceremony asked for), the time and the passkey's
+  summary as its use left it, with `PasskeyUsed`. It counts nothing and reports no failure: the factor's outcome is the
+  further-factor package's.
+- Factor gate: registration and removal ask the bound `Contracts\PasskeyFactorGate` inside the transaction on the
+  storage connection that inserts or deletes the passkey's row, before the write: `registering()` with a
+  `RegisteredPasskey` (id, credential id, relying party id, observed properties, time) and the binding the options were
+  issued with, which may answer a `PasskeyFactorAssociation`; `removing()` with the passkey's id and credential id. A
+  gate that throws refuses the change, rolled back whole. A credential inserted by another while the gate ran rolls the
+  change back and answers `already_registered`; a passkey deleted by another answers `false`. The default,
+  `Passkeys\NoPasskeyFactors`, associates nothing and refuses nothing.
+- Management: `passkeys($identity)` lists summaries oldest first; `remove($identity, $id)` finds the identity's passkey
+  of the relying party, asks the gate, deletes it with one conditional `DELETE` and reports `PasskeyRemoved` from the
+  call that removed it. The optional `Listeners\RevokeSessionsOnPasskeyRemoval` then ends the identity's sessions
+  (`factor_removed`).
 
 ## Failure / Edge Cases
 
@@ -94,8 +112,9 @@ package's.
   (unknown, malformed, expired, used, or another guard's, relying party's, purpose's or identity's challenge),
   `response_invalid` (malformed or not verified, an assertion included) or `already_registered` (the digest exists, for
   anyone), with no passkey.
-- A factor is refused with `PasskeyFactorResult::failed()` and its reason, unconcealed: `passkey_challenge_invalid`,
-  `invalid_credentials` (malformed, not verified, or not the identity's passkey) or `passkey_counter_regressed`.
+- A factor is refused with `PasskeyFactorResult::failed()` and its reason, unconcealed: `passkey_challenge_invalid`
+  (including a challenge of another session or purpose), `invalid_credentials` (malformed, not verified, not a passkey
+  the challenge allowed, or not the identity's passkey) or `passkey_counter_regressed`.
 - A sign-in fails as `passkey_challenge_invalid` when its challenge cannot be used, in the result too (it reveals no
   account; the client starts again), and otherwise as `invalid_credentials`: a malformed answer, a passkey of no or
   another relying party, an owner the provider does not return as recorded, an account with no attempts left (the event
@@ -124,6 +143,8 @@ package's.
   `src/Passkeys/SignCounter.php`.
 - `src/Passkeys/PasskeyChallenges.php`, `src/Passkeys/PasskeyCredentials.php`, `src/Passkeys/PasskeyOwner.php`,
   `src/Passkeys/RelyingParty.php`.
+- `src/Contracts/PasskeyFactorGate.php`, `src/Passkeys/NoPasskeyFactors.php`, `src/Passkeys/RegisteredPasskey.php`,
+  `src/Passkeys/PasskeyFactorAssociation.php`, `src/Passkeys/PasskeyFactorAssertion.php`.
 - `src/Models/Passkey.php`, `src/Models/PasskeyChallenge.php`,
   `database/migrations/2026_04_06_000004_create_passkeys_table.php`,
   `database/migrations/2026_04_06_000005_create_passkey_challenges_table.php`.
@@ -140,6 +161,8 @@ package's.
   `tests/Fixtures/Passkeys/VirtualAuthenticator.php`.
 - `tests/Unit/Passkeys/PasskeyRegistrationTest.php`, `tests/Unit/Passkeys/PasskeyFactorResultTest.php`,
   `tests/Integration/Passkeys/PasskeyOutcomesTest.php` (what each outcome wrote).
+- `tests/Integration/Passkeys/PasskeyFactorChangesTest.php` (the gate's work and the passkey's row as one change),
+  `tests/Fixtures/Passkeys/RecordingPasskeyFactorGate.php`.
 - `tests/Integration/Passkeys/ConcurrentPasskeyTest.php` (races on PostgreSQL and MySQL),
   `tests/Integration/Passkeys/ReplicaPasskeysTest.php`, `tests/Integration/Migration/PasskeyTablesSchemaTest.php`.
 - `tests/Performance/PasskeyQueryBudgetTest.php` (query budgets and the timebox),

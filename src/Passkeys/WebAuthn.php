@@ -8,6 +8,7 @@ use Cose\Algorithm\Manager;
 use Cose\Algorithm\Signature\ECDSA\ES256;
 use Cose\Algorithm\Signature\EdDSA\EdDSA;
 use Cose\Algorithm\Signature\RSA\RS256;
+use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use Symfony\Component\Serializer\Normalizer\AbstractObjectNormalizer;
 use Symfony\Component\Serializer\Serializer;
 use Webauthn\AttestationStatement\AndroidKeyAttestationStatementSupport;
@@ -20,6 +21,7 @@ use Webauthn\AuthenticatorAssertionResponse;
 use Webauthn\AuthenticatorAssertionResponseValidator;
 use Webauthn\AuthenticatorAttestationResponse;
 use Webauthn\AuthenticatorAttestationResponseValidator;
+use Webauthn\AuthenticatorData;
 use Webauthn\AuthenticatorSelectionCriteria;
 use Webauthn\CeremonyStep\CeremonyStepManagerFactory;
 use Webauthn\CredentialRecord;
@@ -38,7 +40,8 @@ use Webauthn\PublicKeyCredentialUserEntity;
  * library's registration and assertion ceremonies against a guard's relying
  * party.
  *
- * Every ceremony requires user verification. Registration asks for a
+ * Registration and sign-in require user verification; a factor ceremony may
+ * only prefer it, and reports whether it was observed. Registration asks for a
  * discoverable credential (`residentKey: required`) and no attestation
  * (`attestation: none`). Under `none` a browser may still pass an
  * authenticator's own statement through, so the statement formats the library
@@ -151,24 +154,28 @@ final readonly class WebAuthn
 
     /**
      * The options of an assertion ceremony, in their WebAuthn JSON form: user
-     * verification required, and the credentials allowed (none, for a
-     * usernameless sign-in).
+     * verification required (or only preferred, for a factor ceremony that
+     * allows it), and the credentials allowed (none, for a usernameless
+     * sign-in).
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  string  $challenge
      * @param  list<array{0: string, 1: list<string>}>  $allow
      * @param  int  $timeout
+     * @param  bool  $requireUserVerification
      * @return array<string, mixed>
      *
      * @throws \Symfony\Component\Serializer\Exception\ExceptionInterface
      */
-    public function requestOptions(RelyingParty $rp, string $challenge, array $allow, int $timeout): array
+    public function requestOptions(RelyingParty $rp, string $challenge, array $allow, int $timeout, bool $requireUserVerification = true): array
     {
         $options = PublicKeyCredentialRequestOptions::create(
             $challenge,
             $rp->id,
             self::descriptors($allow),
-            PublicKeyCredentialRequestOptions::USER_VERIFICATION_REQUIREMENT_REQUIRED,
+            $requireUserVerification
+                ? PublicKeyCredentialRequestOptions::USER_VERIFICATION_REQUIREMENT_REQUIRED
+                : PublicKeyCredentialRequestOptions::USER_VERIFICATION_REQUIREMENT_PREFERRED,
             $timeout,
         );
 
@@ -194,17 +201,18 @@ final readonly class WebAuthn
 
     /**
      * Run the registration ceremony on the response against the stored creation
-     * options and the relying party, and return the credential it registers, or
-     * `null` when it does not verify or comes from a cross-origin frame.
+     * options and the relying party, and return the credential it registers,
+     * with what its authenticator data showed, or `null` when it does not
+     * verify or comes from a cross-origin frame.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  array<array-key, mixed>  $options
      * @param  \Webauthn\PublicKeyCredential  $credential
-     * @return ?\Webauthn\CredentialRecord
+     * @return ?array{0: \Webauthn\CredentialRecord, 1: \SineMacula\Laravel\Authentication\Proofs\ObservedProperties}
      *
      * @throws \Symfony\Component\Serializer\Exception\ExceptionInterface
      */
-    public function register(RelyingParty $rp, array $options, PublicKeyCredential $credential): ?CredentialRecord
+    public function register(RelyingParty $rp, array $options, PublicKeyCredential $credential): ?array
     {
         $response = $credential->response;
         $creation = $this->serializer->denormalize($options, PublicKeyCredentialCreationOptions::class, 'json');
@@ -214,29 +222,31 @@ final readonly class WebAuthn
         }
 
         $validator = AuthenticatorAttestationResponseValidator::create($this->ceremonies($rp)->creationCeremony());
+        $record    = self::refusing(static fn (): CredentialRecord => $validator->check($response, $creation, $rp->id));
 
-        return self::refusing(static fn (): CredentialRecord => $validator->check($response, $creation, $rp->id));
+        return $record === null ? null : [$record, self::observed($response->attestationObject->authData)];
     }
 
     /**
      * Run the assertion ceremony on the response against the stored request
      * options, the relying party and the stored credential, and return the
      * credential as the assertion leaves it (its new count and backup state),
-     * or `null` when it does not verify or comes from a cross-origin frame. The
-     * user handle is the one the identity was registered under when the
-     * ceremony was for a known identity, else `null`, and the response must
-     * then carry the credential's own.
+     * with what its authenticator data showed, or `null` when it does not
+     * verify or comes from a cross-origin frame. User verification is checked
+     * only where the options require it. The user handle is the one the
+     * identity was registered under when the ceremony was for a known identity,
+     * else `null`, and the response must then carry the credential's own.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  array<array-key, mixed>  $options
      * @param  \Webauthn\PublicKeyCredential  $credential
      * @param  \Webauthn\CredentialRecord  $record
      * @param  ?string  $userHandle
-     * @return ?\Webauthn\CredentialRecord
+     * @return ?array{0: \Webauthn\CredentialRecord, 1: \SineMacula\Laravel\Authentication\Proofs\ObservedProperties}
      *
      * @throws \Symfony\Component\Serializer\Exception\ExceptionInterface
      */
-    public function assert(RelyingParty $rp, array $options, PublicKeyCredential $credential, CredentialRecord $record, ?string $userHandle): ?CredentialRecord
+    public function assert(RelyingParty $rp, array $options, PublicKeyCredential $credential, CredentialRecord $record, ?string $userHandle): ?array
     {
         $response = $credential->response;
         $request  = $this->serializer->denormalize($options, PublicKeyCredentialRequestOptions::class, 'json');
@@ -246,8 +256,23 @@ final readonly class WebAuthn
         }
 
         $validator = AuthenticatorAssertionResponseValidator::create($this->ceremonies($rp)->requestCeremony());
+        $verified  = self::refusing(static fn (): CredentialRecord => $validator->check($record, $response, $request, $rp->id, $userHandle));
 
-        return self::refusing(static fn (): CredentialRecord => $validator->check($record, $response, $request, $rp->id, $userHandle));
+        return $verified === null ? null : [$verified, self::observed($response->authenticatorData)];
+    }
+
+    /**
+     * What the authenticator data's flags showed: user presence and
+     * verification, backup eligibility and state; resistant to phishing, since
+     * the origin and the relying party id were verified; no key protection,
+     * since nothing attests it.
+     *
+     * @param  \Webauthn\AuthenticatorData  $data
+     * @return \SineMacula\Laravel\Authentication\Proofs\ObservedProperties
+     */
+    private static function observed(AuthenticatorData $data): ObservedProperties
+    {
+        return new ObservedProperties($data->isUserPresent(), $data->isUserVerified(), $data->isBackupEligible(), $data->isBackedUp(), true);
     }
 
     /**

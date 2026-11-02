@@ -130,12 +130,12 @@ final class ConcurrentPasskeyTest extends TestCase
 
         $this->registerPasskey($identity);
 
-        $options  = Auth::passkeys('api')->factorOptions($identity);
+        $options  = self::factorCeremony(Auth::passkeys('api'), $identity);
         $response = $this->authenticator()->get($options->options);
 
         [$first, $second] = $this->race(
-            static fn (): ?string => Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $response)->reason?->value,
-            static fn (): ?string => Auth::passkeys('api')->verifyFactor(IntegrationIdentity::query()->findOrFail($identity->id), $options->challengeId, $response)->reason?->value,
+            static fn (): ?string => Auth::passkeys('api')->verifyFactor($identity, self::factorBinding($identity), $options->challengeId, $response)->reason?->value,
+            static fn (): ?string => self::verifyPasskeyFactor(IntegrationIdentity::query()->findOrFail($identity->id), $options->challengeId, $response)->reason?->value,
             commitFirst: true,
         );
 
@@ -159,12 +159,12 @@ final class ConcurrentPasskeyTest extends TestCase
 
         $this->registerPasskey($identity);
 
-        $options  = Auth::passkeys('api')->factorOptions($identity);
+        $options  = self::factorCeremony(Auth::passkeys('api'), $identity);
         $response = $this->authenticator()->get($options->options);
 
         [$first, $second] = $this->race(
-            static fn (): ?string => Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $response)->reason?->value,
-            static fn (): ?string => Auth::passkeys('api')->verifyFactor(IntegrationIdentity::query()->findOrFail($identity->id), $options->challengeId, $response)->reason?->value,
+            static fn (): ?string => Auth::passkeys('api')->verifyFactor($identity, self::factorBinding($identity), $options->challengeId, $response)->reason?->value,
+            static fn (): ?string => self::verifyPasskeyFactor(IntegrationIdentity::query()->findOrFail($identity->id), $options->challengeId, $response)->reason?->value,
             commitFirst: false,
         );
 
@@ -190,14 +190,14 @@ final class ConcurrentPasskeyTest extends TestCase
 
         $this->registerPasskey($identity);
 
-        $firstOptions  = Auth::passkeys('api')->factorOptions($identity);
-        $secondOptions = Auth::passkeys('api')->factorOptions($identity);
+        $firstOptions  = self::factorCeremony(Auth::passkeys('api'), $identity);
+        $secondOptions = self::factorCeremony(Auth::passkeys('api'), $identity);
         $firstAnswer   = $this->authenticator()->get($firstOptions->options);
         $secondAnswer  = $this->authenticator()->get($secondOptions->options);
 
         [$first, $second] = $this->race(
-            static fn (): ?string => Auth::passkeys('api')->verifyFactor($identity, $firstOptions->challengeId, $firstAnswer)->reason?->value,
-            static fn (): ?string => Auth::passkeys('api')->verifyFactor(IntegrationIdentity::query()->findOrFail($identity->id), $secondOptions->challengeId, $secondAnswer)
+            static fn (): ?string => Auth::passkeys('api')->verifyFactor($identity, self::factorBinding($identity), $firstOptions->challengeId, $firstAnswer)->reason?->value,
+            static fn (): ?string => self::verifyPasskeyFactor(IntegrationIdentity::query()->findOrFail($identity->id), $secondOptions->challengeId, $secondAnswer)
                 ->reason?->value,
             commitFirst: true,
         );

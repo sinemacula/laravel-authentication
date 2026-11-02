@@ -23,6 +23,8 @@ use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyChallenges;
 use SineMacula\Laravel\Authentication\Passkeys\RelyingParty;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use Tests\Concerns\InteractsWithFoldingCollations;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithSessions;
@@ -121,9 +123,52 @@ final class PasskeyChallengesTest extends TestCase
         $identity = $this->seedIdentity();
         $issued   = self::challenges()->issue(ChallengePurpose::REGISTER, self::rp('api'), $identity, ['challenge' => 'abc'], $this->now);
 
-        self::assertSame(['challenge' => 'abc'], self::challenges()->consume($issued->challengeId, ChallengePurpose::REGISTER, self::rp('api'), $identity, $this->now));
+        self::assertSame(['challenge' => 'abc'], self::challenges()->consume($issued->challengeId, ChallengePurpose::REGISTER, self::rp('api'), $identity, $this->now)?->options);
         self::assertNull(self::challenges()->consume($issued->challengeId, ChallengePurpose::REGISTER, self::rp('api'), $identity, $this->now));
         self::assertSame(0, PasskeyChallenge::query()->count());
+    }
+
+    /**
+     * A challenge issued for a binding records its session and purpose and is
+     * used up only by an answer for that binding (another session's or
+     * purpose's gets nothing and leaves it), or by one that names none, as a
+     * registration's does; the binding it records is read back with the guard
+     * it was issued on. One issued for no binding records none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testABoundChallengeAnswersOnlyItsBinding(): void
+    {
+        $identity = $this->seedIdentity();
+        $binding  = new ProofBinding($identity, 'api', 'session-7', Purpose::STEP_UP);
+        $first    = self::challenges()->issue(ChallengePurpose::FACTOR, self::rp('api'), $identity, ['challenge' => 'abc'], $this->now, $binding);
+
+        foreach ([new ProofBinding($identity, 'api', 'session-8', Purpose::STEP_UP), new ProofBinding($identity, 'api', 'session-7', Purpose::SIGN_IN)] as $other) {
+            self::assertNull(self::challenges()->consume($first->challengeId, ChallengePurpose::FACTOR, self::rp('api'), $identity, $this->now, $other));
+        }
+
+        $consumed = self::challenges()->consume($first->challengeId, ChallengePurpose::FACTOR, self::rp('api'), $identity, $this->now, $binding);
+
+        self::assertNotNull($consumed);
+        self::assertSame(['session-7', 'step_up'], [$consumed->session_id, $consumed->binding_purpose]);
+
+        $read = PasskeyChallenges::bindingOf($consumed, $identity);
+
+        self::assertNotNull($read);
+        self::assertSame([$identity, 'api', 'session-7', Purpose::STEP_UP], [$read->identity, $read->application, $read->sessionId, $read->purpose]);
+
+        $second = self::challenges()->issue(ChallengePurpose::REGISTER, self::rp('api'), $identity, ['challenge' => 'def'], $this->now, $binding);
+
+        self::assertNotNull(self::challenges()->consume($second->challengeId, ChallengePurpose::REGISTER, self::rp('api'), $identity, $this->now));
+
+        $unbound = self::challenges()->issue(ChallengePurpose::REGISTER, self::rp('api'), $identity, ['challenge' => 'ghi'], $this->now);
+        $stored  = PasskeyChallenge::query()->sole();
+
+        self::assertSame([null, null], [$stored->session_id, $stored->binding_purpose]);
+        self::assertNull(PasskeyChallenges::bindingOf($stored, $identity));
+        self::assertNull(self::challenges()->consume($unbound->challengeId, ChallengePurpose::REGISTER, self::rp('api'), $identity, $this->now, $binding));
     }
 
     /**
@@ -137,7 +182,7 @@ final class PasskeyChallengesTest extends TestCase
     {
         $issued = self::challenges()->issue(ChallengePurpose::SIGN_IN, self::rp('api'), null, ['challenge' => 'abc'], $this->now);
 
-        self::assertSame(['challenge' => 'abc'], self::challenges()->consume($issued->challengeId, ChallengePurpose::SIGN_IN, self::rp('api'), null, $this->now));
+        self::assertSame(['challenge' => 'abc'], self::challenges()->consume($issued->challengeId, ChallengePurpose::SIGN_IN, self::rp('api'), null, $this->now)?->options);
     }
 
     /**
@@ -191,7 +236,7 @@ final class PasskeyChallengesTest extends TestCase
         self::assertSame(1, PasskeyChallenge::query()->count());
         $justInTime = self::challenges()->consume($issued->challengeId, ChallengePurpose::REGISTER, self::rp('api'), $identity, $this->now->addSeconds(299));
 
-        self::assertSame(['challenge' => 'abc'], $justInTime);
+        self::assertSame(['challenge' => 'abc'], $justInTime?->options);
     }
 
     /**
@@ -402,19 +447,21 @@ final class PasskeyChallengesTest extends TestCase
         $this->registerPasskey($owner);
 
         $passkeys = Auth::passkeys('api');
-        $options  = $passkeys->factorOptions($owner);
+        $options  = self::factorCeremony($passkeys, $owner);
         $answer   = $this->authenticator()->get($options->options);
 
         self::assertColumnFolds('passkey_challenges', 'authenticatable_id', $folded);
 
         Event::fake([PasskeyUsed::class]);
 
-        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, $passkeys->verifyFactor(self::namedIdentity($folded), $options->challengeId, $answer)->reason);
+        $other = self::namedIdentity($folded);
+
+        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, $passkeys->verifyFactor($other, self::factorBinding($other), $options->challengeId, $answer)->reason);
         self::assertSame(1, DB::table('passkey_challenges')->count());
 
         Event::assertNotDispatched(PasskeyUsed::class);
 
-        self::assertTrue($passkeys->verifyFactor($owner, $options->challengeId, $answer)->isVerified());
+        self::assertTrue($passkeys->verifyFactor($owner, self::factorBinding($owner), $options->challengeId, $answer)->isVerified());
     }
 
     /**
@@ -544,19 +591,19 @@ final class PasskeyChallengesTest extends TestCase
 
         $this->registerPasskey($identity);
 
-        $options = Auth::passkeys('api')->factorOptions($identity);
+        $options = self::factorCeremony(Auth::passkeys('api'), $identity);
         $answer  = $this->authenticator()->get($options->options);
 
         self::assertColumnFolds('passkey_challenges', 'guard', 'API');
 
         Event::fake([PasskeyUsed::class]);
 
-        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, Auth::passkeys('API')->verifyFactor($identity, $options->challengeId, $answer)->reason);
+        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, self::verifyPasskeyFactor($identity, $options->challengeId, $answer, 'API')->reason);
         self::assertSame(1, DB::table('passkey_challenges')->count());
 
         Event::assertNotDispatched(PasskeyUsed::class);
 
-        self::assertTrue(Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $answer)->isVerified());
+        self::assertTrue(Auth::passkeys('api')->verifyFactor($identity, self::factorBinding($identity), $options->challengeId, $answer)->isVerified());
     }
 
     /**

@@ -193,7 +193,7 @@ final class PasskeyAssertionsTest extends TestCase
 
         $this->registerPasskey($identity);
 
-        $factor = Auth::passkeys('api')->factorOptions($identity);
+        $factor = self::factorCeremony(Auth::passkeys('api'), $identity);
         $signIn = $this->signInOptions();
 
         $withoutHandle = static function (array $credential): array {

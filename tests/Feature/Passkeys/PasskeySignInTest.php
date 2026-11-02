@@ -322,7 +322,7 @@ final class PasskeySignInTest extends TestCase
             'an unknown id'     => [static fn (): mixed => '0192f6b2-0000-7000-8000-000000000001'],
             'another guard\'s'  => [static fn (): mixed => Auth::passkeys('admin')->signInOptions()->challengeId],
             'a registration\'s' => [static fn (self $test): mixed => Auth::passkeys('api')->registrationOptions(IntegrationIdentity::query()->firstOrFail(), 'ada')->challengeId],
-            'a factor\'s'       => [static fn (self $test): mixed => Auth::passkeys('api')->factorOptions(IntegrationIdentity::query()->firstOrFail())->challengeId],
+            'a factor\'s'       => [static fn (self $test): mixed => self::factorCeremony(Auth::passkeys('api'), IntegrationIdentity::query()->firstOrFail())->challengeId],
         ];
     }
 
