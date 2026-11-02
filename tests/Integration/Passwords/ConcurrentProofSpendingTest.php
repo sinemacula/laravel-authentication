@@ -171,7 +171,7 @@ final class ConcurrentProofSpendingTest extends TestCase
         self::resetToken();
 
         [$first, $second] = $this->race(
-            'delete from',
+            'update',
             'one_time_codes',
             fn (): string => $this->changes()->confirmByLink(Request::create($link))->outcome->value,
             static fn (): string => Auth::passwords('web')->set(self::reloaded($identity), self::NEW_PASSWORD, PasswordFlow::CHANGE)->isSet() ? 'set' : 'rejected',

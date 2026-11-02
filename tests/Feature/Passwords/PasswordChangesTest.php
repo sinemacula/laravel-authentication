@@ -422,7 +422,7 @@ final class PasswordChangesTest extends TestCase
 
         DB::table('password_identities')->update(['password' => null]);
 
-        $write = static fn (string $sql): bool => str_starts_with($sql, 'update "password_identities"');
+        $write = static fn (string $sql): bool => preg_match('/^update [`"]password_identities[`"]/', $sql) === 1;
 
         $this->onceBefore($write, static fn () => DB::table('password_identities')->update(['password' => 'raced']));
 

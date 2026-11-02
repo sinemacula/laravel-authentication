@@ -233,7 +233,7 @@ final class TenantPolicyCheckTest extends TestCase
         DB::enableQueryLog();
 
         $verdict = TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now);
-        $reads   = array_filter(DB::getQueryLog(), static fn (array $query): bool => str_contains($query['query'], '"kind" = ?'));
+        $reads   = array_filter(DB::getQueryLog(), static fn (array $query): bool => preg_match('/[`"]kind[`"] = \?/', $query['query']) === 1);
 
         DB::disableQueryLog();
 

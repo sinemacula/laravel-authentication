@@ -228,7 +228,9 @@ final class ConcurrentOneTimeCodesTest extends TestCase
 
         self::assertSame($first, DB::table('one_time_codes')->value('issue_id'));
         self::assertSame(60, $second['result']);
-        self::assertSame(2, DB::table('one_time_codes')->where('deliveries', 2)->count());
+        self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
+        self::assertSame(1, DB::table('one_time_codes')->count());
+        self::assertSame(2, (int) DB::table('one_time_codes')->value('deliveries'));
     }
 
     /**

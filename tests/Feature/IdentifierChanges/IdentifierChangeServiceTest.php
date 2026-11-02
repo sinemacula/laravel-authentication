@@ -541,7 +541,7 @@ final class IdentifierChangeServiceTest extends TestCase
 
         $recorded = $statements();
         $begin    = array_search('begin', $recorded, true);
-        $counted  = static fn (string $sql): bool => str_contains($sql, 'rate_limits') && !str_contains($sql, '"hits" - 1');
+        $counted  = static fn (string $sql): bool => str_contains($sql, 'rate_limits') && preg_match('/[`"]hits[`"] - 1/', $sql) !== 1;
 
         self::assertIsInt($begin);
         self::assertSame([], array_filter(array_slice($recorded, 0, $begin), static fn (string $sql): bool => !$counted($sql)));
