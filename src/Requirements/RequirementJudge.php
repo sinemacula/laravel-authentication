@@ -123,11 +123,11 @@ final class RequirementJudge
         if ($evidence !== null || $session === null) {
             $proofs = $evidence === null ? [] : $evidence->proofs;
 
-            return static fn (?CarbonImmutable $since, ?array $kinds, int $limit): array => array_slice(array_values(array_filter(
+            return static fn (?CarbonImmutable $since, ?array $kinds, int $limit): array => array_slice(array_filter(
                 $proofs,
                 static fn (RecordedProof $proof): bool => ($since === null || $proof->authenticatedAt->greaterThanOrEqualTo($since->startOfSecond()))
                     && ($kinds === null || in_array($proof->kind, $kinds, true)),
-            )), 0, $limit);
+            ), 0, $limit);
         }
 
         return static fn (?CarbonImmutable $since, ?array $kinds, int $limit): array => SessionProofs::query($session, $since, $kinds, $limit);
