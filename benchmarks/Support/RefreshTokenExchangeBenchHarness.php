@@ -135,23 +135,12 @@ final class RefreshTokenExchangeBenchHarness
         Carbon::setTestNow($now);
         JWT::$timestamp = $now->getTimestamp();
 
-        $config = new ConfigRepository([
-            'database'       => ['default' => BenchDatabase::CONNECTION],
-            'authentication' => [
-                'session' => [
-                    'model'                      => Session::class,
-                    'table'                      => 'authentication_sessions',
-                    'last_used_throttle_seconds' => 60,
-                ],
-                'timebox' => [
-                    'credentials_microseconds' => 400000,
-                ],
-            ],
-        ]);
+        $config = self::config();
 
         $container = new Container;
         $container->instance('config', $config);
         $container->instance(Repository::class, $config);
+        $container->instance(ConfigRepository::class, $config);
         Facade::setFacadeApplication($container);
         JwtBenchSetup::bindPackageDefaults($container);
 
@@ -575,6 +564,37 @@ final class RefreshTokenExchangeBenchHarness
             ),
             BenchRequest::refreshTransport(...),
         );
+    }
+
+    /**
+     * The configuration the harness's guard reads: the `api` guard, the session
+     * model, the credential timebox, and the package's refresh transport
+     * defaults, from which every refresh builds the guard's transport.
+     *
+     * @return \Illuminate\Config\Repository
+     */
+    private static function config(): ConfigRepository
+    {
+        return new ConfigRepository([
+            'auth'           => ['guards' => ['api' => ['driver' => 'jwt', 'provider' => 'users']]],
+            'database'       => ['default' => BenchDatabase::CONNECTION],
+            'authentication' => [
+                'session' => [
+                    'model'                      => Session::class,
+                    'table'                      => 'authentication_sessions',
+                    'last_used_throttle_seconds' => 60,
+                ],
+                'timebox' => [
+                    'credentials_microseconds' => 400000,
+                ],
+                'refresh_token' => [
+                    'transport'  => 'body',
+                    'body_field' => 'refresh_token',
+                    'header'     => 'X-Refresh-Token',
+                    'cookie'     => ['name' => null, 'path' => null, 'allowed_origins' => [], 'csrf_header' => 'X-Requested-With'],
+                ],
+            ],
+        ]);
     }
 
     /**
