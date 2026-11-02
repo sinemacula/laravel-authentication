@@ -78,18 +78,20 @@ checked before it gets here is in `session-service.md`; the choice of principal 
   the tenant the row now records. The first activation (no refresh digest yet) supersedes the proven session with a
   compare-and-swap on the digest it recorded and `status = active` (a miss writes nothing, and `settle()` judges the
   session again without the proven session, since the factor policy may have waived the factor for it), clears the kept
-  slots' windows, gives the slots back after the commit and schedules `SessionRevoked` (`superseded`), `SessionCreated`
-  and `SignedIn`; a later one, of a session that returned to pending, moves `switched_at` (`SwitchFloor::after()`) and
-  schedules `SessionActivated`.
+  slots' windows, hands the slots up with the activated session for the service to give back once it has bound the
+  guard after the commit, and schedules `SessionRevoked` (`superseded`), `SessionCreated` and `SignedIn`; a later one,
+  of a session that returned to pending, moves `switched_at` (`SwitchFloor::after()`) and schedules `SessionActivated`.
   The session keeps its key throughout, so the proofs and provenance written while it waited carry over unchanged.
 - `PendingTransitions::returnToPending()` takes an active session back to pending, recording the destination its caller
-  admitted, when a refresh or a switch finds the tenant's policy asking for a factor the session lacks: one
-  compare-and-swap on the row as the caller loaded it (`status = active`, unrevoked, refresh digest, principal,
-  `tenant_id`, policy version and both deadlines) that writes a new pending credential, `requires = ["mfa"]`, the
-  destination's principal and tenant, `switched_at` by `SwitchFloor::after()` and the credential's expiry as the idle
-  deadline. It keeps the refresh digests, which stay refused as `session_pending` until the session activates with a
-  new rotation id; from its commit every access token of the session is refused. `SessionReturnedToPending` follows the
-  commit. A connection requirement never returns a session to pending: no action could meet it.
+  admitted, when a refresh or a switch finds the tenant's policy asking for a factor the session lacks, or the factor
+  package's removal of a factor leaves the session short of the identity's requirement or its tenant's
+  (`Sessions\FactorRevocations`, flow `factor_change`, with the outstanding requirement): one compare-and-swap on the
+  row as the caller loaded it (`status = active`, unrevoked, refresh digest, principal, `tenant_id`, policy version and
+  both deadlines) that writes a new pending credential, `requires = ["mfa"]`, the destination's principal and tenant,
+  `switched_at` by `SwitchFloor::after()` and the credential's expiry as the idle deadline. It keeps the refresh
+  digests, which stay refused as `session_pending` until the session activates with a new rotation id; from its commit
+  every access token of the session is refused. `SessionReturnedToPending` follows the commit. A connection requirement
+  never returns a session to pending: no action could meet it.
 
 ## Success Path
 
@@ -124,7 +126,7 @@ checked before it gets here is in `session-service.md`; the choice of principal 
 - `src/Sessions/PendingSessions.php`: `pending()`, `satisfy()`, `choose()`, `discard()`, `find()`, `admitted()`,
   `chosen()`, `settle()`.
 - `src/Sessions/PendingEvaluation.php`: the gate's building blocks (`identityRefusal()`, `allowsMethod()`,
-  `principals()`, `selection()`, `named()`, `destination()`, `recorded()`, `owesFactor()`, `tenantPolicy()`,
+  `principals()`, `selection()`, `named()`, `destination()`, `recorded()`, `owedFactor()`, `tenantPolicy()`,
   `requirements()`).
 - `src/Sessions/SessionEstablishment.php` and `src/Sessions/SessionWriter.php` (`createPending()`, over
   `src/Sessions/PendingSessionDraft.php`); `src/Sessions/PendingState.php` (the TTL, the expiry, the raw writes).

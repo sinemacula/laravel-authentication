@@ -98,8 +98,9 @@ to these events, so the shape and the timing are a contract.
   `Authenticated`, `PrincipalAssigned` or `SessionAuthenticated`) cannot withhold the report: its exception still
   reaches the caller, and the events still never fire for a rolled-back write. With no transaction open they are
   dispatched before the bind events, so a listener on them reads the context, not the guard; inside a transaction they
-  follow its commit. A listener that throws on a lifecycle event propagates as any listener does and stops what follows
-  it, so independence from bind listeners is the guarantee, not delivery to every subscriber.
+  follow its commit, and a sign-in's bind events follow them there, since a sign-in binds only once it commits. A
+  listener that throws on a lifecycle event propagates as any listener does and stops what follows it, so independence
+  from bind listeners is the guarantee, not delivery to every subscriber.
 - Revocation: each `SessionRevoked` carries the revoked session, the session's own guard and the method it records, with
   the identity, principal and tenant the revocation knew, and the snapshots of the owner and principal the row records
   for those it did not; a bulk revocation then dispatches one `SignedOutEverywhere` per scope with the acting guard, the

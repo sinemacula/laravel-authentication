@@ -41,14 +41,14 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   it first activates (`SessionActivation`). The slots are written on `rate_limits.connection`, outside the session's own
   transaction but not outside a transaction the caller opened on that connection: with the default (`null`, the storage
   connection) a caller that rolls back around a sign-in rolls its counts back too, so its attempts go uncounted. Only
-  counters on a connection of their own survive such a rollback. The first activation therefore gives the slots back
-  only once it commits on the session's connection: a rollback leaves the session pending, and slots given back before
-  it would be given back again when it activates. A release that fails then is reported to the exception handler, not
-  thrown, the one limiter error that does not propagate: the session already stands, and Laravel runs a commit's
-  callbacks in order without catching, so a throw would stop the later ones (another activation's events, the caller's
-  own). The release stops at the failure, and the slots not given back stay counted. A handler that throws while
-  reporting is not caught, as with Laravel's `rescue()`: an error that cannot be reported surfaces rather than
-  vanishing.
+  counters on a connection of their own survive such a rollback. The slots are therefore given back only once the
+  session commits on its connection and the guard is bound to it: a rollback leaves a first activation's session
+  pending, and slots given back before it would be given back again when it activates. A release that fails then is
+  reported to the exception handler, not thrown, the one limiter error that does not propagate: the session already
+  stands, and Laravel runs a commit's callbacks in order without catching, so a throw would stop the later ones (another
+  activation's events, the caller's own). The release stops at the failure, and the slots not given back stay counted. A
+  handler that throws while reporting is not caught, as with Laravel's `rescue()`: an error that cannot be reported
+  surfaces rather than vanishing.
 - The steps `signIn()` and the guard's `attempt()` take the same way are `Sessions\CredentialAttempt`'s, which each
   calls in its own order: `checkMethod()` (the application policy's method check, before anything is counted), `begin()`
   (the slot on the identifier and IP limits, from the limiter the caller resolved after the method check), the account
@@ -108,13 +108,20 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   judges the session again without the proven one, factor policy included: it activates and revokes nothing, or stays
   pending when the factor policy now asks for a factor.
 - After the session's transaction, `SessionRevoked` (`superseded`, for a replaced session), `SessionCreated` and
-  `SignedIn` are scheduled, in that order and in one callback, on the commit of the session's connection, with a first
-  activation's slot give-back, and only then is the guard bound, with the usual immediate bind events: a bind listener
-  that throws cannot withhold them, and they never fire for a rolled-back session. The order holds by construction:
-  `SessionEstablishment` (and `SessionActivation` for a pending session) writes the session, asks the factor policy and
-  schedules those reports, and never binds; the service binds the guard, through `login()` on the
-  `Contracts\GuardBinding` it was given, only once establishment has returned a signed-in result, and `signIn()` gives
-  its slots back after that bind.
+  `SignedIn` are scheduled, in that order and in one callback, on the commit of the session's connection; a second
+  callback on the same commit then binds the guard, with the usual bind events, and only after the bind gives back the
+  sign-in's slots (the attempt's, or the ones a first activation's pending sign-in held, which `SessionActivation`
+  hands up on the `SignedInSession` rather than giving them back itself). A bind listener that throws therefore cannot
+  withhold the reports and leaves the slots counted, and nothing of a rolled-back session is reported, bound or given
+  back. The order holds by construction: `SessionEstablishment` (and `SessionActivation` for a pending session) writes
+  the session, asks the factor policy and schedules those reports, and never binds; the service's `bound()` delivers
+  the pair at once and schedules the bind, through `login()` on the `Contracts\GuardBinding` it was given, only once
+  establishment has returned a signed-in result. A bind that waited for a commit (`Database\AfterCommit::defers()`)
+  binds only while the guard still serves the request that signed in and the session, read again on the write
+  connection, is still that one (generation and owner), of this guard, unrevoked, active and not ended; with no
+  transaction open it binds at once, with no extra query. The bind is deferred because the factor package satisfies a
+  pending session inside its own transaction, re-entrantly inside a passkey registration's too, and a refusal there
+  must undo the bind with the writes. Refresh and switch binds are not deferred.
 - The service holds no state between calls. It runs on the guard's context (`Runtime\GuardContext`), reading the
   provider, resolver, dispatcher and request, and the sign-in method manager and policies from the container, each time
   it needs them, and reaches the guard's bound state only through its binding; it names no `Guards` class. The guard
@@ -141,8 +148,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 
 - A sign-in: `Attempting`, then, once committed (at once with no transaction open on the session's connection),
   `SessionCreated` and `SignedIn`, then `Validated`, `Login`, `Authenticated`, `PrincipalAssigned`,
-  `SessionAuthenticated`. Inside a caller's transaction the bind events come first and the pair follows its commit. The
-  session's last use is the sign-in, so the shipped last-use listener writes nothing more.
+  `SessionAuthenticated`. Inside a caller's transaction all of them follow its commit, in that order, while the result
+  answers at once with the pair. The session's last use is the sign-in, so the shipped last-use listener writes nothing
+  more.
 - A sign-in that replaces a proven session: the same, with `SessionRevoked` (`superseded`) for the proven session just
   before `SessionCreated`. Its context has the guard, the sign-in's client, the identity, principal and tenant the
   sign-in admitted, the proven session and the method it records.
@@ -165,14 +173,15 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   `start()` holds no slots (nothing was guessed), so its external verifier bounds it.
 - An activation runs in the acting request's client: its events and the session's last use carry that client, while
   the session keeps the client the sign-in came from as its creation.
-- Inside a caller's transaction the service's transaction is a savepoint: the guard is bound at once, the lifecycle
-  events wait for the caller's commit, and a rollback withdraws them with the session while the guard stays bound. Do
-  not roll back around a sign-in.
-- A listener that throws on a bind event propagates after the session committed: the session exists and the pair is
-  lost, but `SessionCreated` and `SignedIn` were already dispatched (or, inside a caller's transaction, wait for its
-  commit) and an activation's slots are given back. A listener that throws on `SessionCreated` or `SignedIn` with no
-  transaction open propagates before the bind: the session stands, the guard is not bound, and `SignedIn` is not
-  dispatched after a throwing `SessionCreated`.
+- Inside a caller's transaction the service's transaction is a savepoint: the lifecycle events, the bind and the
+  give-back of the slots wait for the caller's commit, and a rollback withdraws all three with the session, leaving the
+  guard unbound (and, unless the counters are on a connection of their own, the sign-in's attempts uncounted). A
+  session the caller's transaction revokes or returns to pending after signing it in is not bound at the commit.
+- A listener that throws on a bind event propagates after the session committed (inside a caller's transaction, from its
+  commit): the session exists and the pair is lost, but `SessionCreated` and `SignedIn` were already dispatched, and the
+  sign-in's slots stay counted. A listener that throws on `SessionCreated` or `SignedIn` with no transaction open
+  propagates before the bind: the session stands, the guard is not bound, and `SignedIn` is not dispatched after a
+  throwing `SessionCreated`.
 - A session replaced by a sign-in is revoked: its access tokens stop at once and its refresh tokens are refused as
   `session_revoked`, so they cannot touch the new session (see `refresh-rotation-and-replay.md`). A listener on its
   `SessionRevoked` that throws stops `SessionCreated` and `SignedIn` and reaches the caller, while both rows stand.

@@ -25,7 +25,8 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * Returns an active session that fell short of a further factor during a
- * request (a refresh, a switch) to pending, instead of re-issuing its pair.
+ * request (a refresh, a switch, the removal of a factor it was proved with) to
+ * pending, instead of re-issuing its pair.
  *
  * One compare-and-swap on the row, as the caller loaded it, makes it pending:
  * it waits on a further factor, holds the digest of a new pending credential,
