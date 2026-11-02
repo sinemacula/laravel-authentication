@@ -118,10 +118,22 @@ final readonly class DeclaredCredential
     {
         $declared = $request->attributes->get(self::ATTRIBUTE);
 
-        if ($declared instanceof self && [$declared->credential, $declared->guard, $declared->action] !== [$this->credential, $this->guard, $this->action]) {
+        if ($declared instanceof self && !$declared->isSameAs($this)) {
             throw new \LogicException('A route reads its caller from one credential: it declares authentication.refresh or authentication.pending once.');
         }
 
         $request->attributes->set(self::ATTRIBUTE, $this);
+    }
+
+    /**
+     * Whether the other declaration is of the same credential, guard and
+     * action.
+     *
+     * @param  self  $other
+     * @return bool
+     */
+    private function isSameAs(self $other): bool
+    {
+        return [$this->credential, $this->guard, $this->action] === [$other->credential, $other->guard, $other->action];
     }
 }
