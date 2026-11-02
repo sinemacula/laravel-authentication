@@ -7,9 +7,13 @@ namespace Tests\Integration\Routing;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Routing\MeBinding;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -24,9 +28,9 @@ use Tests\TestCase;
  * Proves the `me` route binding reads the write connection: an id binds a
  * session and a membership the primary holds and the replica lacks, a scoped
  * child, `me` included, is found through the parent's relationship on the
- * primary, also when the relationship reads while it is built, and a session
- * the primary has soft-deleted is a miss though the replica still holds it
- * live.
+ * primary, also when the relationship reads while it is built, a session the
+ * primary has soft-deleted is a miss though the replica still holds it live,
+ * and a refresh credential whose session the primary has revoked binds nothing.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -59,6 +63,9 @@ final class ReplicaMeBindingTest extends TestCase
             Route::get('/members/{member}/listed/{listedSession}', static fn (MeMember $member, MeSession $listedSession): array => ['id' => $listedSession->getKey()])
                 ->scopeBindings();
         });
+
+        Route::middleware(['authentication.refresh:' . self::MEMBERS, SubstituteBindings::class])
+            ->post('/refresh/sessions/{session}', static fn (MeSession $session): array => ['id' => $session->getKey()]);
     }
 
     /**
@@ -146,6 +153,42 @@ final class ReplicaMeBindingTest extends TestCase
 
         $this->bearer('/members/me/sessions/me', $token)->assertOk()->assertExactJson(['id' => $id]);
         $this->bearer('/members/me/listed/me', $token)->assertOk()->assertExactJson(['id' => $id]);
+    }
+
+    /**
+     * A refresh credential whose session the primary has revoked binds nothing,
+     * though the replica still holds the session live: a `401`, reported once
+     * as `session_revoked`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefreshCredentialWhoseSessionThePrimaryHasRevokedIsRefused(): void
+    {
+        [$member, [$membership]] = $this->seedMember('ada@example.test');
+
+        $session = $this->signedIn('ada@example.test');
+        $id      = (string) IdentifierCoercion::stringify($session->record->getKey());
+
+        $this->copyRowToReplica('me_members', $member->getKey());
+        $this->copyRowToReplica('me_memberships', $membership->getKey());
+        $this->copyRowToReplica(self::SESSIONS, $id);
+
+        DB::connection(self::PRIMARY_CONNECTION)->table(self::SESSIONS)->where('id', $id)->update(['revoked_at' => now(), 'revoked_reason' => 'revoked']);
+
+        self::assertTrue(DB::connection(self::REPLICA_CONNECTION)->table(self::SESSIONS)->where('id', $id)->whereNull('revoked_at')->exists());
+
+        Event::fake([AuthenticationFailed::class]);
+        Auth::forgetGuards();
+
+        $this->postJson('/refresh/sessions/me', ['refresh_token' => $session->tokens->refreshToken?->reveal()])->assertUnauthorized();
+
+        Event::assertDispatchedTimes(AuthenticationFailed::class, 1);
+        Event::assertDispatched(
+            AuthenticationFailed::class,
+            static fn (AuthenticationFailed $event): bool => $event->flow === AuthenticationFlow::REFRESH && $event->reason === FailureReason::SESSION_REVOKED,
+        );
     }
 
     /**
