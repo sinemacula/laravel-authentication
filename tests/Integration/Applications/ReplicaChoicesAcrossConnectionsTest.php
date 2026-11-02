@@ -20,12 +20,12 @@ use Tests\Integration\Fixtures\LandlordPrincipalMember;
 use Tests\TestCase;
 
 /**
- * Proves the principals offered to an identity are admitted with
- * `ApplicationAccess` read on the principal's write connection, also when the
- * principals live on another connection than the identity: the identity is on
- * the lagging default split, its principals and their grants on the lagging
- * `landlord` split, so an answer read from the landlord replica would still
- * hold a withdrawn grant.
+ * Proves the principals offered to an identity, and the one principal looked up
+ * by its identifier, are read and admitted with `ApplicationAccess` on the
+ * principal's write connection, also when the principals live on another
+ * connection than the identity: the identity is on the lagging default split,
+ * its principals and their grants on the lagging `landlord` split, so an answer
+ * read from the landlord replica would still hold a withdrawn grant.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -115,6 +115,36 @@ final class ReplicaChoicesAcrossConnectionsTest extends TestCase
 
         self::assertSame([$second->id], $this->offered($member, null));
         self::assertSame([$second->id], $this->offered($member, 'email'));
+    }
+
+    /**
+     * One principal is found as the landlord primary holds and admits it: the
+     * principals exist only on the landlord primary, and the one whose grant
+     * the primary has withdrawn is no longer found, with or without an
+     * identifier type, though the landlord replica still holds the grant.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testOnePrincipalIsFoundAndAdmittedOnThePrincipalsPrimary(): void
+    {
+        $member = LandlordPrincipalMember::query()->create(['email' => 'member@example.test', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
+        $first  = LandlordPrincipal::query()->create(['identity_id' => $member->id]);
+        $second = LandlordPrincipal::query()->create(['identity_id' => $member->id]);
+        $grant  = $this->grant($first);
+
+        $this->grant($second);
+
+        self::assertFalse(DB::connection(self::LANDLORD_REPLICA_CONNECTION)->table('landlord_principals')->exists());
+        self::assertSame($first->id, $this->sessions(self::GUARD)->principal($member, $first->id)?->getPrincipalIdentifier());
+        self::assertSame($first->id, $this->sessions(self::GUARD)->principal($member, $first->id, 'email')?->getPrincipalIdentifier());
+
+        $this->withdrawOnThePrimary($grant);
+
+        self::assertNull($this->sessions(self::GUARD)->principal($member, $first->id));
+        self::assertNull($this->sessions(self::GUARD)->principal($member, $first->id, 'email'));
+        self::assertSame($second->id, $this->sessions(self::GUARD)->principal($member, $second->id)?->getPrincipalIdentifier());
     }
 
     /**

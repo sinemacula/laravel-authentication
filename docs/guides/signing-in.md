@@ -792,14 +792,15 @@ $result = Auth::sessions('api')->choose($credential, $principal, TenantSelection
 ```
 
 `choose()` takes one of `$pending->principals` (also listed by `Auth::sessions('api')->principals($identity,
-$identifierType)`), and the tenant it is to be active in (the principal's own unless one is given). Under the row lock
-the identity and method are checked again, the principal must be the identity's, resolved through the hinted path as the
-very one named (`principal_mismatch`), and allowed to use the application, and the tenant one it may act in and active.
-The chosen tenant's authentication policy is asked next: one that requires a connection refuses this principal as
-`sso_required`, leaving the session pending for another choice. The identity-level factor policy is then asked again: a
-further factor it or the tenant now asks for records the principal and tenant and leaves the session waiting for it,
-with the same credential; otherwise the session activates as the principal. A refused choice leaves the session pending
-for another; `pending_action_not_allowed` while a factor is outstanding.
+$identifierType)`, and got by its id with `principal($identity, $principalId, $identifierType)`), and the tenant it is
+to be active in (the principal's own unless one is given). Under the row lock the identity and method are checked again,
+the principal must be the identity's, resolved through the hinted path as the very one named (`principal_mismatch`), and
+allowed to use the application, and the tenant one it may act in and active. The chosen tenant's authentication policy
+is asked next: one that requires a connection refuses this principal as `sso_required`, leaving the session pending for
+another choice. The identity-level factor policy is then asked again: a further factor it or the tenant now asks for
+records the principal and tenant and leaves the session waiting for it, with the same credential; otherwise the session
+activates as the principal. A refused choice leaves the session pending for another; `pending_action_not_allowed` while
+a factor is outstanding.
 
 ### Discarding
 

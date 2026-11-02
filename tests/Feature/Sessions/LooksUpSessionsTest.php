@@ -20,14 +20,19 @@ use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Integration\Fixtures\ActivatableTenant;
+use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
 /**
- * Feature tests of the routes an application registers behind `auth:api` to
- * show one of the signed-in identity's sessions, driven over HTTP:
+ * Feature tests of the routes an application registers behind its guard to show
+ * one of the signed-in identity's sessions or principals, driven over HTTP:
  * `Auth::sessions('api')->session()` answers the session's summary, marked when
  * it is the one the request is authenticated with, and nothing for a session
- * that is another identity's or no longer active.
+ * that is another identity's or no longer active; and
+ * `Auth::sessions('members')->principal()` answers one of the principals the
+ * identity may use the application as, and nothing for another identity's or
+ * one no longer admitted.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -59,6 +64,17 @@ final class LooksUpSessionsTest extends TestCase
             assert($identity instanceof Identity);
 
             return Auth::sessions('api')->session($identity, $session) ?? abort(404);
+        });
+
+        Route::middleware('auth:members')->get('/principals/{principal}', static function (string $principal): array {
+
+            $identity = Auth::identity();
+
+            assert($identity instanceof Identity);
+
+            $found = Auth::sessions('members')->principal($identity, $principal, Auth::session()?->getSignInIdentifierType());
+
+            return $found === null ? abort(404) : ['id' => $found->getPrincipalIdentifier()];
         });
     }
 
@@ -129,6 +145,41 @@ final class LooksUpSessionsTest extends TestCase
     }
 
     /**
+     * The route shows each of the member's memberships the application admits,
+     * the one the session acts as among them, and answers `404` for another
+     * member's and for one whose tenant was deactivated.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testShowsOneOfThePrincipalsTheApplicationAdmits(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $elsewhere = ActivatableTenant::query()->create(['name' => 'Elsewhere', 'is_active' => true]);
+        $second    = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $elsewhere->getKey()]);
+
+        [, $foreign] = $this->seedMember('stranger@example.test', $tenant);
+
+        $context = SignInContext::fromRequest(app('request'), principal: $membership);
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), $context)->session;
+
+        self::assertNotNull($session);
+
+        $token = $session->tokens->accessToken;
+
+        $this->principal($token, $membership->getKey())->assertOk()->assertExactJson(['id' => $membership->getKey()]);
+        $this->principal($token, $second->getKey())->assertOk()->assertExactJson(['id' => $second->getKey()]);
+        $this->principal($token, $foreign->getKey())->assertNotFound();
+
+        $elsewhere->update(['is_active' => false]);
+
+        $this->principal($token, $second->getKey())->assertNotFound();
+        $this->principal($token, $membership->getKey())->assertOk();
+    }
+
+    /**
      * Register the session guards.
      *
      * @param  mixed  $app
@@ -186,5 +237,19 @@ final class LooksUpSessionsTest extends TestCase
         Auth::forgetGuards();
 
         return $this->withHeaders(['Authorization' => 'Bearer ' . $token])->getJson('/sessions/' . $id);
+    }
+
+    /**
+     * Ask the route for one principal, with the access token.
+     *
+     * @param  string  $token
+     * @param  mixed  $id
+     * @return \Illuminate\Testing\TestResponse<\Symfony\Component\HttpFoundation\Response>
+     */
+    private function principal(#[\SensitiveParameter] string $token, mixed $id): TestResponse
+    {
+        Auth::forgetGuards();
+
+        return $this->withHeaders(['Authorization' => 'Bearer ' . $token])->getJson('/principals/' . IdentifierCoercion::stringify($id));
     }
 }

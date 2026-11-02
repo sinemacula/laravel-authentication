@@ -84,11 +84,11 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * reauthenticates it through `SessionStepUp` and `SessionReauthentication`
  * (`ProvesSessions`), each of which issues a new access token only, lets a
  * session switch the principal it acts as or its active tenant through
- * `SessionSwitch` (`SwitchesSessions`), lists sessions, looks one of them up
- * (`LooksUpSessions`), and signs out, revokes sessions and ends sessions on
- * security changes through `SessionRevocations` (`EndsSessions`), which the
- * guard's `logout()` and password changes use too, and signs out by refresh
- * credential through `SessionSignOut`.
+ * `SessionSwitch` (`SwitchesSessions`), lists sessions, looks one session or
+ * principal up (`LooksUpSessions`), and signs out, revokes sessions and ends
+ * sessions on security changes through `SessionRevocations` (`EndsSessions`),
+ * which the guard's `logout()` and password changes use too, and signs out by
+ * refresh credential through `SessionSignOut`.
  *
  * Failures are results, not exceptions: Laravel's `Failed` and the package's
  * `AuthenticationFailed` report them. Exceptions are kept for misconfiguration

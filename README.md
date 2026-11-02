@@ -50,7 +50,8 @@ are caught on the server.
 - **Sessions**: timestamped proofs of every sign-in and an external provider's provenance on each session, step-up and
   reauthentication with `auth_time` and `amr` derived from the proofs, per-operation freshness judged on the proof that
   meets it, list and get one, sign out (by the access token, or by the refresh credential once the access token has
-  expired), sign out everywhere, revoke on security changes, and switch principal or active tenant.
+  expired), sign out everywhere, revoke on security changes, and list, get and switch to the principals an identity may
+  use, or switch its active tenant.
 - **Machine credentials**: API keys and OAuth 2.0 client credentials for non-human identities, with scopes.
 - **Account lifecycle**: password policy, password reset, identifier verification and changing an email or phone.
 - **Per-application settings**: which sign-in methods and machine credentials each application allows (none until it

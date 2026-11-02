@@ -225,6 +225,25 @@ return $tokens->refreshCookie?->attachTo(SecretResponse::json(['access_token' =>
 named (`TenantSelection::principalDefault()` back to its own, `TenantSelection::none()` to none, which only a principal
 that belongs to no tenant may by default).
 
+A switch screen lists the destinations with `principals()` and gets one of them by its id with `principal()`:
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+$sessions = Auth::sessions('api');
+$type     = Auth::session()?->getSignInIdentifierType();
+
+$destinations = $sessions->principals(Auth::identity(), $type);
+$destination  = $sessions->principal(Auth::identity(), $request->input('membership'), $type) ?? abort(404);
+```
+
+`principal($identity, $principalId, $identifierType)` answers the principal `principals()` would list with that
+principal identifier, or `null` when it is not the identity's, is not admitted (inactive, in an inactive tenant, refused
+by `ApplicationAccess`, or the identity refused with the identifier type) or two of the identity's principals share the
+identifier, without saying which. It reads the very candidates `principals()` reads (the identity's `principals()` on
+the write connection, or the resolver's default for an identity that is its own principal), in one query, and admits
+only the one the id names, so it is found exactly when the list holds it. The switch checks its destination again.
+
 The refresh token proves the session, never an access token: a stolen access token lives minutes and must not mint a
 refresh credential. `switchFromRequest()` reads it as the session service's `refreshFromRequest()` does (see
 [Refreshing](refreshing.md)), through the application's refresh token transport, so it comes by the application's own
