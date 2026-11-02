@@ -101,4 +101,27 @@ final class RequestBodyTest extends TestCase
     {
         self::assertSame($kept, RequestBody::isFieldName($name));
     }
+
+    /**
+     * The utility cannot be instantiated: its constructor is private.
+     * Reflection invokes it so the line is covered while still documenting the
+     * access modifier.
+     *
+     * @return void
+     *
+     * @SuppressWarnings("php:S3011")
+     */
+    public function testConstructorIsPrivate(): void
+    {
+        $reflection  = new \ReflectionClass(RequestBody::class);
+        $constructor = $reflection->getConstructor();
+
+        self::assertNotNull($constructor);
+        self::assertTrue($constructor->isPrivate());
+
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $constructor->invoke($instance);
+
+        self::assertInstanceOf(RequestBody::class, $instance);
+    }
 }
