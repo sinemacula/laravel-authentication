@@ -165,8 +165,9 @@ final class RefreshProofTest extends TestCase
     /**
      * The replaced token presented after the grace window is a replay: it is
      * refused as `rotation_reuse`, the session is revoked for it and reported
-     * once by `SessionRevoked`, and the session's current token is refused as
-     * revoked from then on.
+     * once by `SessionRevoked`, both naming the owner and the principal the
+     * session records, and the session's current token is refused as revoked
+     * from then on.
      *
      * @return void
      *
@@ -174,7 +175,8 @@ final class RefreshProofTest extends TestCase
      */
     public function testAReplayAfterTheGraceWindowRevokesTheSession(): void
     {
-        $this->seedIdentity();
+        $identity = $this->seedIdentity();
+        $owner    = IdentifierCoercion::stringify($identity->getAuthIdentifier());
 
         $session   = $this->signedIn();
         $replaced  = (string) $session->tokens->refreshToken?->reveal();
@@ -189,6 +191,7 @@ final class RefreshProofTest extends TestCase
 
         self::assertInstanceOf(AuthenticationFailed::class, $failed);
         self::assertSame([AuthenticationFlow::SIGN_OUT, FailureReason::ROTATION_REUSE], [$failed->flow, $failed->reason]);
+        self::assertSame([$owner, $owner], [$failed->context->identityId, $failed->context->principalId]);
         self::assertSame([SessionRevoked::class], $this->recordedClasses());
 
         $revoked = $this->recordedEvent(SessionRevoked::class);
@@ -196,6 +199,7 @@ final class RefreshProofTest extends TestCase
         self::assertSame(RevocationReason::ROTATION_REUSE, $revoked->reason);
         self::assertSame(IdentifierCoercion::stringify($session->record->getKey()), $revoked->context->sessionId);
         self::assertSame('api', $revoked->context->guard);
+        self::assertSame([$owner, $owner], [$revoked->context->identityId, $revoked->context->principalId]);
         $revokedAt = $this->row($session)['revoked_at'];
 
         self::assertIsString($revokedAt);
