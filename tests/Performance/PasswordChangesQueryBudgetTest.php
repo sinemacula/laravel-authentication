@@ -71,8 +71,8 @@ final class PasswordChangesQueryBudgetTest extends PerformanceContractTestCase
      * takes and gives back its two sign-in counters, then, in its transaction,
      * locks the identity's row and the session's and costs a change through
      * `set()`: the password's update, the read of the row it updated and the
-     * delete of the proofs it outdates, the cutoff's update, one read of the
-     * sessions and one update for the session it revokes.
+     * `UPDATE` that ends the codes it outdates, the cutoff's update, one read
+     * of the sessions and one update for the session it revokes.
      *
      * @return void
      *

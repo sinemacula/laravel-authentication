@@ -314,8 +314,8 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
     /**
      * A change of password of an identity whose identifiers can change, with
      * two changes pending, cancels them both in one `DELETE`, beside the
-     * password's `UPDATE`, the read of its row, the `DELETE` of the codes it
-     * outdates and the read of its sessions.
+     * password's `UPDATE`, the read of its row, the `UPDATE` that ends the
+     * codes it outdates and the read of its sessions.
      *
      * @return void
      *

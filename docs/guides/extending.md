@@ -477,7 +477,7 @@ seam has a default that works alone.
 
 ```php
 $result = Auth::passkeys()->verifyFactor($identity, $binding, $challenge, $credential);
-$passed = $result->isVerified();   // else $result->refusal
+$passed = $result->isVerified();   // else $result->reason
 ```
 
 ### Authorisation (`laravel-authorization`)

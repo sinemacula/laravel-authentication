@@ -10,8 +10,8 @@ use SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeStanding;
 
 /**
  * The factor package's answer for a factor code: admitted; locked, until when
- * when it says; or refused, with why. What `FactorCodeCounters` answers before
- * a delivery or a check, and after a counted attempt.
+ * it says; or refused, with why. What `FactorCodeCounters` answers before a
+ * delivery or a check, and after a counted attempt.
  *
  * @api
  *

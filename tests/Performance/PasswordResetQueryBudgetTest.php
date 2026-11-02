@@ -113,9 +113,9 @@ final class PasswordResetQueryBudgetTest extends PerformanceContractTestCase
      * A reset of an identity with two sessions reads the identity, its row
      * under the lock taken before the token, the token and the sessions once
      * each, and the row it updated once more, and writes the submission's
-     * limits, the token's use, the password, one `DELETE` of every other reset
-     * link and code, the cutoff, one revocation per session, and the slots it
-     * gives back.
+     * limits, the token's use, the password, one `UPDATE` that ends every
+     * other reset link and code, the cutoff, one revocation per session, and
+     * the slots it gives back.
      *
      * @return void
      *

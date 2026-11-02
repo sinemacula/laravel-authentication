@@ -30,8 +30,8 @@ use Tests\TestCase;
  * and a gate started while a revocation holds the row waits and then finds the
  * session revoked.
  *
- * Skipped on SQLite, whose in-memory database each process would have to
- * itself, and where `pcntl` is not available.
+ * Skipped on SQLite, where each process would have an in-memory database of its
+ * own, and where `pcntl` is not available.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
