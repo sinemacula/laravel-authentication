@@ -32,10 +32,10 @@ use SineMacula\Laravel\Authentication\Codes\FactorCodeBinding;
  * so it must take no lock that comes before the challenge in that order: the
  * locks `admit()` took are still held, and the counts it writes are of rows
  * those locks already cover. Their writes and locks must be on that same
- * connection, so the attempt and its count commit, or roll back, as one. An exception either throws propagates and rolls
- * the whole send or check back; never catch it to commit. `report()`'s answer
- * is authoritative: a matching code is verified only when it answers
- * `admitted`.
+ * connection, so the attempt and its count commit, or roll back, as one. An
+ * exception either throws propagates and rolls the whole send or check back;
+ * never catch it to commit. `report()`'s answer is authoritative: a matching
+ * code is verified only when it answers `admitted`.
  *
  * @api
  *

@@ -840,13 +840,14 @@ or the application binds its own) is asked about the identity, after its first f
 principal is chosen, with the application, the identity, the first factor's whole proof, the client and the session the
 client proved it holds, if any; it names no principal or tenant (a tenant that asks more does so through its tenant
 authentication policy). It answers a `Requirements\Requirement`: what the session's authentication must include beyond
-its first factor. The bound `Contracts\RequirementCheck` judges whether the session's proofs meet it; the default
-check meets nothing, so a requirement no factor package judges keeps the session pending. At sign-in the check judges
-the first factor alone, so a requirement it meets (a minimum assurance level the sign-in already reaches, say) starts
-the session active. Otherwise the session is pending with `mfa` outstanding, and its `PendingSession::$requirement`
-names what it still falls short of. The policy is asked again, and the check judges again, each time the pending
-session is acted on. `attempt()`, which cannot wait, refuses as `additional_factor_required` a sign-in whose password
-alone does not meet the requirement.
+its first factor. The bound `Contracts\RequirementCheck` judges whether the session's proofs meet it; the default check
+meets nothing, so a requirement no factor package judges keeps the session pending. At sign-in the check judges the
+first factor alone, so a requirement it meets (a minimum assurance level the sign-in already reaches, say) starts the
+session active. Otherwise the session is pending with `mfa` outstanding, and its `PendingSession::$requirement` names
+what it still falls short of. The policy is asked again, and the check judges again, each time the pending session is
+acted on, when a refresh or a switch returns the session to pending under its tenant's authentication policy (not when
+that policy is met), and when `factorRemoved()` judges the current session again. `attempt()`, which cannot wait,
+refuses as `additional_factor_required` a sign-in whose password alone does not meet the requirement.
 
 ## Enumeration resistance
 

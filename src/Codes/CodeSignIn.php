@@ -25,7 +25,8 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * The package registers it as `phone_code`, for phone numbers, and as
  * `email_code`, for email addresses. The input carries the identifier under
  * the identifier type's name (`phone`, `email`), which is also the identity's
- * column it is looked up by, and the code under `code`.
+ * column it is looked up by, the code under `code`, and the challenge it was
+ * sent for (the `challengeId` the send answered) under `challenge`.
  * An application registers it for another identifier type with
  * `extend('whatsapp_code', fn ($app) => $app->make(CodeSignIn::class, ['type' => 'whatsapp']))`,
  * given a normaliser for the type.

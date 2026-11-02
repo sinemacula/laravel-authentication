@@ -310,13 +310,16 @@ driver was registered.
 ### Binding order
 
 Every default the package binds is bound only when nothing is bound yet: `PrincipalResolver`, `ApplicationPolicy`,
-`AttemptLimiter`, `AdditionalFactorPolicy`, `PasskeyFactorGate`, `FactorCodeCounters`, `ScopeRegistry`,
-`BreachedPasswordChecker`, `PasswordResetLinkSender`, and the `IdentifierNormalizers` and `SignInMethodManager`
-registries. Bind yours in a service provider's `register()`, before or after the package's provider: one bound before is
-kept, and one bound after replaces the default, so a factor policy is never replaced by `NeverRequireAdditionalFactor`,
-nor a scope registry by `AcceptAnyScope`. A `bind()` or `singleton()` replaces a default even once it has resolved, for
-every caller that resolves it afterwards; a deferred provider does not, as Laravel loads one only for a service that has
-no instance yet. Resolve none of them while providers register, or a deferred provider's binding of it is passed over.
+`ApplicationAccess`, `TenantAccess`, `TenantResolver`, `AttemptLimiter`, `AdditionalFactorPolicy`, `PasskeyFactorGate`,
+`TenantAuthenticationPolicy`, `RequirementCheck`, `FactorCodeCounters`, `FreshnessPolicy`, `ScopeRegistry`,
+`BreachedPasswordChecker`, `PasswordResetLinkSender`, the `IdentifierNormalizers` and `SignInMethodManager` registries,
+and the package's own `WebAuthn`, `Rehashing`, `JwtTokenServiceFactory` and the `Authenticate` middleware that stands in
+for Laravel's. Bind yours in a service provider's `register()`, before or after the package's provider: one bound before
+is kept, and one bound after replaces the default, so a factor policy is never replaced by
+`NeverRequireAdditionalFactor`, nor a scope registry by `AcceptAnyScope`. A `bind()` or `singleton()` replaces a default
+even once it has resolved, for every caller that resolves it afterwards; a deferred provider does not, as Laravel loads
+one only for a service that has no instance yet. Resolve none of them while providers register, or a deferred provider's
+binding of it is passed over.
 
 Register a sign-in method once the registry resolves, which works in either order (a registry made with `make()` before
 the package registers is not the one the package uses):
@@ -357,12 +360,13 @@ seam has a default that works alone.
 - Bind `Contracts\AdditionalFactorPolicy` (the default, `NeverRequireAdditionalFactor`, asks for nothing). It answers
   what a session's authentication must include beyond its first factor as this package's own `Requirements\Requirement`
   (an additional verification, multifactor, a minimum assurance level, phishing resistance, each with an optional
-  maximum age). It is asked about every admitted identity's sign-in, from `signIn()` and `start()`, before any
-  principal is chosen, and again whenever its pending session is acted on (never on a switch), inside
-  `WriteConnection::during()` for the identity, with an `AdditionalFactorContext`: the application, the identity, the
-  first factor's whole recorded proof (`Proofs\RecordedProof`: method, channel, observed properties, `amr` values,
-  time), the client, and the session the client proved; it names no principal or tenant (see [Additional
-  factors](signing-in.md#additional-factors)).
+  maximum age). It is asked about every admitted identity's sign-in, from `signIn()` and `start()`, before any principal
+  is chosen, again whenever its pending session is acted on, and when a refresh or a switch returns the session to
+  pending under its destination tenant's policy or `factorRemoved()` judges the current session again (never on a
+  refresh or switch that tenant's policy lets through), inside `WriteConnection::during()` for the identity, with an
+  `AdditionalFactorContext`: the application, the identity, the first factor's whole recorded proof
+  (`Proofs\RecordedProof`: method, channel, observed properties, `amr` values, time), the client, and the session the
+  client proved; it names no principal or tenant (see [Additional factors](signing-in.md#additional-factors)).
 - Bind `Contracts\RequirementCheck` (the default, `MeetNoRequirement`, meets nothing). It is the one judge of whether a
   session's proofs meet a requirement: the identity-level one above and the further factor a tenant's authentication
   policy requires, at sign-in (the first factor alone, in memory: a requirement the first factor meets activates the

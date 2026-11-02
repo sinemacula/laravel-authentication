@@ -28,7 +28,10 @@ use SineMacula\Laravel\Authentication\Requirements\Requirement;
  * the session is pending, with a short-lived pending credential that cannot
  * authenticate a request, holding no token, until the factor's verifier hands
  * it the proofs that meet the requirement (`satisfy()`). The policy is asked
- * again each time the pending session is acted on.
+ * again each time the pending session is acted on, when a refresh or a switch
+ * returns the session to pending under its tenant's authentication policy
+ * (never when that policy is met), and when the removal of a factor judges the
+ * current session again.
  *
  * It is asked inside `WriteConnection::during()` for the identity, so a model
  * read it makes of the identity's own state sees the primary.

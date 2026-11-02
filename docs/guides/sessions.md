@@ -321,8 +321,9 @@ leaves the session as it was, and one that asks for a further factor the session
 with the destination recorded, instead of re-issuing its pair. The result is then `isPending()`, carrying the pending
 session (`pending`) and its credential (`credential`, only ever in the response's body); a guard the request already
 bound to the session forgets it, with no event; the session's tokens are refused until the factor is given (see [Signing
-in](signing-in.md)), and it then activates as the destination. The identity-level additional-factor policy is not asked
-on a switch.
+in](signing-in.md)), and it then activates as the destination. The identity-level additional-factor policy is asked only
+then, once the destination's policy has returned the session to pending, so the pending session names both what the
+tenant asks and what the identity still owes; a switch the destination's policy lets through never asks it.
 
 With the current rotation id, the token's principal must be the one the session records (`session_principal_mismatch`).
 The switch keeps the session's absolute deadline, or its having none while the guard sets no limit, held to the guard's
