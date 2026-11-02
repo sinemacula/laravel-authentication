@@ -580,20 +580,7 @@ final class SessionSwitchTest extends TestCase
     {
         [, , , $own] = $this->seedMemberships();
 
-        app()->instance(TenantAccess::class, new readonly class implements TenantAccess {
-            /**
-             * Let any principal act in any tenant, or in none.
-             *
-             * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-             * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
-             * @return bool
-             */
-            #[\Override]
-            public function mayActIn(Principal $principal, ?Tenant $tenant): bool
-            {
-                return true;
-            }
-        });
+        $this->allowEveryTenant();
 
         $session = $this->signIn();
 
@@ -1701,6 +1688,74 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
+     * A switch made inside the caller's transaction before the sign-in that
+     * started the session commits keeps the guard on its destination at the
+     * commit: the sign-in's deferred bind finds the session acting as another
+     * principal in another tenant and leaves the guard as the switch bound it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchBeforeTheSignInCommitsKeepsTheGuardOnItsDestination(): void
+    {
+        [$first, $second] = $this->seedMemberships();
+
+        $guard   = $this->freshGuard(self::GUARD);
+        $service = self::sessionsOf($guard);
+
+        DB::beginTransaction();
+
+        $session = $service->signIn('password', self::credentials('member@example.test'), SignInContext::fromRequest(request(), principal: $first))->session;
+
+        self::assertNotNull($session);
+        self::assertFalse($guard->hasUser());
+
+        $this->advance(5);
+
+        self::assertTrue($service->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->isSwitched());
+
+        DB::commit();
+
+        self::assertTrue($guard->principal()?->is($second)); // @phpstan-ignore method.notFound
+        self::assertSame(IdentifierCoercion::stringify($second->tenant_id), self::boundTenantId());
+    }
+
+    /**
+     * A switch of tenant alone made inside the caller's transaction before the
+     * sign-in commits keeps the guard in the destination tenant at the commit,
+     * as the same principal.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATenantSwitchBeforeTheSignInCommitsKeepsTheGuardInItsDestination(): void
+    {
+        [$first] = $this->seedMemberships();
+
+        $this->allowEveryTenant();
+
+        $guard   = $this->freshGuard(self::GUARD);
+        $service = self::sessionsOf($guard);
+
+        DB::beginTransaction();
+
+        $session = $service->signIn('password', self::credentials('member@example.test'), SignInContext::fromRequest(request(), principal: $first))->session;
+
+        self::assertNotNull($session);
+
+        $this->advance(5);
+
+        self::assertTrue($service->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::tenant(TenantSelection::none()))->isSwitched());
+
+        DB::commit();
+
+        self::assertTrue($guard->principal()?->is($first)); // @phpstan-ignore method.notFound
+        self::assertNull(self::boundTenantId());
+    }
+
+    /**
      * A switch whose destination's further factor the session already meets
      * switches as one with no requirement, and records the version the policy
      * answered; the requirement check is asked once.
@@ -2069,6 +2124,30 @@ final class SessionSwitchTest extends TestCase
         self::assertIsInt($expiry);
 
         return $expiry;
+    }
+
+    /**
+     * Bind a tenant access that lets any principal act in any tenant, or in
+     * none.
+     *
+     * @return void
+     */
+    private function allowEveryTenant(): void
+    {
+        app()->instance(TenantAccess::class, new readonly class implements TenantAccess {
+            /**
+             * Let any principal act in any tenant, or in none.
+             *
+             * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+             * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+             * @return bool
+             */
+            #[\Override]
+            public function mayActIn(Principal $principal, ?Tenant $tenant): bool
+            {
+                return true;
+            }
+        });
     }
 
     /**

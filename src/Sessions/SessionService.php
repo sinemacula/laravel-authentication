@@ -48,6 +48,7 @@ use SineMacula\Laravel\Authentication\Sessions\Concerns\RefreshesSessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\SwitchesSessions;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
+use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 
 /**
@@ -683,8 +684,10 @@ final readonly class SessionService
      * A bind that waited for the commit binds only while the guard still serves
      * the request that signed in (a request rebound meanwhile is another's),
      * and reads the session again on the write connection first, binding it
-     * only while it is still that session, live and active: a session revoked
-     * or returned to pending later in the same transaction is never bound. A
+     * only while it is still that session, live, active and acting as the
+     * principal in the tenant it was signed in to: a session revoked, returned
+     * to pending or switched later in the same transaction is never bound (a
+     * switch binds the guard to its destination itself). A
      * result without a session binds nothing and is answered as it is. The
      * transport is built before the sign-in or the action begins, so one that
      * is misconfigured fails it before anything is written or reported.
@@ -722,8 +725,9 @@ final readonly class SessionService
 
     /**
      * Whether the committed session is still the one a sign-in started, read
-     * again on the write connection: the same row (generation and owner), of
-     * this guard, unrevoked, active and not ended.
+     * again on the write connection: the same row (generation and owner),
+     * recording the same principal and tenant, of this guard, unrevoked, active
+     * and not ended.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
      * @return bool
@@ -736,6 +740,8 @@ final readonly class SessionService
         $stored = SessionLookup::find($session->record->getSessionIdentifier());
 
         return SessionOwnership::isSameSession($session->record, $stored)
+            && PrincipalReference::isRecordedOn($stored, $session->principal)
+            && OwnedSession::actsIn($stored, $session->record->getTenantId())
             && OwnedSession::refusal($stored, $this->context->name(), CarbonImmutable::now()->startOfSecond()) === null;
     }
 

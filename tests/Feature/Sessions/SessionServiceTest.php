@@ -1317,12 +1317,15 @@ final class SessionServiceTest extends TestCase
         yield 'revoked' => [['revoked_at' => '2026-04-06 12:00:00', 'revoked_reason' => 'signed_out']];
         yield 'returned to pending' => [['status' => 'pending']];
         yield 'another session put under its key' => [['generation' => '00000000-0000-7000-8000-000000000000']];
+        yield 'switched to another principal' => [['principal_id' => '999999']];
+        yield 'switched to another tenant' => [['tenant_id' => 'another-tenant']];
     }
 
     /**
      * A bind that waited for the commit reads the session again first: one the
-     * same transaction revoked, returned to pending or replaced is never bound,
-     * though its sign-in is reported and its slots given back.
+     * same transaction revoked, returned to pending, replaced or switched to
+     * another principal or tenant is never bound, though its sign-in is
+     * reported and its slots given back.
      *
      * @param  array<string, mixed>  $change
      * @return void
