@@ -38,12 +38,11 @@ The result's `session` is that session: its `identity`, `principal`, `record` (t
 sign-in used, and the new pair in `tokens`, whose tokens are secrets `SecretResponse::json()` reveals into a body that
 is never stored (see [Secrets in responses](signing-in.md#secrets-in-responses)); a cookie application's pair carries
 the cookie to set in `tokens->refreshCookie` instead of the refresh token (see [Refresh token
-cookie](#refresh-token-cookie)). Every refusal
-is returned, never thrown, with its `reason`; `rate_limited` also carries the seconds to wait in `retryAfter`, which the
-route answers with a 429 and `Retry-After` so the client waits. A refresh that finds the session's tenant now asking for
-a further factor the session lacks returns it to pending instead: `isPending()`, with `pending` and `credential` and no
-`session`, until the factor is satisfied (see [Tenant authentication
-policies](sessions.md#tenant-authentication-policies)).
+cookie](#refresh-token-cookie)). Every refusal is returned, never thrown, with its `reason`; `rate_limited` also carries
+the seconds to wait in `retryAfter`, which the route answers with a 429 and `Retry-After` so the client waits. A refresh
+that finds the session's tenant now asking for a further factor the session lacks returns it to pending instead:
+`isPending()`, with `pending` and `credential` and no `session`, until the factor is satisfied (see [Tenant
+authentication policies](sessions.md#tenant-authentication-policies)).
 
 Each application's refresh token travels one way, its `refresh_token.transport`: `body` (the default) reads it from
 the `refresh_token` field of the JSON or form body (never the query string) or the `X-Refresh-Token` header (`header`

@@ -419,10 +419,10 @@ return [
     |
     | How each application's refresh token travels: `transport` is `body` (the
     | `body_field` of the JSON or form body, never the query string, or the
-    | `header` when one is set; `null` for the body field only) or `cookie`
-    | (an `HttpOnly` cookie only, for a browser application, which no script
-    | can read). A sign-in, refresh, switch or activation of a cookie
-    | application never hands its result the refresh token: its pair carries a
+    | `header` when one is set; `null` for the body field only) or `cookie` (an
+    | `HttpOnly` cookie only, for a browser application, which no script can
+    | read). A sign-in, refresh, switch or activation of a cookie application
+    | never hands its result the refresh token: its pair carries a
     | `RefreshCookie` to attach instead. Every request is read in all three
     | carriers whatever the transport: a token in more than one of them, or the
     | cookie twice, is refused (`refresh_token_conflict`), and one in a carrier
@@ -430,25 +430,24 @@ return [
     | (`refresh_transport_mismatch`), so the cookie's cross-site checks cannot
     | be side-stepped by sending the token another way. A token read from the
     | cookie must come with an `Origin` that is the request's own or one of
-    | `allowed_origins` (each exactly `scheme://host[:port]`, in lower case)
-    | and a non-empty `csrf_header` header (a custom one: a header a browser
-    | sends on its own is refused), else `cross_site_request`. The cookie is
-    | host-only (no `Domain`). Its `name` is the application's own:
+    | `allowed_origins` (each exactly `scheme://host[:port]`, in lower case) and
+    | a non-empty `csrf_header` header (a custom one: a header a browser sends
+    | on its own is refused), else `cross_site_request`. The cookie is host-only
+    | (no `Domain`). Its `name` is the application's own:
     | `__Host-<guard>_refresh_token` for a cookie application whose `path` is
-    | `/`, otherwise `__Secure-<guard>_refresh_token`, unless a name is set
-    | (a cookie application whose guard name makes no cookie name needs one;
-    | a body application with such a name looks for no cookie); two cookie
-    | applications with the same name fail closed. The `path`, the path every
-    | route that reads the cookie lives under (sign-in, refresh, switch, the
-    | logout route that signs out by it, and every `authentication.refresh`
-    | route), is required for a cookie application, and a `__Host-` name needs
-    | it to be `/`. Names PHP renames
-    | in a request are refused: a `.` in a header or cookie name, and a `.`, a
-    | space or a bracket in `body_field`. A guard overrides any key in a
-    | `refresh_token` block on its `config/auth.php` entry, where a key that is
-    | present wins, inside `cookie` too. A malformed value or an unknown key
-    | fails closed with an `InvalidArgumentException` naming the guard and the
-    | key, and `authentication:check` reports it.
+    | `/`, otherwise `__Secure-<guard>_refresh_token`, unless a name is set (a
+    | cookie application whose guard name makes no cookie name needs one; a body
+    | application with such a name looks for no cookie); two cookie applications
+    | with the same name fail closed. The `path`, the path every route that
+    | reads the cookie lives under (sign-in, refresh, switch, the logout route
+    | that signs out by it, and every `authentication.refresh` route), is
+    | required for a cookie application, and a `__Host-` name needs it to be
+    | `/`. Names PHP renames in a request are refused: a `.` in a header or
+    | cookie name, and a `.`, a space or a bracket in `body_field`. A guard
+    | overrides any key in a `refresh_token` block on its `config/auth.php`
+    | entry, where a key that is present wins, inside `cookie` too. A malformed
+    | value or an unknown key fails closed with an `InvalidArgumentException`
+    | naming the guard and the key, and `authentication:check` reports it.
     |
     */
 
