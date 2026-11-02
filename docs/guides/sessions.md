@@ -740,16 +740,18 @@ use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 
 Route::middleware('auth:api')->group(function (): void {
     Route::get('/members/{member}', fn (Member $member) => $member);
-    Route::get('/sessions/{session}', fn (Session $session) => Auth::sessions('api')->session(Auth::identity(), $session->getKey()));
+    Route::get('/sessions/{session}', fn (Session $session) => Auth::sessions('api')->session(Auth::identity(), $session->getKey()) ?? abort(404));
     Route::get('/members/{member}/sessions/{session}', fn (Member $member, Session $session) => $session)->scopeBindings();
 });
 
-// The session the refresh credential proves, read by cookie or by body as the guard's transport reads it.
+// The session the refresh credential proves, read by cookie or by body as the guard's transport reads it; a cookie
+// application's route lives under its cookie's path, where the browser sends the cookie.
 Route::middleware('authentication.refresh:api')->post('/refresh/sessions/{session}', fn (Session $session) => $session);
 
 // Only while the pending session allows choosing; the credential is read from the `pending_credential` body field.
 Route::middleware('authentication.pending:choose_principal,api')->post('/sign-in/principals/{membership}', function (Membership $membership) {
-    $result = Auth::sessions('api')->choose(request()->input('pending_credential'), $membership);
+    // From the body, as the binding read it: never the query string.
+    $result = Auth::sessions('api')->choose(request()->post('pending_credential'), $membership);
 
     abort_if($result->isFailed(), 401);
 
