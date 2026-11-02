@@ -464,15 +464,15 @@ final class FactorCodesTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testAnEnrolmentCodeIsNeverAcceptedAsAFactorCode(): void
+    public function testAnEnrollmentCodeIsNeverAcceptedAsAFactorCode(): void
     {
-        $enrol = $this->binding(Purpose::ENROLLMENT, grant: 'grant-1');
-        $live  = (string) $this->send($enrol)->challengeId;
+        $enrollment = $this->binding(Purpose::ENROLLMENT, grant: 'grant-1');
+        $live       = (string) $this->send($enrollment)->challengeId;
 
         self::assertSame(FactorCodeOutcome::INVALID, $this->verify($this->binding(), $live, self::CODE)->outcome);
         self::assertSame(FactorCodeOutcome::INVALID, $this->verify($this->binding(Purpose::ENROLLMENT, grant: 'grant-2'), $live, self::CODE)->outcome);
         self::assertSame([], $this->counters->reports);
-        self::assertTrue($this->verify($enrol, $live, self::CODE)->isVerified());
+        self::assertTrue($this->verify($enrollment, $live, self::CODE)->isVerified());
     }
 
     /**

@@ -190,7 +190,7 @@ final class FactorChangeGateTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testTheFactorChangedNeverAuthorisesItsOwnChange(): void
+    public function testTheFactorChangedNeverAuthorizesItsOwnChange(): void
     {
         $signedIn = $this->signedIn();
 
@@ -334,7 +334,7 @@ final class FactorChangeGateTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testAPendingSessionEnrolsThroughItsCredentialNotTheGate(): void
+    public function testAPendingSessionEnrollsThroughItsCredentialNotTheGate(): void
     {
         $this->seedIdentity();
 

@@ -278,18 +278,18 @@ final class CodeKeysTest extends TestCase
      */
     public function testAFactorBindingIsKeyedOnItsDestinationAndOwner(): void
     {
-        $ada     = new PlainIdentityFixture(1);
-        $secret  = hash_hmac('sha256', 'sinemacula/laravel-authentication one-time code bindings', self::APP_KEY, true);
-        $context = hash_hmac('sha256', 'sinemacula/laravel-authentication one-time code contexts', self::APP_KEY, true);
-        $signIn  = CodeBinding::factor('mobile', self::factorBinding($ada, Purpose::SIGN_IN));
-        $enrol   = CodeBinding::factor('mobile', self::factorBinding($ada, Purpose::ENROLLMENT, 'factor-1', 'grant-1'));
+        $ada        = new PlainIdentityFixture(1);
+        $secret     = hash_hmac('sha256', 'sinemacula/laravel-authentication one-time code bindings', self::APP_KEY, true);
+        $context    = hash_hmac('sha256', 'sinemacula/laravel-authentication one-time code contexts', self::APP_KEY, true);
+        $signIn     = CodeBinding::factor('mobile', self::factorBinding($ada, Purpose::SIGN_IN));
+        $enrollment = CodeBinding::factor('mobile', self::factorBinding($ada, Purpose::ENROLLMENT, 'factor-1', 'grant-1'));
 
         self::assertSame(
             ['mfa', 'mobile', 'sms', '+447700900123', AccountAttempts::account($ada)],
             [$signIn->purpose->value, $signIn->guard, $signIn->type, $signIn->identifier, $signIn->identity],
         );
         self::assertSame("session-1\0factor-1\0sign_in", $signIn->transaction);
-        self::assertSame("session-1\0factor-1\0grant-1", $enrol->transaction);
+        self::assertSame("session-1\0factor-1\0grant-1", $enrollment->transaction);
         self::assertSame(
             hash_hmac('sha256', implode("\0", ['binding', 'mfa', 'mobile', 'sms', '+447700900123', AccountAttempts::account($ada)]), $secret),
             self::keys()->binding($signIn),
@@ -299,14 +299,14 @@ final class CodeKeysTest extends TestCase
         $restarted = CodeBinding::factor('mobile', self::factorBinding($ada, Purpose::ENROLLMENT, 'factor-2', 'grant-2', 'session-2'));
         $stepUp    = CodeBinding::factor('mobile', self::factorBinding($ada, Purpose::STEP_UP));
 
-        self::assertSame(self::keys()->binding($enrol), self::keys()->binding($restarted));
+        self::assertSame(self::keys()->binding($enrollment), self::keys()->binding($restarted));
         self::assertSame(self::keys()->binding($signIn), self::keys()->binding($stepUp));
-        self::assertNotSame(self::keys()->binding($signIn), self::keys()->binding($enrol));
+        self::assertNotSame(self::keys()->binding($signIn), self::keys()->binding($enrollment));
         self::assertNotSame(
             self::keys()->binding($signIn),
             self::keys()->binding(CodeBinding::factor('mobile', self::factorBinding(new PlainIdentityFixture(2), Purpose::SIGN_IN))),
         );
-        self::assertCount(4, array_unique([self::keys()->context($signIn), self::keys()->context($stepUp), self::keys()->context($enrol), self::keys()->context($restarted)]));
+        self::assertCount(4, array_unique([self::keys()->context($signIn), self::keys()->context($stepUp), self::keys()->context($enrollment), self::keys()->context($restarted)]));
     }
 
     /**
