@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
+use SineMacula\Laravel\Authentication\Factors\FactorReference;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
@@ -54,9 +55,6 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
  */
 final readonly class FactorRevocations
 {
-    /** @var int Longest factor reference, in characters. */
-    private const int FACTOR_MAX_LENGTH = 255;
-
     /**
      * Constructor.
      *
@@ -115,8 +113,8 @@ final readonly class FactorRevocations
      */
     public function remove(Identity $identity, string $factor, ?Session $current, CarbonImmutable $now): FactorRemoval
     {
-        if ($factor === '' || mb_strlen($factor) > self::FACTOR_MAX_LENGTH) {
-            throw new \InvalidArgumentException(sprintf('A removed factor is named by its reference, of 1 to %d characters.', self::FACTOR_MAX_LENGTH));
+        if (!FactorReference::isValid($factor)) {
+            throw new \InvalidArgumentException(sprintf('A removed factor is named by its reference, of 1 to %d characters.', FactorReference::MAX_LENGTH));
         }
 
         $session = $this->current($identity, $current);

@@ -4,6 +4,8 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Passkeys;
 
+use SineMacula\Laravel\Authentication\Factors\FactorReference;
+
 /**
  * A factor package's association of a passkey being registered as one of the
  * identity's factors: its own reference to the factor, which the registration
@@ -16,9 +18,6 @@ namespace SineMacula\Laravel\Authentication\Passkeys;
  */
 final readonly class PasskeyFactorAssociation
 {
-    /** @var int Longest factor reference, in characters. */
-    public const int FACTOR_MAX_LENGTH = 255;
-
     /**
      * Constructor.
      *
@@ -31,8 +30,8 @@ final readonly class PasskeyFactorAssociation
         /** The factor package's reference to the factor, 1 to 255 characters. */
         public string $factor,
     ) {
-        if ($factor === '' || mb_strlen($factor) > self::FACTOR_MAX_LENGTH) {
-            throw new \InvalidArgumentException(sprintf('A passkey factor\'s reference must be 1 to %d characters.', self::FACTOR_MAX_LENGTH));
+        if (!FactorReference::isValid($factor)) {
+            throw new \InvalidArgumentException(sprintf('A passkey factor\'s reference must be 1 to %d characters.', FactorReference::MAX_LENGTH));
         }
     }
 }

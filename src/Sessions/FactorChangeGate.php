@@ -13,6 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChange;
 use SineMacula\Laravel\Authentication\Factors\FactorChangeVerdict;
+use SineMacula\Laravel\Authentication\Factors\FactorReference;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
@@ -49,9 +50,6 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
  */
 final readonly class FactorChangeGate
 {
-    /** @var int Longest factor reference, in characters. */
-    private const int FACTOR_MAX_LENGTH = 255;
-
     /**
      * Constructor.
      *
@@ -160,8 +158,10 @@ final readonly class FactorChangeGate
             throw new \InvalidArgumentException(sprintf('A factor change of [%s] names no factor.', $change->value));
         }
 
-        if ($change->namesFactor() && ($factor === null || $factor === '' || mb_strlen($factor) > self::FACTOR_MAX_LENGTH)) {
-            throw new \InvalidArgumentException(sprintf('A factor change of [%s] names the factor it acts on, of 1 to %d characters.', $change->value, self::FACTOR_MAX_LENGTH));
+        if ($change->namesFactor() && !FactorReference::isValid($factor)) {
+            $message = sprintf('A factor change of [%s] names the factor it acts on, of 1 to %d characters.', $change->value, FactorReference::MAX_LENGTH);
+
+            throw new \InvalidArgumentException($message);
         }
     }
 }

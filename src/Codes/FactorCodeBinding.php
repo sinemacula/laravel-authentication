@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Codes;
 
 use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
+use SineMacula\Laravel\Authentication\Factors\FactorReference;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
@@ -36,9 +37,6 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  */
 final readonly class FactorCodeBinding
 {
-    /** @var int Longest factor reference or grant accepted, in characters. */
-    public const int REFERENCE_MAX_LENGTH = 255;
-
     /**
      * Constructor.
      *
@@ -111,8 +109,8 @@ final readonly class FactorCodeBinding
      */
     private static function assertReference(string $name, #[\SensitiveParameter] ?string $value): void
     {
-        if ($value === null || $value === '' || mb_strlen($value) > self::REFERENCE_MAX_LENGTH) {
-            throw new \InvalidArgumentException(sprintf('A factor code\'s %s must be from 1 to %d characters.', $name, self::REFERENCE_MAX_LENGTH));
+        if (!FactorReference::isValid($value)) {
+            throw new \InvalidArgumentException(sprintf('A factor code\'s %s must be from 1 to %d characters.', $name, FactorReference::MAX_LENGTH));
         }
     }
 }
