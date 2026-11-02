@@ -23,10 +23,11 @@ which values are secrets and which stay strings, and what the redaction tests ch
   `\SensitiveParameterValue`. An empty secret is an `InvalidArgumentException`.
 - No object the package builds holds a secret in a plain property, since `#[\SensitiveParameter]` hides only the
   annotated argument of its own frame: an object passed on is recorded whole by a trace, and a closure's captures are
-  not covered at all. So a returned secret is a `Secret`; an input or internal value is a private
-  `\SensitiveParameterValue` behind an accessor (`SignInRequest::input()`; `IssuedCode::code()`, whose explicit
-  `__serialize()` and `__unserialize()` write and read the plaintext only for the encrypted delivery job); and a closure
-  that needs a password or a pending credential captures the `\SensitiveParameterValue`, never the string.
+  not covered at all. So a returned secret is a `Secret`; an input is a private `\SensitiveParameterValue` behind an
+  accessor (`SignInRequest::input()`); an internal value is held in a private `Secret` (`IssuedCode`, read through
+  `code()` and `secret()`, whose explicit `__serialize()` and `__unserialize()` write and read the plaintext only for the
+  encrypted delivery job, and whose `__debugInfo()` redacts it); and a closure that needs a password or a pending
+  credential captures the `\SensitiveParameterValue`, never the string.
 - Values the application hands in (a password, a sign-in's input, a refresh token or pending credential a request
   carried) stay strings, covered by `#[\SensitiveParameter]` on every parameter that receives one. A credential id (an
   API key's or a passkey's) and a refresh token's rotation id are identifiers, not secrets, and stay strings.
