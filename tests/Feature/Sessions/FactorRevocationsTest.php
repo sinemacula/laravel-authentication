@@ -17,6 +17,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
@@ -57,6 +58,7 @@ use Tests\Integration\Fixtures\ChoosingMember;
 use Tests\Integration\Fixtures\ChoosingMembership;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
+use Tests\Unit\Stubs\StubNonModelSession;
 
 /**
  * Feature tests of the mandatory triggers the factor package calls, through the
@@ -373,7 +375,8 @@ final class FactorRevocationsTest extends TestCase
     /**
      * A current session that is no longer admitted as a refresh admits it, or
      * whose tenant now requires a connection, is revoked as `factor_removed`
-     * and counted, and its revocation reported.
+     * and counted, and its revocation reported with the principal the session
+     * records.
      *
      * @param  string  $guard
      * @param  string  $email
@@ -408,6 +411,7 @@ final class FactorRevocationsTest extends TestCase
 
         self::assertInstanceOf(SessionRevoked::class, $event);
         self::assertSame($current->record->getKey(), $event->context->session?->getSessionIdentifier());
+        self::assertSame(IdentifierCoercion::stringify($current->record->getAttribute('principal_id')), $event->context->principalId);
     }
 
     /**
@@ -636,12 +640,13 @@ final class FactorRevocationsTest extends TestCase
         yield 'a factor too long' => [static fn (self $test, SignedInSession $current): array => [str_repeat('f', 256), $current->record], $factor];
         yield 'another identity\'s session' => [static fn (self $test, SignedInSession $current): array => ['factor-a', $test->anotherIdentitysSession()], $session];
         yield 'another guard\'s session' => [static fn (self $test, SignedInSession $current): array => ['factor-a', $test->anotherGuardsSession()], $session];
+        yield 'a session of the guard that is not a model' => [static fn (self $test, SignedInSession $current): array => ['factor-a', self::nonModelSession()], $session];
     }
 
     /**
      * A removal whose factor names nothing, or whose current session is not one
-     * of the identity's on this guard, is refused before anything is written or
-     * reported.
+     * of the identity's stored sessions on this guard, is refused before
+     * anything is written or reported.
      *
      * @param  \Closure(self, \SineMacula\Laravel\Authentication\Sessions\SignedInSession): array{0: string, 1: ?\SineMacula\Laravel\Authentication\Contracts\Session}  $arguments
      * @param  string  $message
@@ -1007,6 +1012,21 @@ final class FactorRevocationsTest extends TestCase
 
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
         $config->set('auth.guards.' . self::CHOOSERS, ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password']]]);
+    }
+
+    /**
+     * A session of the `api` guard that declares the Eloquent session contract
+     * without being an Eloquent model.
+     *
+     * @return \SineMacula\Laravel\Authentication\Contracts\EloquentSession
+     */
+    private static function nonModelSession(): EloquentSession
+    {
+        $session = \Mockery::mock(StubNonModelSession::class);
+
+        $session->shouldReceive('getGuard')->andReturn('api');
+
+        return $session;
     }
 
     /**

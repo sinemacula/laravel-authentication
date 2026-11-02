@@ -62,6 +62,7 @@ use Tests\Integration\Fixtures\MemberRole;
 use Tests\Integration\Fixtures\MemberRoleMembership;
 use Tests\Integration\Fixtures\RoleMember;
 use Tests\TestCase;
+use Tests\Unit\Stubs\StubSession;
 
 /**
  * Feature tests of the gate a sign-in, and a pending session each time it is
@@ -641,7 +642,8 @@ final class PendingEvaluationTest extends TestCase
     /**
      * On a stored session the policy is asked as its sign-in was: with the
      * first factor, the client it came from, and the name and platform it gave,
-     * as the session records them, and the session its client proved it holds.
+     * as the session records them (as text, even from a model that does not
+     * cast them), and the session its client proved it holds.
      *
      * @return void
      *
@@ -670,6 +672,15 @@ final class PendingEvaluationTest extends TestCase
         self::assertSame($proven, $context->provenSession);
         self::assertEquals(PendingEvaluation::firstFactorOf($session), $context->firstFactor);
         self::assertSame(ProofKind::FIRST_FACTOR, $context->firstFactor->kind);
+
+        $uncast = (new StubSession)->forceFill(['id' => 'uncast-session', 'client_name' => 42, 'platform' => 7]);
+
+        $this->evaluation('members')->owedFactorOn($uncast, $member, PendingEvaluation::firstFactorOf($session), null, CarbonImmutable::now());
+
+        $context = end($this->asked);
+
+        self::assertInstanceOf(AdditionalFactorContext::class, $context);
+        self::assertSame(['42', '7'], [$context->clientName, $context->platform]);
     }
 
     /**

@@ -6,6 +6,7 @@ namespace Tests\Integration\Sessions;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -117,6 +118,33 @@ final class IntegerKeyConnectionRevocationsTest extends TestCase
         self::assertSame(self::THROUGH, DB::table(self::TABLE)->where('revoked_reason', 'connection_disabled')->count());
         self::assertSame([502, 503, 504], self::unrevoked());
         self::assertSame(0, Auth::sessions('api')->connectionDisabled('conn-a'));
+    }
+
+    /**
+     * A disabled connection reads its integer-keyed provenance a chunk at a
+     * time: the first read names only the connection, and the next reads on
+     * from the last key read before it, taking longer keys or ones as long
+     * that sort after it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testEachChunkReadsOnFromTheLastKeyRead(): void
+    {
+        $this->insertSessions($this->seedIdentity());
+
+        $reads = [];
+
+        DB::listen(static function (QueryExecuted $query) use (&$reads): void {
+            if (str_starts_with($query->sql, 'select') && str_contains($query->sql, 'authentication_provenance')) {
+                $reads[] = $query->bindings;
+            }
+        });
+
+        Auth::sessions('api')->connectionDisabled('conn-a');
+
+        self::assertSame([['conn-a'], ['conn-a', 3, 3, '500']], $reads);
     }
 
     /**

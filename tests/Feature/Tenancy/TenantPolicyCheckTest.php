@@ -210,6 +210,33 @@ final class TenantPolicyCheckTest extends TestCase
     }
 
     /**
+     * A requirement already answered is judged as `check()` judges the policy's
+     * answer, without asking the policy: against the sign-in's evidence, its
+     * version carried on the verdict.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnAnsweredRequirementIsJudgedWithoutAskingThePolicy(): void
+    {
+        [$member] = $this->seedMember();
+
+        $now      = CarbonImmutable::now();
+        $answered = new TenantRequirement('v3', connections: ['conn-a']);
+        $external = SessionEvidence::of(SignInProof::external('sso', new Provenance('conn-a'), $now));
+        $password = SessionEvidence::of(SignInProof::unattested('password', $now));
+
+        $this->policy->requirement = new TenantRequirement(connections: ['conn-b']);
+
+        $met     = TenantPolicyCheck::judge($answered, 'members', $member, null, $now, $external);
+        $refused = TenantPolicyCheck::judge($answered, 'members', $member, null, $now, $password);
+
+        self::assertSame([TenantPolicyStanding::MET, 'v3'], [$met->standing, $met->version]);
+        self::assertSame([TenantPolicyStanding::SSO_REQUIRED, 'v3'], [$refused->standing, $refused->version]);
+    }
+
+    /**
      * A further factor is met only when the bound check finds it met against
      * the session's counting proofs, read newest first, with the first factor
      * at hand; never by the default check, and never without a session or

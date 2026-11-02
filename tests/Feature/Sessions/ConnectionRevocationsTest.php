@@ -7,6 +7,7 @@ namespace Tests\Feature\Sessions;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -27,6 +28,7 @@ use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsConnectionSessions;
 use SineMacula\Laravel\Authentication\Sessions\ConnectionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -116,9 +118,9 @@ final class ConnectionRevocationsTest extends TestCase
 
     /**
      * A connection disabled or deleted ends every live session it established,
-     * of every guard and identity, with its reason, reporting each revocation
-     * and no logout everywhere; another connection's sessions and a password
-     * session stay.
+     * of every guard and identity, with its reason, reporting each revocation,
+     * with the owner the session records, and no logout everywhere; another
+     * connection's sessions and a password session stay.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, string): int  $revoke
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -149,6 +151,49 @@ final class ConnectionRevocationsTest extends TestCase
         self::assertSame(array_fill(0, 3, $reason->value), $this->reasonsOf($ended));
         self::assertSame([null, null], $this->reasonsOf($kept));
         self::assertSame([SessionRevoked::class, SessionRevoked::class, SessionRevoked::class], $this->recordedClasses());
+        self::assertEqualsCanonicalizing(
+            array_map(static fn (Identity $identity): ?string => IdentifierCoercion::stringify($identity->getAuthIdentifier()), [$ada, $ada, $grace]),
+            array_map(static fn (object $event): ?string => $event instanceof SessionRevoked ? $event->context->identityId : null, $this->recorded),
+        );
+    }
+
+    /**
+     * A trigger reads only what it ends: a connection's provenance is read by
+     * its id, and a trigger that finds no session through the connection locks
+     * no session and, for a link, reads no provenance.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATriggerReadsOnlyWhatItEnds(): void
+    {
+        $ada        = $this->seedIdentity();
+        $grace      = $this->seedIdentity('grace@example.test');
+        $statements = [];
+
+        $this->external($ada, 'conn-a');
+        $this->external($ada, 'conn-b');
+
+        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
+            $statements[] = [$query->sql, $query->bindings];
+        });
+
+        $touching = static function (string $table) use (&$statements): array {
+            $touched    = array_values(array_filter($statements, static fn (array $statement): bool => str_contains($statement[0], $table)));
+            $statements = [];
+
+            return $touched;
+        };
+
+        self::assertSame(1, $this->sessions()->connectionDisabled('conn-a'));
+        self::assertSame([['conn-a']], array_column($touching('authentication_provenance'), 1));
+
+        self::assertSame(0, $this->sessions()->connectionDisabled('conn-c'));
+        self::assertSame([], $touching('authentication_sessions'));
+
+        self::assertSame(0, $this->sessions()->linkRemoved($grace, 'conn-b'));
+        self::assertSame([], $touching('authentication_provenance'));
     }
 
     /**

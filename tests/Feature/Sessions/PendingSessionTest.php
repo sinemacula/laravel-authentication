@@ -7,8 +7,10 @@ namespace Tests\Feature\Sessions;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
@@ -102,6 +104,32 @@ final class PendingSessionTest extends TestCase
         self::assertNotNull($pending);
         self::assertSame([ProofKind::ADDITIONAL_FACTOR], array_column($pending->proofs(limit: 1), 'kind'));
         self::assertSame([ProofKind::ADDITIONAL_FACTOR, ProofKind::FIRST_FACTOR], array_column($pending->proofs(limit: RequirementSubject::MAX_LIMIT), 'kind'));
+    }
+
+    /**
+     * With no limit given, its proofs are read a page of 50 at a time, in one
+     * query.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testReadsItsProofsFiftyAtATimeByDefault(): void
+    {
+        $this->seedIdentity();
+
+        $pending    = $this->sessions()->signIn('password', self::credentials())->pending;
+        $statements = [];
+
+        self::assertNotNull($pending);
+
+        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
+            $statements[] = $query->sql;
+        });
+
+        self::assertSame([ProofKind::FIRST_FACTOR], array_column($pending->proofs(), 'kind'));
+        self::assertCount(1, $statements);
+        self::assertMatchesRegularExpression('/ limit 50$/', $statements[0]);
     }
 
     /**
