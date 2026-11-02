@@ -944,7 +944,7 @@ final class SessionWriterTest extends TestCase
             300,
         );
 
-        [$key, $secret] = explode('.', $credential, 2);
+        [$key, $secret] = explode('.', $credential->reveal(), 2);
 
         self::assertSame(IdentifierCoercion::stringify($record->getKey()), $key);
 

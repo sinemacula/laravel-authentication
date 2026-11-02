@@ -131,22 +131,6 @@ final class SignInResultTest extends TestCase
     }
 
     /**
-     * The credential is a sensitive parameter of the result, so it never shows
-     * in a stack trace.
-     *
-     * @return void
-     */
-    public function testTheCredentialIsSensitive(): void
-    {
-        $constructor = new \ReflectionMethod(SignInResult::class, '__construct');
-        $credential  = array_values(array_filter($constructor->getParameters(), static fn (\ReflectionParameter $parameter): bool => $parameter->getName() === 'credential'))[0];
-        $factory     = (new \ReflectionMethod(SignInResult::class, 'pending'))->getParameters()[1];
-
-        self::assertNotSame([], $credential->getAttributes(\SensitiveParameter::class));
-        self::assertNotSame([], $factory->getAttributes(\SensitiveParameter::class));
-    }
-
-    /**
      * A failure carries its reason and, when given, the wait, and no session.
      *
      * @return void
