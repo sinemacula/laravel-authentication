@@ -10,6 +10,7 @@ use Illuminate\Auth\Events\Login;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -42,6 +43,7 @@ use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
@@ -66,7 +68,7 @@ use Tests\Unit\Stubs\StubFixedPrincipalResolver;
 #[CoversClass(SignedInSession::class)]
 final class SessionServiceTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithRateLimits, InteractsWithSessions;
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -490,6 +492,36 @@ final class SessionServiceTest extends TestCase
 
         self::assertSame([], $this->recordedClasses());
         self::assertNull(Session::query()->whereKey($rolledBack->record->getKey())->first());
+    }
+
+    /**
+     * A sign-in inside a caller's transaction whose request is rebound before
+     * the commit is not bound at the commit: the guard, reset for the new
+     * request, serves that request now, so the deferred bind leaves it alone,
+     * and the sign-in's slots are given back all the same.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testADeferredBindLeavesAGuardWhoseRequestWasRebound(): void
+    {
+        $this->seedIdentity();
+
+        $guard = $this->freshGuard();
+
+        DB::beginTransaction();
+
+        self::assertTrue(self::sessionsOf($guard)->signIn('password', self::credentials())->isSignedIn());
+
+        app()->instance('request', Request::create('/elsewhere', 'GET', server: ['REMOTE_ADDR' => '198.51.100.9']));
+
+        DB::commit();
+
+        self::assertFalse($guard->hasUser());
+        self::assertNull($guard->session());
+        self::assertSame([0, 0], [self::counterHits('api', 'sign_in', 'per_identifier', 'ada@example.test'), self::counterHits('api', 'sign_in', 'per_ip', self::CLIENT_IP)]);
+        self::assertSame(1, Session::query()->count());
     }
 
     /**
