@@ -16,9 +16,11 @@ use Symfony\Component\HttpFoundation\Response;
  * clears the browser's when the request came from its own pages.
  *
  * A sign-out is never a failed authentication: a refusal only says why the
- * refresh credential proved no session, and the guard is signed out either way,
- * though a session the refusal leaves unproven stays live. `attachTo()` adds
- * the clearing cookie to the response when there is one.
+ * refresh credential proved no session, and a session it leaves unproven stays
+ * live. `signOutFromRequest()` signs the guard out either way; `signOutWith()`
+ * forgets only a binding to the session it revoked, so a guard bound to another
+ * session stays bound. `attachTo()` adds the clearing cookie to the response
+ * when there is one.
  *
  * @api
  *

@@ -220,14 +220,17 @@ unless `cookie.name` sets one: `__Host-<guard>_refresh_token` for a cookie appli
 overwrite each other's cookie, whatever their paths. A cookie application whose guard name makes no cookie name (one
 with a space or a separator, say) fails closed until `cookie.name` is set; a body application with such a name needs
 nothing, and looks for no cookie of its own. Two cookie applications with the same name fail closed, naming both guards.
-`forgetCookie()` returns the same cookie already expired; any route may send it, a logout route outside the cookie's
-path included, since a path limits where the browser sends a cookie, not which response may set it. Only clearing works
-from outside the path, though: such a route receives no cookie, so signing out by it there finds nothing to revoke, and
-the session stays live until it expires. A `__Host-` name set for a cookie application is accepted only with the path
-`/`, as browsers require; a body application never sets the cookie, so a package-wide `__Host-` name does not bind it.
-Clearing the cookie of a body application throws a `LogicException`. Names PHP renames when it parses a request are
-refused, as the token would never be found under them: a `.` in the cookie or a header name, and a `.`, a space or a
-bracket in `body_field`.
+`forgetCookie()` returns the same cookie already expired. A route outside the cookie's path may send it, since a path
+limits where the browser sends a cookie, not which response may set it, but only clearing works from there: such a route
+receives no cookie, so signing out by it there finds nothing to revoke, and the session stays live until it expires.
+Send it only for a request that signed its session out by its access token (`signOut()` returned `true`), which a
+cross-site page cannot send, or that passes `isSameSiteRequest()`: a cross-site page can still make the browser post to
+the route, and a response that clears the cookie whatever the request carried lets any site sign the browser out.
+`signOutFromRequest()`'s result carries it on exactly those terms. A `__Host-` name set for a cookie application is
+accepted only with the path `/`, as browsers require; a body application never sets the cookie, so a package-wide
+`__Host-` name does not bind it. Clearing the cookie of a body application throws a `LogicException`. Names PHP renames
+when it parses a request are refused, as the token would never be found under them: a `.` in the cookie or a header
+name, and a `.`, a space or a bracket in `body_field`.
 
 "The cookie, the application and the session agree" holds on every refresh and switch: the cookie read is the
 application's own name, unique among cookie applications; it is the application's transport

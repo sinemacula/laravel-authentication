@@ -285,7 +285,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
 
             $response = $this->browser('POST', '/auth/sign-in', headers: $headers)->assertForbidden();
 
-            self::assertSame([], array_filter($response->headers->getCookies(), static fn (Cookie $set): bool => $set->getName() === self::COOKIE));
+            self::assertSame([], $response->headers->getCookies());
         }
 
         self::assertSame(0, DB::table('authentication_sessions')->count());
@@ -321,7 +321,9 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     /**
      * A browser whose access token has expired signs out under the cookie's
      * path with the cookie alone: the session is revoked as `signed_out`, the
-     * cookie is cleared, and the cookie it held no longer refreshes.
+     * cookie is cleared, and the cookie it held no longer refreshes. A browser
+     * still holding that dead cookie that signs out again is refused as
+     * `session_revoked`, and the cookie is cleared all the same.
      *
      * @return void
      */
@@ -349,6 +351,11 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
         self::assertSame('signed_out', DB::table('authentication_sessions')->value('revoked_reason'));
 
         $this->browser('POST', '/auth/refresh', $cookie)->assertUnauthorized()->assertJson(['reason' => 'session_revoked']);
+
+        $again = self::refreshCookie($this->browser('POST', '/auth/logout', $cookie)->assertNoContent());
+
+        self::assertTrue($again->isCleared());
+        self::assertSame('/auth', $again->getPath());
     }
 
     /**
@@ -357,7 +364,9 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
      * cookie from a cross-site form, but keeps one the response sets): the
      * cookie's cross-site checks refuse it, so a cross-site form can neither
      * end the browser's session nor sign the browser out of it, and the cookie
-     * still refreshes.
+     * still refreshes. Nor does the logout route outside the cookie's path,
+     * which clears the cookie only for a request whose access token signed its
+     * session out.
      *
      * @return void
      */
@@ -374,6 +383,9 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
             self::assertSame([], array_filter($response->headers->getCookies(), static fn (Cookie $set): bool => $set->getName() === self::COOKIE));
         }
 
+        $outside = $this->browser('POST', '/logout', headers: ['Origin' => 'https://evil.example'])->assertUnauthorized();
+
+        self::assertSame([], $outside->headers->getCookies());
         self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
 
         $this->browser('POST', '/auth/refresh', $cookie)->assertOk();
@@ -495,8 +507,10 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
-     * Sign the request's session out and clear the cookie, from a route outside
-     * the cookie's path.
+     * Sign the request's session out by its access token, from a route outside
+     * the cookie's path, and clear the cookie only when that signed a session
+     * out: a cross-site page cannot send the access token, so it cannot have
+     * the browser's cookie cleared either.
      *
      * @return \Illuminate\Http\JsonResponse
      *
@@ -504,7 +518,9 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
      */
     private static function logoutRoute(): JsonResponse
     {
-        Auth::guard(self::GUARD)->logout();
+        if (!Auth::sessions(self::GUARD)->signOut()) {
+            return new JsonResponse(['signed_out' => false], 401);
+        }
 
         return (new JsonResponse(['signed_out' => true]))->withCookie(Auth::refreshTransport(self::GUARD)->forgetCookie());
     }

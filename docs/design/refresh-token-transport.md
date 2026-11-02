@@ -47,8 +47,11 @@ a cookie application's results hand back the cookie instead of the token.
   makes the Symfony `Cookie` only on `cookie()`, since a `Cookie` shows its value to dumps and serialises it;
   `attachTo()` adds it to a response and marks the response `no-store`. `deliver()` adds no query.
 - `forgetCookie()` makes the same cookie, empty and expired; a path limits where a browser sends a cookie, not which
-  response may set it, so any route may clear it. It throws a `LogicException` for a body application, and `deliver()`
-  an `InvalidArgumentException` for a session that has ended.
+  response may set it, so a route outside the path may clear it. A response may carry it only for a request that
+  signed its session out by its access token (which a cross-site page cannot send) or that passes
+  `isSameSiteRequest()`, or a cross-site form could sign the browser out; `SessionSignOut` attaches it on those terms,
+  and the guides tell a route of the application's own to do the same. It throws a `LogicException` for a body
+  application, and `deliver()` an `InvalidArgumentException` for a session that has ended.
 - A cookie application's token is read only from its cookie, through the transport: `refresh(string)`,
   `switchTo(string, SwitchTarget)` and `signOutWith(string)` throw a `LogicException` on a cookie application
   (`SessionRefresh::refuseHandedIn()`, the one place it is thrown); `refreshFromRequest()`, `switchFromRequest()`,

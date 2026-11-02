@@ -136,7 +136,8 @@ trait EndsSessions
     /**
      * Sign out the session a body application's refresh token, read by your own
      * code, proves, as `signOutFromRequest()` signs out a session its refresh
-     * credential proves; a binding of the guard to that session is forgotten. A
+     * credential proves; only a binding of the guard to that session is
+     * forgotten, so a guard bound to another session stays bound to it. A
      * cookie application's token is read only from its cookie, with the
      * cookie's cross-site checks, so on a cookie application this throws a
      * `LogicException`: use `signOutFromRequest()`.

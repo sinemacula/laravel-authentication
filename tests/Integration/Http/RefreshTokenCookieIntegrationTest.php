@@ -10,6 +10,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
@@ -80,7 +81,7 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
             Route::middleware(EncryptCookies::class)->prefix($prefix)->group(static function () use ($guard): void {
                 Route::post('/auth/sign-in', static fn (): JsonResponse => self::signInRoute($guard));
                 Route::post('/auth/refresh', static fn (): JsonResponse => self::refreshRoute($guard));
-                Route::post('/logout', static fn (): JsonResponse => (new JsonResponse(['signed_out' => true]))->withCookie(Auth::refreshTransport($guard)->forgetCookie()));
+                Route::post('/logout', static fn (Request $request): JsonResponse => self::logoutRoute($guard, $request));
             });
         }
     }
@@ -121,7 +122,8 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
     /**
      * Sign-in sets the cookie, each refresh reads it and sets the rotated one,
      * and the cookie the API set is all the browser needs to keep refreshing;
-     * logging out from a route outside the cookie's path clears it.
+     * logging out from a route outside the cookie's path clears it, for a
+     * request from the API's own site only.
      *
      * @param  string  $guard
      * @param  bool  $excluded
@@ -150,6 +152,10 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
         $second = $this->browser('POST', $prefix . '/auth/refresh', self::refreshCookie($first, $guard))->assertOk()->assertJson(['source' => 'cookie']);
 
         self::assertNotSame($cookie->getValue(), self::refreshCookie($second, $guard)->getValue());
+
+        $crossSite = $this->call('POST', $prefix . '/logout', server: $this->transformHeadersToServerVars(['Origin' => 'https://evil.example']));
+
+        self::assertSame([], $crossSite->assertForbidden()->headers->getCookies());
 
         $cleared = self::refreshCookie($this->browser('POST', $prefix . '/logout')->assertOk(), $guard);
 
@@ -274,6 +280,28 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
             'refresh_token' => $tokens->refreshToken,
             'cookie_value'  => $cookie->cookie()->getValue(),
         ]));
+    }
+
+    /**
+     * Clear the guard's cookie from a route outside its path, for a request
+     * from the API's own site only: a cross-site form must not sign the browser
+     * out.
+     *
+     * @param  string  $guard
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     *
+     * @throws \Throwable
+     */
+    private static function logoutRoute(string $guard, Request $request): JsonResponse
+    {
+        $transport = Auth::refreshTransport($guard);
+
+        if (!$transport->isSameSiteRequest($request)) {
+            return new JsonResponse(['reason' => 'cross_site_request'], 403);
+        }
+
+        return (new JsonResponse(['signed_out' => true]))->withCookie($transport->forgetCookie());
     }
 
     /**

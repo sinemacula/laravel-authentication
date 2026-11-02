@@ -149,11 +149,15 @@ final readonly class RefreshTokenTransport
 
     /**
      * The cookie that clears the refresh cookie: the same name and path,
-     * already expired. Any response may carry it, a logout route outside the
-     * cookie's path included, since a path limits where a browser sends a
-     * cookie, not which response may set it; but only a route under the path
-     * receives the cookie to sign out by. A body application has no cookie to
-     * clear (`LogicException`).
+     * already expired. A route outside the cookie's path may send it, since a
+     * path limits where a browser sends a cookie, not which response may set
+     * it, though only a route under the path receives the cookie to sign out
+     * by. Send it only for a request that signed its session out by its access
+     * token, which a cross-site page cannot send, or that passes
+     * `isSameSiteRequest()`: a response that clears it whatever the request
+     * carried lets a cross-site form sign the browser out.
+     * `signOutFromRequest()`'s result carries it on exactly those terms. A body
+     * application has no cookie to clear (`LogicException`).
      *
      * @return \Symfony\Component\HttpFoundation\Cookie
      *

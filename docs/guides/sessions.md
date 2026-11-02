@@ -354,10 +354,15 @@ the cookie's same-site checks (its `Origin` and the custom header, as a refresh 
 refused as `refresh_token_conflict`. So a cross-site page that auto-submits a form to the logout route clears nothing,
 though a browser keeps a cookie the response to such a navigation sets, and a request that fails the checks leaves the
 cookie in place with the session it still proves; a failed result is answered as a failure, as above.
-`signOutWith($refreshToken)` signs out with a body application's token your code read itself; on a cookie application
-it throws a `LogicException`. `logout()` and `signOut()` cannot reach the response either, so a route that calls them
-clears a cookie application's cookie with `Auth::refreshTransport('browser')->forgetCookie()` (see [Refresh token
-cookie](refreshing.md#refresh-token-cookie)).
+`signOutWith($refreshToken)` signs out with a body application's token your code read itself, and forgets only a binding
+to the session it revoked: a guard bound to another session stays bound to it, whether the token is refused or proves
+another session. On a cookie application it throws a `LogicException`. `logout()` and `signOut()` cannot reach the
+response either, so a route that calls them clears a cookie application's cookie with
+`Auth::refreshTransport('browser')->forgetCookie()` only when `signOut()` returned `true` (or `Auth::check()` held
+before `logout()`): a cross-site page cannot send the access token, but it can make a browser post to the route, and a
+response that clears the cookie whatever the request carried lets any site sign the browser out. A route that must also
+clear for a request without an access token checks `isSameSiteRequest($request)` first, or uses `signOutFromRequest()`,
+which makes both checks (see [Refresh token cookie](refreshing.md#refresh-token-cookie)).
 
 The session service also revokes sessions for the application's own screens and flows:
 

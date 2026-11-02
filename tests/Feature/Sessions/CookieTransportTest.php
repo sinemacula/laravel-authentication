@@ -487,6 +487,62 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
+     * A same-site sign-out whose cookie proves no live session still clears the
+     * dead cookie from the browser, under the application's name and path: a
+     * cookie whose session is already revoked (`session_revoked`), a token the
+     * application's pages sent in the body instead
+     * (`refresh_transport_mismatch`), and a replayed cookie, which revokes its
+     * session as `rotation_reuse`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACookieApplicationsSignOutClearsADeadCookieForItsOwnPages(): void
+    {
+        $this->seedIdentity();
+
+        $revoked  = $this->sessions(self::BROWSER)->signIn('password', self::credentials())->session;
+        $replayed = $this->sessions(self::BROWSER)->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($revoked);
+        self::assertNotNull($replayed);
+
+        $value    = self::cookieValue($revoked->tokens);
+        $replaced = self::cookieValue($replayed->tokens);
+
+        self::assertTrue($this->fromCookie(self::BROWSER, $value)->signOutFromRequest()->isSignedOut());
+        self::assertTrue((bool) $this->fromCookie(self::BROWSER, $replaced)->refreshFromRequest()?->isRefreshed());
+
+        $later = CarbonImmutable::now()->addMinutes(2);
+
+        Carbon::setTestNow($later);
+        CarbonImmutable::setTestNow($later);
+
+        JWT::$timestamp = $later->getTimestamp();
+
+        $results = [
+            'session_revoked'            => $this->fromCookie(self::BROWSER, $value)->signOutFromRequest(),
+            'refresh_transport_mismatch' => $this->request(self::BROWSER, ['refresh_token' => $value])->signOutFromRequest(),
+            'rotation_reuse'             => $this->fromCookie(self::BROWSER, $replaced)->signOutFromRequest(),
+        ];
+
+        self::assertSame('rotation_reuse', Session::query()->whereKey($replayed->record->getKey())->value('revoked_reason'));
+
+        foreach ($results as $reason => $result) {
+
+            $cookie = $result->forgetCookie;
+
+            self::assertFalse($result->isSignedOut(), $reason);
+            self::assertSame($reason, $result->reason?->value);
+            self::assertNotNull($cookie, $reason);
+            self::assertTrue($cookie->isCleared(), $reason);
+            self::assertSame(self::COOKIES[self::BROWSER], [$cookie->getName(), $cookie->getPath()], $reason);
+            self::assertSame([$cookie], $result->attachTo(new Response)->headers->getCookies(), $reason);
+        }
+    }
+
+    /**
      * The cookie, the application and the session must agree: another
      * application's cookie is not this one's (nothing is read); this
      * application's cookie carrying another application's token fails the
