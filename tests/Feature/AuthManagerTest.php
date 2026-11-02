@@ -11,12 +11,16 @@ use Illuminate\Contracts\Auth\Guard;
 use Illuminate\Contracts\Auth\UserProvider;
 use Illuminate\Database\DatabaseTransactionsManager;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Callers\DeclaredCredential;
+use SineMacula\Laravel\Authentication\Callers\Enums\CallerCredential;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
@@ -281,6 +285,63 @@ final class AuthManagerTest extends TestCase
         self::assertNull($jwt->principal());
         self::assertSame($request, $jwt->getRequest());
         self::assertSame($jwt, $manager->guard('test_jwt'));
+    }
+
+    /**
+     * `caller()` reads the caller of the request being served: the guard's
+     * signed-in identity for a route that declares nothing, and none for one
+     * that declares the refresh credential and carries a refresh token that
+     * does not parse, which is reported once.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testCallerReadsTheRequestBeingServed(): void
+    {
+        $this->configureJwtGuard();
+
+        config()->set('auth.defaults.guard', 'test_jwt');
+
+        /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+        $manager = app('auth');
+
+        $identity = \Mockery::mock(Identity::class);
+        $identity->shouldReceive('getAuthIdentifier')->andReturn(1);
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn(1);
+        $principal->shouldReceive('getTenant')->andReturnNull();
+
+        app()->instance('request', Request::create('/served'));
+
+        $manager->forgetGuards();
+
+        $jwt = $manager->guard('test_jwt');
+
+        self::assertInstanceOf(JwtGuard::class, $jwt);
+
+        $jwt->login($identity, $principal);
+
+        Event::fake([AuthenticationFailed::class]);
+
+        $caller = $manager->caller();
+
+        self::assertNotNull($caller);
+        self::assertSame('test_jwt', $caller->guard);
+        self::assertSame(CallerCredential::ACCESS, $caller->credential);
+        self::assertSame($identity, $caller->identity);
+        self::assertSame($principal, $caller->principal);
+
+        $refused = Request::create('/refresh', 'POST', ['refresh_token' => 'not-a-refresh-token']);
+
+        DeclaredCredential::refresh(null)->declareOn($refused);
+
+        app()->instance('request', $refused);
+
+        self::assertNull($manager->caller());
+
+        Event::assertDispatchedTimes(AuthenticationFailed::class, 1);
     }
 
     /**
