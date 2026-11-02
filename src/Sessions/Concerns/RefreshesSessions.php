@@ -104,8 +104,8 @@ trait RefreshesSessions
      * refresh judges it but writing nothing, refuses it; or the
      * `RefreshCredential` with the owner, the principal, the active tenant, the
      * session and where the credential was read from. It dispatches nothing but
-     * a replay's `SessionRevoked`: its caller reports a refusal. The seam the
-     * `me` route binding reads a refresh credential through, not a way to
+     * a replay's `SessionRevoked`: its caller reports a refusal. The seam
+     * `Auth::caller()` reads a refresh credential through, not a way to
      * authenticate.
      *
      * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Sessions\RefreshCredential|null

@@ -5,16 +5,15 @@ declare(strict_types = 1);
 namespace Tests\Performance;
 
 use Illuminate\Config\Repository as ConfigRepository;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use SineMacula\Laravel\Authentication\Callers\Caller;
+use SineMacula\Laravel\Authentication\Callers\CallerCredentials;
+use SineMacula\Laravel\Authentication\Callers\DeclaredCredential;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Models\Session;
-use SineMacula\Laravel\Authentication\Routing\DeclaredCredential;
-use SineMacula\Laravel\Authentication\Routing\MeBinding;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\RefreshesSessions;
 use SineMacula\Laravel\Authentication\Sessions\RefreshCredential;
@@ -28,10 +27,10 @@ use Tests\Concerns\InteractsWithSessions;
  * Query-budget contracts for the paths that prove a session by its refresh
  * token without rotating it: a sign-out by refresh token reads the session and
  * its owner and writes the one conditional revocation; reading the refresh
- * credential reads the same two rows and writes nothing, and binding `me` to a
- * member's session with an active tenant adds no query for the tenant's
- * policy; and a refusal the transport makes, or a token that does not parse,
- * costs no query at all.
+ * credential reads the same two rows and writes nothing, and reading the caller
+ * from a member's refresh credential with an active tenant adds no query for
+ * the tenant's policy; and a refusal the transport makes, or a token that does
+ * not parse, costs no query at all.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -42,7 +41,7 @@ use Tests\Concerns\InteractsWithSessions;
 #[CoversClass(RefreshProof::class)]
 #[CoversClass(SessionRefresh::class)]
 #[CoversClass(SessionService::class)]
-#[CoversClass(MeBinding::class)]
+#[CoversClass(CallerCredentials::class)]
 #[CoversTrait(EndsSessions::class)]
 #[CoversTrait(RefreshesSessions::class)]
 final class SessionSignOutQueryBudgetTest extends PerformanceContractTestCase
@@ -129,16 +128,16 @@ final class SessionSignOutQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Binding `me` to the session a member's refresh credential proves, on a
-     * session with an active tenant, reads the session, the member, its
-     * membership and the tenant, and writes nothing: the default tenant policy
-     * adds no query. A second parameter binds it without a query.
+     * Reading the caller from a member's refresh credential, on a session with
+     * an active tenant, reads the session, the member, its membership and the
+     * tenant, and writes nothing: the default tenant policy adds no query.
+     * Asked again, the request's caller costs no query.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testBindingMeToAMembersRefreshCredentialIsFourReadsAndNoWrite(): void
+    public function testReadingAMembersRefreshCredentialsCallerIsFourReadsAndNoWrite(): void
     {
         $this->seedMember();
 
@@ -147,7 +146,7 @@ final class SessionSignOutQueryBudgetTest extends PerformanceContractTestCase
         self::assertNotNull($session);
         self::assertNotNull($session->record->getRawOriginal('tenant_id'));
 
-        $request = Request::create('/refresh/sessions/me', 'POST', ['refresh_token' => $session->tokens->refreshToken?->reveal()], server: ['REMOTE_ADDR' => self::CLIENT_IP]);
+        $request = Request::create('/refresh/sessions/current', 'POST', ['refresh_token' => $session->tokens->refreshToken?->reveal()], server: ['REMOTE_ADDR' => self::CLIENT_IP]);
 
         DeclaredCredential::refresh('members')->declareOn($request);
 
@@ -155,12 +154,11 @@ final class SessionSignOutQueryBudgetTest extends PerformanceContractTestCase
 
         Auth::forgetGuards();
 
-        $unused = static fn (): never => self::fail('The lookup ran for me.');
-        $bound  = $this->assertQueryBudget(4, 0, static fn (): ?Model => MeBinding::current()->resolve(new Session, 'me', $unused));
-        $again  = $this->assertQueryBudget(0, 0, static fn (): ?Model => MeBinding::current()->resolve(new Session, 'me', $unused));
+        $caller = $this->assertQueryBudget(4, 0, static fn (): ?Caller => Auth::caller());
+        $again  = $this->assertQueryBudget(0, 0, static fn (): ?Caller => Auth::caller());
 
-        self::assertSame($session->record->getKey(), $bound?->getKey());
-        self::assertSame($bound, $again);
+        self::assertSame($session->record->getKey(), $caller?->session?->getSessionIdentifier());
+        self::assertSame($caller, $again);
     }
 
     /**

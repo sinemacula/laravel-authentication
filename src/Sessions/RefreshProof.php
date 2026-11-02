@@ -29,8 +29,8 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * Proves, from a refresh token, the session of one guard the client holds now,
- * without rotating it: what a sign-out by refresh credential revokes, and what
- * the `me` route binding resolves a refresh credential to.
+ * without rotating it: what a sign-out by refresh credential revokes, and the
+ * caller `Auth::caller()` reads from a refresh credential.
  *
  * It makes the checks a refresh makes of the token and its session, with the
  * same reasons, and no others: the token parses for this guard as a refresh

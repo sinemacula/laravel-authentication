@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Feature\Routing;
+namespace Tests\Feature\Callers;
 
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Events\Dispatcher;
@@ -12,24 +12,27 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Callers\Caller;
+use SineMacula\Laravel\Authentication\Callers\CallerCredentials;
+use SineMacula\Laravel\Authentication\Callers\DeclaredCredential;
+use SineMacula\Laravel\Authentication\Callers\Enums\CallerCredential;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Routing\Caller;
-use SineMacula\Laravel\Authentication\Routing\CallerCredentials;
-use SineMacula\Laravel\Authentication\Routing\DeclaredCredential;
-use SineMacula\Laravel\Authentication\Routing\Enums\CallerCredential;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
-use Tests\Concerns\InteractsWithMeBindings;
+use Tests\Concerns\InteractsWithCallers;
+use Tests\Concerns\InteractsWithMachineClients;
+use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 
 /**
  * Feature tests of how a request's caller is read from the credential its route
- * declares: the guard's own bearer, the refresh credential or the pending
- * credential; at most once per request for a guard and a credential, afresh for
- * a guard changed later; a refused credential reported once; and a guard that
- * is not the package's refused.
+ * declares: the guard's own bearer or API key, the refresh credential or the
+ * pending credential, each with what the caller needs to admit a principal by
+ * its id; at most once per request for a guard and a credential, afresh for a
+ * guard changed later; a refused credential reported once; and a guard that is
+ * not the package's refused.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -37,10 +40,9 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(CallerCredentials::class)]
-#[CoversClass(Caller::class)]
 final class CallerCredentialsTest extends TestCase
 {
-    use InteractsWithMeBindings;
+    use InteractsWithCallers, InteractsWithMachineClients;
 
     /** @var \ArrayObject<int, \SineMacula\Laravel\Authentication\Events\AuthenticationFailed> The failures reported since the test began. */
     private \ArrayObject $failures;
@@ -55,7 +57,8 @@ final class CallerCredentialsTest extends TestCase
     {
         parent::setUp();
 
-        $this->createMeTables();
+        $this->createCallerTables();
+        self::createMachineClientsTable();
 
         $failures = new \ArrayObject;
 
@@ -74,7 +77,8 @@ final class CallerCredentialsTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
-        $this->dropMeTables();
+        self::dropMachineClientsTable();
+        $this->dropCallerTables();
 
         parent::tearDown();
     }
@@ -82,7 +86,8 @@ final class CallerCredentialsTest extends TestCase
     /**
      * The bearer's caller is the guard's identity, principal, tenant and
      * session, read once for the request: asked again, it is the same caller,
-     * read without a query.
+     * read without a query. It admits another principal of its identity by its
+     * id, as the guard's session service does.
      *
      * @return void
      *
@@ -90,9 +95,9 @@ final class CallerCredentialsTest extends TestCase
      */
     public function testTheBearersCallerIsReadOncePerRequest(): void
     {
-        [$member, [$membership]] = $this->seedMember('ada@example.test');
+        [$member, [$membership, $other]] = $this->seedMember('ada@example.test', 2);
 
-        $session = $this->signedIn('ada@example.test');
+        $session = $this->signedIn('ada@example.test', $membership);
         $request = $this->request('GET', ['HTTP_AUTHORIZATION' => 'Bearer ' . $session->tokens->accessToken->reveal()]);
         $callers = self::callers();
         $caller  = $callers->caller($request);
@@ -105,7 +110,7 @@ final class CallerCredentialsTest extends TestCase
         self::assertNull($caller->tenant);
         self::assertSame($session->record->getKey(), $caller->session?->getSessionIdentifier());
         self::assertNull($caller->pending);
-        self::assertSame(self::MEMBERS, $callers->guard($request));
+        self::assertTrue($caller->owns($other));
 
         $queries = 0;
 
@@ -138,7 +143,6 @@ final class CallerCredentialsTest extends TestCase
 
         Auth::shouldUse(self::OTHERS);
 
-        self::assertSame(self::OTHERS, $callers->guard($request));
         self::assertNull($callers->caller($request));
 
         Auth::shouldUse(self::MEMBERS);
@@ -165,7 +169,6 @@ final class CallerCredentialsTest extends TestCase
 
         $caller = self::callers()->caller($request);
 
-        self::assertSame(self::OTHERS, self::callers()->guard($request));
         self::assertNotNull($caller);
         self::assertSame(self::OTHERS, $caller->guard);
         self::assertSame($session->record->getKey(), $caller->session?->getSessionIdentifier());
@@ -174,7 +177,8 @@ final class CallerCredentialsTest extends TestCase
 
     /**
      * The refresh credential's caller is who the refresh would sign in again:
-     * the session it proves, its owner and the principal it records.
+     * the session it proves, its owner and the principal it records; it admits
+     * another principal of its owner by its id.
      *
      * @return void
      *
@@ -182,9 +186,9 @@ final class CallerCredentialsTest extends TestCase
      */
     public function testTheRefreshCredentialsCallerIsTheSessionItProves(): void
     {
-        [$member, [$membership]] = $this->seedMember('ada@example.test');
+        [$member, [$membership, $other]] = $this->seedMember('ada@example.test', 2);
 
-        $session = $this->signedIn('ada@example.test');
+        $session = $this->signedIn('ada@example.test', $membership);
         $request = $this->request('POST', body: ['refresh_token' => $session->tokens->refreshToken?->reveal()]);
 
         DeclaredCredential::refresh(null)->declareOn($request);
@@ -198,6 +202,7 @@ final class CallerCredentialsTest extends TestCase
         self::assertSame($membership->getKey(), $caller->principal?->getPrincipalIdentifier());
         self::assertSame($session->record->getKey(), $caller->session?->getSessionIdentifier());
         self::assertNull($caller->pending);
+        self::assertTrue($caller->owns($other));
         self::assertCount(0, $this->failures);
     }
 
@@ -364,50 +369,52 @@ final class CallerCredentialsTest extends TestCase
      */
     public function testAGuardThatIsNotThePackagesIsRefused(): void
     {
-        config()->set('auth.guards.web', ['driver' => 'session', 'provider' => 'me_members']);
+        config()->set('auth.guards.web', ['driver' => 'session', 'provider' => 'caller_members']);
 
         Auth::shouldUse('web');
 
         $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage('The me route binding reads its caller from a package guard; [web] is not one.');
+        $this->expectExceptionMessage('The caller of a request is read from a package guard; [web] is not one.');
 
         self::callers()->caller($this->request('GET'));
     }
 
     /**
-     * A principal is admitted by its id for a guard that keeps sessions, with
-     * the identifier type the caller's session records, as the application
-     * admits it, and with none for a caller without a session, as an
-     * access-only token's is; a guard that keeps none admits none.
+     * An API key's caller is the machine the key authenticates, its own
+     * principal, with no session; its guard keeps no sessions, so it admits no
+     * other principal by its id.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAPrincipalIsAdmittedByItsIdOnlyForAGuardThatKeepsSessions(): void
+    public function testAnApiKeysCallerIsItsMachineAndAdmitsNoOtherPrincipal(): void
     {
-        [$member, [$first, $second]] = $this->seedMember('ada@example.test', 2);
+        [, [$membership]] = $this->seedMember('ada@example.test');
 
-        $session = $this->signedIn('ada@example.test', $first);
-        $callers = self::callers();
-        $caller  = new Caller(self::MEMBERS, CallerCredential::ACCESS, $member, $first, null, $session->record);
+        $machine = MachineClient::query()->create(['email' => 'robot@example.test']);
 
-        $sessionless = new Caller(self::MEMBERS, CallerCredential::ACCESS, $member, $first, null, null);
+        $this->request('GET');
 
-        self::assertSame($second->getKey(), $callers->admitted($caller, $second)?->getPrincipalIdentifier());
-        self::assertSame($second->getKey(), $callers->admitted($sessionless, $second)?->getPrincipalIdentifier());
+        $key     = Auth::apiKeys('machine')->issue($machine, $machine)->key()->reveal();
+        $request = $this->request('GET', ['HTTP_AUTHORIZATION' => 'Bearer ' . $key]);
 
-        $second->delete();
+        Auth::shouldUse('machine');
 
-        self::assertNull($callers->admitted($caller, $second));
+        $caller = self::callers()->caller($request);
 
-        config()->set('auth.guards.machine', ['driver' => 'api_key', 'provider' => 'me_members']);
-
-        self::assertNull($callers->admitted(new Caller('machine', CallerCredential::ACCESS, $member, $first, null, null), $first));
+        self::assertNotNull($caller);
+        self::assertSame('machine', $caller->guard);
+        self::assertSame(CallerCredential::ACCESS, $caller->credential);
+        self::assertSame($machine->getKey(), $caller->identity->getAuthIdentifier());
+        self::assertSame($machine->getKey(), $caller->principal?->getPrincipalIdentifier());
+        self::assertNull($caller->session);
+        self::assertTrue($caller->owns($machine));
+        self::assertFalse($caller->owns($membership));
     }
 
     /**
-     * Register the members' guards.
+     * Register the members' guards and the machines' API key guard.
      *
      * @param  mixed  $app
      * @return void
@@ -419,14 +426,19 @@ final class CallerCredentialsTest extends TestCase
 
         assert($app instanceof Application);
 
-        self::configureMeGuards($app->make(ConfigRepository::class));
+        $config = $app->make(ConfigRepository::class);
+
+        self::configureCallerGuards($config);
+
+        $config->set('auth.providers.machines', ['driver' => 'model', 'model' => MachineClient::class]);
+        $config->set('auth.guards.machine', ['driver' => 'api_key', 'provider' => 'machines', 'application' => ['methods' => ['api_key']]]);
     }
 
     /**
      * The caller credentials, over the package's auth manager, the
      * configuration and the dispatcher.
      *
-     * @return \SineMacula\Laravel\Authentication\Routing\CallerCredentials
+     * @return \SineMacula\Laravel\Authentication\Callers\CallerCredentials
      */
     private static function callers(): CallerCredentials
     {
@@ -466,7 +478,7 @@ final class CallerCredentialsTest extends TestCase
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction  $action
      * @param  array<string, mixed>  $body
-     * @return ?\SineMacula\Laravel\Authentication\Routing\Caller
+     * @return ?\SineMacula\Laravel\Authentication\Callers\Caller
      *
      * @throws \Throwable
      */

@@ -449,9 +449,9 @@ final class AuthenticationServiceProvider extends ServiceProvider
      * `authentication.no-store` first, so on a route that lists it, it wraps
      * every other route middleware the kernel sorts; `authentication.refresh`
      * and `authentication.pending`, with which a route declares the credential
-     * its `me` bindings read, before `SubstituteBindings`, so the declaration
-     * is in place before any parameter is bound. The priority is changed once
-     * the kernel is resolved, after the application's own `withMiddleware()`
+     * it authenticates with, before `SubstituteBindings`, so the declaration is
+     * in place before any parameter is bound. The priority is changed once the
+     * kernel is resolved, after the application's own `withMiddleware()`
      * settings.
      *
      * @param  \Illuminate\Routing\Router  $router

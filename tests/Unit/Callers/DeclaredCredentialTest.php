@@ -2,13 +2,13 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Unit\Routing;
+namespace Tests\Unit\Callers;
 
 use Illuminate\Http\Request;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Routing\DeclaredCredential;
-use SineMacula\Laravel\Authentication\Routing\Enums\CallerCredential;
+use SineMacula\Laravel\Authentication\Callers\DeclaredCredential;
+use SineMacula\Laravel\Authentication\Callers\Enums\CallerCredential;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
 
 /**

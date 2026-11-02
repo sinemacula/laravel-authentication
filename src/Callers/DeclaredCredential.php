@@ -2,10 +2,10 @@
 
 declare(strict_types = 1);
 
-namespace SineMacula\Laravel\Authentication\Routing;
+namespace SineMacula\Laravel\Authentication\Callers;
 
 use Illuminate\Http\Request;
-use SineMacula\Laravel\Authentication\Routing\Enums\CallerCredential;
+use SineMacula\Laravel\Authentication\Callers\Enums\CallerCredential;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
 
 /**
@@ -29,7 +29,7 @@ final readonly class DeclaredCredential
     /**
      * Constructor.
      *
-     * @param  \SineMacula\Laravel\Authentication\Routing\Enums\CallerCredential  $credential
+     * @param  \SineMacula\Laravel\Authentication\Callers\Enums\CallerCredential  $credential
      * @param  ?string  $guard
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction  $action
      */

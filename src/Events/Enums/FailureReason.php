@@ -79,7 +79,7 @@ enum FailureReason: string
     case SESSION_MISMATCH = 'session_mismatch';
 
     // A further factor is required, which an access-only sign-in (attempt()) or
-    // the me route binding's refresh credential cannot wait for
+    // the caller read from a refresh credential cannot wait for
     case ADDITIONAL_FACTOR_REQUIRED = 'additional_factor_required';
 
     // The pending credential names no live pending session of this guard: it is

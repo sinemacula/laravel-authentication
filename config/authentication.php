@@ -69,12 +69,12 @@ return [
     | session that falls short of a further factor during a refresh or a switch
     | returns to pending with a new credential of the same lifetime.
     |
-    | A route that declares the pending credential for the `me` route binding
-    | (`authentication.pending:<action>`) reads it from the body field
-    | `pending_credential_field` (a JSON or form body, never the query string
-    | or a header): a field name without `.`, spaces or brackets; anything
-    | else fails closed when such a route binds, and `authentication:check`
-    | reports it.
+    | A route that authenticates with the pending credential
+    | (`authentication.pending:<action>`) has `Auth::caller()` read it from
+    | the body field `pending_credential_field` (a JSON or form body, never
+    | the query string or a header): a field name without `.`, spaces or
+    | brackets; anything else fails closed when the caller is read, and
+    | `authentication:check` reports it.
     |
     | `table` may be up to 47 characters: the migration names its indexes
     | after it (`<table>_owner_index` and so on), and PostgreSQL cuts a longer

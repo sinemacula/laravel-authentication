@@ -2,30 +2,29 @@
 
 declare(strict_types = 1);
 
-namespace SineMacula\Laravel\Authentication\Routing;
+namespace SineMacula\Laravel\Authentication\Callers;
 
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Request;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Callers\Enums\CallerCredential;
 use SineMacula\Laravel\Authentication\Config\JwtGuards;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\RequestBody;
-use SineMacula\Laravel\Authentication\Routing\Enums\CallerCredential;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
 use SineMacula\Laravel\Authentication\Sessions\PendingSession;
 use SineMacula\Laravel\Authentication\Sessions\PendingState;
 use SineMacula\Laravel\Authentication\Sessions\RefreshCredential;
 
 /**
- * The caller of a request, read from the credential its route declares
- * (`DeclaredCredential`), for the `me` route binding.
+ * The caller of a request, read from the credential its route authenticates
+ * with (`DeclaredCredential`), behind `Auth::caller()`.
  *
  * The access credential is the guard's own: its identity, principal, active
  * tenant and session, the guard reporting its own failures. The refresh
@@ -40,11 +39,11 @@ use SineMacula\Laravel\Authentication\Sessions\RefreshCredential;
  * `pending_invalid` or `pending_action_not_allowed`), never the credential; a
  * request that carries none is not reported.
  *
- * The caller is read only when a binding asks for it, and at most once per
- * request for a guard and a credential: it is kept on the request's attributes
- * under that key, so a route with several bound parameters proves the
- * credential once, a guard changed later in the request is read afresh, and
- * nothing outlives the request.
+ * The caller is read only when it is asked for, and at most once per request
+ * for a guard and a credential: it is kept on the request's attributes under
+ * that key, so a request that asks several times proves the credential once, a
+ * guard changed later in the request is read afresh, and nothing outlives the
+ * request.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -76,24 +75,11 @@ final readonly class CallerCredentials
     ) {}
 
     /**
-     * The name of the guard the request's route reads its caller from: the
-     * guard its declaration names, else the default guard (the one `auth:` set
-     * for the route).
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return string
-     */
-    public function guard(Request $request): string
-    {
-        return DeclaredCredential::of($request)->guard ?? $this->auth->getDefaultDriver();
-    }
-
-    /**
      * The request's caller, read from the credential its route declares, or
      * `null` when the request carries no such credential or it is refused.
      *
      * @param  \Illuminate\Http\Request  $request
-     * @return ?\SineMacula\Laravel\Authentication\Routing\Caller
+     * @return ?\SineMacula\Laravel\Authentication\Callers\Caller
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
@@ -122,33 +108,10 @@ final readonly class CallerCredentials
     }
 
     /**
-     * The principal the caller's identity may use the caller's application as
-     * with the principal's identifier, as `principals()` would list it (with
-     * the identifier type the caller's session records), or `null`, also for a
-     * guard that keeps no sessions (an API key guard), which has no such list.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Routing\Caller  $caller
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \InvalidArgumentException
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
-     */
-    public function admitted(Caller $caller, Principal $principal): ?Principal
-    {
-        if (!in_array($caller->guard, JwtGuards::names($this->config), true)) {
-            return null;
-        }
-
-        return $this->auth->sessions($caller->guard)->principal($caller->identity, $principal->getPrincipalIdentifier(), $caller->session?->getSignInIdentifierType());
-    }
-
-    /**
      * The caller the guard authenticates the request as, or `null` for a guest.
      *
      * @param  string  $guard
-     * @return ?\SineMacula\Laravel\Authentication\Routing\Caller
+     * @return ?\SineMacula\Laravel\Authentication\Callers\Caller
      *
      * @throws \LogicException
      */
@@ -157,12 +120,18 @@ final readonly class CallerCredentials
         $resolved = $this->auth->guard($guard);
 
         if (!$resolved instanceof ContextualGuard) {
-            throw new \LogicException(sprintf('The me route binding reads its caller from a package guard; [%s] is not one.', $guard));
+            throw new \LogicException(sprintf('The caller of a request is read from a package guard; [%s] is not one.', $guard));
         }
 
         $identity = $resolved->identity();
 
-        return $identity === null ? null : new Caller($guard, CallerCredential::ACCESS, $identity, $resolved->principal(), $resolved->tenant(), $resolved->session());
+        if ($identity === null) {
+            return null;
+        }
+
+        $sessions = in_array($guard, JwtGuards::names($this->config), true) ? $this->auth->sessions($guard) : null;
+
+        return new Caller($guard, CallerCredential::ACCESS, $identity, $resolved->principal(), $resolved->tenant(), $resolved->session(), sessions: $sessions);
     }
 
     /**
@@ -171,20 +140,21 @@ final readonly class CallerCredentials
      *
      * @param  \Illuminate\Http\Request  $request
      * @param  string  $guard
-     * @return ?\SineMacula\Laravel\Authentication\Routing\Caller
+     * @return ?\SineMacula\Laravel\Authentication\Callers\Caller
      *
      * @throws \Throwable
      */
     private function refresh(Request $request, string $guard): ?Caller
     {
-        $credential = $this->auth->sessions($guard)->refreshCredentialFromRequest();
+        $sessions   = $this->auth->sessions($guard);
+        $credential = $sessions->refreshCredentialFromRequest();
 
         if ($credential instanceof FailureReason) {
             $this->report(new EventContext($guard, ClientContext::fromRequest($request)), AuthenticationFlow::REFRESH, $credential);
         }
 
         return $credential instanceof RefreshCredential
-            ? new Caller($guard, CallerCredential::REFRESH, $credential->identity, $credential->principal, $credential->tenant, $credential->session)
+            ? new Caller($guard, CallerCredential::REFRESH, $credential->identity, $credential->principal, $credential->tenant, $credential->session, sessions: $sessions)
             : null;
     }
 
@@ -196,7 +166,7 @@ final readonly class CallerCredentials
      * @param  \Illuminate\Http\Request  $request
      * @param  string  $guard
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction  $action
-     * @return ?\SineMacula\Laravel\Authentication\Routing\Caller
+     * @return ?\SineMacula\Laravel\Authentication\Callers\Caller
      *
      * @throws \InvalidArgumentException
      * @throws \Throwable
@@ -210,8 +180,9 @@ final readonly class CallerCredentials
             return null;
         }
 
+        $sessions   = $this->auth->sessions($guard);
         $credential = $body[$field];
-        $pending    = is_string($credential) && $credential !== '' ? $this->auth->sessions($guard)->pending($credential) : null;
+        $pending    = is_string($credential) && $credential !== '' ? $sessions->pending($credential) : null;
         $reason     = self::pendingRefusal($pending, $action);
 
         if ($reason !== null || $pending === null) {
@@ -224,8 +195,8 @@ final readonly class CallerCredentials
     }
 
     /**
-     * Why the pending credential may not bind for the action, or `null` when it
-     * may: `pending_invalid` when it names no live pending session of the
+     * Why the pending credential may not be read for the action, or `null` when
+     * it may: `pending_invalid` when it names no live pending session of the
      * guard, `pending_action_not_allowed` when the session does not allow the
      * action now.
      *

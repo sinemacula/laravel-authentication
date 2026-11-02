@@ -2,17 +2,15 @@
 
 declare(strict_types = 1);
 
-namespace SineMacula\Laravel\Authentication\Routing\Enums;
+namespace SineMacula\Laravel\Authentication\Callers\Enums;
 
 /**
- * Which credential a route reads its caller from, for the `me` route binding:
+ * Which credential a request's caller was read from (`Caller::$credential`):
  * the access credential the guard authenticates, unless the route declares the
  * refresh or the pending one.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
- *
- * @internal
  */
 enum CallerCredential: string
 {
