@@ -9,6 +9,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Passkeys\RelyingParty;
 use SineMacula\Laravel\Authentication\Passkeys\WebAuthn;
+use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use Tests\Fixtures\Passkeys\VirtualAuthenticator;
 use Tests\TestCase;
 use Webauthn\CredentialRecord;
@@ -255,8 +256,9 @@ final class WebAuthnTest extends TestCase
      * A registration verifies for every algorithm offered and both statement
      * formats, and the credential it registers carries the authenticator's id,
      * the options' user handle, the transports, a count of 0, the backup state
-     * and user verification; an assertion with it then verifies and moves its
-     * count.
+     * and user verification; an assertion with it then verifies, moves its
+     * count, and shows what its flags showed, resistant to phishing since its
+     * origin and relying party were verified.
      *
      * @param  int  $algorithm
      * @param  string  $format
@@ -280,9 +282,12 @@ final class WebAuthnTest extends TestCase
         self::assertTrue($record->backupStatus);
         self::assertTrue($record->uvInitialized);
 
-        $verified = $this->asserted($authenticator, $record, null);
+        $options  = $this->request();
+        $asserted = $this->webauthn->assert($this->rp, $options, $this->parsed($authenticator->get($options)), $record, null);
 
-        self::assertSame(1, $verified?->counter);
+        self::assertNotNull($asserted);
+        self::assertSame(1, $asserted[0]->counter);
+        self::assertEquals(new ObservedProperties(true, true, true, true, true), $asserted[1]);
     }
 
     /**

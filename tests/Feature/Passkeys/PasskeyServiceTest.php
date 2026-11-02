@@ -1606,8 +1606,9 @@ final class PasskeyServiceTest extends TestCase
      * credential id the factor package names, compared exactly: another passkey
      * of the identity, another identity's, and an id that differs only in case
      * are left out, and with none left nothing is handed out or written. The
-     * challenge keeps the binding and asks for user verification, or only
-     * prefers it when the factor package says so.
+     * options list the passkeys allowed, and give the browser the challenge's
+     * lifetime in milliseconds. The challenge keeps the binding and asks for
+     * user verification, or only prefers it when the factor package says so.
      *
      * @return void
      *
@@ -1640,7 +1641,13 @@ final class PasskeyServiceTest extends TestCase
         $challenge = PasskeyChallenge::query()->sole();
 
         self::assertSame(['factor', self::FACTOR_SESSION, 'step_up'], [$challenge->purpose, $challenge->session_id, $challenge->binding_purpose]);
-        self::assertSame('preferred', $passkeys->factorOptions($identity, $binding, [$second], false)?->options['userVerification']);
+        $preferred = $passkeys->factorOptions($identity, $binding, [$second], false)?->options;
+
+        self::assertSame('preferred', $preferred['userVerification'] ?? null);
+        self::assertIsArray($preferred['allowCredentials'] ?? null);
+        self::assertTrue(array_is_list($preferred['allowCredentials']));
+        self::assertSame([$second], array_column($preferred['allowCredentials'], 'id'));
+        self::assertSame(300000, $preferred['timeout'] ?? null);
         self::assertNull($passkeys->factorOptions($identity, $binding, [$theirs]));
         self::assertNull($passkeys->factorOptions($identity, $binding, []));
         self::assertSame(2, PasskeyChallenge::query()->count());
@@ -1688,6 +1695,70 @@ final class PasskeyServiceTest extends TestCase
         }
 
         self::assertSame(0, PasskeyChallenge::query()->count());
+    }
+
+    /**
+     * Rows of `[binding]` a factor ceremony refuses: one for another identity,
+     * another guard, no session, an empty session, and a session longer than
+     * 255 characters.
+     *
+     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Contracts\Identity, \SineMacula\Laravel\Authentication\Contracts\Identity): \SineMacula\Laravel\Authentication\Proofs\ProofBinding}>
+     */
+    public static function provideForeignBindings(): iterable
+    {
+        yield 'another identity' => [static fn (Identity $identity, Identity $other): ProofBinding => new ProofBinding($other, 'api', self::FACTOR_SESSION, Purpose::STEP_UP)];
+        yield 'another guard' => [static fn (Identity $identity): ProofBinding => new ProofBinding($identity, 'admin', self::FACTOR_SESSION, Purpose::STEP_UP)];
+        yield 'no session' => [static fn (Identity $identity): ProofBinding => new ProofBinding($identity, 'api', null, Purpose::STEP_UP)];
+        yield 'an empty session' => [static fn (Identity $identity): ProofBinding => new ProofBinding($identity, 'api', '', Purpose::STEP_UP)];
+        yield 'a session too long' => [static fn (Identity $identity): ProofBinding => new ProofBinding($identity, 'api', str_repeat('s', 256), Purpose::STEP_UP)];
+    }
+
+    /**
+     * A binding that does not name the identity, the guard and a session of at
+     * most 255 characters is a programming error, refused before anything is
+     * written.
+     *
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Contracts\Identity, \SineMacula\Laravel\Authentication\Contracts\Identity): \SineMacula\Laravel\Authentication\Proofs\ProofBinding  $binding
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideForeignBindings')]
+    public function testAFactorCeremonyRefusesABindingThatIsNotItsOwn(\Closure $binding): void
+    {
+        $identity = $this->seedIdentity();
+        $other    = $this->seedIdentity('grace@example.test');
+
+        $this->registerPasskey($identity);
+
+        try {
+            Auth::passkeys('api')->factorOptions($identity, $binding($identity, $other), [$this->authenticator()->lastCredentialId()]);
+
+            self::fail('A foreign binding was taken.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertSame('A passkey ceremony\'s binding must name the identity it is for, the guard [api] and a session.', $exception->getMessage());
+        }
+
+        self::assertSame(0, PasskeyChallenge::query()->count());
+    }
+
+    /**
+     * A factor ceremony's session is measured in characters, not bytes: one of
+     * 255 multibyte characters is taken.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFactorCeremonyMeasuresItsSessionInCharacters(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->registerPasskey($identity);
+
+        $binding = new ProofBinding($identity, 'api', str_repeat('é', 255), Purpose::STEP_UP);
+
+        self::assertNotNull(Auth::passkeys('api')->factorOptions($identity, $binding, [$this->authenticator()->lastCredentialId()]));
     }
 
     /**
