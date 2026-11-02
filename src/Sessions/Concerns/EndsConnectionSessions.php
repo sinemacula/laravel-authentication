@@ -36,7 +36,7 @@ trait EndsConnectionSessions
      * many sessions this call revoked. Call it in the transaction that disables
      * the connection, on the storage connection, so both commit or roll back
      * together; it runs as a savepoint there and reports each session once that
-     * commits.
+     * commits, when this guard, if it is bound to one of them, forgets it.
      *
      * @param  string  $connectionId
      * @return int
@@ -73,7 +73,9 @@ trait EndsConnectionSessions
      * The identity's link to the connection was removed: end every live session
      * of the identity the connection established (`link_removed`), unless
      * `authentication.revocation.link_removed` is `false`. The identity's other
-     * sessions, and the connection's other identities', are left alone.
+     * sessions, and the connection's other identities', are left alone. When
+     * this guard is bound to a session it ends, it forgets it once that
+     * commits.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $connectionId

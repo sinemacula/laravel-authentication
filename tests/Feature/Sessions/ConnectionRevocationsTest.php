@@ -9,6 +9,7 @@ use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -18,11 +19,13 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsConnectionSessions;
 use SineMacula\Laravel\Authentication\Sessions\ConnectionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -195,6 +198,77 @@ final class ConnectionRevocationsTest extends TestCase
             self::assertInstanceOf(SessionRevoked::class, $event);
             self::assertSame($ada, $event->context->identity);
         }
+    }
+
+    /**
+     * Rows of `[the trigger]`, each ending the identity's sessions through
+     * `conn-a`.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Identity): int}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    public static function provideEndingTriggers(): iterable
+    {
+        foreach (self::provideTriggers() as $name => [$trigger]) {
+            yield $name => [$trigger];
+        }
+    }
+
+    /**
+     * A trigger that ends the session the request's guard is bound to forgets
+     * the binding once it commits, not before and not when it rolls back, so
+     * the rest of the request is not authenticated as a session it ended; a
+     * guard bound to a session it keeps stays bound.
+     *
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Identity): int  $trigger
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideEndingTriggers')]
+    public function testATriggerForgetsTheGuardBoundToASessionItEndsOnceItCommits(\Closure $trigger): void
+    {
+        $ada   = $this->seedIdentity();
+        $ended = $this->started($ada, 'conn-a');
+        $kept  = $this->started($ada, 'conn-b');
+        $later = $this->started($ada, 'conn-a');
+        $guard = $this->boundGuard($ended);
+
+        try {
+            DB::transaction(static function () use ($trigger, $ada): void {
+
+                $trigger(Auth::sessions('api'), $ada);
+
+                throw new \RuntimeException('rolled back');
+            });
+        } catch (\RuntimeException) {
+            self::assertTrue($guard->check());
+        }
+
+        DB::transaction(static function () use ($trigger, $ada, $guard): void {
+
+            self::assertSame(2, $trigger(Auth::sessions('api'), $ada));
+            self::assertTrue($guard->check());
+        });
+
+        self::assertFalse($guard->check());
+        self::assertNull($guard->session());
+        self::assertFalse(Auth::guard('api')->check());
+        self::assertNotContains(null, $this->reasonsOf([$ended->record->getKey(), $later->record->getKey()]));
+
+        $this->started($ada, 'conn-a');
+
+        $bound = $this->boundGuard($kept);
+
+        self::assertSame(1, $trigger(Auth::sessions('api'), $ada));
+        self::assertSame($kept->record->getKey(), $bound->session()?->getSessionIdentifier());
     }
 
     /**
@@ -374,6 +448,41 @@ final class ConnectionRevocationsTest extends TestCase
         self::assertNotNull($session);
 
         return $session->record->getKey();
+    }
+
+    /**
+     * A session the identity started through the connection on the `api` guard.
+     *
+     * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
+     * @param  string  $connection
+     * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
+     *
+     * @throws \Throwable
+     */
+    private function started(IntegrationIdentity $identity, string $connection): SignedInSession
+    {
+        $session = $this->sessions()->start($identity, null, 'sso', null, new Provenance($connection))->session;
+
+        self::assertNotNull($session);
+
+        return $session;
+    }
+
+    /**
+     * The `api` guard, resolved afresh and bound to the session.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $signedIn
+     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     */
+    private function boundGuard(SignedInSession $signedIn): JwtGuard
+    {
+        $guard = $this->freshGuard();
+
+        $guard->login($signedIn->identity, $signedIn->principal, $signedIn->record);
+
+        self::assertSame($signedIn->record->getKey(), $guard->session()?->getSessionIdentifier());
+
+        return $guard;
     }
 
     /**

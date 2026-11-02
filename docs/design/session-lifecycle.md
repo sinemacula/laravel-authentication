@@ -97,13 +97,15 @@ revoked, and when a session that ended is deleted. Starting a session is in
   `factorReset()` are mandatory: no setting turns them off, and the factor package calls them synchronously inside the
   transaction that makes its change (a savepoint here, reported after the outermost commit), never through a listener;
   each forgets the request's binding once it commits when the binding is to a session it ended or took back to pending
-  (`factorRemoved()`) or to the identity (`factorReset()`, through `GuardBinding::forgetIdentity()`).
+  (`factorRemoved()` with a current session) or to the identity (`factorReset()`, and `factorRemoved()` with none, since
+  both end every session of it, through `GuardBinding::forgetIdentity()`).
   `credentialRemoved()` stays per event, the optional listener's or the application's.
 - `connectionDisabled()`, `connectionDeleted()` and `linkRemoved()` (`Sessions\ConnectionRevocations`, through
   `Concerns\EndsConnectionSessions`) revoke the live sessions, pending ones included, of every guard that a connection
   established (a link's: only that identity's), found 500 at a time (a connection's through the provenance connection
   index, a link's through the identity's own sessions), each chunk locked in key order and revoked in one transaction,
-  one `SessionRevoked` each after the commit. They move no cutoff, since the scope is the provenance rather than the
+  one `SessionRevoked` each after the commit, when the request's binding to that session is also forgotten
+  (`GuardBinding::forgetSession()`). They move no cutoff, since the scope is the provenance rather than the
   identity, and each can be turned off under `authentication.revocation.*` (`Sessions\RevocationSettings`), which
   `authentication:check` validates.
 - The optional listeners (`RevokeSessionsOnPasswordReset`, `RevokeSessionsOnPasswordChange`,

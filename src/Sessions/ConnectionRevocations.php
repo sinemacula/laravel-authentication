@@ -10,6 +10,7 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
+use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
@@ -34,9 +35,11 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * caller's. A connection is matched byte for byte, whatever the provenance
  * column's collation, so one connection's revocation never ends the sessions of
  * another whose id differs from it only in case, accents or a trailing space.
- * `SessionRevoked` reports each session revoked once that commits. No cutoff
- * moves: the scope is how the sessions began, not the identity. Each trigger
- * can be turned off (`RevocationSettings`), and then writes nothing.
+ * `SessionRevoked` reports each session revoked once that commits, and the
+ * guard then forgets a binding to it, so the rest of the request is not
+ * authenticated as a session it ended. No cutoff moves: the scope is how the
+ * sessions began, not the identity. Each trigger can be turned off
+ * (`RevocationSettings`), and then writes nothing.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -52,6 +55,7 @@ final readonly class ConnectionRevocations
      * Constructor.
      *
      * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
+     * @param  \SineMacula\Laravel\Authentication\Contracts\GuardBinding  $binding
      * @param  \SineMacula\Laravel\Authentication\Sessions\RevocationWriter  $writer
      * @param  \Illuminate\Contracts\Container\Container  $container
      */
@@ -59,6 +63,9 @@ final readonly class ConnectionRevocations
 
         /** The context of the guard acting; its client is the events'. */
         private GuardContext $context,
+
+        /** The guard's bound state, forgotten when the session it is bound to is revoked. */
+        private GuardBinding $binding,
 
         /** Revokes each session and reports it once committed. */
         private RevocationWriter $writer,
@@ -98,7 +105,7 @@ final readonly class ConnectionRevocations
             do {
                 $rows = self::established($connectionId, $after);
                 $revoked += $this->revoke($model, self::exactly($rows, $connectionId), null, $reason, $now);
-                $after = $rows === [] ? null : $rows[count($rows) - 1][0];
+                $after = $rows === [] ? null : IdentifierCoercion::stringify($rows[count($rows) - 1][0]);
             } while (count($rows) === self::CHUNK);
 
             return $revoked;
@@ -171,7 +178,7 @@ final readonly class ConnectionRevocations
      *
      * @param  string  $connectionId
      * @param  ?string  $after
-     * @return list<array{0: string, 1: mixed}>
+     * @return list<array{0: mixed, 1: mixed}>
      */
     private static function established(string $connectionId, ?string $after): array
     {
@@ -227,39 +234,27 @@ final readonly class ConnectionRevocations
     }
 
     /**
-     * The provenance rows the query finds, as `[session key, connection id]`,
-     * read on the write connection.
+     * The provenance rows the query finds, as `[session key, connection id]` as
+     * stored, read on the write connection.
      *
      * @param  \Illuminate\Database\Eloquent\Builder<\SineMacula\Laravel\Authentication\Models\SessionProvenance>  $query
-     * @return list<array{0: string, 1: mixed}>
+     * @return list<array{0: mixed, 1: mixed}>
      */
     private static function provenance(Builder $query): array
     {
-        /** @var array<int, \stdClass> $rows */
-        $rows  = WriteConnection::during(new SessionProvenance, static fn (): array => $query->toBase()->get(['session_id', 'connection_id'])->all());
-        $pairs = [];
+        /** @var list<\stdClass> $rows */
+        $rows = WriteConnection::during(new SessionProvenance, static fn (): array => $query->toBase()->get(['session_id', 'connection_id'])->all());
 
-        foreach ($rows as $row) {
-
-            $key = IdentifierCoercion::stringify($row->session_id);
-
-            if ($key === null) {
-                continue;
-            }
-
-            $pairs[] = [$key, $row->connection_id];
-        }
-
-        return $pairs;
+        return array_map(static fn (\stdClass $row): array => [$row->session_id, $row->connection_id], $rows);
     }
 
     /**
-     * The session keys of the provenance rows that name the connection byte for
-     * byte, so a column whose collation counts another connection's id as equal
-     * (another case or accent, a trailing space) never ends that connection's
-     * sessions.
+     * The session keys, each as a string, of the provenance rows that name the
+     * connection byte for byte, so a column whose collation counts another
+     * connection's id as equal (another case or accent, a trailing space) never
+     * ends that connection's sessions.
      *
-     * @param  list<array{0: string, 1: mixed}>  $rows
+     * @param  list<array{0: mixed, 1: mixed}>  $rows
      * @param  string  $connectionId
      * @return list<string>
      */
@@ -275,13 +270,13 @@ final readonly class ConnectionRevocations
             $keys[] = $key;
         }
 
-        return $keys;
+        return self::strings($keys);
     }
 
     /**
      * Lock the live sessions with the keys given, in key order, and revoke each
-     * with the reason, reporting it once committed. Returns how many this call
-     * revoked.
+     * with the reason, reporting it once committed and forgetting the guard's
+     * binding to it then. Returns how many this call revoked.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $model
      * @param  list<string>  $keys
@@ -307,7 +302,10 @@ final readonly class ConnectionRevocations
             $context = new EventContext($session->getGuard(), $this->context->client(), $identity, session: $session, method: $session->getSignInMethod(), fromSession: true);
             $event   = new SessionRevoked($context, $reason);
 
-            $revoked += $this->writer->revoke($session, $reason, $now, fn () => $this->context->dispatch($event)) ? 1 : 0;
+            $revoked += $this->writer->revoke($session, $reason, $now, function () use ($event, $session): void {
+                $this->context->dispatch($event);
+                $this->binding->forgetSession($session);
+            }) ? 1 : 0;
         }
 
         return $revoked;

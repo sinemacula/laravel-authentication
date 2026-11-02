@@ -724,6 +724,50 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
+     * A removal given no current session ends every session of the identity, so
+     * it forgets the binding of a guard bound to the identity once it commits,
+     * as a reset does: not before and not when it rolls back, and a guard bound
+     * to another identity stays bound.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARemovalWithoutACurrentSessionForgetsTheGuardBoundToTheIdentityOnceItCommits(): void
+    {
+        $current = $this->signedIn();
+        $guard   = $this->boundGuard($current);
+
+        try {
+            DB::transaction(static function () use ($current): void {
+
+                Auth::sessions('api')->factorRemoved($current->identity, 'factor-a');
+
+                throw new \RuntimeException('rolled back');
+            });
+        } catch (\RuntimeException) {
+            self::assertTrue($guard->check());
+        }
+
+        DB::transaction(static function () use ($current, $guard): void {
+
+            self::assertSame(1, Auth::sessions('api')->factorRemoved($current->identity, 'factor-a')->revoked);
+            self::assertTrue($guard->check());
+        });
+
+        self::assertFalse($guard->check());
+        self::assertNull($guard->session());
+        self::assertFalse(Auth::guard('api')->check());
+
+        $other = $this->signedIn('api', 'grace@example.test');
+        $kept  = $this->boundGuard($other);
+
+        Auth::sessions('api')->factorRemoved($current->identity, 'factor-a');
+
+        self::assertSame($other->record->getKey(), $kept->session()?->getSessionIdentifier());
+    }
+
+    /**
      * A removed first-factor credential ends the identity's other sessions,
      * keeps the current one and voids no proof.
      *

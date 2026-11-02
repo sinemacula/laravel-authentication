@@ -669,8 +669,9 @@ again, and then:
 A current session that is pending has its proofs made with the factor voided too and stays pending: its next action
 (`satisfy()`, `choose()`) is judged without them. One that was meanwhile revoked or ended is left as it is. When the
 request's guard is bound to the current session and it returned to pending or was revoked, the guard forgets it once the
-transaction commits, so the rest of the request is no longer authenticated as it. `factorReset()` does the same for a
-guard bound to the identity: every session it has ends, so the rest of the request is not authenticated as any of them.
+transaction commits, so the rest of the request is no longer authenticated as it. `factorReset()`, and `factorRemoved()`
+given no `$current`, do the same for a guard bound to the identity: every session it has ends, so the rest of the
+request is not authenticated as any of them.
 `FactorRemoval::$revoked` counts the sessions revoked, the current one included when it was (`$currentRevoked`).
 `$current`, when given, must be a session of this guard the identity owns, and the identity must live on the storage
 connection, so its cutoff moves and its sessions end in the factor package's transaction: otherwise nothing is written
@@ -703,7 +704,8 @@ every guard and identity, pending ones included; one already past a deadline is 
 `connection_disabled` or `connection_deleted`; `linkRemoved()` revokes only the identity's, as `link_removed`. Each
 returns how many it revoked. They are found through the provenance's connection index (a link's through the identity's
 sessions) 500 at a time, each chunk locked in key order, in one transaction on the storage connection, a savepoint
-inside yours; `SessionRevoked` reports each once that commits. No cutoff moves and no `SignedOutEverywhere` is reported:
+inside yours; `SessionRevoked` reports each once that commits, and a request's guard bound to one of them forgets it
+then, so the rest of the request is not authenticated as it. No cutoff moves and no `SignedOutEverywhere` is reported:
 the scope is how the sessions began, not the identity, whose other sessions stay. Each is on by default and turned off
 by its `authentication.revocation.*` setting (see [Revocation by
 connection](configuration.md#revocation-by-connection)); a connection id may not be empty. The connection is matched

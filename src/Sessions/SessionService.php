@@ -183,7 +183,7 @@ final readonly class SessionService
         $this->refreshes = new SessionRefresh($context, $binding, $exchange, $this->afterCommit, $container, $refreshProof);
         $this->signOuts  = new SessionSignOut($context, $binding, $this->revocations, $sessions, $refreshProof, $container);
 
-        $this->connectionRevocations = new ConnectionRevocations($context, $sessions, $container);
+        $this->connectionRevocations = new ConnectionRevocations($context, $binding, $sessions, $container);
         $this->factorRevocations     = new FactorRevocations(
             $context,
             $binding,

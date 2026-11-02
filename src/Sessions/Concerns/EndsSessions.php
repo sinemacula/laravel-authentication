@@ -329,7 +329,8 @@ trait EndsSessions
      * and stays pending, its next action judged without them; one that was
      * meanwhile revoked or ended is left as it is. When this guard is bound to
      * it and it is returned to pending or revoked, the binding is forgotten
-     * once the removal commits.
+     * once the removal commits; with no `$current`, every session of the
+     * identity ends, and a binding to the identity is forgotten then.
      *
      * Mandatory: the factor package calls it inside the transaction that
      * removes the factor, after taking its own locks, so both commit or roll

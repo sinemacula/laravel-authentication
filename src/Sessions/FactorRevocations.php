@@ -43,13 +43,14 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
  * while it still meets what the identity's factor policy and its tenant's
  * policy ask of it, returns to pending while it falls short of a further factor
  * only, and is revoked when nothing it could do in place would meet them; a
- * pending one stays pending, its next action judged without those proofs. A
- * reset revokes every session of the identity, the current one included, as
- * `factor_reset`, and forgets the guard's binding to the identity. Either needs
- * the identity on the storage connection, so its cutoff moves and its sessions
- * end in the factor package's transaction, and runs on the session model's
- * connection in one transaction, a savepoint inside the caller's, its events
- * reported once that commits.
+ * pending one stays pending, its next action judged without those proofs; with
+ * no current session, every session is revoked, and the guard's binding to the
+ * identity is forgotten. A reset revokes every session of the identity, the
+ * current one included, as `factor_reset`, and forgets the guard's binding to
+ * the identity. Either needs the identity on the storage connection, so its
+ * cutoff moves and its sessions end in the factor package's transaction, and
+ * runs on the session model's connection in one transaction, a savepoint inside
+ * the caller's, its events reported once that commits.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -101,7 +102,9 @@ final readonly class FactorRevocations
      * left as it is when it has meanwhile been revoked or ended, and a pending
      * one has its proofs made with the factor voided and stays pending. When
      * the guard is bound to it and it is returned to pending or revoked, the
-     * binding is forgotten once the removal commits.
+     * binding is forgotten once the removal commits; with no `$current`, every
+     * session of the identity is revoked, and the guard's binding to the
+     * identity is forgotten then, as a reset forgets it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $factor
@@ -125,7 +128,13 @@ final readonly class FactorRevocations
 
             $revoked = $this->revocations->revokeSessions($identity, RevocationReason::FACTOR_REMOVED, $session);
 
-            return $session === null ? new FactorRemoval($revoked) : $this->recheck($identity, $session, $factor, $revoked, $now);
+            if ($session !== null) {
+                return $this->recheck($identity, $session, $factor, $revoked, $now);
+            }
+
+            $this->forgetIdentity($identity);
+
+            return new FactorRemoval($revoked);
         });
     }
 
@@ -148,13 +157,27 @@ final readonly class FactorRevocations
         $this->assertStored($identity, 'A reset of factors');
 
         $revoked = $this->revocations->revokeSessions($identity, RevocationReason::FACTOR_RESET);
+
+        $this->forgetIdentity($identity);
+
+        return $revoked;
+    }
+
+    /**
+     * Forget the guard's binding to the identity once the change that revoked
+     * every session of it commits, so the rest of the request is not
+     * authenticated as a session it ended; a rollback keeps the binding.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return void
+     */
+    private function forgetIdentity(Identity $identity): void
+    {
         $binding = $this->binding;
 
         $this->afterCommit->run(SessionLookup::model(), static function () use ($binding, $identity): void {
             $binding->forgetIdentity($identity);
         });
-
-        return $revoked;
     }
 
     /**
