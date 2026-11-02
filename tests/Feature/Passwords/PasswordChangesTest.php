@@ -11,12 +11,14 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PasswordSet;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordViolation;
@@ -31,6 +33,7 @@ use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Integration\Fixtures\PasswordIdentity;
 use Tests\Integration\Fixtures\PasswordMachine;
 use Tests\TestCase;
+use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
  * Feature tests for changing a signed-in identity's password with its current
@@ -281,7 +284,9 @@ final class PasswordChangesTest extends TestCase
 
     /**
      * A session revoked between the checks and the change's lock is found
-     * revoked under the lock: `session_revoked`, nothing written.
+     * revoked under the lock: `session_revoked`, nothing written. The session
+     * is judged before the password the change was proven with, so a password
+     * written meanwhile as well still answers `session_revoked`.
      *
      * @return void
      *
@@ -291,46 +296,63 @@ final class PasswordChangesTest extends TestCase
     {
         $identity = self::seedPasswordIdentity();
         $session  = $this->signInWithPassword()->record;
+        $revoke   = static fn () => DB::table('authentication_sessions')->update(['revoked_at' => '2026-10-29 09:29:59', 'revoked_reason' => 'revoked']);
 
-        $this->beforeTheIdentityIsLocked(static fn () => DB::table('authentication_sessions')->update(['revoked_at' => '2026-10-29 09:29:59', 'revoked_reason' => 'revoked']));
+        $this->beforeTheIdentityIsLocked($revoke);
 
         self::assertSame(FailureReason::SESSION_REVOKED, Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD)->reason);
         self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) $identity->fresh()?->password));
+
+        DB::table('authentication_sessions')->update(['revoked_at' => null, 'revoked_reason' => null]);
+
+        $this->beforeTheIdentityIsLocked(static function () use ($revoke): void {
+            $revoke();
+
+            DB::table('password_identities')->update(['password' => app(Hasher::class)->make('another passphrase entirely')]);
+        });
+
+        self::assertSame(FailureReason::SESSION_REVOKED, Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD)->reason);
     }
 
     /**
-     * Rows of `[what vanished before the change's lock, the reason]`.
+     * Rows of `[the tables whose rows vanished before the change's lock, the
+     * reason]`.
      *
-     * @return iterable<string, array{0: string, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
+     * @return iterable<string, array{0: list<string>, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
      */
     public static function provideVanishedRows(): iterable
     {
-        yield 'the identity' => ['password_identities', FailureReason::IDENTITY_UNKNOWN];
-        yield 'the session' => ['authentication_sessions', FailureReason::SESSION_UNKNOWN];
+        yield 'the identity' => [['password_identities'], FailureReason::IDENTITY_UNKNOWN];
+        yield 'the session' => [['authentication_sessions'], FailureReason::SESSION_UNKNOWN];
+        yield 'the identity and the session' => [['password_identities', 'authentication_sessions'], FailureReason::IDENTITY_UNKNOWN];
     }
 
     /**
      * An identity or a session deleted between the checks and the change's lock
      * is not found under the lock: the identity's absence is
-     * `identity_unknown`, as the checks answer it, the session's
-     * `session_unknown`; the refusal is reported, and nothing is written or
-     * revoked.
+     * `identity_unknown`, as the checks answer it, whatever became of the
+     * session, the session's `session_unknown`; the refusal is reported, and
+     * nothing is written or revoked.
      *
-     * @param  string  $table
+     * @param  list<string>  $tables
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @return void
      *
      * @throws \Throwable
      */
     #[DataProvider('provideVanishedRows')]
-    public function testARowDeletedMeanwhileRefusesTheChange(string $table, FailureReason $reason): void
+    public function testARowDeletedMeanwhileRefusesTheChange(array $tables, FailureReason $reason): void
     {
         self::seedPasswordIdentity();
 
         $session = $this->signInWithPassword()->record;
 
         $this->signInWithPassword();
-        $this->beforeTheIdentityIsLocked(static fn () => DB::table($table)->delete());
+        $this->beforeTheIdentityIsLocked(static function () use ($tables): void {
+            foreach ($tables as $table) {
+                DB::table($table)->delete();
+            }
+        });
         $this->recordEvents([AuthenticationFailed::class, PasswordSet::class]);
 
         self::assertSame($reason, Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD)->reason);
@@ -396,8 +418,8 @@ final class PasswordChangesTest extends TestCase
      * written before the establishment locked its row, or one was written after
      * the lock's check and before the write, which writes only while the row
      * has none (its transaction rolls back whole, the write that raced it
-     * included, as a caller's would on a real database); and a password the
-     * policy rejects is `rejected`.
+     * included, as a caller's would on a real database), before the new
+     * password is judged; and a password the policy rejects is `rejected`.
      *
      * @return void
      *
@@ -410,6 +432,7 @@ final class PasswordChangesTest extends TestCase
         $session = $this->signInWithPassword()->record;
 
         self::assertSame(FailureReason::PASSWORD_ALREADY_SET, Auth::passwords('web')->establish($session, self::NEW_PASSWORD)->reason);
+        self::assertSame(FailureReason::PASSWORD_ALREADY_SET, Auth::passwords('web')->establish($session, 'short')->reason);
 
         DB::table('password_identities')->update(['password' => '']);
 
@@ -429,6 +452,143 @@ final class PasswordChangesTest extends TestCase
         self::assertSame(FailureReason::PASSWORD_ALREADY_SET, Auth::passwords('web')->establish($session, self::NEW_PASSWORD)->reason);
         self::assertNull(DB::table('password_identities')->value('password'));
         self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
+    }
+
+    /**
+     * A client the caller hands in, not the request's, is the one a change and
+     * an establishment count against and report.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheClientHandedInIsTheOneCountedAndReported(): void
+    {
+        $identity = self::seedPasswordIdentity();
+        $session  = $this->signInWithPassword()->record;
+        $client   = new ClientContext('198.51.100.9', 'Other/1.0');
+
+        DB::table('rate_limits')->delete();
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        Auth::passwords('web')->change($session, 'not the password', self::NEW_PASSWORD, $client);
+
+        self::assertSame('198.51.100.9', $this->recordedEvent(AuthenticationFailed::class)->context->client->ip);
+        self::assertSame(1, self::counterHits('web', 'sign_in', 'per_ip', '198.51.100.9'));
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        Auth::passwords('web')->establish($session, self::NEW_PASSWORD, $client);
+
+        self::assertSame([FailureReason::PASSWORD_ALREADY_SET, '198.51.100.9'], [
+            $this->recordedEvent(AuthenticationFailed::class)->reason,
+            $this->recordedEvent(AuthenticationFailed::class)->context->client->ip,
+        ]);
+        self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) $identity->fresh()?->password));
+    }
+
+    /**
+     * Rows of `[setting, malformed value, message]` a change reads before it
+     * reads anything else.
+     *
+     * @return iterable<string, array{0: string, 1: mixed, 2: string}>
+     */
+    public static function provideMalformedSettings(): iterable
+    {
+        yield 'the password policy' => ['authentication.passwords.breached.when_unavailable', 'maybe', 'authentication.passwords.breached.when_unavailable must be `reject` or `allow`.'];
+        yield 'the code key' => ['authentication.codes.key', 'too-short', 'authentication.codes.key must be a string of at least 32 bytes'];
+    }
+
+    /**
+     * A malformed setting a change reads fails it closed before any statement
+     * runs, so before the session is read or anything is counted, even for a
+     * session that would be refused.
+     *
+     * @param  string  $key
+     * @param  mixed  $value
+     * @param  string  $message
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideMalformedSettings')]
+    public function testMalformedSettingsFailClosed(string $key, mixed $value, string $message): void
+    {
+        self::seedPasswordIdentity();
+
+        $session    = $this->signInWithPassword()->record;
+        $statements = 0;
+
+        DB::table('authentication_sessions')->update(['revoked_at' => '2026-10-29 09:29:59', 'revoked_reason' => 'revoked']);
+        DB::listen(static function () use (&$statements): void {
+            $statements++;
+        });
+
+        config()->set($key, $value);
+
+        try {
+            Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD);
+            self::fail('Expected the setting to be refused.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString($message, $exception->getMessage());
+        }
+
+        self::assertSame(0, $statements);
+    }
+
+    /**
+     * An owner the guard's provider returns that is not an Eloquent model has
+     * no row to lock or write, so its password is not changed:
+     * `identity_unknown`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnOwnerThatIsNotAModelChangesNothing(): void
+    {
+        self::seedPasswordIdentity();
+
+        $session  = $this->signInWithPassword()->record;
+        $provider = \Mockery::mock(IdentityProvider::class);
+
+        $provider->shouldReceive('retrieveById')->andReturn(new PlainIdentityFixture(1));
+
+        Auth::provider('plain-fixture', static fn (): IdentityProvider => $provider);
+
+        config()->set('auth.providers.password_identities', ['driver' => 'plain-fixture']);
+        Auth::forgetGuards();
+
+        self::assertSame(FailureReason::IDENTITY_UNKNOWN, Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD)->reason);
+    }
+
+    /**
+     * Checking the current password takes the guard's whole credential timebox
+     * when it is wrong, and ends as soon as it is known to be right.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAWrongCurrentPasswordTakesTheWholeTimebox(): void
+    {
+        self::seedPasswordIdentity();
+
+        $session = $this->signInWithPassword()->record;
+
+        config()->set('authentication.timebox.credentials_microseconds', 400000);
+
+        $timed = static function (\Closure $callback): float {
+            $started = microtime(true);
+
+            $callback();
+
+            return microtime(true) - $started;
+        };
+
+        self::assertGreaterThanOrEqual(0.4, $timed(static fn (): mixed => Auth::passwords('web')->change($session, 'not the password', self::NEW_PASSWORD)));
+        self::assertLessThan(0.3, $timed(static fn (): mixed => Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD)));
     }
 
     /**
