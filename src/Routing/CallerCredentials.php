@@ -103,7 +103,7 @@ final readonly class CallerCredentials
     {
         $declared = DeclaredCredential::of($request);
         $guard    = $declared->guard ?? $this->auth->getDefaultDriver();
-        $key      = sprintf('%s.%s.%s.%s', self::MEMO, $declared->credential->value, $guard, $declared->action->value ?? '');
+        $key      = sprintf('%s.%s.%s.%s', self::MEMO, $declared->credential->value, $guard, $declared->action?->value);
         $memo     = $request->attributes->get($key);
 
         if ($memo instanceof Caller || $memo === false) {
