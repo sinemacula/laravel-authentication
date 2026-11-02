@@ -34,9 +34,11 @@ return SecretResponse::json([
 ```
 
 A refresh rotates the session's refresh token and binds the guard to the refreshed session for the rest of the request.
-The result's `session` is that session: its `identity`, `principal`, `record` (the session row to set a refresh cookie
-for), the `method` its sign-in used, and the new pair in `tokens`, whose tokens are secrets `SecretResponse::json()`
-reveals into a body that is never stored (see [Secrets in responses](signing-in.md#secrets-in-responses)). Every refusal
+The result's `session` is that session: its `identity`, `principal`, `record` (the session row), the `method` its
+sign-in used, and the new pair in `tokens`, whose tokens are secrets `SecretResponse::json()` reveals into a body that
+is never stored (see [Secrets in responses](signing-in.md#secrets-in-responses)); a cookie application's pair carries
+the cookie to set in `tokens->refreshCookie` instead of the refresh token (see [Refresh token
+cookie](#refresh-token-cookie)). Every refusal
 is returned, never thrown, with its `reason`; `rate_limited` also carries the seconds to wait in `retryAfter`, which the
 route answers with a 429 and `Retry-After` so the client waits. A refresh that finds the session's tenant now asking for
 a further factor the session lacks returns it to pending instead: `isPending()`, with `pending` and `credential` and no
@@ -162,9 +164,12 @@ response with `attachTo()`, which also marks the response `Cache-Control: no-sto
 carries the token and no cookie. The pending credential of a pending sign-in is never a cookie: it travels in the body
 for every application.
 
-Put the routes that read the cookie under that path (refresh, a switch, see
-[Switching principal or tenant](sessions.md#switching-principal-or-tenant), and sign-in for a browser that proves its
-session), and attach the cookie whenever the API hands out a pair:
+Put every route that reads the cookie under that path, since a browser sends the cookie nowhere else: refresh, a
+switch (see [Switching principal or tenant](sessions.md#switching-principal-or-tenant)), sign-in for a browser that
+proves its session, the logout route that signs out by the cookie (`signOutFromRequest()`, see [Signing out and
+revoking sessions](sessions.md#signing-out-and-revoking-sessions)), and every route that declares the refresh
+credential for the `me` binding (`authentication.refresh`, see [The me route binding](sessions.md#the-me-route-binding)).
+Attach the cookie whenever the API hands out a pair:
 
 ```php
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
@@ -209,18 +214,20 @@ Signing out clears the cookie for a request the application's own pages sent, ne
 [Signing out and revoking sessions](sessions.md#signing-out-and-revoking-sessions)).
 
 The cookie is `HttpOnly`, `Secure` and `SameSite=Strict`, host-only (it never names a `Domain`), scoped to the
-configured `path`, and expires when the session does, as the refresh token in it does. Its name is the application's
-own unless `cookie.name` sets one: `__Host-<guard>_refresh_token` for a cookie application whose path is `/`,
-otherwise `__Secure-<guard>_refresh_token` (`__Secure-browser_refresh_token` above), so two browser applications on one
-host never overwrite each other's cookie, whatever their paths. A cookie application whose guard name makes no cookie
-name (one with a space or a separator, say) fails closed until `cookie.name` is set; a body application with such a name
-needs nothing, and looks for no cookie of its own. Two cookie applications with the same name fail closed, naming both
-guards. `forgetCookie()` returns the same cookie already expired; any route may send it, a logout
-route outside the cookie's path included, since a path limits where the browser sends a cookie, not which response
-may set it. A `__Host-` name set for a cookie application is accepted only with the path `/`, as browsers require; a
-body application never sets the cookie, so a package-wide `__Host-` name does not bind it. Clearing the cookie of a
-body application throws a `LogicException`. Names PHP renames when it parses a request are refused, as the token would
-never be found under them: a `.` in the cookie or a header name, and a `.`, a space or a bracket in `body_field`.
+configured `path`, and expires when the session does, as the refresh token in it does. Its name is the application's own
+unless `cookie.name` sets one: `__Host-<guard>_refresh_token` for a cookie application whose path is `/`, otherwise
+`__Secure-<guard>_refresh_token` (`__Secure-browser_refresh_token` above), so two browser applications on one host never
+overwrite each other's cookie, whatever their paths. A cookie application whose guard name makes no cookie name (one
+with a space or a separator, say) fails closed until `cookie.name` is set; a body application with such a name needs
+nothing, and looks for no cookie of its own. Two cookie applications with the same name fail closed, naming both guards.
+`forgetCookie()` returns the same cookie already expired; any route may send it, a logout route outside the cookie's
+path included, since a path limits where the browser sends a cookie, not which response may set it. Only clearing works
+from outside the path, though: such a route receives no cookie, so signing out by it there finds nothing to revoke, and
+the session stays live until it expires. A `__Host-` name set for a cookie application is accepted only with the path
+`/`, as browsers require; a body application never sets the cookie, so a package-wide `__Host-` name does not bind it.
+Clearing the cookie of a body application throws a `LogicException`. Names PHP renames when it parses a request are
+refused, as the token would never be found under them: a `.` in the cookie or a header name, and a `.`, a space or a
+bracket in `body_field`.
 
 "The cookie, the application and the session agree" holds on every refresh and switch: the cookie read is the
 application's own name, unique among cookie applications; it is the application's transport

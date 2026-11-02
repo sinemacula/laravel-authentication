@@ -68,8 +68,9 @@ covers the two lookups the binding shares its rules with: one session (`SessionS
 ## Success Path
 
 - `GET /sessions/me` behind `auth:api`: the session the bearer is bound to, no query added to the request's own.
-- `POST /refresh/sessions/me` behind `authentication.refresh:browser`: the session the refresh cookie proves, proven
-  once however many parameters say `me`.
+- `POST /auth/sessions/me` behind `authentication.refresh:browser`, under the browser application's cookie path
+  (`/auth`), where the browser sends the cookie: the session the refresh cookie proves, proven once however many
+  parameters say `me`.
 - `POST /sign-in/principals/{membership}` behind `authentication.pending:choose_principal,api`: a membership the pending
   session offers.
 

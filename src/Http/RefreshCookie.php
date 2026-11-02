@@ -48,7 +48,7 @@ final readonly class RefreshCookie
         /** The application's cookie name. */
         public string $name,
 
-        /** The path the cookie is scoped to: the application's sign-in, refresh and switch routes. */
+        /** The path the cookie is scoped to, which every route that reads it lives under: sign-in, refresh, switch, sign-out and `authentication.refresh` routes. */
         public string $path,
 
         /** When the cookie expires: when the session ends. */

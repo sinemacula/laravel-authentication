@@ -438,9 +438,11 @@ return [
     | `/`, otherwise `__Secure-<guard>_refresh_token`, unless a name is set
     | (a cookie application whose guard name makes no cookie name needs one;
     | a body application with such a name looks for no cookie); two cookie
-    | applications with the same name fail closed. The `path`, the path the
-    | sign-in, refresh and switch routes live under, is required for a cookie
-    | application, and a `__Host-` name needs it to be `/`. Names PHP renames
+    | applications with the same name fail closed. The `path`, the path every
+    | route that reads the cookie lives under (sign-in, refresh, switch, the
+    | logout route that signs out by it, and every `authentication.refresh`
+    | route), is required for a cookie application, and a `__Host-` name needs
+    | it to be `/`. Names PHP renames
     | in a request are refused: a `.` in a header or cookie name, and a `.`, a
     | space or a bracket in `body_field`. A guard overrides any key in a
     | `refresh_token` block on its `config/auth.php` entry, where a key that is
