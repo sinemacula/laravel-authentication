@@ -18,7 +18,7 @@ inheritance:
 | Custom auth manager               | Extend `AuthManager` and bind it to `auth` in a `register()`; the package keeps it                               |
 | Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                                                                |
 | Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` under a name the package does not use |
-| Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy` in the container; call `factorRemoved()` when a factor is removed         |
+| Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy`; call `factorRemoved()` or `factorReset()` when factors are removed       |
 | Gating factor changes             | Call `Auth::sessions()->factorChange()` before adding, replacing or removing a factor or making recovery codes   |
 | Passkeys as a further factor      | Call `Auth::passkeys()->factorOptions()` and `verifyFactor()` from your further-factor package                   |
 | Passkeys registered as factors    | Bind your own `PasskeyFactorGate`; it is asked inside each passkey registration and removal                      |
@@ -398,7 +398,13 @@ seam has a default that works alone.
   for its change. The answer, a `Factors\FactorChangeVerdict`, carries the fresh proof and `freshUntil` (when the
   session stops being fresh for it, for a grant that outlives the request), or the reason; it writes and reports
   nothing.
-- A factor removed ends the identity's other sessions: `Auth::sessions()->factorRemoved($identity, Auth::session())`.
+- A factor removed, inside the same transaction and after the same locks:
+  `Auth::sessions()->factorRemoved($identity, $factor->reference(), Auth::session())` ends the identity's other
+  sessions, voids the current session's proofs made with that factor, and judges the current session again: it stays
+  active, returns to pending (its `Sessions\FactorRemoval` carries the pending session and credential for the client) or
+  is revoked. Every factor reset: `Auth::sessions()->factorReset($identity)` ends every session. Both are mandatory: no
+  setting turns them off, and they are called synchronously, never through a listener (see [Sign-in
+  factors](sessions.md#sign-in-factors)). The identity must live on the storage connection.
 - Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity, $binding, $credentialIds)` and
   `verifyFactor($identity, $binding, $challenge, $credential)`, which count and report nothing: the factor's outcome is
   the factor package's to limit and report. The ceremony is bound to the `ProofBinding`'s session and purpose and allows

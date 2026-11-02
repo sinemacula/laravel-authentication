@@ -65,4 +65,8 @@ enum AuthenticationFlow: string
     // A change or an establishment of the password from a signed-in session:
     // the password service's change() and establish()
     case PASSWORD_CHANGE = 'password_change';
+
+    // A recheck of the current session after one of the factor package's
+    // factors was removed: the session service's factorRemoved()
+    case FACTOR_CHANGE = 'factor_change';
 }

@@ -302,7 +302,8 @@ final readonly class SessionRevocations
     }
 
     /**
-     * A factor the identity signs in with was removed: end its sessions
+     * A first-factor credential of the identity (a passkey, or a phone number
+     * or email address it signs in with) was removed: end its sessions
      * (`factor_removed`), except the given session.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -314,7 +315,7 @@ final readonly class SessionRevocations
      * @throws \LogicException
      * @throws \Throwable
      */
-    public function factorRemoved(Identity $identity, ?Session $except = null): int
+    public function credentialRemoved(Identity $identity, ?Session $except = null): int
     {
         return $this->revokeSessions($identity, RevocationReason::FACTOR_REMOVED, $except);
     }

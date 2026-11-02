@@ -13,8 +13,13 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
+use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -26,7 +31,9 @@ use Tests\TestCase;
  * Integration tests of a guard's session revocations signing a binding out
  * everywhere for an identity that records a "tokens valid after" cutoff: the
  * cutoff stays where it is only when the binding's own token is kept and names
- * no session, and moves to now otherwise.
+ * no session, and moves to now otherwise; and each logout everywhere inside an
+ * application's transaction, which commits or rolls back with it, cutoff
+ * included, and reports only once committed.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -146,6 +153,127 @@ final class SessionRevocationsTest extends TestCase
     }
 
     /**
+     * Rows of `[the logout everywhere]`: revoking the identity's sessions,
+     * revoking those of the principal it acts as, and signing the binding out
+     * everywhere.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionRevocations, \SineMacula\Laravel\Authentication\Guards\JwtGuard, \Tests\Integration\Fixtures\CutoffIdentity): int}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    public static function provideLogoutsEverywhere(): iterable
+    {
+        yield 'the identity\'s sessions' => [
+            static fn (SessionRevocations $service, JwtGuard $guard, CutoffIdentity $identity): int => $service->revokeSessions($identity, RevocationReason::REVOKED),
+        ];
+
+        yield 'the principal\'s sessions' => [
+            static fn (SessionRevocations $service, JwtGuard $guard, CutoffIdentity $identity): int => $service->revokePrincipalSessions($identity, RevocationReason::REVOKED),
+        ];
+
+        yield 'signing out everywhere' => [
+            static fn (SessionRevocations $service, JwtGuard $guard): int => $service->signOutEverywhere($guard, false),
+        ];
+    }
+
+    /**
+     * A logout everywhere inside an application's transaction on the storage
+     * connection that rolls back revokes nothing, leaves the cutoff where it
+     * was and reports nothing, with the application's own change.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionRevocations, \SineMacula\Laravel\Authentication\Guards\JwtGuard, \Tests\Integration\Fixtures\CutoffIdentity): int  $logout
+     * @return void
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideLogoutsEverywhere')]
+    public function testALogoutEverywhereRollsBackWithTheCallersTransaction(\Closure $logout): void
+    {
+        $identity = $this->seedIdentity();
+        $guard    = $this->bearing($this->signIn($identity));
+        $events   = $this->recordRevocations();
+
+        $this->signIn($identity);
+        $this->moveClocksTo($this->now->addMinute());
+
+        DB::beginTransaction();
+
+        $identity->forceFill(['email' => 'grace@example.test'])->save();
+
+        self::assertSame(2, $logout($this->revocationsOf($guard), $guard, $identity));
+
+        DB::rollBack();
+
+        $stored = $identity->fresh();
+
+        self::assertNotNull($stored);
+        self::assertSame('ada@example.test', $stored->email);
+        self::assertNull($stored->getTokensValidAfter());
+        self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
+        self::assertSame([], $events->getArrayCopy());
+    }
+
+    /**
+     * A logout everywhere inside an application's transaction that commits
+     * revokes the sessions and moves the cutoff with the application's own
+     * change, and reports each revocation and the logout once, after the
+     * commit.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionRevocations, \SineMacula\Laravel\Authentication\Guards\JwtGuard, \Tests\Integration\Fixtures\CutoffIdentity): int  $logout
+     * @return void
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideLogoutsEverywhere')]
+    public function testALogoutEverywhereCommitsWithTheCallersTransaction(\Closure $logout): void
+    {
+        $identity = $this->seedIdentity();
+        $guard    = $this->bearing($this->signIn($identity));
+        $events   = $this->recordRevocations();
+
+        $this->signIn($identity);
+        $this->moveClocksTo($this->now->addMinute());
+
+        DB::transaction(function () use ($logout, $guard, $identity, $events): void {
+
+            $identity->forceFill(['email' => 'grace@example.test'])->save();
+
+            self::assertSame(2, $logout($this->revocationsOf($guard), $guard, $identity));
+            self::assertSame([], $events->getArrayCopy());
+        });
+
+        $stored = $identity->fresh();
+
+        self::assertNotNull($stored);
+        self::assertSame('grace@example.test', $stored->email);
+        self::assertSame($this->now->toDateTimeString(), $stored->getTokensValidAfter()?->toDateTimeString());
+        self::assertSame(2, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
+        self::assertSame([SessionRevoked::class, SessionRevoked::class, SignedOutEverywhere::class], $events->getArrayCopy());
+    }
+
+    /**
      * Configure the `api` guard over the identities that record a cutoff.
      *
      * @param  mixed  $app
@@ -199,6 +327,24 @@ final class SessionRevocationsTest extends TestCase
         self::assertNotNull($session);
 
         return $session->tokens->accessToken->reveal();
+    }
+
+    /**
+     * Record the class of every revocation and logout everywhere reported from
+     * now on, in order.
+     *
+     * @return \ArrayObject<int, class-string>
+     */
+    private function recordRevocations(): \ArrayObject
+    {
+        /** @var \ArrayObject<int, class-string> $events */
+        $events = new \ArrayObject;
+
+        Event::listen([SessionRevoked::class, SignedOutEverywhere::class], static function (object $event) use ($events): void {
+            $events->append($event::class);
+        });
+
+        return $events;
     }
 
     /**

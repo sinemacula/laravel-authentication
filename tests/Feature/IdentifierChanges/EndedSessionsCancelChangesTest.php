@@ -100,6 +100,7 @@ final class EndedSessionsCancelChangesTest extends TestCase
         };
 
         $revokeAll = static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->revokeSessions($identity, RevocationReason::REVOKED);
+        $removal   = static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->factorRemoved($identity, 'factor-1')->revoked;
 
         yield from [
             'signing out everywhere'                 => [$everywhere(false)],
@@ -107,7 +108,9 @@ final class EndedSessionsCancelChangesTest extends TestCase
             'revoking every session'                 => [$revokeAll],
             'a password changed'                     => [static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->passwordChanged($identity)],
             'a password reset'                       => [static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->passwordReset($identity)],
-            'a factor removed'                       => [static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->factorRemoved($identity)],
+            'a credential removed'                   => [static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->credentialRemoved($identity)],
+            'a factor removed'                       => [$removal],
+            'the factors reset'                      => [static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->factorReset($identity)],
             'the identity deactivated'               => [static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->identityDeactivated($identity)],
             'Laravel\'s password reset event'        => [$listener],
         ];

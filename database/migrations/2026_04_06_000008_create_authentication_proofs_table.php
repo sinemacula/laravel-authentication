@@ -79,8 +79,8 @@ return new class extends Migration {
 
             $blueprint->dateTime('authenticated_at', 0);
 
-            // When the proof stopped counting, which nothing sets yet; a voided
-            // proof never counts.
+            // When the proof stopped counting, set when the factor it was made
+            // with is removed; a voided proof never counts.
             $blueprint->dateTime('voided_at', 0)->nullable();
 
             $blueprint->dateTime('created_at', 0)->nullable();

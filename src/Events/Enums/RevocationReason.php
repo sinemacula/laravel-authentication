@@ -37,7 +37,9 @@ enum RevocationReason: string
     // The identity's password was reset: `passwordReset()`
     case PASSWORD_RESET = 'password_reset';
 
-    // A factor the identity signed in with was removed: `factorRemoved()`
+    // A sign-in factor of the identity was removed: a first-factor credential,
+    // `credentialRemoved()`, or one of the factor package's factors,
+    // `factorRemoved()`
     case FACTOR_REMOVED = 'factor_removed';
 
     // The identity was deactivated: `identityDeactivated()`
@@ -58,4 +60,7 @@ enum RevocationReason: string
 
     // The identity established its first password: `passwordEstablished()`
     case PASSWORD_ESTABLISHED = 'password_established';
+
+    // The identity's further factors were reset: `factorReset()`
+    case FACTOR_RESET = 'factor_reset';
 }

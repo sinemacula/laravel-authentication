@@ -13,6 +13,8 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\ActiveSessions;
+use SineMacula\Laravel\Authentication\Sessions\FactorRemoval;
+use SineMacula\Laravel\Authentication\Sessions\FactorRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionSignOut;
 use SineMacula\Laravel\Authentication\Sessions\SignOutResult;
@@ -23,12 +25,13 @@ use SineMacula\Laravel\Authentication\Sessions\TenantPolicyChanges;
  * security-change methods, which `SessionRevocations` carries out: signing out
  * and signing out everywhere for the binding the service is given, the rest for
  * whatever identity, principal or tenant they are given; signing out by refresh
- * credential, which `SessionSignOut` carries out; and the application of a
- * tenant's changed authentication policy, which `TenantPolicyChanges` carries
- * out.
+ * credential, which `SessionSignOut` carries out; the removal and reset of the
+ * factor package's factors, which `FactorRevocations` carries out; and the
+ * application of a tenant's changed authentication policy, which
+ * `TenantPolicyChanges` carries out.
  *
- * They are delegations with no state of their own but those three; they sit in
- * a trait only so the service stays within the number of methods one class may
+ * They are delegations with no state of their own but those four; they sit in a
+ * trait only so the service stays within the number of methods one class may
  * declare.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -46,6 +49,9 @@ trait EndsSessions
 
     /** @var \SineMacula\Laravel\Authentication\Sessions\SessionSignOut Signs sessions out by their refresh credential. */
     private readonly SessionSignOut $signOuts;
+
+    /** @var \SineMacula\Laravel\Authentication\Sessions\FactorRevocations Ends sessions when the factor package removes or resets factors. */
+    private readonly FactorRevocations $factorRevocations;
 
     /**
      * One page of the identity's active sessions, of every guard, for a session
@@ -213,7 +219,10 @@ trait EndsSessions
      * changes (a change link needs no session); when the identity records a
      * "tokens valid after" cutoff, move it to now first, so its access tokens
      * issued without a session stop as well. Returns how many sessions this
-     * call revoked.
+     * call revoked. Called inside a transaction on the storage connection, it
+     * runs as a savepoint there and reports once that commits, so a change of
+     * the application's rolled back with it revokes nothing; the identity must
+     * live on that connection too for its cutoff to roll back as well.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -287,9 +296,10 @@ trait EndsSessions
     }
 
     /**
-     * A factor the identity signs in with was removed: end its sessions
-     * (`factor_removed`), except the given session. The seam a further-factor
-     * package calls when a factor is removed.
+     * A first-factor credential of the identity (a passkey, or a phone number
+     * or email address it signs in with) was removed: end its sessions
+     * (`factor_removed`), except the given session.
+     * `RevokeSessionsOnPasskeyRemoval` calls it for a removed passkey.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
@@ -300,9 +310,63 @@ trait EndsSessions
      * @throws \LogicException
      * @throws \Throwable
      */
-    public function factorRemoved(Identity $identity, ?Session $except = null): int
+    public function credentialRemoved(Identity $identity, ?Session $except = null): int
     {
-        return $this->revocations->factorRemoved($identity, $except);
+        return $this->revocations->credentialRemoved($identity, $except);
+    }
+
+    /**
+     * The factor package removed the identity's factor `$factor` (its reference
+     * to it, 1 to 255 characters): end every session of the identity but
+     * `$current`, pending ones included (`factor_removed`), and judge
+     * `$current` again without the factor. Its proofs made with the factor stop
+     * counting; it stays active while it still meets the identity's factor
+     * policy and its tenant's policy, returns to pending (flow `factor_change`)
+     * while it falls short of a further factor only, its tokens stopping at
+     * once, and is revoked (`factor_removed`) when it is no longer admitted as
+     * a refresh admits it or its tenant now requires a connection. A current
+     * session that was meanwhile revoked, ended or returned to pending is left
+     * as it is. When this guard is bound to it and it is returned to pending or
+     * revoked, the binding is forgotten once the removal commits.
+     *
+     * Mandatory: the factor package calls it inside the transaction that
+     * removes the factor, after taking its own locks, so both commit or roll
+     * back together; it runs as a savepoint there and its events follow the
+     * commit. `$current`, when given, must be a session of this guard the
+     * identity owns, and the identity must live on the storage connection, or
+     * nothing is written and an exception is thrown.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  string  $factor
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $current
+     * @return \SineMacula\Laravel\Authentication\Sessions\FactorRemoval
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Throwable
+     */
+    public function factorRemoved(Identity $identity, string $factor, ?Session $current = null): FactorRemoval
+    {
+        return $this->factorRevocations->remove($identity, $factor, $current, CarbonImmutable::now()->startOfSecond());
+    }
+
+    /**
+     * The factor package reset the identity's further factors: end every
+     * session it has, the current one included (`factor_reset`). Mandatory, as
+     * `factorRemoved()` is, and called the same way; the identity must live on
+     * the storage connection.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return int
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Throwable
+     */
+    public function factorReset(Identity $identity): int
+    {
+        return $this->factorRevocations->reset($identity);
     }
 
     /**

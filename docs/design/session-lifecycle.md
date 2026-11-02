@@ -84,9 +84,10 @@ revoked, and when a session that ended is deleted. Starting a session is in
 - `signOutEverywhere(keepCurrentSession: true)` keeps the request's session; a request without one (a session-less
   token) is kept by leaving the identity's cutoff unmoved, so the identity's other session-less tokens survive too,
   until they expire.
-- The security-change methods (`passwordChanged()`, `passwordReset()`, `factorRemoved()`, `identityDeactivated()`,
-  `principalDeactivated()`, `tenantDeactivated()`) are bulk revocations with their own reason. `tenantDeactivated()`
-  checks every listed principal acts within the tenant (`getTenant()` on the writer, through
+- The security-change methods (`passwordChanged()`, `passwordReset()`, `credentialRemoved()`, `factorReset()`,
+  `identityDeactivated()`, `principalDeactivated()`, `tenantDeactivated()`) are bulk revocations with their own reason;
+  `factorRemoved()` is one too, before it judges the current session again (`Sessions\FactorRevocations`).
+  `tenantDeactivated()` checks every listed principal acts within the tenant (`getTenant()` on the writer, through
   `WriteConnection::stored()`, so a `tenant` relation whoever loaded the principal set does not decide and Eloquent's
   strict mode does not stop the read; same class and identifier; for a `CanBeActive` tenant that can no longer be
   loaded, the class and key the `TenantUnavailableException` carries, so a deleted or soft-deleted one still ends its

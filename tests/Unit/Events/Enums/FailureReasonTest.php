@@ -154,6 +154,7 @@ final class FailureReasonTest extends TestCase
             'reauthentication',
             'factor_code',
             'password_change',
+            'factor_change',
         ], $flows);
     }
 
@@ -179,6 +180,7 @@ final class FailureReasonTest extends TestCase
             'tenant_deactivated',
             'tenant_policy_changed',
             'password_established',
+            'factor_reset',
         ], array_map(static fn (RevocationReason $reason): string => $reason->value, RevocationReason::cases()));
     }
 }

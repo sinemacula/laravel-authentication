@@ -308,8 +308,8 @@ final class SessionRevocationsTest extends TestCase
             false,
         ];
 
-        yield 'factor removed' => [
-            static fn (SessionRevocations $revocations, Identity $identity, Session $record): int => $revocations->factorRemoved($identity, $record),
+        yield 'credential removed' => [
+            static fn (SessionRevocations $revocations, Identity $identity, Session $record): int => $revocations->credentialRemoved($identity, $record),
             RevocationReason::FACTOR_REMOVED,
             true,
         ];

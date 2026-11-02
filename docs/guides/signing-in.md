@@ -551,9 +551,9 @@ Event::listen(PasskeyRemoved::class, RevokeSessionsOnPasskeyRemoval::class);
 
 It ends every session of the identity with `factor_removed`; to keep the current session signed in, call
 `Auth::sessions()->credentialRemoved($identity, Auth::session())` yourself instead. With a factor package, a passkey it
-associated as a factor is removed through `remove()` (its gate first), and the factor package then ends sessions itself;
-register the listener alongside it only if every passkey removal should end every session. See
-`docs/design/passkeys.md`.
+associated as a factor is removed through `remove()` (its gate first), and the factor package then calls
+`Auth::sessions()->factorRemoved()` (see [Sign-in factors](sessions.md#sign-in-factors)); register the listener
+alongside it only if every passkey removal should end every session. See `docs/design/passkeys.md`.
 
 ## Writing a sign-in method
 

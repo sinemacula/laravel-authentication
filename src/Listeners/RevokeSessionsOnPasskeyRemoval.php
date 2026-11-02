@@ -18,8 +18,11 @@ use SineMacula\Laravel\Authentication\Events\PasskeyRemoved;
  *
  * Every session is revoked, the one the passkey was removed from included; an
  * application that keeps that session signed in calls
- * `Auth::sessions()->factorRemoved($identity, Auth::session())` itself instead
- * of registering the listener.
+ * `Auth::sessions()->credentialRemoved($identity, Auth::session())` itself
+ * instead of registering the listener. A passkey the factor package associated
+ * as a factor has its removal judged by the factor package, which calls
+ * `factorRemoved()` itself; registered alongside it, the listener still ends
+ * every session on any passkey's removal.
  *
  * The session service comes from the application now serving, not from the
  * container that built the listener, which under Octane is the application the
@@ -54,6 +57,6 @@ final readonly class RevokeSessionsOnPasskeyRemoval
         /** @var \SineMacula\Laravel\Authentication\AuthManager $auth */
         $auth = Container::getInstance()->make('auth');
 
-        $auth->sessions($event->context->guard)->factorRemoved($identity);
+        $auth->sessions($event->context->guard)->credentialRemoved($identity);
     }
 }

@@ -132,14 +132,15 @@ outdates, and why the change stands when the notice to the old identifier fails.
   registered normaliser and through any guard, in one `DELETE` by key inside the revocation's transaction on the storage
   connection (`PendingChanges::forget()`, from `Sessions\RevocationWriter` for the scope
   `SessionService::revokeSessions()` builds): `signOutEverywhere()`, `revokeSessions()`, `passwordChanged()`,
-  `passwordReset()`, `factorRemoved()`, `identityDeactivated()`, and so `PasswordService::set()` for a change or a
-  reset, a reset by link or code, and the listeners. A link needs no session, so a change requested from a session that
-  ended (an attacker's) would otherwise still move the account to the requester's address once its owner had signed it
-  out, reset its password or had it suspended, whether or not the identity has a password at all. The change's code
-  needs nothing: it is checked only against its pending change's binding, so without the row it confirms nothing until
-  it is pruned. Revoking one session, ending a principal's sessions and a registration leave the identity's other
-  sessions, and so its pending changes. A deactivation that only clears the identity's active flag, without
-  `identityDeactivated()`, keeps them, and the change can be confirmed once the identity is active again.
+  `passwordReset()`, `credentialRemoved()`, `factorRemoved()`, `factorReset()`, `identityDeactivated()`, and so
+  `PasswordService::set()` for a change or a reset, a reset by link or code, and the listeners. A link needs no session,
+  so a change requested from a session that ended (an attacker's) would otherwise still move the account to the
+  requester's address once its owner had signed it out, reset its password or had it suspended, whether or not the
+  identity has a password at all. The change's code needs nothing: it is checked only against its pending change's
+  binding, so without the row it confirms nothing until it is pruned. Revoking one session, ending a principal's
+  sessions and a registration leave the identity's other sessions, and so its pending changes. A deactivation that only
+  clears the identity's active flag, without `identityDeactivated()`, keeps them, and the change can be confirmed once
+  the identity is active again.
 
 ## Implementation Anchors
 

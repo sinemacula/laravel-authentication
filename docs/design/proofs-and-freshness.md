@@ -118,9 +118,9 @@ the token's claims and every freshness answer are worked out from them, never st
 
 These parts are columns, kinds or values with nothing yet behind them; the guides say so where they describe them.
 
-- Voiding: `voided_at` is respected by every read and written by nothing. Removing a factor does not stop its proofs
-  counting, so `factorRemoved()` ends the identity's other sessions and leaves the session it excepts with its proofs
-  of that factor: its tokens keep `mfa` in `amr`, and it still meets a multifactor requirement.
+- Voiding: `voided_at` is respected by every read and written only by `factorRemoved()`, for the current session's
+  proofs made with the removed factor (`ProofWriter::void()`); the identity's other sessions end instead, so their
+  proofs are never voided. A removed first-factor credential (`credentialRemoved()`) voids nothing.
 - Evidence: `accepted_evidence` has no writer and is always `null`. Nothing decides whether a provider's evidence is
   accepted, so an external reauthentication would never count for MFA or `amr`.
 - `external_reauthentication`: a reserved kind that nothing records; there is no reauthentication handoff from the
