@@ -597,6 +597,42 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
+     * A confirmation by code answers as the check of its code does: a code for
+     * another challenge is `invalid`, one out of attempts `exhausted` and one
+     * past its expiry `expired`, the identifier unchanged; a malformed
+     * challenge is `invalid` with nothing counted, even with a well-formed
+     * code.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAConfirmationByCodeAnswersAsItsCodesCheckDoes(): void
+    {
+        $identity = self::seedChangeable();
+
+        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity));
+
+        $challenge = self::changeChallenge($identity, 'email');
+        $hits      = static fn (): int => (int) DB::table('rate_limits')->sum('hits');
+        $before    = $hits();
+        $confirm   = fn (string $challenge): IdentifierChangeOutcome => $this->changes()->confirmByCode($identity, 'email', $challenge, self::CODE)->outcome;
+
+        self::assertSame(IdentifierChangeOutcome::INVALID, $confirm('not-a-challenge'));
+        self::assertSame($before, $hits());
+        self::assertSame(IdentifierChangeOutcome::INVALID, $confirm(self::NO_CHALLENGE));
+
+        DB::table('one_time_codes')->update(['attempts' => 5]);
+
+        self::assertSame(IdentifierChangeOutcome::EXHAUSTED, $confirm($challenge));
+
+        DB::table('one_time_codes')->update(['attempts' => 0, 'expires_at' => '2026-04-06 12:00:00']);
+
+        self::assertSame(IdentifierChangeOutcome::EXPIRED, $confirm($challenge));
+        self::assertSame(self::EMAIL, $identity->fresh()?->email);
+    }
+
+    /**
      * A request counts its limits, the password proof's sign-in slots among
      * them, before its transaction, and none inside it; the transaction locks
      * the identity's row as it starts, before it checks the proof again or

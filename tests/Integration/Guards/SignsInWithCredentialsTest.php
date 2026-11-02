@@ -13,6 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\Concerns\SignsInWithCredentials;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use Tests\Concerns\InteractsWithLaggingReplica;
@@ -23,7 +24,8 @@ use Tests\TestCase;
  * Integration tests for asking the additional-factor policy on `attempt()`
  * against a read/write split whose replica lags behind its primary: the policy
  * is asked on the identity's writer, so a factor enrolled on the primary that
- * the replica has not seen yet still holds the attempt back.
+ * the replica has not seen yet still holds the attempt back. It is told of the
+ * password as the attempt's first factor.
  *
  * The policy asks for a further factor only when its read on the identity's
  * connection finds a row written through the split connection, which exists on
@@ -141,6 +143,53 @@ final class SignsInWithCredentialsTest extends TestCase
     public function testWithoutAFactorTheAttemptSignsIn(): void
     {
         self::assertTrue(Auth::guard('api')->attempt(['email' => self::EMAIL, 'password' => self::PASSWORD]));
+    }
+
+    /**
+     * The policy is told of the password as the attempt's first factor: a
+     * password channel and the `pwd` method.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testThePolicyIsToldOfThePasswordAsTheFirstFactor(): void
+    {
+        $told = new \ArrayObject;
+
+        $this->app?->instance(AdditionalFactorPolicy::class, new class ($told) implements AdditionalFactorPolicy {
+            /**
+             * Constructor.
+             *
+             * @param  \ArrayObject<int, \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext>  $told
+             */
+            public function __construct(
+
+                /** The contexts the policy was asked with. */
+                private readonly \ArrayObject $told,
+            ) {}
+
+            /**
+             * Record the context and ask for nothing.
+             *
+             * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
+             * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
+             */
+            #[\Override]
+            public function requirementFor(AdditionalFactorContext $context): Requirement
+            {
+                $this->told->append($context);
+
+                return new Requirement;
+            }
+        });
+
+        self::assertTrue(Auth::guard('api')->attempt(['email' => self::EMAIL, 'password' => self::PASSWORD]));
+        self::assertCount(1, $told);
+
+        $firstFactor = $told[0]->firstFactor;
+
+        self::assertSame([ChannelKind::PASSWORD, ['pwd']], [$firstFactor->channel->kind, $firstFactor->methods]);
     }
 
     /**

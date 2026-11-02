@@ -357,7 +357,8 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * A verification job carrying a machine identity, or none, sends nothing.
+     * A verification job carrying a machine identity, an identity that holds
+     * no verifiable identifiers, or none, sends nothing.
      *
      * @return void
      *
@@ -370,9 +371,12 @@ final class SendOneTimeCodeTest extends TestCase
         $machine = CodeMachineClient::query()->sole();
         $binding = CodeBinding::verification('mobile', 'phone', self::PHONE, $machine);
         $issued  = $this->issue($binding, $this->now);
+        $plain   = new PlainIdentityFixture(1);
+        $other   = CodeBinding::verification('mobile', 'phone', self::PHONE, $plain);
 
         (new SendOneTimeCode($binding, $issued, $machine))->handle(app());
         (new SendOneTimeCode($binding, $issued))->handle(app());
+        (new SendOneTimeCode($other, $this->issue($other, $this->now), $plain))->handle(app());
 
         self::assertSame(0, $this->sender->count());
     }

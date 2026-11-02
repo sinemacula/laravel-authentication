@@ -626,6 +626,30 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
+     * A client the caller hands in, not the request's, is the one a send and a
+     * check count against and report.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheClientHandedInIsTheOneCountedAndReported(): void
+    {
+        $binding = $this->binding();
+        $client  = new ClientContext('198.51.100.9', 'Other/1.0');
+
+        $challenge = (string) $this->codeService()->sendFactorCode($binding, $client)->challengeId;
+
+        self::assertSame([1, 0], [self::counterHits('mobile', 'code_request', 'per_ip', '198.51.100.9'), self::counterHits('mobile', 'code_request', 'per_ip', self::IP)]);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        self::assertSame(FactorCodeOutcome::INVALID, $this->codeService()->verifyFactorCode($binding, $challenge, '000000', $client)->outcome);
+        self::assertSame([1, 0], [self::counterHits('mobile', 'factor_code', 'per_ip', '198.51.100.9'), self::counterHits('mobile', 'factor_code', 'per_ip', self::IP)]);
+        self::assertSame('198.51.100.9', $this->recordedEvent(AuthenticationFailed::class)->context->client->ip);
+    }
+
+    /**
      * A report that throws rolls the whole check back, its attempt and its use
      * included, and the exception propagates.
      *

@@ -105,9 +105,9 @@ final class ChallengeDeliveriesTest extends TestCase
     }
 
     /**
-     * A resend replaces the previous code at once: the old code no longer
-     * works, the new one does, and the challenge keeps its id and the attempts
-     * already spent on it.
+     * A resend replaces the previous code at once, in the one update after its
+     * read: the old code no longer works, the new one does, and the challenge
+     * keeps its id and the attempts already spent on it.
      *
      * @return void
      *
@@ -115,15 +115,22 @@ final class ChallengeDeliveriesTest extends TestCase
      */
     public function testAResendInvalidatesThePreviousCode(): void
     {
-        $binding = self::binding();
-        $codes   = self::sequence(['111111', '222222']);
-        $later   = $this->now->addSeconds(60);
+        $binding    = self::binding();
+        $codes      = self::sequence(['111111', '222222']);
+        $later      = $this->now->addSeconds(60);
+        $statements = [];
 
         $first = $codes->issue($binding, $this->now);
 
         self::assertSame(CodeCheck::WRONG, $codes->check($binding, self::challenge(), '999999', $this->now));
 
+        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
+            $statements[] = (string) strtok(strtolower($query->sql), ' ');
+        });
+
         $second = $codes->issue($binding, $later);
+
+        self::assertSame(['select', 'update'], $statements);
 
         self::assertInstanceOf(IssuedCode::class, $first);
         self::assertInstanceOf(IssuedCode::class, $second);
@@ -211,6 +218,30 @@ final class ChallengeDeliveriesTest extends TestCase
 
         self::assertSame(1, self::cooldownOf(self::codes()->issue($binding, $this->now->addSeconds(300))));
         self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, self::challenge(), '111111', $this->now->addSeconds(300)));
+    }
+
+    /**
+     * An issue that a concurrent one beat to the replacement waits out the
+     * cooldown from the delivery that won, not from the one it read.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAnIssueBeatenToTheReplacementWaitsOutTheWinnersCooldown(): void
+    {
+        $binding    = self::binding();
+        $concurrent = self::sequence(['222222']);
+        $later      = $this->now->addSeconds(90);
+
+        self::codes()->issue($binding, $this->now);
+
+        $this->onceAfter(static fn (string $sql): bool => str_starts_with($sql, 'select'), static function () use ($concurrent, $binding, $later): void {
+            $concurrent->issue($binding, $later->subSeconds(20));
+        });
+
+        self::assertSame(40, self::cooldownOf(self::codes()->issue($binding, $later)));
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, self::challenge(), '222222', $later));
     }
 
     /**
