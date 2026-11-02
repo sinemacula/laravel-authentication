@@ -75,11 +75,25 @@ other rotated token as a replay that revokes the session.
   successful ones are not. Once either count is full, the exchange stops before the session lookup.
 - Refresh preserves principal continuity by carrying `principal` forward into both the new refresh token and the new
   access token.
-- A refresh is accepted only for the principal its session records (`PrincipalReference::isRecordedOn()`), on the
-  current, the grace and the lost-rotation paths alike: after a switch of principal, the refresh token of the principal
-  switched from fails with `session_principal_mismatch` and is not a replay, so the session is left alone, while the
-  same token after the grace window is judged a replay as any rotated token is. The switch itself runs the same
-  judgement (`RefreshJudgment::classify()`) with its own retry rule; see `principal-choice-and-switch.md`.
+- A refresh is accepted only for the principal its session records (`PrincipalReference::isRecordedOn()`), and in the
+  active tenant it records (`OwnedSession::actsIn()`), on the current, the grace and the lost-rotation paths alike:
+  after a switch of principal, the refresh token of the principal switched from fails with `session_principal_mismatch`
+  and is not a replay, so the session is left alone, while the same token after the grace window is judged a replay as
+  any rotated token is. The switch itself runs the same judgement (`RefreshJudgment::classify()`) with its own retry
+  rule; see `principal-choice-and-switch.md`.
+- After admission, every refresh asks the authentication policy of the session's active tenant
+  (`Tenancy\TenantPolicyCheck`; never skipped on a recorded version): a session that must have been established through
+  a connection it was not is revoked (`tenant_policy_changed`, `RefreshRotationStore::revokeAsLoaded()`, which applies
+  only while the row is active with the loaded refresh digest, principal and tenant, so a session a switch moved
+  meanwhile is never revoked for the tenant it left) and refused as `sso_required`; one that lacks a further factor
+  returns to pending (`PendingTransitions::returnToPending()`, one compare-and-swap on the loaded refresh digest,
+  principal, tenant, policy version, deadlines and `status = active`, recording the version answered), and the result is
+  pending, with a pending credential and no pair; one that meets it rotates, the swap matching the loaded
+  `tenant_policy_version` and writing the answered one when it differs, so a version the policy-change helper wrote in
+  between makes the swap miss and the refresh be judged again. A lost revocation or return to pending is judged again as
+  a lost rotation is, except that a grace retry gets no pair (`rotation_conflict`): the policy this exchange asked
+  refused one. A pending session's refresh token is refused as `session_pending` before any digest is compared, so it is
+  never taken for a replay.
 - The package opens no transaction around a refresh.
 
 ## Success Path
@@ -157,7 +171,7 @@ other rotated token as a replay that revokes the session.
   revoked the continued session. A client that lost the sign-in response and retries with the old token proves nothing
   (its session is already revoked) and gets another session. A swap that misses (a parallel refresh rotated the session
   first) never retries: the sign-in is reconsidered without the session, so it starts a new session, revoking nothing,
-  or becomes a pending sign-in when the additional-factor policy now asks for a factor. A refresh that loses to a
+  or is written pending when the additional-factor policy now asks for a factor. A refresh that loses to a
   committed replacement finds the session revoked.
 - Only the immediately previous id is honoured: after `R0 -> R1 -> R2`, a delayed retry of `R0` is a replay even within
   the grace window of the first rotation, and revokes the session.
@@ -165,10 +179,13 @@ other rotated token as a replay that revokes the session.
   writer with a locking read (`lockForUpdate()`, a no-op on SQLite) and classifies it again at the same `$now`:
   - GRACE, the usual case (a parallel refresh with the same token rotated first, and its successor is this exchange's):
     the exchange returns the current credential as above, after confirming the fresh row still belongs to the hydrated
-    identity (`identity_unknown` otherwise);
+    identity (`identity_unknown` otherwise), still records the principal it admitted (`session_principal_mismatch`) and
+    still acts in the active tenant it admitted (`session_tenant_mismatch`), since a switch that won the swap moved it
+    to a context this exchange never judged; after a write for a session the tenant's policy found short,
+    `rotation_conflict` instead of a pair;
   - a replay (for example with a grace window of 0): the session is revoked, `rotation_reuse`;
-  - revoked, deleted, ended, or credential cleared meanwhile: `session_revoked`, `session_unknown`, `session_expired`,
-    or `refresh_key_missing`;
+  - revoked, deleted, ended, returned to pending, or credential cleared meanwhile: `session_revoked`,
+    `session_unknown`, `session_expired`, `session_pending`, or `refresh_key_missing`;
   - the presented id is still current, so other security state changed (a deadline moved): `rotation_conflict`, with
     no revocation and no second swap. That proves nothing about theft, so the session is not revoked, and a client retry
     is judged against the new state.
@@ -222,11 +239,11 @@ other rotated token as a replay that revokes the session.
 - `src/Jwt/RefreshTokenExchange.php`: `exchange()` (the limiter check and the failure count), `exchangeClaims()`,
   `exchangeOn()` (the guard check), `extractRefreshClaims()`, `hydrateRefreshContext()` (the recorded principal),
   `rotate()`, `afterLostRotation()`, `reissue()`, `fail()`, `revokeSession()`.
-- `src/Jwt/RefreshJudgment.php`: `classify()` and `isGraceRetry()`, the verdict a refresh and a switch of principal
+- `src/Jwt/RefreshJudgment.php`: `classify()` and `isGraceRetry()`, the verdict a refresh and a switch
   share.
 - `src/Jwt/RefreshAdmission.php`: `admit()` (the owner reload, the principal, activity), `admitByPolicy()` (the
   application policy).
-- `src/Jwt/RefreshRotationStore.php`: `rotate()` (the compare-and-swap), `switchPrincipal()` (the switch's
+- `src/Jwt/RefreshRotationStore.php`: `rotate()` (the compare-and-swap), `switchSession()` (the switch's
   compare-and-swap), `revoke()` (the guarded revocation), and `reload()` (the locking re-read on the writer).
 - `src/Database/AfterCommit.php`: defers `SessionRevoked` to the commit of the session's own connection.
 - `src/SessionRecords/SessionLookup.php`: `find()`, the session lookup on the writer.
@@ -260,7 +277,7 @@ other rotated token as a replay that revokes the session.
 - `tests/Feature/Jwt/RefreshJudgmentTest.php` (every verdict, and the order the session's state is judged in)
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
   `testARefreshAsAPrincipalTheSessionNoLongerRecordsIsRefused`, `testLostRotationFailsWithWhatTheRowNowSays`
-- `tests/Feature/Sessions/PrincipalSwitchTest.php`
+- `tests/Feature/Sessions/SessionSwitchTest.php`
   `testTheOldRefreshTokenInsideTheGraceWindowFailsWithoutRevoking`,
   `testTheOldRefreshTokenAfterTheGraceWindowRevokesTheSession`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
@@ -298,7 +315,7 @@ other rotated token as a replay that revokes the session.
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
   `testABlockedExchangeIsRefusedBeforeTheLookup`, `testEveryFailureIsCountedAgainstTheSessionAndTheIpAddress`,
   `testASuccessfulExchangeIsNotCounted`, `testASessionOfAnotherGuardIsRefusedWithoutRevokingIt`,
-  `testTheMethodThatStartedTheSessionMustStillBeAllowed`, `testThePolicyMustStillAdmitTheOwnerAsThePrincipal`,
+  `testTheMethodThatStartedTheSessionMustStillBeAllowed`, `testTheAccessMustStillLetThePrincipalUseTheApplication`,
   `testARotationMovesTheIdleDeadlineByThePolicysLifetimes`
 - `tests/Feature/Guards/JwtGuardTest.php`
   `testARateLimitedRefreshFiresFailedAndReturnsTheWait`
@@ -311,7 +328,7 @@ other rotated token as a replay that revokes the session.
   `testPinnedSessionOfAnotherGuardFailsTheAttempt`
 - `tests/Integration/Guards/RefreshApplicationIntegrationTest.php`
   `testASessionOfAnotherGuardIsNeitherRefreshedNorRevoked`, `testASessionOfAMethodNoLongerAllowedIsNotRefreshed`,
-  `testASessionThatRecordsNoMethodIsNotRefreshed`, `testAnOwnerTheApplicationNoLongerAdmitsIsNotRefreshed`,
+  `testASessionThatRecordsNoMethodIsNotRefreshed`, `testAPrincipalTheApplicationNoLongerAdmitsIsNotRefreshed`,
   `testARotationFollowsTheGuardsIdleLifetime`, `testAFailedRefreshIsCountedAgainstTheSessionAndTheIpAddress`,
   `testARateLimitedRefreshIsAnswered429WithRetryAfter`
 - `tests/Feature/Jwt/RefreshRotationStoreTest.php`
@@ -408,12 +425,12 @@ other rotated token as a replay that revokes the session.
   `testWithDaylightSavingARefreshSettingAnIdleDeadlineInTheSecondPassFailsWithoutWriting`,
   `testWithDaylightSavingADeadlineInTheSecondPassEndsTheSessionEarly`
 - `tests/Integration/Sessions/SignInPolicyEndToEndTest.php` (the shipped policy and limiter)
-  `testAReboundPolicyRefusesThePrincipalOnSignInAndRefresh`,
+  `testAReboundAccessRefusesThePrincipalOnSignInAndRefresh`,
   `testRefreshesRefusedForTheirFailuresAreAnswered429ThroughTheRoute`
 - `tests/Performance/RefreshTokenExchangeQueryBudgetTest.php` (every refresh reads its limits once; a failure counts
   itself)
-  `testRefreshSuccessUsesThreeReadsAndOneWrite`, `testGraceRetryUsesThreeReadsAndNoWrites`,
-  `testLostRotationResolvedAsAGraceRetryUsesFourReadsAndOneWrite`,
+  `testRefreshSuccessUsesFourReadsAndOneWrite`, `testGraceRetryUsesFourReadsAndNoWrites`,
+  `testLostRotationResolvedAsAGraceRetryUsesSixReadsAndOneWrite`,
   `testReplayRevocationReadsTheSessionAndRevokesItInOneWrite`, `testMissingRefreshCredentialStopsAtTheSessionLookup`,
   `testEndedSessionRefreshFailureStopsAtTheSessionLookup`, `testMalformedSessionIdRefreshFailureSkipsTheSessionLookup`,
   `testGraceAndReplayCostNoMoreThanARotation`

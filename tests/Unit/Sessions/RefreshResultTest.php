@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Sessions;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -12,9 +13,13 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\HoldsARotatedSession;
+use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
+use SineMacula\Laravel\Authentication\Sessions\PendingSession;
 use SineMacula\Laravel\Authentication\Sessions\RefreshResult;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 
@@ -65,6 +70,47 @@ final class RefreshResultTest extends TestCase
         self::assertSame($session, $refreshed->session);
         self::assertSame(RefreshTokenSource::BODY, $refreshed->source);
         self::assertTrue($refreshed->isRefreshed());
+    }
+
+    /**
+     * A refresh that found the session short of a further factor returned it to
+     * pending: it carries the pending session and the credential it now holds,
+     * is pending and neither refreshed nor failed, and keeps both when it says
+     * where its token was read from.
+     *
+     * @return void
+     */
+    public function testAPendingResultCarriesThePendingSessionAndItsCredential(): void
+    {
+        $pending = new PendingSession(
+            'session-1',
+            'api',
+            \Mockery::mock(Identity::class),
+            null,
+            null,
+            [PendingRequirement::MFA],
+            'password',
+            CarbonImmutable::now(),
+            \Mockery::mock(Session::class),
+        );
+        $returned = RefreshResult::pending($pending, 'session-1.secret');
+        $read     = $returned->withSource(RefreshTokenSource::COOKIE);
+
+        foreach ([$returned, $read] as $result) {
+            self::assertTrue($result->isPending());
+            self::assertFalse($result->isRefreshed());
+            self::assertFalse($result->isFailed());
+            self::assertSame($pending, $result->pending);
+            self::assertSame('session-1.secret', $result->credential);
+            self::assertNull($result->session);
+            self::assertNull($result->reason);
+        }
+
+        self::assertSame(RefreshTokenSource::COOKIE, $read->source);
+        self::assertFalse(RefreshResult::refreshed(self::session())->isPending());
+        self::assertNull(RefreshResult::refreshed(self::session())->credential);
+        self::assertTrue(RefreshResult::failed(FailureReason::SESSION_PENDING)->isFailed());
+        self::assertFalse(RefreshResult::failed(FailureReason::SESSION_PENDING)->isPending());
     }
 
     /**

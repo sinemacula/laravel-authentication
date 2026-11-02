@@ -137,9 +137,28 @@ $this->app->singleton(PrincipalResolver::class, MyTenantScopedResolver::class);
 
 ## Which principals may use an application
 
-Which principals may use an application is the application policy's `admit()`: the package's admits every principal, so
-rebind `ApplicationPolicy` to refuse some (see
-[Extending](extending.md#deciding-which-principals-may-use-an-application)). What a principal may do is authorisation's.
+Which principals may use an application is the `ApplicationAccess` contract's answer: the package's admits every
+principal, so bind your own to refuse some (see
+[Extending](extending.md#deciding-which-principals-may-use-an-application)). Which tenants a principal may act in is
+`TenantAccess`'s: by default only its own, or none for a platform principal. What a principal may do is
+authorisation's.
+
+## The active tenant
+
+A session acts in one tenant, its active tenant, or in none. By default it is the principal's own tenant (the one its
+`getTenant()` returns), or none for a platform principal. A sign-in may ask for another
+(`new SignInContext($client, tenant: TenantSelection::of($tenantId))`), and a switch may move to another, once the
+application lets the principal act there (see
+[Extending](extending.md#letting-principals-act-in-other-tenants)). The package never sees the tenant tree: it carries
+a tenant only as an opaque identifier, a string the session records in `tenant_id`, and finds a tenant other than the
+principal's own through the `TenantResolver` you bind. Every access token of the session names it in `tenant_id`, and
+`Auth::tenant()` returns it.
+
+On every request a session's token must name the tenant the session acts in (`session_tenant_mismatch`), and that
+tenant must still resolve and be active (`tenant_inactive`), as must the principal's own tenant: deactivating either
+stops the session's tokens at once. A refresh asks `TenantAccess` again, so a principal no longer allowed in its active
+tenant cannot refresh there (`tenant_ineligible`). `tenantDeactivated()` ends the sessions of the principals you list
+for the tenant and every session acting in it, whichever principal it acts as.
 
 ## Identifiers
 
@@ -242,11 +261,11 @@ behave the same, and lets the index mean what the application means.
 
 A successful password sign-in rehashes the password when the hasher reports the stored hash outdated (a new algorithm or
 cost) and Laravel's `hashing.rehash_on_login` is on; never on bearer requests, refresh, `validate()`, or a session
-started with `start()` or `complete()`, which check no password. The `model` provider writes the new hash with one
-conditional update, `WHERE <key> = :id AND <password> = :checkedHash`, so a password changed between the check and the
-rehash is never overwritten with a hash of the old one; the write fires no model events and leaves `updated_at` alone. A
-hash that does not come from the model's own password attribute (a `getAuthPassword()` that reads another table) is not
-rehashed by the provider.
+started with `start()` or activated with `satisfy()` or `choose()`, which check no password. The `model` provider writes
+the new hash with one conditional update, `WHERE <key> = :id AND <password> = :checkedHash`, so a password changed
+between the check and the rehash is never overwritten with a hash of the old one; the write fires no model events and
+leaves `updated_at` alone. A hash that does not come from the model's own password attribute (a `getAuthPassword()` that
+reads another table) is not rehashed by the provider.
 
 ## Identifier verification
 
@@ -316,21 +335,9 @@ is recorded or reported. Laravel's `signed` middleware, if you add it to the rou
 403 before `consume()` runs, so the route never sees `expired` and nothing is reported; leave it off to tell the two
 apart.
 
-`consume()` used to answer the verifier's `IdentifierVerification`, or `null` for any refused link. A check written for
-that still runs, wrongly: a `null`, `!== null` or truthiness check is now always given an outcome, refusals included,
-and a `match` on the old enum's cases never matches. Match the one enum instead:
+`consume()` answers one enum, `VerificationLinkOutcome`. Match it:
 
 ```php
-// Before
-use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
-
-$verification = app(VerificationLinks::class)->consume($request);
-
-if ($verification === null) {
-    abort(403);   // a refused link: tampered with, expired, or no longer the identifier's
-}
-
-// After
 use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 
@@ -375,22 +382,9 @@ the type, or one its normaliser rejects, is `identifier_invalid` when a code is 
 an identity that cannot verify identifiers throws a `LogicException`, and a machine identity, which has none to verify,
 an `InvalidArgumentException`.
 
-`verify()` used to answer the verifier's `IdentifierVerification` for an accepted code and the `FailureReason` for a
-refused one. A check written for those still runs, wrongly: an `instanceof` check against either enum is now never
-true, and a `match` on their cases never matches. Match the one enum instead:
+`verify()` answers one enum, `VerificationOutcome`. Match it:
 
 ```php
-// Before
-use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Facades\Auth;
-
-$result = Auth::codes('mobile')->verify($identity, 'phone', $code);
-
-if ($result instanceof FailureReason) {
-    return response()->json(['error' => $result->value], 422);   // invalid_credentials, code_expired, code_exhausted
-}
-
-// After
 use SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 
@@ -436,8 +430,9 @@ and PHPStan reports a class that uses the trait without the interface. It reads 
 `getActiveAttributeName()` to use another column) and throws a `LogicException` when the model was loaded without that
 column, so a partial select is reported instead of being read as either active or inactive.
 
-A tenant opts in the same way. When the tenant a principal acts within implements `CanBeActive` and reports inactive,
-every principal in it is rejected on the same paths (refresh fails with `tenant_inactive`):
+A tenant opts in the same way. When a principal's own tenant, or the active tenant a session acts in, implements
+`CanBeActive` and reports inactive, every principal in it, and every session acting in it, is rejected on the same paths
+(refresh fails with `tenant_inactive`):
 
 ```php
 class AppTenant extends Model implements CanBeActive, TenantContract

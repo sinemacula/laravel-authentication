@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\NewProof;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
+use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 
 /**
  * Shared benchmark schema builder.
@@ -127,7 +128,15 @@ final class BenchSchema
         $blueprint->string('authenticatable_id')->nullable();
         $blueprint->string('principal_type')->nullable();
         $blueprint->string('principal_id')->nullable();
-        $blueprint->dateTime('principal_switched_at', 0)->nullable();
+        $blueprint->string('status', 16)->default('active');
+        $blueprint->string('requires', 64)->nullable();
+        $blueprint->string('pending_key', 64)->nullable();
+        $blueprint->string('supersedes_session_id')->nullable();
+        $blueprint->string('supersedes_refresh_key', 64)->nullable();
+        $blueprint->text('attempt_windows')->nullable();
+        $blueprint->string('tenant_id')->nullable();
+        $blueprint->string('tenant_policy_version', 64)->nullable();
+        $blueprint->dateTime('switched_at', 0)->nullable();
         $blueprint->string('guard')->nullable();
         $blueprint->string('sign_in_method')->nullable();
         $blueprint->string('sign_in_identifier_type')->nullable();
@@ -150,6 +159,7 @@ final class BenchSchema
         $blueprint->index(['authenticatable_type', 'authenticatable_id']);
         $blueprint->index(['principal_type', 'principal_id']);
         $blueprint->index('guard');
+        $blueprint->index('tenant_id');
         $blueprint->index('idle_expires_at');
         $blueprint->index('absolute_expires_at');
         $blueprint->index('revoked_at');
@@ -309,41 +319,62 @@ final class BenchSchema
     }
 
     /**
-     * The generation, start and deadlines of a session that starts now, with
-     * the package's default lifetimes: a new generation on every call, as the
-     * session service writes one for every session it inserts.
+     * The state, generation, start and deadlines of a session that starts
+     * active now, with the package's default lifetimes: waiting on nothing,
+     * superseding nothing, never switched and acting in no tenant, with a new
+     * generation on every call, as the session service writes for every session
+     * it inserts. Every state column is set, so the saved session reads as the
+     * row would load.
      *
-     * @return array{generation: string, signed_in_at: \Carbon\CarbonInterface, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return array{status: string, requires: null, pending_key: null, supersedes_session_id: null, supersedes_refresh_key: null, attempt_windows: null, tenant_id: null, switched_at: null, generation: string, signed_in_at: \Carbon\CarbonInterface, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      */
     public static function liveSession(): array
     {
         return [
-            'generation'          => Str::uuid7()->toString(),
-            'signed_in_at'        => Carbon::now(),
-            'idle_expires_at'     => Carbon::now()->addDays(90),
-            'absolute_expires_at' => Carbon::now()->addDays(180),
+            'status'                 => SessionStatus::ACTIVE->value,
+            'requires'               => null,
+            'pending_key'            => null,
+            'supersedes_session_id'  => null,
+            'supersedes_refresh_key' => null,
+            'attempt_windows'        => null,
+            'tenant_id'              => null,
+            'switched_at'            => null,
+            'generation'             => Str::uuid7()->toString(),
+            'signed_in_at'           => Carbon::now(),
+            'idle_expires_at'        => Carbon::now()->addDays(90),
+            'absolute_expires_at'    => Carbon::now()->addDays(180),
         ];
     }
 
     /**
      * A session the guard's password sign-in started now: the guard and method
-     * a session records, which refresh and the bearer path check, with the
-     * generation, start and deadlines of `liveSession()`.
+     * a session records, which refresh and the bearer path check, and the
+     * tenant it acts in (the principal's own, as a sign-in records it), with
+     * the rest of `liveSession()`.
      *
      * @formatter:off
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  string  $guard
-     * @return array{generation: string, signed_in_at: \Carbon\CarbonInterface, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface, guard: string, sign_in_method: string}
+     * @param  ?string  $tenantId
+     * @return array{status: string, requires: null, pending_key: null, supersedes_session_id: null, supersedes_refresh_key: null, attempt_windows: null, tenant_id: ?string, switched_at: null, generation: string, signed_in_at: \Carbon\CarbonInterface, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface, guard: string, sign_in_method: string}
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
      * @formatter:on
      */
-    public static function signedIn(string $guard): array
+    public static function signedIn(string $guard, ?string $tenantId = null): array
     {
-        return [...self::liveSession(), 'guard' => $guard, 'sign_in_method' => 'password'];
+        return [...self::liveSession(), 'tenant_id' => $tenantId, 'guard' => $guard, 'sign_in_method' => 'password'];
     }
 
     /**

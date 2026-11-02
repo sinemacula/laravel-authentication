@@ -9,9 +9,9 @@ namespace SineMacula\Laravel\Authentication\Concerns;
  * sign-in method and the type of identifier it used, the name and platform the
  * client gave, and the IP address and user agent it came from. These are
  * informational, so a value that was not loaded reads as `null`, apart from the
- * identifier type: a switch of principal is held to it, and `null` there means
- * a sign-in that used no identifier, which is held to none, so it must be
- * loaded. Override the `*Name()` methods to remap columns.
+ * identifier type: a switch is held to it, and `null` there means a sign-in
+ * that used no identifier, which is held to none, so it must be loaded.
+ * Override the `*Name()` methods to remap columns.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

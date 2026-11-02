@@ -191,7 +191,7 @@ abstract class JwtTokenServiceTestCase extends TestCase
 
     /**
      * Build a Session mock with the supplied identifier and deadlines, signed
-     * in now with a password.
+     * in now with a password, acting in no tenant.
      *
      * @param  mixed  $id
      * @param  ?\Carbon\CarbonInterface  $idle
@@ -212,6 +212,8 @@ abstract class JwtTokenServiceTestCase extends TestCase
             ->andReturn($this->now->copy());
         $session->shouldReceive('getSignInMethod')
             ->andReturn('password');
+        $session->shouldReceive('getTenantId')
+            ->andReturnNull();
 
         return $session;
     }

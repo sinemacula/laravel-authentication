@@ -80,21 +80,18 @@ interface ContextualGuard extends Guard
     public function session(): ?Session;
 
     /**
-     * Return the tenant the active principal acts within, if any, resolving the
-     * request on first access.
-     *
-     * Throws `TenantUnavailableException` when the principal names a tenant
-     * that opts into activation but cannot be loaded, and a `LogicException`
-     * when the principal was loaded without that tenant's key (or polymorphic
-     * type). The authentication paths reject such a principal, so this is
-     * reached only for one bound through the trusted `login()`, `setUser()`, or
-     * `setPrincipal()`, which skip the activity check, or through a custom
-     * `getTenant()` that reads the tenant again.
+     * Return the active tenant, the tenant the request acts in, if any,
+     * resolving the request on first access: a session's is the one it records,
+     * and a token without a session acts in the principal's own. A trusted bind
+     * (`login()`, `setUser()`, `setPrincipal()`) binds the tenant the bound
+     * session records, or the principal's own without a session, unchecked.
+     * `null` only ever means the request acts in no tenant: a trusted bind's
+     * tenant that cannot be loaded or no longer resolves throws
+     * `TenantUnavailableException`.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
-     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function tenant(): ?Tenant;

@@ -12,15 +12,16 @@ use Illuminate\Support\Facades\Config;
  * write, and the one the shipped migrations create the tables on, so the two
  * cannot disagree.
  *
- * Sessions, pending sign-ins, one-time codes, passkeys, passkey challenges, API
- * keys and identifier changes live on `authentication.storage.connection`
- * (`null` or empty for the default connection). They are kept together because
- * a session, the completion of a pending sign-in, a password reset and an
- * identifier change each write several of them in one transaction, which two
- * connections cannot commit as one; a session model on another connection is
- * refused rather than splitting one. The attempt counters live on
- * `authentication.rate_limits.connection` when it names one, so they can stay
- * out of those transactions, and on the storage connection otherwise.
+ * Sessions (pending ones among them), their proofs, one-time codes, passkeys,
+ * passkey challenges, API keys and identifier changes live on
+ * `authentication.storage.connection` (`null` or empty for the default
+ * connection). They are kept together because a session, the activation of a
+ * pending one, a password reset and an identifier change each write several of
+ * them in one transaction, which two connections cannot commit as one; a
+ * session model on another connection is refused rather than splitting one. The
+ * attempt counters live on `authentication.rate_limits.connection` when it
+ * names one, so they can stay out of those transactions, and on the storage
+ * connection otherwise.
  *
  * A model takes its connection when it is built, so the settings must stay the
  * same for the life of a process: moving the tables is a deploy, with a worker

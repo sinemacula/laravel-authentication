@@ -12,6 +12,7 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
+use SineMacula\Laravel\Authentication\Models\SessionProvenance;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\KeyProtection;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
@@ -31,7 +32,9 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * time, so its rows are bounded by the distinct combinations the session
  * recorded rather than by how many it recorded. `newestMeeting()` reads the
  * newest one a freshness requirement takes, with `LIMIT 1`, on the proofs'
- * session, kind and time index.
+ * session, kind and time index. `query()` reads a bounded page of them for a
+ * requirement check, `firstFactor()` the first factor the session signed in
+ * with, and `connectionId()` the connection its provenance records.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -70,6 +73,23 @@ final class SessionProofs
     }
 
     /**
+     * Whether the session holds a counting further factor or recovery code: one
+     * its adapter accepted, not voided, bound to the session as it is now. One
+     * `EXISTS` on the session's proofs.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @return bool
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function hasAcceptedAdditional(Session $session): bool
+    {
+        $additional = [ProofKind::ADDITIONAL_FACTOR->value, ProofKind::RECOVERY_CODE->value];
+
+        return WriteConnection::during(new SessionProof, static fn (): bool => self::counting($session)->whereIn('kind', $additional)->exists());
+    }
+
+    /**
      * The newest of the session's counting proofs that meets the requirement at
      * the time given: of a kind it takes, made within its maximum age (from the
      * proof's own second until, and not including, the second the age after it,
@@ -98,6 +118,72 @@ final class SessionProofs
             ->first());
 
         return $proof instanceof SessionProof ? self::recorded($proof) : null;
+    }
+
+    /**
+     * The session's counting proofs, newest first by time and then by id, only
+     * those made at or after `$since` when it is given and of the given kinds
+     * when they are, at most `$limit` of them: one `LIMIT` query on the proofs'
+     * session, kind and time index.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  ?\Carbon\CarbonImmutable  $since
+     * @param  ?list<\SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind>  $kinds
+     * @param  int  $limit
+     * @return list<\SineMacula\Laravel\Authentication\Proofs\RecordedProof>
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function query(Session $session, ?CarbonImmutable $since, ?array $kinds, int $limit): array
+    {
+        $model = new SessionProof;
+
+        $proofs = WriteConnection::during($model, static fn (): array => self::counting($session)
+            ->when($since !== null, static fn (Builder $query): Builder => $query->where('authenticated_at', '>=', $model->fromDateTime($since)))
+            ->when($kinds !== null, static fn (Builder $query): Builder => $query->whereIn('kind', array_column($kinds ?? [], 'value')))
+            ->orderByDesc('authenticated_at')
+            ->orderByDesc('id')
+            ->limit($limit)
+            ->get()
+            ->all());
+
+        return array_values(array_map(self::recorded(...), $proofs));
+    }
+
+    /**
+     * The first factor the session signed in with: its oldest counting
+     * first-factor proof, or `null` for a session that records none.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @return ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function firstFactor(Session $session): ?RecordedProof
+    {
+        $proof = WriteConnection::during(new SessionProof, static fn (): mixed => self::counting($session)
+            ->where('kind', ProofKind::FIRST_FACTOR->value)
+            ->orderBy('authenticated_at')
+            ->orderBy('id')
+            ->first());
+
+        return $proof instanceof SessionProof ? self::recorded($proof) : null;
+    }
+
+    /**
+     * The connection the session's provenance records it was established
+     * through, or `null` for a session no external provider established.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @return ?string
+     */
+    public static function connectionId(Session $session): ?string
+    {
+        $key = IdentifierCoercion::stringify($session->getSessionIdentifier()) ?? '';
+
+        return WriteConnection::during(new SessionProvenance, static fn (): ?string => IdentifierCoercion::stringify(
+            WriteConnection::query(SessionProvenance::query())->whereKey($key)->value('connection_id'),
+        ));
     }
 
     /**

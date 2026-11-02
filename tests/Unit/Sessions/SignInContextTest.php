@@ -13,6 +13,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
+use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 
 /**
  * Unit tests for the context of a sign-in: the client description it cleans,
@@ -89,6 +90,26 @@ final class SignInContextTest extends TestCase
         self::assertNull($bare->principal);
         self::assertNull($bare->refreshToken);
         self::assertNull($bare->notAfter);
+        self::assertNull($bare->tenant);
+    }
+
+    /**
+     * The tenant a sign-in asks to act in is carried as given, through a capped
+     * deadline too, and through the request's context when the application
+     * passes it; the request itself never supplies one.
+     *
+     * @return void
+     */
+    public function testCarriesTheTenantTheSignInAsksFor(): void
+    {
+        $tenant  = TenantSelection::of('tenant-7');
+        $context = new SignInContext(new ClientContext(null, null), tenant: $tenant);
+        $request = Request::create('/sign-in', 'POST', ['tenant' => 'tenant-9']);
+
+        self::assertSame($tenant, $context->tenant);
+        self::assertSame($tenant, $context->withNotAfter(CarbonImmutable::now())->tenant);
+        self::assertSame($tenant, SignInContext::fromRequest($request, tenant: $tenant)->tenant);
+        self::assertNull(SignInContext::fromRequest($request)->tenant);
     }
 
     /**

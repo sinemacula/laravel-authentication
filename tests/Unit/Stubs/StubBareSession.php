@@ -7,6 +7,7 @@ namespace Tests\Unit\Stubs;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 
 /**
  * Eloquent `Session` fixture that intentionally does NOT satisfy the explicit
@@ -102,12 +103,67 @@ final class StubBareSession extends Model implements Session
     }
 
     /**
-     * Inert principal switch accessor.
+     * Inert status accessor: active.
+     *
+     * @return \SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus
+     */
+    #[\Override]
+    public function getStatus(): SessionStatus
+    {
+        return SessionStatus::ACTIVE;
+    }
+
+    /**
+     * Inert requirements accessor: none.
+     *
+     * @return list<\SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement>
+     */
+    #[\Override]
+    public function getRequires(): array
+    {
+        return [];
+    }
+
+    /**
+     * Inert pending credential digest accessor.
+     *
+     * @return ?string
+     */
+    #[\Override]
+    public function getPendingKey(): ?string
+    {
+        return null;
+    }
+
+    /**
+     * Inert active tenant accessor.
+     *
+     * @return ?string
+     */
+    #[\Override]
+    public function getTenantId(): ?string
+    {
+        return null;
+    }
+
+    /**
+     * Inert tenant policy version accessor.
+     *
+     * @return ?string
+     */
+    #[\Override]
+    public function getTenantPolicyVersion(): ?string
+    {
+        return null;
+    }
+
+    /**
+     * Inert context-change floor accessor.
      *
      * @return ?\Carbon\CarbonInterface
      */
     #[\Override]
-    public function getPrincipalSwitchedAt(): ?CarbonInterface
+    public function getSwitchedAt(): ?CarbonInterface
     {
         return null;
     }

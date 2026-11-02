@@ -8,10 +8,13 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Builder;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
+use SineMacula\Laravel\Authentication\SessionRecords\SwitchFloor;
+use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
@@ -47,17 +50,23 @@ final readonly class RefreshRotationStore
      * move its idle deadline, in one compare-and-swap UPDATE.
      *
      * The swap applies only while the row still holds the presented id as its
-     * current one, is not revoked, and has both deadlines exactly as they were
-     * loaded (a `null` absolute one matched as `IS NULL`): any concurrent
-     * rotation, revocation, or deadline change makes it affect no row. It
-     * records the presented id as the previous one and `$now` as the rotation
-     * time. Returns whether the row was rotated.
+     * current one, is active and not revoked, and has both deadlines exactly as
+     * they were loaded (a `null` absolute one matched as `IS NULL`): any
+     * concurrent rotation, revocation, return to pending, or deadline change
+     * makes it affect no row. Its status is matched as well as its deadlines,
+     * since a pending session's deadline can equal the one it held while
+     * active. It records the presented id as the previous one and `$now` as the
+     * rotation time. The tenant authentication policy version the refresh was
+     * checked against is matched as loaded, so a version the policy-change
+     * helper wrote meanwhile makes the swap miss and the refresh be judged
+     * again, and written when it differs. Returns whether the row was rotated.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  string  $presentedRotationId
      * @param  string  $nextRotationId
      * @param  \Carbon\CarbonImmutable  $idle
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  ?string  $policyVersion
      * @return bool
      *
      * @imperative
@@ -68,6 +77,7 @@ final readonly class RefreshRotationStore
         #[\SensitiveParameter] string $nextRotationId,
         CarbonImmutable $idle,
         CarbonImmutable $now,
+        ?string $policyVersion = null,
     ): bool {
         $presentedDigest = RefreshTokenHasher::hash($presentedRotationId);
 
@@ -78,10 +88,19 @@ final readonly class RefreshRotationStore
             $session->getIdleExpiresAtName()      => $session->fromDateTime($idle),
         ];
 
+        $version = $session->getTenantPolicyVersionName();
+        $loaded  = $session->getRawOriginal($version);
+
+        if ($loaded !== $policyVersion) {
+            $rotated[$version] = $policyVersion;
+        }
+
         $affected = $this->table($session)
             ->where($session->getRefreshKeyName(), $presentedDigest)
+            ->where($session->getStatusName(), SessionStatus::ACTIVE->value)
             ->whereNull($session->getRevokedAtName())
             ->where($this->loadedDeadlines($session))
+            ->where($version, $loaded)
             ->update($rotated);
 
         return $this->mirror($session, $affected, $rotated);
@@ -89,26 +108,28 @@ final readonly class RefreshRotationStore
 
     /**
      * Rotate the session from the presented rotation id to the next one for a
-     * switch of principal, and move both deadlines (the absolute one only ever
-     * lowered, or kept `null`), in one compare-and-swap UPDATE; when
-     * `$switching`, also record the target as the principal the session acts
-     * as, with `$now` as the time of the switch.
+     * switch, and move both deadlines (the absolute one only ever lowered, or
+     * kept `null`), in one compare-and-swap UPDATE that also records the tenant
+     * policy version the destination answered. When the destination's principal
+     * or active tenant is not the one the session recorded, it also records
+     * them and moves `switched_at` (`SwitchFloor::after()`), so every access
+     * token issued before is refused at once.
      *
-     * The swap applies only while the row still holds the presented id as its
-     * current one, is not revoked, has both deadlines and records the principal
-     * exactly as they were loaded: any concurrent rotation, switch, revocation
-     * or deadline change makes it affect no row. Returns whether the row was
-     * switched.
+     * The swap applies only while the row is still active, not revoked, holds
+     * the presented id as its current one, and has both deadlines, the
+     * principal, the active tenant and the policy version exactly as they were
+     * loaded: any concurrent rotation, switch, return to pending, revocation,
+     * version write or deadline change makes it affect no row. Returns whether
+     * the row was switched.
      *
      * @formatter:off
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
-     * @param  string  $presentedRotationId
-     * @param  string  $nextRotationId
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $target
-     * @param  bool  $switching
+     * @param  array{0: string, 1: string}  $rotation
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
+     * @param  ?string  $policyVersion
      * @param  array{0: \Carbon\CarbonImmutable, 1: ?\Carbon\CarbonImmutable}  $deadlines
      * @param  \Carbon\CarbonImmutable  $now
      * @return bool
@@ -117,45 +138,69 @@ final readonly class RefreshRotationStore
      *
      * @formatter:on
      *
+     * @throws \LogicException
+     *
      * @imperative
      */
-    public function switchPrincipal(
+    public function switchSession(
         EloquentSession&Model $session,
-        #[\SensitiveParameter] string $presentedRotationId,
-        #[\SensitiveParameter] string $nextRotationId,
-        Principal $target,
-        bool $switching,
+        #[\SensitiveParameter] array $rotation,
+        Admitted $destination,
+        ?string $policyVersion,
         array $deadlines,
         CarbonImmutable $now,
     ): bool {
         [$type, $id]       = PrincipalReference::columns($session);
         [$idle, $absolute] = $deadlines;
-        $presentedDigest   = RefreshTokenHasher::hash($presentedRotationId);
+        $presentedDigest   = RefreshTokenHasher::hash($rotation[0]);
 
         $switched = [
-            $session->getRefreshKeyName()         => RefreshTokenHasher::hash($nextRotationId),
-            $session->getPreviousRefreshKeyName() => $presentedDigest,
-            $session->getRefreshRotatedAtName()   => $session->fromDateTime($now),
-            $session->getIdleExpiresAtName()      => $session->fromDateTime($idle),
-            $session->getAbsoluteExpiresAtName()  => $session->fromDateTime($absolute),
+            $session->getRefreshKeyName()          => RefreshTokenHasher::hash($rotation[1]),
+            $session->getPreviousRefreshKeyName()  => $presentedDigest,
+            $session->getRefreshRotatedAtName()    => $session->fromDateTime($now),
+            $session->getIdleExpiresAtName()       => $session->fromDateTime($idle),
+            $session->getAbsoluteExpiresAtName()   => $session->fromDateTime($absolute),
+            $session->getTenantPolicyVersionName() => $policyVersion,
         ];
 
-        if ($switching) {
+        if (in_array(true, self::contextChanges($session, $destination), true)) {
             $switched += [
-                $type                                  => PrincipalReference::type($target),
-                $id                                    => PrincipalReference::id($target),
-                $session->getPrincipalSwitchedAtName() => $session->fromDateTime($now),
+                $type                         => PrincipalReference::type($destination->principal),
+                $id                           => PrincipalReference::id($destination->principal),
+                $session->getTenantIdName()   => IdentifierCoercion::stringify($destination->tenant?->getTenantIdentifier()),
+                $session->getSwitchedAtName() => $session->fromDateTime(SwitchFloor::after($session->getSwitchedAt(), $now)),
             ];
         }
 
         $affected = $this->table($session)
+            ->where($session->getStatusName(), SessionStatus::ACTIVE->value)
             ->where($session->getRefreshKeyName(), $presentedDigest)
             ->whereNull($session->getRevokedAtName())
             ->where($this->loadedDeadlines($session))
-            ->where([$type => $session->getRawOriginal($type), $id => $session->getRawOriginal($id)])
+            ->where(self::loaded($session, [$type, $id, $session->getTenantIdName(), $session->getTenantPolicyVersionName()]))
             ->update($switched);
 
         return $this->mirror($session, $affected, $switched);
+    }
+
+    /**
+     * Whether the destination's principal, and its active tenant, differ from
+     * the ones the session recorded as it was loaded.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
+     * @return array{0: bool, 1: bool}
+     */
+    public static function contextChanges(EloquentSession&Model $session, Admitted $destination): array
+    {
+        [$type, $id] = PrincipalReference::columns($session);
+
+        $principal = $session->getRawOriginal($type) !== PrincipalReference::type($destination->principal)
+            || !IdentifierCoercion::matches($session->getRawOriginal($id), PrincipalReference::id($destination->principal));
+        $tenant = IdentifierCoercion::stringify($session->getRawOriginal($session->getTenantIdName()))
+            !== IdentifierCoercion::stringify($destination->tenant?->getTenantIdentifier());
+
+        return [$principal, $tenant];
     }
 
     /**
@@ -177,6 +222,36 @@ final readonly class RefreshRotationStore
 
         $affected = $this->table($session)
             ->whereNull($session->getRevokedAtName())
+            ->update($revoked);
+
+        return $this->mirror($session, $affected, $revoked);
+    }
+
+    /**
+     * Revoke the active session as it was loaded, for a decision taken on that
+     * state: the revocation applies only while the row is still active and
+     * unrevoked, and holds the refresh digest, principal and active tenant it
+     * was loaded with, so a session a concurrent rotation, switch or return to
+     * pending moved on is left as it now is. Returns whether this call revoked
+     * it.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return bool
+     *
+     * @imperative
+     */
+    public function revokeAsLoaded(EloquentSession&Model $session, RevocationReason $reason, CarbonImmutable $now): bool
+    {
+        [$type, $id] = PrincipalReference::columns($session);
+
+        $revoked = self::revocation($session, $reason, $now);
+
+        $affected = $this->table($session)
+            ->where($session->getStatusName(), SessionStatus::ACTIVE->value)
+            ->whereNull($session->getRevokedAtName())
+            ->where(self::loaded($session, [$session->getRefreshKeyName(), $type, $id, $session->getTenantIdName()]))
             ->update($revoked);
 
         return $this->mirror($session, $affected, $revoked);
@@ -251,6 +326,25 @@ final readonly class RefreshRotationStore
             $idle     => $session->getRawOriginal($idle),
             $absolute => $session->getRawOriginal($absolute),
         ];
+    }
+
+    /**
+     * The columns exactly as they were loaded, keyed by column, for a swap that
+     * must match them by equality: a `null` one is matched as `IS NULL`.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  list<string>  $columns
+     * @return array<string, mixed>
+     */
+    private static function loaded(EloquentSession&Model $session, array $columns): array
+    {
+        $loaded = [];
+
+        foreach ($columns as $column) {
+            $loaded[$column] = $session->getRawOriginal($column);
+        }
+
+        return $loaded;
     }
 
     /**

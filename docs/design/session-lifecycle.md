@@ -40,19 +40,19 @@ deleted. Starting a session is in
 - A bulk revocation (`revokeSessions()`, `revokePrincipalSessions()`, `signOutEverywhere()`, and the security-change
   methods) is a list of `RevocationScope`s: (1) each scope's `HasTokensValidAfter` cutoff moved to `$now` on its own
   connection; (2) one transaction on the storage connection, which the session model must live on, that reads each
-  scope's unrevoked sessions on the writer in key order (`lazyById`, chunks of 500), revokes each conditionally, deletes
-  the scope's pending sign-ins (by owner, or by principal) and, for an identity's scope whose identity implements
+  scope's unrevoked sessions on the writer in key order (`lazyById`, chunks of 500), revokes each conditionally (pending
+  sessions among them) and, for an identity's scope whose identity implements
   `HasChangeableIdentifiers`, its pending identifier changes (by key, every type with a registered normaliser: a change
   link needs no session, so one requested from a session that ends must end with it); (3) once committed,
   `SessionRevoked` per revoked session, then `SignedOutEverywhere` per scope, also when it revoked none. A failure in
   (2) leaves (1) in place: fail-safe, and a retry is idempotent.
 - An identity's scope is every session its `sessions()` relation returns, of every guard; a principal's is every session
-  of the configured model whose principal columns record it. An identity without `HasSessions` can hold neither a
-  session nor a pending sign-in (no session starts for it), so its scope, and that of a principal whose owner (read
+  of the configured model whose principal columns record it. An identity without `HasSessions` can hold no
+  session, pending or active (no session starts for it), so its scope, and that of a principal whose owner (read
   afresh on the writer through `WriteConnection::stored()`, whatever relation is loaded and in strict mode too) is such
   an identity, reads and deletes nothing and only moves the cutoff: access-only mode needs none of the package's tables
-  to revoke. A principal whose owner cannot be read has its sessions looked for anyway; an unsaved principal has neither
-  sessions nor pending sign-ins. A principal scope's events carry that owner as their identity.
+  to revoke. A principal whose owner cannot be read has its sessions looked for anyway; an unsaved principal has no
+  sessions. A principal scope's events carry that owner as their identity.
 - `signOutEverywhere(keepCurrentSession: true)` keeps the request's session; a request without one (a session-less
   token) is kept by leaving the identity's cutoff unmoved, so the identity's other session-less tokens survive too,
   until they expire.
@@ -118,6 +118,15 @@ deleted. Starting a session is in
 - A pruned session is indistinguishable from an unknown one: its tokens already failed once it was revoked or ended, so
   retention never changes who authenticates.
 
+- `tenantPolicyChanged($tenant)` (`Sessions\TenantPolicyChanges`) is the synchronous revocation for a tenant
+  authentication policy that changed: in one transaction on the session model's connection (a savepoint inside the
+  caller's), it reads the live sessions (unrevoked, before both deadlines) whose `tenant_id` is the tenant's, every
+  guard, pending ones included, in key order 500 at a time with a locking read; skips one recorded at the very version
+  answered (neither `null`); revokes an active one that falls short, and a pending one only when it needs another
+  connection, as `tenant_policy_changed` with a conditional update on `tenant_id` and `revoked_at IS NULL`; and records
+  the version on an active one that meets it. `SessionRevoked` follows each revocation's commit. A session that enters
+  the tenant after the scan is bounded by its first refresh, which always asks the policy.
+
 ## Success Path
 
 - `Auth::sessions('api')->sessions($identity, 20)` costs a count and a select and returns a `LengthAwarePaginator` of
@@ -131,8 +140,8 @@ deleted. Starting a session is in
   added. A sign-in that replaces a proven session races a bulk revocation the same way, with no synchronisation added:
   when the revocation reads the proven session first, it is revoked with the bulk reason, the replacement's swap misses
   and the sign-in still creates its session; when the sign-in commits first, the proven session is already `superseded`
-  (skipped as revoked) and the new session is revoked if the bulk read finds it. A pending sign-in the bulk call deleted
-  cannot complete (`pending_invalid`). Holding sign-ins back during a security change belongs to mandatory, synchronous
+  (skipped as revoked) and the new session is revoked if the bulk read finds it. A pending session the bulk call revoked
+  cannot activate (`pending_invalid`). Holding sign-ins back during a security change belongs to mandatory, synchronous
   revocation on security changes, which the package does not do yet. Revocation races with refresh, switch and
   re-sign-in are safe: each of their compare-and-swaps requires `revoked_at IS NULL`, so one revocation of a row,
   sign-out or `superseded`, wins and the other changes nothing.
@@ -146,8 +155,8 @@ deleted. Starting a session is in
 - `PrunesSessions` composes `MassPrunable` and replaces its `prunable()`; using `MassPrunable` beside it is a PHP trait
   collision, so a custom model uses `PrunesSessions` alone. A global scope on the model still narrows pruning: the three
   conditions are grouped.
-- A pending sign-in can remember a session that is pruned before it completes; its completion then replaces nothing
-  and creates a session.
+- A pending session can remember a session that is pruned before it first activates; its activation then supersedes
+  nothing.
 - Queued listeners of an event about a pruned session cannot re-fetch it.
 
 ## Implementation Anchors

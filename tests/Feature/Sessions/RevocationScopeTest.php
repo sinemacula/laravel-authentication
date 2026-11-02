@@ -8,13 +8,16 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\Sessions\RevocationScope;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\AccessOnlyMember;
 use Tests\Integration\Fixtures\ActivatableTenant;
@@ -206,8 +209,8 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * Keeping the cutoff leaves the scope's sessions, pending sign-ins and
-     * parts as they were and drops only the cutoff to move.
+     * Keeping the cutoff leaves the scope's sessions and parts as they were and
+     * drops only the cutoff to move.
      *
      * @return void
      */
@@ -220,7 +223,6 @@ final class RevocationScopeTest extends TestCase
         self::assertSame($identity, $scope->cutoff);
         self::assertNull($kept->cutoff);
         self::assertSame($scope->sessions, $kept->sessions);
-        self::assertSame($scope->pendings, $kept->pendings);
         self::assertSame($scope->changes, $kept->changes);
         self::assertSame($identity, $kept->identity);
         self::assertNull($kept->principal);
@@ -231,6 +233,49 @@ final class RevocationScopeTest extends TestCase
 
         self::assertSame($identity, $principal->principal);
         self::assertSame($tenant, $principal->tenant);
+    }
+
+    /**
+     * A tenant's scope holds every session acting in it, of every guard and
+     * whatever principal it acts as, and no session acting elsewhere; it has no
+     * cutoff and no identity or principal of its own. A tenant without an
+     * identifier holds no session.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATenantsScopeHoldsTheSessionsActingInIt(): void
+    {
+        $tenant = ActivatableTenant::query()->create(['name' => 'Tenant', 'is_active' => true]);
+        $key    = IdentifierCoercion::stringify($tenant->getKey());
+
+        foreach ([['api', $key], ['members', $key], ['api', 'another'], ['api', null]] as [$guard, $tenantId]) {
+            DB::table('authentication_sessions')->insert([
+                'id'                   => (string) Str::uuid7(),
+                'generation'           => (string) Str::uuid7(),
+                'authenticatable_type' => 'user',
+                'authenticatable_id'   => '1',
+                'guard'                => $guard,
+                'tenant_id'            => $tenantId,
+                'signed_in_at'         => Carbon::now(),
+                'idle_expires_at'      => Carbon::now()->addDay(),
+            ]);
+        }
+
+        $scope = RevocationScope::activeTenant($tenant);
+
+        self::assertNotNull($scope->sessions);
+        self::assertSame([$key, $key], $scope->sessions[0]->pluck('tenant_id')->all());
+        self::assertNull($scope->cutoff);
+        self::assertNull($scope->identity);
+        self::assertNull($scope->principal);
+        self::assertSame($tenant, $scope->tenant);
+        self::assertSame([], $scope->changes);
+
+        $unsaved = RevocationScope::activeTenant(new ActivatableTenant);
+
+        self::assertNull($unsaved->sessions);
     }
 
     /**

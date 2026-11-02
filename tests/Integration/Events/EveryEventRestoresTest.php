@@ -12,7 +12,6 @@ use Illuminate\Support\Carbon;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
-use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
 use SineMacula\Laravel\Authentication\Events\ApiKeyIssued;
 use SineMacula\Laravel\Authentication\Events\ApiKeyRevoked;
 use SineMacula\Laravel\Authentication\Events\ApiKeyRotated;
@@ -30,12 +29,14 @@ use SineMacula\Laravel\Authentication\Events\PasskeyRemoved;
 use SineMacula\Laravel\Authentication\Events\PasskeyUsed;
 use SineMacula\Laravel\Authentication\Events\PasswordSet;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
-use SineMacula\Laravel\Authentication\Events\PrincipalChoiceRequired;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
 use SineMacula\Laravel\Authentication\Events\Reauthenticated;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
+use SineMacula\Laravel\Authentication\Events\SessionActivated;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Events\SessionCreated;
+use SineMacula\Laravel\Authentication\Events\SessionPending;
+use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
@@ -116,7 +117,6 @@ final class EveryEventRestoresTest extends TestCase
         $at = CarbonImmutable::parse('2026-04-06 12:05:00', 'UTC');
 
         yield from [
-            'AdditionalFactorRequired'  => [AdditionalFactorRequired::class, [$at]],
             'ApiKeyIssued'              => [ApiKeyIssued::class, []],
             'ApiKeyRevoked'             => [ApiKeyRevoked::class, []],
             'ApiKeyRotated'             => [ApiKeyRotated::class, ['key-0']],
@@ -130,12 +130,14 @@ final class EveryEventRestoresTest extends TestCase
             'PasskeyUsed'               => [PasskeyUsed::class, []],
             'PasswordSet'               => [PasswordSet::class, [PasswordFlow::CHANGE]],
             'PrincipalAssigned'         => [PrincipalAssigned::class, []],
-            'PrincipalChoiceRequired'   => [PrincipalChoiceRequired::class, [$at]],
-            'PrincipalSwitched'         => [PrincipalSwitched::class, [null, 'membership', '9']],
+            'PrincipalSwitched'         => [PrincipalSwitched::class, [null, 'membership', '9', 't-9', true, true]],
             'Reauthenticated'           => [Reauthenticated::class, []],
             'Refreshed'                 => [Refreshed::class, []],
+            'SessionActivated'          => [SessionActivated::class, []],
             'SessionAuthenticated'      => [SessionAuthenticated::class, []],
             'SessionCreated'            => [SessionCreated::class, []],
+            'SessionPending'            => [SessionPending::class, [['mfa', 'principal'], $at]],
+            'SessionReturnedToPending'  => [SessionReturnedToPending::class, [['mfa'], $at, AuthenticationFlow::REFRESH, 'membership', '9', '4']],
             'SessionRevoked'            => [SessionRevoked::class, [RevocationReason::SIGNED_OUT]],
             'SignedIn'                  => [SignedIn::class, [true, false]],
             'SignedOutEverywhere'       => [SignedOutEverywhere::class, [RevocationReason::SIGNED_OUT_EVERYWHERE, 3, $at]],
@@ -185,9 +187,9 @@ final class EveryEventRestoresTest extends TestCase
         self::assertNull($restored->session);
         self::assertSame($context->toArray(), $restored->toArray());
         self::assertSame('2026-04-06T12:00:00.250000Z', $restored->toArray()['occurred_at']);
-        self::assertSame($member->getMorphClass(), $restored->identityMorphClass);
-        self::assertSame($membership->getMorphClass(), $restored->principalMorphClass);
-        self::assertSame($tenant->getMorphClass(), $restored->tenantMorphClass);
+        self::assertSame($member->getMorphClass(), $restored->identityType);
+        self::assertSame($membership->getMorphClass(), $restored->principalType);
+        self::assertSame($tenant->getMorphClass(), $restored->tenantType);
         self::assertSame($session->record->getKey(), $restored->sessionId);
         self::assertEquals(self::ownValues($event), self::ownValues($copy));
     }

@@ -48,9 +48,9 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
 
     /**
      * Freeze the clock and create the identity table on the default connection
-     * and the session, pending and codes tables on the session connection,
-     * which is made the storage connection once the shipped migrations have run
-     * on the default one.
+     * and the session and codes tables on the session connection, which is made
+     * the storage connection once the shipped migrations have run on the
+     * default one.
      *
      * @return void
      */
@@ -73,14 +73,6 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
 
         self::createSessionRecordTable('authentication_sessions', 'id', SeparateConnectionSession::CONNECTION);
         self::createCodeTableOn(SeparateConnectionSession::CONNECTION);
-
-        Schema::connection(SeparateConnectionSession::CONNECTION)->create('pending_sign_ins', static function (Blueprint $blueprint): void {
-            $blueprint->uuid('id')->primary();
-            $blueprint->string('authenticatable_type');
-            $blueprint->string('authenticatable_id');
-            $blueprint->string('principal_type')->nullable();
-            $blueprint->string('principal_id')->nullable();
-        });
     }
 
     /**
@@ -164,8 +156,7 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
     }
 
     /**
-     * Keep the sessions and pending sign-ins on their own connection and
-     * configure the `api` guard.
+     * Keep the sessions on their own connection and configure the `api` guard.
      *
      * @param  mixed  $app
      * @return void

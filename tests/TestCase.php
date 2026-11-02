@@ -146,11 +146,11 @@ abstract class TestCase extends OrchestraTestCase
 
     /**
      * Run the package's shipped migrations so the default
-     * `authentication_sessions`, `pending_sign_ins`, `rate_limits`,
-     * `one_time_codes`, `passkeys`, `passkey_challenges`, `api_keys`,
-     * `identifier_changes`, `authentication_proofs` and
-     * `authentication_provenance` tables exist for tests that use the shipped
-     * models, on the connections the storage settings name when they run.
+     * `authentication_sessions`, `rate_limits`, `one_time_codes`, `passkeys`,
+     * `passkey_challenges`, `api_keys`, `identifier_changes`,
+     * `authentication_proofs` and `authentication_provenance` tables exist for
+     * tests that use the shipped models, on the connections the storage
+     * settings name when they run.
      *
      * A test may point the storage settings elsewhere once the tables exist;
      * `tearDown()` puts them back before the migrations are rolled back. On a
@@ -259,7 +259,6 @@ abstract class TestCase extends OrchestraTestCase
 
         return [
             [$storage, $config->string('authentication.session.table', 'authentication_sessions')],
-            [$storage, $config->string('authentication.sign_in.pending_table', 'pending_sign_ins')],
             [$limits, $config->string('authentication.rate_limits.table', 'rate_limits')],
             [$storage, $config->string('authentication.codes.table', 'one_time_codes')],
             [$storage, $config->string('authentication.passkeys.table', 'passkeys')],

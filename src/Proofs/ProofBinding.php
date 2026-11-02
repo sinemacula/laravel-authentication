@@ -9,9 +9,9 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 
 /**
  * What an adapter's proof was made for: the identity, the application (the
- * guard), the session (for a step-up, the session's key; for a pending
- * sign-in's further factor, the pending sign-in's id) and the purpose. A proof
- * whose binding does not match the operation it is handed to is refused.
+ * guard), the session (its key, which a pending session keeps when it
+ * activates) and the purpose. A proof whose binding does not match the
+ * operation it is handed to is refused.
  *
  * @api
  *
@@ -38,7 +38,7 @@ final readonly class ProofBinding
         /** The application (the guard's name) the proof was made on. */
         public string $application,
 
-        /** The session, or the pending sign-in, the proof was made for. */
+        /** The key of the session, active or pending, the proof was made for. */
         public mixed $sessionId,
 
         /** What the proof was made for. */

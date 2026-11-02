@@ -312,7 +312,7 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
      * A change of password of an identity whose identifiers can change, with
      * two changes pending, cancels them both in one `DELETE`, beside the
      * password's `UPDATE`, the read of its row, the `DELETE` of the codes it
-     * outdates, the read of its sessions and the end of its pending sign-ins.
+     * outdates and the read of its sessions.
      *
      * @return void
      *
@@ -327,7 +327,7 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
         $changes->requestByLink($identity, 'phone', self::NEW_PHONE, Reauthentication::password(self::PASSWORD), 'confirm');
 
         $passwords = Auth::passwords('web');
-        $result    = $this->assertQueryBudget(2, 4, static fn (): PasswordResult => $passwords->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE));
+        $result    = $this->assertQueryBudget(2, 3, static fn (): PasswordResult => $passwords->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE));
 
         self::assertTrue($result->isSet());
         self::assertSame(0, DB::table('identifier_changes')->count());

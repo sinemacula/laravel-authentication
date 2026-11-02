@@ -24,7 +24,7 @@ use Tests\Concerns\InteractsWithPasswords;
  * the token and reads no identity; a reset counts its submission, reads the
  * identity and the token once each, spends the token, writes the password and
  * the cutoff, revokes each session with one statement after one read of them,
- * ends the pending sign-ins, and gives its slots back.
+ * and gives its slots back.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -114,8 +114,8 @@ final class PasswordResetQueryBudgetTest extends PerformanceContractTestCase
      * under the lock taken before the token, the token and the sessions once
      * each, and the row it updated once more, and writes the submission's
      * limits, the token's use, the password, one `DELETE` of every other reset
-     * link and code, the cutoff, one revocation per session, the pending
-     * sign-ins' end, and the slots it gives back.
+     * link and code, the cutoff, one revocation per session, and the slots it
+     * gives back.
      *
      * @return void
      *
@@ -136,7 +136,7 @@ final class PasswordResetQueryBudgetTest extends PerformanceContractTestCase
         $token = (string) $this->links->lastTokenFor(self::EMAIL);
 
         $input  = ['email' => self::EMAIL, 'token' => $token, 'password' => 'a brand new passphrase'];
-        $result = $this->assertQueryBudget(5, 13, static fn (): ResetResult => $passwords->reset($input));
+        $result = $this->assertQueryBudget(5, 12, static fn (): ResetResult => $passwords->reset($input));
 
         self::assertSame(2, $result->revoked);
     }

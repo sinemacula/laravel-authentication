@@ -15,7 +15,6 @@ use SineMacula\Laravel\Authentication\Models\IdentifierChange;
 use SineMacula\Laravel\Authentication\Models\OneTimeCode;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
-use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Models\RateLimit;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
@@ -197,7 +196,6 @@ final class StorageConnectionMigrationTest extends TestCase
     {
         return [
             'sessions'           => new Session,
-            'pending sign-ins'   => new PendingSignIn,
             'rate limits'        => new RateLimit,
             'one-time codes'     => new OneTimeCode,
             'passkeys'           => new Passkey,

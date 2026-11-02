@@ -58,6 +58,9 @@ final readonly class PasswordSignIn implements SignInMethod
     /** @var string Name of the method, under which it is registered and recorded. */
     public const string NAME = 'password';
 
+    /** @var string The `amr` value of a password (RFC 8176). */
+    public const string AMR = 'pwd';
+
     /** @var string Configuration key naming the identifier column for every guard that does not name its own. */
     private const string IDENTIFIER_KEY = 'authentication.sign_in.password_identifier';
 
@@ -72,9 +75,6 @@ final readonly class PasswordSignIn implements SignInMethod
 
     /** @var string Input key holding the password. */
     private const string PASSWORD_KEY = 'password';
-
-    /** @var string The `amr` value of a password (RFC 8176). */
-    private const string AMR = 'pwd';
 
     /** @var string Laravel's setting for rehashing a password on sign-in. */
     private const string REHASH_KEY = 'hashing.rehash_on_login';

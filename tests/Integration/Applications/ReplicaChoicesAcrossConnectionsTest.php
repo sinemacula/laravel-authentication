@@ -9,12 +9,10 @@ use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Admission\ApplicationAdmission;
-use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Admission\PrincipalAdmission;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Sessions\PrincipalChoices;
+use SineMacula\Laravel\Authentication\Sessions\PendingEvaluation;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\LandlordPrincipal;
@@ -22,21 +20,20 @@ use Tests\Integration\Fixtures\LandlordPrincipalMember;
 use Tests\TestCase;
 
 /**
- * Proves the principals offered to an identity are admitted with the
- * application policy's reads on the identity's write connection, also when the
- * principals live on another connection: the identity is on the lagging default
- * split, its principals on the lagging `landlord` split, and the policy reads
- * its grants on the identity's connection, so pinning the principal's
- * connection alone would answer from a replica that still holds a withdrawn
- * grant.
+ * Proves the principals offered to an identity are admitted with
+ * `ApplicationAccess` read on the principal's write connection, also when the
+ * principals live on another connection than the identity: the identity is on
+ * the lagging default split, its principals and their grants on the lagging
+ * `landlord` split, so an answer read from the landlord replica would still
+ * hold a withdrawn grant.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversClass(PrincipalChoices::class)]
-#[CoversClass(ApplicationAdmission::class)]
+#[CoversClass(PendingEvaluation::class)]
+#[CoversClass(PrincipalAdmission::class)]
 final class ReplicaChoicesAcrossConnectionsTest extends TestCase
 {
     use InteractsWithLaggingReplica, InteractsWithSessions;
@@ -44,13 +41,13 @@ final class ReplicaChoicesAcrossConnectionsTest extends TestCase
     /** @var string Guard over the members whose principals live on the landlord connection. */
     private const string GUARD = 'landlord_members';
 
-    /** @var string Table of the principals the policy admits, each for no identifier type or for one. */
+    /** @var string Table of the principals the application admits. */
     private const string GRANTS = 'principal_grants';
 
     /**
-     * Create the member and grant tables on the default primary and replica,
-     * the principal table on the landlord primary and replica, and bind the
-     * policy that reads the grants.
+     * Create the member table on the default primary and replica, the principal
+     * and grant tables on the landlord primary and replica, and bind the access
+     * that reads the grants.
      *
      * @return void
      */
@@ -69,8 +66,7 @@ final class ReplicaChoicesAcrossConnectionsTest extends TestCase
         $this->createOnPrimaryAndReplica(self::GRANTS, static function (Blueprint $blueprint): void {
             $blueprint->increments('id');
             $blueprint->unsignedInteger('principal_id');
-            $blueprint->string('identifier_type');
-        });
+        }, self::LANDLORD_PRIMARY_CONNECTION, self::LANDLORD_REPLICA_CONNECTION);
 
         $this->createOnPrimaryAndReplica('landlord_principals', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');
@@ -78,7 +74,7 @@ final class ReplicaChoicesAcrossConnectionsTest extends TestCase
             $blueprint->timestamps();
         }, self::LANDLORD_PRIMARY_CONNECTION, self::LANDLORD_REPLICA_CONNECTION);
 
-        app()->instance(ApplicationPolicy::class, $this->policy());
+        app()->instance(ApplicationAccess::class, $this->access());
     }
 
     /**
@@ -95,40 +91,30 @@ final class ReplicaChoicesAcrossConnectionsTest extends TestCase
     }
 
     /**
-     * A principal whose grant for no identifier type the primary has withdrawn
-     * is offered neither with nor without an identifier type, and one whose
-     * grant for the type the primary has withdrawn is no longer offered with
-     * that type, though the replica still holds both grants.
+     * A principal whose grant the landlord primary has withdrawn is no longer
+     * offered, with or without an identifier type, though the landlord replica
+     * still holds the grant; the other is.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testThePrincipalsAreAdmittedOnTheIdentitysPrimary(): void
+    public function testThePrincipalsAreAdmittedOnThePrincipalsPrimary(): void
     {
         $member = LandlordPrincipalMember::query()->create(['email' => 'member@example.test', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
         $first  = LandlordPrincipal::query()->create(['identity_id' => $member->id]);
         $second = LandlordPrincipal::query()->create(['identity_id' => $member->id]);
+        $grant  = $this->grant($first);
 
-        $untyped = $this->grant($first, '');
-
-        $this->grant($first, 'email');
-        $this->grant($second, '');
-
-        $email = $this->grant($second, 'email');
+        $this->grant($second);
 
         self::assertSame([$first->id, $second->id], $this->offered($member, null));
         self::assertSame([$first->id, $second->id], $this->offered($member, 'email'));
 
-        $this->withdrawOnThePrimary($untyped);
+        $this->withdrawOnThePrimary($grant);
 
         self::assertSame([$second->id], $this->offered($member, null));
         self::assertSame([$second->id], $this->offered($member, 'email'));
-
-        $this->withdrawOnThePrimary($email);
-
-        self::assertSame([$second->id], $this->offered($member, null));
-        self::assertSame([], $this->offered($member, 'email'));
     }
 
     /**
@@ -181,54 +167,52 @@ final class ReplicaChoicesAcrossConnectionsTest extends TestCase
     }
 
     /**
-     * Grant the principal the application for the identifier type (`''` for
-     * none), on the default primary only.
+     * Grant the principal the application, on the landlord primary only.
      *
      * @param  \Tests\Integration\Fixtures\LandlordPrincipal  $principal
-     * @param  string  $identifierType
      * @return int
      */
-    private function grant(LandlordPrincipal $principal, string $identifierType): int
+    private function grant(LandlordPrincipal $principal): int
     {
-        return DB::table(self::GRANTS)->insertGetId(['principal_id' => $principal->id, 'identifier_type' => $identifierType]);
+        return DB::connection(self::LANDLORD_CONNECTION)->table(self::GRANTS)->insertGetId(['principal_id' => $principal->id]);
     }
 
     /**
-     * Copy the grant to the default replica, then delete it on the primary, as
-     * a replica that lags behind the withdrawal would still hold it.
+     * Copy the grant to the landlord replica, then delete it on the landlord
+     * primary, as a replica that lags behind the withdrawal would still hold
+     * it.
      *
      * @param  int  $id
      * @return void
      */
     private function withdrawOnThePrimary(int $id): void
     {
-        $this->copyRowToReplica(self::GRANTS, $id);
+        $this->copyRowToReplica(self::GRANTS, $id, self::LANDLORD_PRIMARY_CONNECTION, self::LANDLORD_REPLICA_CONNECTION);
 
-        DB::table(self::GRANTS)->where('id', $id)->delete();
+        DB::connection(self::LANDLORD_CONNECTION)->table(self::GRANTS)->where('id', $id)->delete();
 
-        self::assertFalse(DB::connection(self::PRIMARY_CONNECTION)->table(self::GRANTS)->where('id', $id)->exists());
-        self::assertTrue(DB::connection(self::REPLICA_CONNECTION)->table(self::GRANTS)->where('id', $id)->exists());
+        self::assertFalse(DB::connection(self::LANDLORD_PRIMARY_CONNECTION)->table(self::GRANTS)->where('id', $id)->exists());
+        self::assertTrue(DB::connection(self::LANDLORD_REPLICA_CONNECTION)->table(self::GRANTS)->where('id', $id)->exists());
     }
 
     /**
-     * A policy that admits a principal only with a grant for the identifier
-     * type the sign-in used (`''` for none), read through the query builder on
-     * the default connection, which is the identity's, and admits every
-     * identity.
+     * An access that lets a principal use the application only with a grant,
+     * read through the query builder on the landlord connection, which is the
+     * principal's.
      *
-     * @return \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy
+     * @return \SineMacula\Laravel\Authentication\Contracts\ApplicationAccess
      */
-    private function policy(): ApplicationPolicy
+    private function access(): ApplicationAccess
     {
-        $policy = self::createStub(ApplicationPolicy::class);
+        $access = self::createStub(ApplicationAccess::class);
 
-        $policy->method('admit')->willReturnCallback(
-            static fn (string $guard, Identity $identity, Principal $principal, ?string $identifierType): ?FailureReason => DB::table(self::GRANTS)
+        $access->method('mayUse')->willReturnCallback(
+            static fn (string $guard, Principal $principal): bool => DB::connection(self::LANDLORD_CONNECTION)
+                ->table(self::GRANTS)
                 ->where('principal_id', $principal->getPrincipalIdentifier())
-                ->where('identifier_type', $identifierType ?? '')
-                ->exists() ? null : FailureReason::PRINCIPAL_INELIGIBLE,
+                ->exists(),
         );
 
-        return $policy;
+        return $access;
     }
 }

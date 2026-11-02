@@ -10,12 +10,15 @@ use Illuminate\Http\Request;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\ClientText;
+use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 
 /**
  * Where a sign-in comes from and what it asks for: the client (its IP address
  * and user agent), the name and platform it gives itself, the principal it
- * wants to act as, the refresh token it holds for a session it signed in on
- * before, and a deadline of the session's own.
+ * wants to act as and the tenant it wants to act in, the refresh token it holds
+ * for a session it signed in on before, and a deadline of the session's own.
+ * The tenant applies once a principal is selected at sign-in; a choice of
+ * principal names its own.
  *
  * The client name and platform come from the client, so they are made safe to
  * store as `ClientContext` makes the user agent safe: NUL bytes removed,
@@ -24,19 +27,24 @@ use SineMacula\Laravel\Authentication\Http\ClientText;
  *
  * The principal is verified, not trusted: it must resolve through the
  * resolver's hinted path to the same principal of the same class, owned by the
- * identity signing in. The refresh token, which an application passes only when
- * it wants a re-sign-in to replace the client's previous session, proves the
- * client holds that session: the sign-in then revokes it (`superseded`) as it
- * creates the new one (see the session service). Without it nothing else is
- * revoked.
+ * identity signing in. The tenant (`null` for the principal's default: its own
+ * tenant, or none for a platform principal) is admitted as the session's active
+ * tenant once a principal is selected: the principal's own, or one the
+ * `TenantResolver` finds and `TenantAccess` lets it act in, active (refused as
+ * `tenant_ineligible` or `tenant_inactive`). It is the application's to pass,
+ * never read from the request. The refresh token, which an application passes
+ * only when it wants a re-sign-in to replace the client's previous session,
+ * proves the client holds that session: the sign-in then revokes it
+ * (`superseded`) as it creates the new one (see the session service). Without
+ * it nothing else is revoked.
  *
  * The deadline (`notAfter`, cut to the whole second) caps the session the
  * sign-in starts: its absolute deadline is the earlier of it and the
  * application's absolute limit, or it alone when the application sets none, and
- * refresh, a switch of principal and a reauthentication never move it. An
- * external provider's session deadline is one source. It is the application's
- * or a trusted adapter's to supply, never read from the request, and a sign-in
- * whose deadline has already passed is refused as `session_expired`.
+ * refresh, a switch and a reauthentication never move it. An external
+ * provider's session deadline is one source. It is the application's or a
+ * trusted adapter's to supply, never read from the request, and a sign-in whose
+ * deadline has already passed is refused as `session_expired`.
  *
  * @api
  *
@@ -66,6 +74,7 @@ final readonly class SignInContext
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?string  $refreshToken
      * @param  ?\Carbon\CarbonInterface  $notAfter
+     * @param  ?\SineMacula\Laravel\Authentication\Tenancy\TenantSelection  $tenant
      */
     public function __construct(
 
@@ -86,6 +95,9 @@ final readonly class SignInContext
 
         // Latest the session may last, such as a provider's session deadline.
         ?CarbonInterface $notAfter = null,
+
+        /** Tenant the sign-in asks to act in, admitted before it is used; `null` for the principal's default. */
+        public ?TenantSelection $tenant = null,
     ) {
         $this->clientName = ClientText::clean($clientName, self::DESCRIPTION_MAX_LENGTH);
         $this->platform   = ClientText::clean($platform, self::DESCRIPTION_MAX_LENGTH);
@@ -106,7 +118,7 @@ final readonly class SignInContext
             ? $this->notAfter
             : $notAfter;
 
-        return new self($this->client, $this->clientName, $this->platform, $this->principal, $this->refreshToken, $earliest);
+        return new self($this->client, $this->clientName, $this->platform, $this->principal, $this->refreshToken, $earliest, $this->tenant);
     }
 
     /**
@@ -124,13 +136,15 @@ final readonly class SignInContext
 
     /**
      * Read the context of a sign-in from its request, which never supplies a
-     * deadline.
+     * deadline; the principal and tenant to ask for are the application's to
+     * pass.
      *
      * @param  \Illuminate\Http\Request  $request
      * @param  ?string  $clientName
      * @param  ?string  $platform
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?string  $refreshToken
+     * @param  ?\SineMacula\Laravel\Authentication\Tenancy\TenantSelection  $tenant
      * @return self
      */
     public static function fromRequest(
@@ -139,7 +153,8 @@ final readonly class SignInContext
         ?string $platform = null,
         ?Principal $principal = null,
         #[\SensitiveParameter] ?string $refreshToken = null,
+        ?TenantSelection $tenant = null,
     ): self {
-        return new self(ClientContext::fromRequest($request), $clientName, $platform, $principal, $refreshToken);
+        return new self(ClientContext::fromRequest($request), $clientName, $platform, $principal, $refreshToken, tenant: $tenant);
     }
 }

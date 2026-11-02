@@ -6,7 +6,7 @@ namespace SineMacula\Laravel\Authentication\Jwt;
 
 /**
  * Immutable token pair: the first pair of a session the session service
- * started, or the pair a refresh or a switch of principal rotated in.
+ * started, or the pair a refresh or a switch rotated in.
  *
  * Either way it replaces any refresh token the client held for the session, so
  * consumers must store the value in `$refreshToken` immediately. After a

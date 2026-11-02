@@ -15,13 +15,15 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
-use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
 use SineMacula\Laravel\Authentication\Events\IdentifierVerified;
-use SineMacula\Laravel\Authentication\Events\PrincipalChoiceRequired;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
+use SineMacula\Laravel\Authentication\Events\SessionPending;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
+use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
@@ -45,10 +47,9 @@ use Tests\TestCase;
  *
  * @internal
  */
-#[CoversClass(AdditionalFactorRequired::class)]
 #[CoversClass(SessionRevoked::class)]
 #[CoversClass(IdentifierVerified::class)]
-#[CoversClass(PrincipalChoiceRequired::class)]
+#[CoversClass(SessionPending::class)]
 #[CoversClass(PrincipalSwitched::class)]
 #[CoversClass(SignedOutEverywhere::class)]
 final class LifecycleEventsContractTest extends TestCase
@@ -57,10 +58,9 @@ final class LifecycleEventsContractTest extends TestCase
 
     /** @var list<class-string> The lifecycle events the listener's record is checked for. */
     private const array LIFECYCLE = [
-        AdditionalFactorRequired::class,
+        SessionPending::class,
         SessionRevoked::class,
         IdentifierVerified::class,
-        PrincipalChoiceRequired::class,
         PrincipalSwitched::class,
         SignedOutEverywhere::class,
     ];
@@ -117,7 +117,7 @@ final class LifecycleEventsContractTest extends TestCase
      */
     public function testOneListenerOnTheContractReceivesEveryLifecycleEvent(): void
     {
-        [$member] = $this->seedMember();
+        [$member, $membership] = $this->seedMember();
 
         $tenant = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
         $second = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
@@ -133,10 +133,14 @@ final class LifecycleEventsContractTest extends TestCase
             $captured[] = [class_basename($event), $event->context()->guard, $event->context()->identityId, $event->context()->principalId];
         });
 
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions('members')->signIn(
+            'password',
+            self::credentials('member@example.test'),
+            new SignInContext(new ClientContext(null, null), principal: $membership),
+        )->session;
 
         self::assertNotNull($session);
-        self::assertTrue($this->sessions('members')->switchPrincipal($session->tokens->refreshToken, $second)->isSwitched());
+        self::assertTrue($this->sessions('members')->switchTo($session->tokens->refreshToken, SwitchTarget::principal($second))->isSwitched());
 
         $guard = $this->freshGuard('members');
 
@@ -153,7 +157,7 @@ final class LifecycleEventsContractTest extends TestCase
             ChoosingMembership::query()->create(['identity_id' => $chooser->getKey(), 'tenant_id' => $choosable->getKey()]);
         }
 
-        self::assertTrue($this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'))->requiresPrincipal());
+        self::assertTrue($this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'))->isPending());
 
         $identity = $this->seedIdentity();
 
@@ -185,8 +189,8 @@ final class LifecycleEventsContractTest extends TestCase
             ['PrincipalSwitched', 'members', $memberId, $secondId],
             ['SignedOutEverywhere', 'members', $memberId, null],
             ['SessionRevoked', 'members', $memberId, $secondId],
-            ['PrincipalChoiceRequired', 'choosers', IdentifierCoercion::stringify($chooser->getKey()), null],
-            ['AdditionalFactorRequired', 'api', $identityId, $identityId],
+            ['SessionPending', 'choosers', IdentifierCoercion::stringify($chooser->getKey()), null],
+            ['SessionPending', 'api', $identityId, $identityId],
             ['IdentifierVerified', 'api', IdentifierCoercion::stringify($verifiable->getKey()), null],
         ], $captured);
     }

@@ -52,13 +52,12 @@ interface GuardBinding
     public function session(): ?Session;
 
     /**
-     * Return the tenant the active principal acts within, if any, resolving the
-     * request on first access. Throws as `ContextualGuard::tenant()` does.
+     * Return the active tenant, if any, resolving the request on first access,
+     * as `ContextualGuard::tenant()` does.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
-     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function tenant(): ?Tenant;
@@ -93,18 +92,21 @@ interface GuardBinding
 
     /**
      * Bind a session the flow moved as the request's authentication, not as a
-     * sign-in (the bind events only).
+     * sign-in (the bind events only), in the active tenant given, or, with none
+     * given, the one the session records (the principal's own without a
+     * session).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?list<string>  $scopes
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @return void
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public function authenticateAs(Identity $identity, Principal $principal, ?Session $session = null, ?array $scopes = null): void;
+    public function authenticateAs(Identity $identity, Principal $principal, ?Session $session = null, ?array $scopes = null, ?Tenant $tenant = null): void;
 
     /**
      * Forget the bound identity, principal and session, with no event, and keep
@@ -113,4 +115,14 @@ interface GuardBinding
      * @return static
      */
     public function forgetUser(): static;
+
+    /**
+     * Forget the binding as `forgetUser()` does when it is bound to the
+     * session, without resolving the request: a flow that takes the session out
+     * of the active state calls it, so the request stops acting in it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @return void
+     */
+    public function forgetSession(Session $session): void;
 }

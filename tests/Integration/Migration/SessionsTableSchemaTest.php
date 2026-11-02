@@ -45,7 +45,15 @@ final class SessionsTableSchemaTest extends TestCase
         'authenticatable_id'      => false,
         'principal_type'          => true,
         'principal_id'            => true,
-        'principal_switched_at'   => true,
+        'status'                  => false,
+        'requires'                => true,
+        'pending_key'             => true,
+        'supersedes_session_id'   => true,
+        'supersedes_refresh_key'  => true,
+        'attempt_windows'         => true,
+        'tenant_id'               => true,
+        'tenant_policy_version'   => true,
+        'switched_at'             => true,
         'guard'                   => true,
         'sign_in_method'          => true,
         'sign_in_identifier_type' => true,
@@ -71,7 +79,7 @@ final class SessionsTableSchemaTest extends TestCase
     /** @var list<string> The timestamp columns, all stored to the whole second. */
     private const array TIMESTAMP_COLUMNS = [
         'last_used_at',
-        'principal_switched_at',
+        'switched_at',
         'refresh_rotated_at',
         'signed_in_at',
         'idle_expires_at',
@@ -122,9 +130,9 @@ final class SessionsTableSchemaTest extends TestCase
 
     /**
      * The table has exactly these columns, each with its nullability: the
-     * generation, the owner and the idle deadline are required, the absolute
-     * deadline is optional (a session may have none), and everything a later
-     * feature or the client supplies is optional.
+     * generation, the owner, the status and the idle deadline are required, the
+     * absolute deadline is optional (a session may have none), and everything a
+     * later feature, a pending session or the client supplies is optional.
      *
      * @return void
      */
@@ -169,20 +177,27 @@ final class SessionsTableSchemaTest extends TestCase
     /**
      * The string columns that hold client data are as long as the longest value
      * the package stores in them: 45 characters for an IP address, 512 for a
-     * user agent, and 64 for a SHA-256 hex digest and a revocation reason.
+     * user agent, 16 for the status, 64 for a SHA-256 hex digest, a revocation
+     * reason, the requirements and a policy version, and 255 for a tenant id.
      *
      * @return void
      */
     public function testSizesTheStringColumnsForWhatTheyHold(): void
     {
         $lengths = [
-            'created_ip'           => 45,
-            'last_used_ip'         => 45,
-            'created_user_agent'   => 512,
-            'last_used_user_agent' => 512,
-            'refresh_key'          => 64,
-            'previous_refresh_key' => 64,
-            'revoked_reason'       => 64,
+            'created_ip'             => 45,
+            'last_used_ip'           => 45,
+            'created_user_agent'     => 512,
+            'last_used_user_agent'   => 512,
+            'refresh_key'            => 64,
+            'previous_refresh_key'   => 64,
+            'revoked_reason'         => 64,
+            'status'                 => 16,
+            'requires'               => 64,
+            'pending_key'            => 64,
+            'supersedes_refresh_key' => 64,
+            'tenant_policy_version'  => 64,
+            'tenant_id'              => 255,
         ];
 
         if (Schema::getConnection()->getDriverName() === 'sqlite') {
@@ -198,12 +213,13 @@ final class SessionsTableSchemaTest extends TestCase
 
     /**
      * The table is indexed for the lookups that need it, the owner, the
-     * principal, the guard, and each pruning condition separately, and nothing
-     * else: no index on the refresh digest, which is never searched.
+     * principal, the guard, the active tenant, and each pruning condition
+     * separately, and nothing else: no index on a digest, which is never
+     * searched.
      *
      * @return void
      */
-    public function testIndexesTheOwnerPrincipalGuardAndPruningColumnsOnly(): void
+    public function testIndexesTheOwnerPrincipalGuardTenantAndPruningColumnsOnly(): void
     {
         $indexes = array_map(
             static fn (array $index): string => implode(',', $index['columns']),
@@ -219,6 +235,7 @@ final class SessionsTableSchemaTest extends TestCase
             'idle_expires_at',
             'principal_type,principal_id',
             'revoked_at',
+            'tenant_id',
         ], $indexes);
     }
 
@@ -285,6 +302,28 @@ final class SessionsTableSchemaTest extends TestCase
     }
 
     /**
+     * A row written without a status reads as active, so only a row the package
+     * makes pending is ever taken for one.
+     *
+     * @return void
+     */
+    public function testAStatusDefaultsToActive(): void
+    {
+        $id = (string) Str::uuid7();
+
+        DB::table(self::TABLE)->insert([
+            'id'                   => $id,
+            'generation'           => (string) Str::uuid7(),
+            'authenticatable_type' => 'App\Models\User',
+            'authenticatable_id'   => '1',
+            'signed_in_at'         => '2026-04-06 12:00:00',
+            'idle_expires_at'      => '2026-04-06 13:00:00',
+        ]);
+
+        self::assertSame('active', DB::table(self::TABLE)->where('id', $id)->value('status'));
+    }
+
+    /**
      * The indexes of the migrated table other than its primary key.
      *
      * @param  string  $table
@@ -334,6 +373,7 @@ final class SessionsTableSchemaTest extends TestCase
             $table . '_owner_index'     => 'authenticatable_type,authenticatable_id',
             $table . '_principal_index' => 'principal_type,principal_id',
             $table . '_revoked_index'   => 'revoked_at',
+            $table . '_tenant_index'    => 'tenant_id',
         ];
     }
 

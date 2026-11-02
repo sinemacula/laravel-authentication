@@ -5,20 +5,23 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Factors;
 
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
-use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 
 /**
  * Everything an additional-factor policy decides on: the guard, who is signing
- * in and as which principal, how, and from which client.
+ * in, how, and from which client.
+ *
+ * The policy is asked about the identity, after its first factor is verified
+ * and before any principal is chosen, so it names no principal or tenant: a
+ * tenant that asks more of a session says so through its tenant authentication
+ * policy, asked for the destination tenant once a principal is selected.
  *
  * `$provenSession` is set only when the client proved, with its current refresh
- * token, that it holds an existing session of this guard on the same identity
- * and principal, which the sign-in will then replace with a new session: the
- * new session has a new identifier, and nothing a policy kept about the proven
- * one transfers to it. A session merely named by the caller never appears here.
+ * token, that it holds an existing session of this guard on the same identity,
+ * which the sign-in will then replace with a new session: the new session has a
+ * new identifier, and nothing a policy kept about the proven one transfers to
+ * it. A session merely named by the caller never appears here.
  *
  * @api
  *
@@ -32,8 +35,6 @@ final readonly class AdditionalFactorContext
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  string  $method
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  ?string  $clientName
@@ -48,12 +49,6 @@ final readonly class AdditionalFactorContext
         /** Identity the primary method verified. */
         public Identity $identity,
 
-        /** Principal the session would act as. */
-        public Principal $principal,
-
-        /** Tenant the principal acts within, if any. */
-        public ?Tenant $tenant,
-
         /** Name of the sign-in method that verified the identity. */
         public string $method,
 
@@ -66,7 +61,7 @@ final readonly class AdditionalFactorContext
         /** Platform the client reported, if any. */
         public ?string $platform,
 
-        /** Existing session of this guard, identity and principal the client proved it holds, if any. */
+        /** Existing session of this guard and identity the client proved it holds, if any. */
         public ?Session $provenSession,
     ) {}
 }

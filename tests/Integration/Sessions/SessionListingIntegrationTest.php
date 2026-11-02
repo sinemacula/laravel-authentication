@@ -71,14 +71,14 @@ final class SessionListingIntegrationTest extends TestCase
     }
 
     /**
-     * A session is active while it is unrevoked and before both deadlines: a
-     * deadline that names the current second has passed. The scope and the
-     * listing agree, and the listing holds only the identity's sessions, of
-     * every guard.
+     * A session is active while it is not pending, unrevoked and before both
+     * deadlines: a deadline that names the current second has passed. The scope
+     * and the listing agree, and the listing holds only the identity's
+     * sessions, of every guard.
      *
      * @return void
      */
-    public function testActiveMeansUnrevokedAndBeforeBothDeadlines(): void
+    public function testActiveMeansNotPendingUnrevokedAndBeforeBothDeadlines(): void
     {
         $identity = $this->seedIdentity();
         $other    = $this->seedIdentity('grace@example.test');
@@ -91,6 +91,7 @@ final class SessionListingIntegrationTest extends TestCase
         $this->insertSession($identity, '05', absolute: $now->copy()->addSecond());
         $this->insertSession($identity, '06', guard: 'admin');
         $this->insertSession($other, '07');
+        $this->insertSession($identity, '08', pending: true);
 
         self::assertEqualsCanonicalizing([self::key('03'), self::key('05'), self::key('06'), self::key('07')], Session::query()->active()->pluck('id')->all());
 
@@ -203,7 +204,8 @@ final class SessionListingIntegrationTest extends TestCase
     }
 
     /**
-     * Insert a session of the identity, live for a month unless told otherwise.
+     * Insert a session of the identity, active and live for a month unless told
+     * otherwise.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @param  string  $number
@@ -212,6 +214,7 @@ final class SessionListingIntegrationTest extends TestCase
      * @param  ?\Illuminate\Support\Carbon  $absolute
      * @param  string  $guard
      * @param  ?\Illuminate\Support\Carbon  $lastUsed
+     * @param  bool  $pending
      * @return void
      */
     private function insertSession(
@@ -222,6 +225,7 @@ final class SessionListingIntegrationTest extends TestCase
         ?Carbon $absolute = null,
         string $guard = 'api',
         ?Carbon $lastUsed = null,
+        bool $pending = false,
     ): void {
         $now = Carbon::parse(self::NOW);
 
@@ -241,6 +245,8 @@ final class SessionListingIntegrationTest extends TestCase
             'last_used_at'         => $lastUsed,
             'last_used_ip'         => $lastUsed === null ? null : '198.51.100.2',
             'last_used_user_agent' => $lastUsed === null ? null : 'Used/1.0',
+            'status'               => $pending ? 'pending' : 'active',
+            'requires'             => $pending ? '["mfa"]' : null,
             'refresh_key'          => hash('sha256', 'refresh-' . $number),
             'idle_expires_at'      => $idle     ?? $now->copy()->addDays(30),
             'absolute_expires_at'  => $absolute ?? $now->copy()->addDays(60),

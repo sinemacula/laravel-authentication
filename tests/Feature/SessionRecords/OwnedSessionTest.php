@@ -34,36 +34,40 @@ final class OwnedSessionTest extends TestCase
 
     /**
      * Rows of `[guard, revoked seconds ago or null, idle deadline in seconds,
-     * the refusal]`, in the order the reasons are judged; the absolute deadline
-     * is always two hours away.
+     * status, the refusal]`, in the order the reasons are judged; the absolute
+     * deadline is always two hours away.
      *
-     * @return iterable<string, array{0: ?string, 1: ?int, 2: int, 3: ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
+     * @return iterable<string, array{0: ?string, 1: ?int, 2: int, 3: string, 4: ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
      */
     public static function provideSessions(): iterable
     {
-        yield 'a live session of the guard' => ['api', null, 3600, null];
-        yield 'another guard, revoked and ended' => ['admin', 60, 0, FailureReason::SESSION_GUARD_MISMATCH];
-        yield 'no guard' => [null, null, 3600, FailureReason::SESSION_GUARD_MISMATCH];
-        yield 'revoked and ended' => ['api', 60, 0, FailureReason::SESSION_REVOKED];
-        yield 'ended' => ['api', null, 0, FailureReason::SESSION_EXPIRED];
+        yield 'a live session of the guard' => ['api', null, 3600, 'active', null];
+        yield 'another guard, revoked, pending and ended' => ['admin', 60, 0, 'pending', FailureReason::SESSION_GUARD_MISMATCH];
+        yield 'no guard' => [null, null, 3600, 'active', FailureReason::SESSION_GUARD_MISMATCH];
+        yield 'revoked, pending and ended' => ['api', 60, 0, 'pending', FailureReason::SESSION_REVOKED];
+        yield 'pending and ended' => ['api', null, 0, 'pending', FailureReason::SESSION_PENDING];
+        yield 'pending' => ['api', null, 3600, 'pending', FailureReason::SESSION_PENDING];
+        yield 'ended' => ['api', null, 0, 'active', FailureReason::SESSION_EXPIRED];
     }
 
     /**
-     * The guard may authenticate only on a live session of its own; otherwise
-     * the first reason that applies, guard before revocation before the
-     * deadlines.
+     * The guard may authenticate only on a live, active session of its own;
+     * otherwise the first reason that applies, guard before revocation before a
+     * pending status before the deadlines.
      *
      * @param  ?string  $guard
      * @param  ?int  $revokedAgo
      * @param  int  $idleIn
+     * @param  string  $status
      * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $refusal
      * @return void
      */
     #[DataProvider('provideSessions')]
-    public function testTheGuardMayAuthenticateOnlyOnALiveSessionOfItsOwn(?string $guard, ?int $revokedAgo, int $idleIn, ?FailureReason $refusal): void
+    public function testTheGuardMayAuthenticateOnlyOnALiveSessionOfItsOwn(?string $guard, ?int $revokedAgo, int $idleIn, string $status, ?FailureReason $refusal): void
     {
         $now     = Carbon::now()->startOfSecond();
         $session = new StubSession([
+            'status'              => $status,
             'guard'               => $guard,
             'revoked_at'          => $revokedAgo === null ? null : $now->copy()->subSeconds($revokedAgo),
             'idle_expires_at'     => $now->copy()->addSeconds($idleIn),
@@ -83,7 +87,29 @@ final class OwnedSessionTest extends TestCase
     {
         $this->expectException(\LogicException::class);
 
-        OwnedSession::refusal(new StubSession(['guard' => 'admin', 'idle_expires_at' => Carbon::now(), 'absolute_expires_at' => Carbon::now()]), 'api', Carbon::now());
+        OwnedSession::refusal(
+            new StubSession(['status' => 'active', 'guard' => 'admin', 'idle_expires_at' => Carbon::now(), 'absolute_expires_at' => Carbon::now()]),
+            'api',
+            Carbon::now(),
+        );
+    }
+
+    /**
+     * A session loaded without its status is reported as the misconfiguration
+     * it is, whatever its guard, rather than taken for an active one.
+     *
+     * @return void
+     */
+    public function testASessionLoadedWithoutItsStatusIsReportedWhateverItsGuard(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('getStatusName()');
+
+        OwnedSession::refusal(
+            new StubSession(['guard' => 'admin', 'revoked_at' => null, 'idle_expires_at' => Carbon::now(), 'absolute_expires_at' => Carbon::now()]),
+            'api',
+            Carbon::now(),
+        );
     }
 
     /**
@@ -132,6 +158,50 @@ final class OwnedSessionTest extends TestCase
     }
 
     /**
+     * Rows of `[tenant the session records, tenant a token names, acts in]`.
+     *
+     * @return iterable<string, array{0: ?string, 1: mixed, 2: bool}>
+     */
+    public static function provideTenants(): iterable
+    {
+        yield 'the same tenant' => ['7', '7', true];
+        yield 'another tenant' => ['7', '8', false];
+        yield 'a tenant for a session in none' => [null, '7', false];
+        yield 'none for a session in a tenant' => ['7', null, false];
+        yield 'none for a session in none' => [null, null, true];
+        yield 'an identifier that is not a string' => ['7', 7, true];
+        yield 'a malformed claim for a session in none' => [null, ['7'], false];
+    }
+
+    /**
+     * A session acts in the tenant a token names only when it records that
+     * tenant's identifier, and in none only when it records none.
+     *
+     * @param  ?string  $recorded
+     * @param  mixed  $named
+     * @param  bool  $actsIn
+     * @return void
+     */
+    #[DataProvider('provideTenants')]
+    public function testASessionActsOnlyInTheTenantItRecords(?string $recorded, mixed $named, bool $actsIn): void
+    {
+        self::assertSame($actsIn, OwnedSession::actsIn(new StubSession(['tenant_id' => $recorded]), $named));
+    }
+
+    /**
+     * A session loaded without its active tenant fails closed rather than
+     * reading as acting in none.
+     *
+     * @return void
+     */
+    public function testASessionLoadedWithoutItsTenantIsReported(): void
+    {
+        $this->expectException(\LogicException::class);
+
+        OwnedSession::actsIn(new StubSession, null);
+    }
+
+    /**
      * Rows of `[seconds from the switch to the token's issue time, or null for
      * a session that never switched, issue time is whole, accepted]`.
      *
@@ -148,9 +218,9 @@ final class OwnedSessionTest extends TestCase
     }
 
     /**
-     * A token is held to the session's last principal switch: one issued before
-     * the switch second is not, and one whose issue time is not whole cannot be
-     * placed after it.
+     * A token is held to the session's last context change: one issued before
+     * the change's second is not, and one whose issue time is not whole cannot
+     * be placed after it.
      *
      * @param  ?int  $offset
      * @param  bool  $whole
@@ -158,10 +228,10 @@ final class OwnedSessionTest extends TestCase
      * @return void
      */
     #[DataProvider('provideIssueTimes')]
-    public function testATokenIsHeldToTheLastPrincipalSwitch(?int $offset, bool $whole, bool $accepted): void
+    public function testATokenIsHeldToTheLastContextChange(?int $offset, bool $whole, bool $accepted): void
     {
         $switched = Carbon::now()->startOfSecond();
-        $session  = new StubSession(['principal_switched_at' => $offset === null ? null : $switched]);
+        $session  = new StubSession(['switched_at' => $offset === null ? null : $switched]);
         $issuedAt = $switched->getTimestamp() + ($offset ?? 0);
 
         self::assertSame($accepted, OwnedSession::isIssuedSinceSwitch($session, $whole ? $issuedAt : (string) $issuedAt));

@@ -13,6 +13,7 @@ use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
@@ -20,6 +21,7 @@ use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSessionOrigin;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSessionStanding;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
@@ -32,6 +34,8 @@ use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
+use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 
@@ -84,8 +88,10 @@ final class ContractDeclarationTest extends TestCase
      * `Session` declares exactly the read surface the guards, the refresh
      * exchange, the session service, and the package events depend on: the
      * identifier, last use, both refresh digests and the rotation time, both
-     * deadlines, the revocation, and the guard and sign-in method that started
-     * the session.
+     * deadlines, the revocation, the guard and sign-in method that started the
+     * session, its status and requirements, the pending credential's digest,
+     * the active tenant and policy version, and the floor its context changes
+     * set.
      *
      * @return void
      */
@@ -96,16 +102,21 @@ final class ContractDeclarationTest extends TestCase
             'getGuard',
             'getIdleExpiresAt',
             'getLastUsedAt',
+            'getPendingKey',
             'getPreviousRefreshKey',
-            'getPrincipalSwitchedAt',
             'getRefreshKey',
             'getRefreshRotatedAt',
+            'getRequires',
             'getRevokedAt',
             'getRevokedReason',
             'getSessionIdentifier',
             'getSignInIdentifierType',
             'getSignInMethod',
             'getSignedInAt',
+            'getStatus',
+            'getSwitchedAt',
+            'getTenantId',
+            'getTenantPolicyVersion',
         ], self::declaredMethods(Session::class));
     }
 
@@ -125,13 +136,18 @@ final class ContractDeclarationTest extends TestCase
             EloquentSessionOrigin::class,
             (new \ReflectionClass(EloquentSession::class))->getInterfaceNames(),
         );
+        self::assertContains(
+            EloquentSessionStanding::class,
+            (new \ReflectionClass(EloquentSession::class))->getInterfaceNames(),
+        );
     }
 
     /**
      * `EloquentSession` adds exactly the owner and principal relations and the
-     * column names the session creation, refresh, revocation, and last-use
-     * writes need, and the generation's, besides those of the session's origin.
-     * The identifier has no column name: it is always the primary key.
+     * column names the session creation, activation, refresh, revocation, and
+     * last-use writes need, and the generation's, besides those of the
+     * session's origin and standing. The identifier has no column name: it is
+     * always the primary key.
      *
      * @return void
      */
@@ -146,12 +162,12 @@ final class ContractDeclarationTest extends TestCase
             'getLastUsedIpName',
             'getLastUsedUserAgentName',
             'getPreviousRefreshKeyName',
-            'getPrincipalSwitchedAtName',
             'getRefreshKeyName',
             'getRefreshRotatedAtName',
             'getRevokedAtName',
             'getRevokedReasonName',
             'getSignedInAtName',
+            'getSwitchedAtName',
             'principal',
         ], self::declaredMethods(EloquentSession::class));
     }
@@ -176,9 +192,30 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
+     * `EloquentSessionStanding` declares exactly the column names of where a
+     * session stands: its status, what it waits on, its pending credential, the
+     * session it supersedes, the slots it keeps, and its active tenant.
+     *
+     * @return void
+     */
+    public function testEloquentSessionStandingDeclaresExactlyTheStandingColumns(): void
+    {
+        self::assertSame([
+            'getAttemptWindowsName',
+            'getPendingKeyName',
+            'getRequiresName',
+            'getStatusName',
+            'getSupersedesRefreshKeyName',
+            'getSupersedesSessionIdName',
+            'getTenantIdName',
+            'getTenantPolicyVersionName',
+        ], self::declaredMethods(EloquentSessionStanding::class));
+    }
+
+    /**
      * `EloquentSession::authenticatable()` and `principal()` must return
      * MorphTo relations, and the persistence column-name accessors, its
-     * origin's included, must return strings.
+     * origin's and standing's included, must return strings.
      *
      * @return void
      */
@@ -191,7 +228,7 @@ final class ContractDeclarationTest extends TestCase
         }
 
         $persistence         = array_diff(self::declaredMethods(EloquentSession::class), ['authenticatable', 'principal']);
-        $columnNameAccessors = [...$persistence, ...self::declaredMethods(EloquentSessionOrigin::class)];
+        $columnNameAccessors = [...$persistence, ...self::declaredMethods(EloquentSessionOrigin::class), ...self::declaredMethods(EloquentSessionStanding::class)];
 
         foreach ($columnNameAccessors as $method) {
             $returnType = (new \ReflectionMethod(EloquentSession::class, $method))->getReturnType();
@@ -257,10 +294,11 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `ApplicationPolicy` declares exactly the four questions the session layer
-     * asks an application: may this method start a session, may this identity
-     * sign in with this identifier, may this principal hold one, and for how
-     * long, which depends on the guard alone.
+     * `ApplicationPolicy` declares exactly the three questions the session
+     * layer asks an application's settings: may this method start a session,
+     * may this identity sign in with this identifier, and for how long, which
+     * depends on the guard alone. Which principals may hold a session is not
+     * among them.
      *
      * @return void
      */
@@ -268,10 +306,31 @@ final class ContractDeclarationTest extends TestCase
     {
         $lifetimes = (new \ReflectionMethod(ApplicationPolicy::class, 'lifetimes'))->getParameters();
 
-        self::assertSame(['admit', 'admitIdentifier', 'allowsMethod', 'lifetimes'], self::declaredMethods(ApplicationPolicy::class));
+        self::assertSame(['admitIdentifier', 'allowsMethod', 'lifetimes'], self::declaredMethods(ApplicationPolicy::class));
         self::assertCount(1, $lifetimes);
         self::assertSame('guard', $lifetimes[0]->getName());
         self::assertSame('string', (string) $lifetimes[0]->getType());
+    }
+
+    /**
+     * The access contracts each declare one yes-or-no question, and the
+     * resolver one lookup by an opaque identifier: may this principal use this
+     * application, may it act in this tenant (or in none), and which tenant an
+     * identifier names.
+     *
+     * @return void
+     */
+    public function testTheAccessContractsDeclareOneQuestionEach(): void
+    {
+        $mayActIn = (new \ReflectionMethod(TenantAccess::class, 'mayActIn'))->getParameters();
+        $resolve  = (new \ReflectionMethod(TenantResolver::class, 'resolve'))->getParameters();
+
+        self::assertSame(['mayUse'], self::declaredMethods(ApplicationAccess::class));
+        self::assertSame(['mayActIn'], self::declaredMethods(TenantAccess::class));
+        self::assertSame(['resolve'], self::declaredMethods(TenantResolver::class));
+        self::assertSame('?' . Tenant::class, (string) $mayActIn[1]->getType());
+        self::assertSame('string', (string) $resolve[0]->getType());
+        self::assertSame('?' . Tenant::class, (string) (new \ReflectionMethod(TenantResolver::class, 'resolve'))->getReturnType());
     }
 
     /**

@@ -393,7 +393,8 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
     }
 
     /**
-     * Persist a member with a membership in its own tenant and a live session.
+     * Persist a member with a membership in its own tenant and a live session
+     * acting as that membership in its tenant, as a sign-in records one.
      *
      * @formatter:off
      *
@@ -419,11 +420,9 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
 
         $session = new Session;
         $session->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession(principal: $membership),
             'authenticatable_type' => ActivatableTenantMember::class,
             'authenticatable_id'   => (string) $member->getKey(), // @phpstan-ignore cast.string
-            'principal_type'       => $membership->getMorphClass(),
-            'principal_id'         => (string) $membership->getKey(), // @phpstan-ignore cast.string
         ])->save();
 
         return [$member, $membership, $session];

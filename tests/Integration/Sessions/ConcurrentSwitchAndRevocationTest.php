@@ -19,11 +19,13 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Events\SteppedUp;
 use SineMacula\Laravel\Authentication\Sessions\AccessTokenResult;
-use SineMacula\Laravel\Authentication\Sessions\PrincipalSwitch;
 use SineMacula\Laravel\Authentication\Sessions\ProofIssuance;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
+use SineMacula\Laravel\Authentication\Sessions\SessionSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
+use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
@@ -50,7 +52,7 @@ use Tests\TestCase;
  *
  * @internal
  */
-#[CoversClass(PrincipalSwitch::class)]
+#[CoversClass(SessionSwitch::class)]
 #[CoversClass(RevocationWriter::class)]
 #[CoversClass(ProofIssuance::class)]
 final class ConcurrentSwitchAndRevocationTest extends TestCase
@@ -140,10 +142,10 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     {
         foreach ([true, false] as $commit) {
 
-            [$member] = $this->seedMemberships();
+            [$member, $default] = $this->seedMemberships();
 
-            $this->signIn();
-            $this->signIn();
+            $this->signIn($default);
+            $this->signIn($default);
 
             [$first, $second] = $this->race(
                 fn (): int => $this->sessions(self::GUARD)->revokeSessions($member, RevocationReason::REVOKED),
@@ -185,11 +187,11 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
 
             [$member, $first, $target] = $this->seedMemberships();
 
-            $session = $this->signIn();
+            $session = $this->signIn($first);
 
             [, $second] = $this->race(
                 fn (): int => $this->sessions(self::GUARD)->revokeSessions($member, RevocationReason::REVOKED),
-                fn (): array => self::describe($this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $target)),
+                fn (): array => self::describe($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($target))),
                 $commit,
             );
 
@@ -226,11 +228,11 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
 
             [, $first, $target] = $this->seedMemberships();
 
-            $session = $this->signIn();
+            $session = $this->signIn($first);
 
             [$refreshed, $second] = $this->race(
                 fn (): bool => self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken)->isRefreshed(),
-                fn (): array => self::describe($this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $target)),
+                fn (): array => self::describe($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($target))),
                 $commit,
             );
 
@@ -269,13 +271,13 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     {
         foreach ([true, false] as $commit) {
 
-            [, , $target] = $this->seedMemberships();
+            [, $default, $target] = $this->seedMemberships();
 
-            $session = $this->signIn();
+            $session = $this->signIn($default);
 
             [$first, $second] = $this->race(
-                fn (): array => self::describe($this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $target)),
-                fn (): array => self::describe($this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $target)),
+                fn (): array => self::describe($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($target))),
+                fn (): array => self::describe($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($target))),
                 $commit,
             );
 
@@ -311,9 +313,9 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     {
         foreach ([true, false] as $commit) {
 
-            [$member] = $this->seedMemberships();
+            [$member, $first] = $this->seedMemberships();
 
-            $session = $this->signIn();
+            $session = $this->signIn($first);
 
             [$steppedUp, $second] = $this->race(
                 fn (): array => self::stepUpOutcome($this->sessions(self::GUARD)->stepUp(self::adapterProof($member, self::GUARD, $session->record->getKey()))),
@@ -346,9 +348,9 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     {
         foreach ([true, false] as $commit) {
 
-            [$member] = $this->seedMemberships();
+            [$member, $first] = $this->seedMemberships();
 
-            $session = $this->signIn();
+            $session = $this->signIn($first);
 
             [$revoked, $second] = $this->race(
                 fn (): int => $this->sessions(self::GUARD)->revokeSessions($member, RevocationReason::REVOKED),
@@ -416,16 +418,19 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     }
 
     /**
-     * Sign the member in as its default membership, then move the clocks on, so
-     * a switch or a refresh of the session is never in its first second.
+     * Sign the member in as the membership given, which a member with two must
+     * name or be held pending for the choice, then move the clocks on, so a
+     * switch or a refresh of the session is never in its first second.
      *
+     * @param  \Tests\Integration\Fixtures\ActivatableTenantMembership  $membership
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
      * @throws \Throwable
      */
-    private function signIn(): SignedInSession
+    private function signIn(ActivatableTenantMembership $membership): SignedInSession
     {
-        $session = $this->sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'))->session;
+        $context = SignInContext::fromRequest(request(), principal: $membership);
+        $session = $this->sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'), $context)->session;
 
         self::assertNotNull($session);
 
@@ -519,7 +524,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
      */
     private function reset(): void
     {
-        foreach (['authentication_sessions', 'authentication_proofs', 'pending_sign_ins', 'rate_limits', 'activatable_tenant_memberships', 'activatable_tenants'] as $table) {
+        foreach (['authentication_sessions', 'authentication_proofs', 'rate_limits', 'activatable_tenant_memberships', 'activatable_tenants'] as $table) {
             DB::table($table)->delete();
         }
 

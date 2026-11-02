@@ -14,7 +14,6 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
-use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 
 /**
@@ -29,15 +28,14 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
  *
  * A bulk revocation first moves each scope's "tokens valid after" cutoff to
  * `$now` on the scope's own connection, then, in one transaction on the session
- * model's connection (which also holds the pending sign-ins), revokes every
- * unrevoked session of each scope, read on the write connection in key order in
- * chunks of 500, deletes the scope's pending sign-ins, so a further factor or a
- * principal choice issued before cannot start a session afterwards, and deletes
- * the pending identifier changes of an identity's scope (also kept on that
- * connection), so a change link requested from a session that ends, which needs
- * no session to confirm, cannot move the account afterwards. A failure in the
- * transaction leaves the cutoffs moved: more is cut off, never less, and a
- * retry is idempotent.
+ * model's connection, revokes every unrevoked session of each scope, pending
+ * sessions included (so a pending credential issued before cannot activate a
+ * session afterwards), read on the write connection in key order in chunks of
+ * 500, and deletes the pending identifier changes of an identity's scope (also
+ * kept on that connection), so a change link requested from a session that
+ * ends, which needs no session to confirm, cannot move the account afterwards.
+ * A failure in the transaction leaves the cutoffs moved: more is cut off, never
+ * less, and a retry is idempotent.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -128,7 +126,6 @@ final readonly class RevocationWriter
 
                 $revoked = $this->revokeSessionsOf($scope, $reason, $except, $now, $sessionRevoked);
 
-                self::deletePendings($scope);
                 self::forgetChanges($scope);
 
                 $cutoff = $cutoffs[$index];
@@ -194,23 +191,6 @@ final readonly class RevocationWriter
 
             return $revoked;
         });
-    }
-
-    /**
-     * Delete the scope's pending sign-ins, whatever their purpose.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\RevocationScope  $scope
-     * @return void
-     *
-     * @throws \InvalidArgumentException
-     */
-    private static function deletePendings(RevocationScope $scope): void
-    {
-        if ($scope->pendings === null) {
-            return;
-        }
-
-        (new PendingSignIn)->newQueryWithoutScopes()->toBase()->where($scope->pendings)->delete();
     }
 
     /**

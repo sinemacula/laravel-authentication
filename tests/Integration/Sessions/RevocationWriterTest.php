@@ -7,7 +7,6 @@ namespace Tests\Integration\Sessions;
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Events\QueryExecuted;
-use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
@@ -265,19 +264,26 @@ final class RevocationWriterTest extends TestCase
 
         DB::table('authentication_sessions')->insert($this->sessionRow($identity, 1));
 
-        Schema::rename('pending_sign_ins', 'pending_sign_ins_away');
+        $failing = new \ArrayObject(['on' => true]);
+
+        DB::connection()->beforeExecuting(static function (string $query) use ($failing): void {
+            if ($failing['on'] === true && str_starts_with($query, 'update') && str_contains($query, 'authentication_sessions')) {
+                throw new \RuntimeException('The session transaction failed.');
+            }
+        });
 
         $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class]);
 
         try {
             $this->sessions()->revokeSessions($identity, RevocationReason::PASSWORD_RESET);
             self::fail('The session transaction did not fail.');
-        } catch (QueryException) {
+        } catch (\RuntimeException $exception) {
+            self::assertSame('The session transaction failed.', $exception->getMessage());
             self::assertSame(self::NOW, DB::table('cutoff_identities')->value('tokens_valid_after'));
             self::assertSame(1, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
             self::assertSame([], $this->recorded);
         } finally {
-            Schema::rename('pending_sign_ins_away', 'pending_sign_ins');
+            $failing['on'] = false;
         }
 
         self::assertSame(1, $this->sessions()->revokeSessions($identity, RevocationReason::PASSWORD_RESET));

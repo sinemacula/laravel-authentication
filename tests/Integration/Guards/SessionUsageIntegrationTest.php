@@ -446,6 +446,9 @@ final class SessionUsageIntegrationTest extends TestCase
                 'principal_type'       => $identity->getMorphClass(),
                 'principal_id'         => (string) $identity->getKey(), // @phpstan-ignore cast.string
                 'guard'                => 'api',
+                'status'               => 'active',
+                'tenant_id'            => null,
+                'switched_at'          => null,
                 'sign_in_method'       => 'password',
                 'created_ip'           => $client->ip,
                 'created_user_agent'   => $client->userAgent,

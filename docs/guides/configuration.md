@@ -15,11 +15,10 @@ JWT settings are read once and kept (see [Configuration lifetimes](operations.md
 | `session.table`                                     | `authentication_sessions`                                                    | `AUTHENTICATION_SESSION_TABLE`                            |           | [Session](#session)                                                   |
 | `session.last_used_throttle_seconds`                | `60`                                                                         | `AUTHENTICATION_SESSION_LAST_USED_THROTTLE_SECONDS`       |           | [Session](#session)                                                   |
 | `session.prune_after_days`                          | `30`                                                                         | `AUTHENTICATION_SESSION_PRUNE_AFTER_DAYS`                 |           | [Pruning](operations.md#pruning)                                      |
+| `session.pending_ttl_seconds`                       | `300`                                                                        | `AUTHENTICATION_SESSION_PENDING_TTL_SECONDS`              |           | [Pending sessions](#pending-sessions)                                 |
 | `proofs.table`                                      | `authentication_proofs`                                                      | `AUTHENTICATION_PROOFS_TABLE`                             |           | [Proofs](#proofs)                                                     |
 | `proofs.provenance_table`                           | `authentication_provenance`                                                  | `AUTHENTICATION_PROOFS_PROVENANCE_TABLE`                  |           | [Proofs](#proofs)                                                     |
 | `sign_in.password_identifier`                       | `email`                                                                      | `AUTHENTICATION_SIGN_IN_PASSWORD_IDENTIFIER`              | yes       | [Sign-in](#sign-in)                                                   |
-| `sign_in.pending_table`                             | `pending_sign_ins`                                                           | `AUTHENTICATION_SIGN_IN_PENDING_TABLE`                    |           | [Sign-in](#sign-in)                                                   |
-| `sign_in.pending_ttl_seconds`                       | `300`                                                                        | `AUTHENTICATION_SIGN_IN_PENDING_TTL_SECONDS`              |           | [Sign-in](#sign-in)                                                   |
 | `timebox.credentials_microseconds`                  | `400000`                                                                     | `AUTHENTICATION_TIMEBOX_CREDENTIALS_US`                   |           | [Credential validation timing](#credential-validation-timing)         |
 | `events.redacted_credential_keys`                   | `[]`                                                                         |                                                           |           | [Events](events.md#events)                                            |
 | `jwt.keys`                                          | `['default' => env('AUTHENTICATION_JWT_KEY')]`                               |                                                           | yes       | [Key rotation](operations.md#key-rotation)                            |
@@ -108,15 +107,15 @@ JWT settings are read once and kept (see [Configuration lifetimes](operations.md
 ```
 
 Every table the package ships lives on `storage.connection`, the default connection when `null`: sessions, their proofs
-and provenance, pending sign-ins, one-time codes, passkeys and their challenges, API keys, identifier changes, and the
-attempt counters unless `rate_limits.connection` names a connection of their own (see [Rate limits](#rate-limits)). The
-shipped models read and write them there, and the published migrations create them there: each names the storage
-connection as its own, so `php artisan migrate` creates every table where the package uses it, whichever connection the
-migrator runs on. With `null`, the migrations follow the migrator, as any migration that names no connection does, while
-the models use the default connection, so run them on the default connection. Laravel keeps its `migrations` table on
-the migrator's connection either way.
+and provenance (pending sessions among them), one-time codes, passkeys and their challenges, API keys, identifier
+changes, and the attempt counters unless `rate_limits.connection` names a connection of their own (see [Rate
+limits](#rate-limits)). The shipped models read and write them there, and the published migrations create them there:
+each names the storage connection as its own, so `php artisan migrate` creates every table where the package uses it,
+whichever connection the migrator runs on. With `null`, the migrations follow the migrator, as any migration that names
+no connection does, while the models use the default connection, so run them on the default connection. Laravel keeps
+its `migrations` table on the migrator's connection either way.
 
-The tables share one connection because a session, the completion of a pending sign-in, a password reset and an
+The tables share one connection because a session, the activation of a pending one, a password reset and an
 identifier change each write several of them in one transaction, which two connections cannot commit as one. The session
 model must therefore live there too: the shipped `Session` takes the storage connection unless a subclass names a
 connection of its own, and a session model, shipped or custom, on any other connection fails closed with an
@@ -205,7 +204,7 @@ with no header type, php-jwt's default `JWT`, or the other type's is rejected as
 | `sub_type`          | access                      | `person` for a human identity, `machine` for a client             |
 | `principal`         | access; refresh, optional   | the principal the identity acts as                                |
 | `sid`               | refresh; a session's access | the session                                                       |
-| `tenant_id`         | access, with a tenant       | the tenant the principal acts within                              |
+| `tenant_id`         | access, with a tenant       | the active tenant: the session's, or the principal's own          |
 | `auth_time`         | a session's access          | when the session last authenticated                               |
 | `amr`               | a session's access          | the session's authentication method references, a list            |
 | `cid`               | client credentials          | the API key the token was exchanged for                           |
@@ -215,11 +214,12 @@ with no header type, php-jwt's default `JWT`, or the other type's is rejected as
 `sub_type` is `machine` exactly when the token names an API key in `cid`, and is checked against the identity's kind on
 every request, so a human's token can never be read as a machine's or the other way round. A session's access token
 carries `auth_time` and `amr` derived from the session when the token is issued; a token without a session carries
-neither. The bearer path does not read `tenant_id`, `auth_time` or `amr`: they are for the token's readers, and live no
-longer than the access token does. On a request the package exposes none of them, and a decision about how fresh or how
-strong the authentication is asks `FreshnessPolicy` (see [Freshness](#freshness)). `tenant_id` names the tenant the
-principal acts within when the token is issued, and is carried only: the package does not check it on a request, and
-`Auth::tenant()` stays the principal's tenant, read live.
+neither. The bearer path does not read `auth_time` or `amr`: they are for the token's readers, and live no longer than
+the access token does. On a request the package exposes neither, and a decision about how fresh or how strong the
+authentication is asks `FreshnessPolicy` (see [Freshness](#freshness)). `tenant_id` is always the session's active
+tenant, the one the session records, and is checked against the session on every request
+(`session_tenant_mismatch`); a token without a session names the principal's own tenant. `Auth::tenant()` is that
+active tenant.
 
 ## Token and session lifetimes
 
@@ -248,7 +248,7 @@ An application may set no absolute limit: set `refresh_absolute_ttl_minutes` to 
 (`AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES=null`, which `env()` reads as `null`) or in a guard's `jwt` block,
 where a `null` override lifts the package's limit for that guard alone. Its sessions have no absolute deadline
 (`absolute_expires_at` is `null`) and end only when they go idle, are revoked, or reach a deadline their sign-in
-supplied (below); a refresh never adds one, and a switch of principal adds one only when the guard has set a limit since
+supplied (below); a refresh never adds one, and a switch adds one only when the guard has set a limit since
 the sign-in, counted from it. The idle lifetime is always required, and an absolute lifetime missing at both levels
 fails closed rather than reading as none.
 
@@ -298,20 +298,20 @@ and a guard overrides any key in an `application` block of its own:
 | `require_verified_identifier` | `false` | Refuse a sign-in with an identifier the identity has not verified                                                                                          |
 
 Every feature is opt-in, so an application allows nothing until it lists it: with the default empty `methods` (or a
-guard's own `[]`), every sign-in (`attempt()`, `signIn()`, `start()`), refresh, switch of principal, one-time code
+guard's own `[]`), every sign-in (`attempt()`, `signIn()`, `start()`), refresh, switch, one-time code
 request and password reset request is refused as `method_not_allowed`, a password never reauthenticates
 (`reauthentication_required`), an `api_key` guard refuses every key, and a client credentials exchange answers
-`unauthorized_client`. A further-factor sign-in or a principal choice already pending when its method is removed is
-spent, then refused as `method_not_allowed`. An empty list is a valid setting, not an error: an application in
-access-only mode issues its tokens itself, and an operator can empty the list to stop an application's sign-ins and
-refreshes without revoking anything. The list decides who may start or continue a session, not who holds one: access
-tokens already issued keep working until they expire, and a session refreshes again, if it is otherwise still valid,
-once its method is listed again. `authentication:check` warns about a `jwt` guard whose `methods` lists nothing, or
-only `api_key`, which a `jwt` guard never accepts; any other name counts, registered or not, since the application can
-start a session under it with `start()`. It reports an `api_key` guard that does not allow `api_key` as a problem,
-whatever policy is bound, since such a guard has no other use. A policy of your own, even one that wraps the package's,
-gets no warning, since the names it allows are its own. A change reaches a long-running process only after a restart
-(see [Configuration lifetimes](operations.md#configuration-lifetimes)).
+`unauthorized_client`. A session still pending (on a further factor or a choice of principal) when its method is removed
+is refused as `method_not_allowed` when it is next acted on, and stays pending until its credential expires. An empty
+list is a valid setting, not an error: an application in access-only mode issues its tokens itself, and an operator can
+empty the list to stop an application's sign-ins and refreshes without revoking anything. The list decides who may start
+or continue a session, not who holds one: access tokens already issued keep working until they expire, and a session
+refreshes again, if it is otherwise still valid, once its method is listed again. `authentication:check` warns about a
+`jwt` guard whose `methods` lists nothing, or only `api_key`, which a `jwt` guard never accepts; any other name counts,
+registered or not, since the application can start a session under it with `start()`. It reports an `api_key` guard that
+does not allow `api_key` as a problem, whatever policy is bound, since such a guard has no other use. A policy of your
+own, even one that wraps the package's, gets no warning, since the names it allows are its own. A change reaches a
+long-running process only after a restart (see [Configuration lifetimes](operations.md#configuration-lifetimes)).
 
 The session layer asks the application before it issues anything: a sign-in with a method it does not list fails with
 `method_not_allowed`, at sign-in and again on every refresh, so a valid credential for one application cannot open or
@@ -320,22 +320,21 @@ the password method) fails with `identifier_unverified` unless the identity repo
 [Identifier verification](identity-models.md#identifier-verification)); sign-ins that used no identifier, such as SSO
 through `start()`, and refreshes are not gated, since the external provider or the existing session vouches for them.
 The check is made before any principal is resolved, so an unverified identifier gets `identifier_unverified` whether or
-not the identity has a principal yet, and the answer cannot tell whether it has been invited anywhere. A switch of
-principal is held to the identifier type its session's sign-in used, which the session records.
+not the identity has a principal yet, and the answer cannot tell whether it has been invited anywhere. A switch is
+held to the identifier type its session's sign-in used, which the session records.
 
 A guard key that is present wins, `null` included; a guard `application` entry of `null` means no overrides. Nothing
 falls back to a literal: a key missing from both blocks, a value of the wrong shape (`null` or a map for `methods`, or a
 name no method can be registered under, such as `Password`), or a key the policy does not know fails closed with an
 `InvalidArgumentException` naming the guard and the key the first time the guard's policy is used. The policy is
 `Contracts\ApplicationPolicy`, bound to `Applications\GuardApplicationPolicy`; bind your own implementation to decide
-differently. The package's admits every principal; an application that decides which principals may hold its sessions
-refuses the others from `admit()` as `principal_ineligible`, the one reason a sign-in, a refresh, a switch, an API key
-and a client credentials exchange all report alike; the package asks it on the write connection (see
-[Extending](extending.md#deciding-which-principals-may-use-an-application)). Its `admitIdentifier()` is the check every
-sign-in makes before any principal is resolved, so a policy of your own keeps the guarantee above only by deciding
-verification there, for the identity as a whole; one that wraps the package's policy delegates `admitIdentifier()` to it
-like the other methods. A refusal from `admit()` comes only once a principal resolves, so an identity with none would
-get `principal_unresolved` instead. A policy of your own decides the session's deadlines through `lifetimes($guard)`,
+differently. Which principals may hold an application's sessions is not configuration but the `ApplicationAccess`
+contract, and which tenants they may act in `TenantAccess` (see
+[Extending](extending.md#deciding-which-principals-may-use-an-application)); the defaults admit any principal to any
+application, in its own tenant only. The policy's `admitIdentifier()` is the check every sign-in makes before any
+principal is resolved, so a policy of your own keeps the guarantee above only by deciding verification there, for the
+identity as a whole; one that wraps the package's policy delegates `admitIdentifier()` to it like the other methods. A
+policy of your own decides the session's deadlines through `lifetimes($guard)`,
 while an access token's lifetime and the refresh grace window still come from the guard's `jwt` configuration (the token
 capped at the session's end). See `docs/design/application-policy.md` for every point where the policy is enforced.
 
@@ -362,7 +361,7 @@ Precedence: guard-local `principal_resolver` → app-wide `PrincipalResolver::cl
 ## Session
 
 The published `authentication.php` config controls the session model, table, how often a session's last use is written,
-and how long a session that ended is kept before pruning:
+how long a session that ended is kept before pruning, and how long a pending credential lives:
 
 ```php
 'session' => [
@@ -370,6 +369,7 @@ and how long a session that ended is kept before pruning:
     'table'                      => 'authentication_sessions',
     'last_used_throttle_seconds' => 60,
     'prune_after_days'           => 30,
+    'pending_ttl_seconds'        => 300,
 ],
 ```
 
@@ -378,27 +378,33 @@ longer name gives index names that PostgreSQL cuts short without an error, or th
 
 A session is one sign-in, on one application, on one device. The shipped migration creates these columns:
 
-| Column                                                 | Holds                                                                  |
-|--------------------------------------------------------|------------------------------------------------------------------------|
-| `id`                                                   | UUID v7 primary key, carried in every token as `sid`                   |
-| `generation`                                           | A random UUID written at insert and never changed (required)           |
-| `authenticatable_type`, `authenticatable_id`           | The owning identity (required)                                         |
-| `principal_type`, `principal_id`                       | The principal the session acts as (any key type)                       |
-| `principal_switched_at`                                | When the session last switched its principal                           |
-| `guard`, `sign_in_method`                              | The guard and sign-in method that created it                           |
-| `sign_in_identifier_type`                              | The type of identifier that sign-in used, if any                       |
-| `client_name`, `platform`                              | What the client calls itself (`Work laptop`, `macOS`)                  |
-| `created_ip`, `created_user_agent`                     | The client at sign-in                                                  |
-| `last_used_at`, `last_used_ip`, `last_used_user_agent` | The client at the last use                                             |
-| `refresh_key`, `previous_refresh_key`                  | Digests of the current and previous rotation ids                       |
-| `refresh_rotated_at`                                   | When the current rotation id replaced the previous one                 |
-| `signed_in_at`                                         | When the session started (required)                                    |
-| `idle_expires_at`, `absolute_expires_at`               | End without a refresh (required), and end regardless (`null` for none) |
-| `revoked_at`, `revoked_reason`                         | When and why the session was revoked                                   |
+| Column                                                 | Holds                                                                                                    |
+|--------------------------------------------------------|----------------------------------------------------------------------------------------------------------|
+| `id`                                                   | UUID v7 primary key, carried in every token as `sid`                                                     |
+| `generation`                                           | A random UUID written at insert and never changed (required)                                             |
+| `authenticatable_type`, `authenticatable_id`           | The owning identity (required)                                                                           |
+| `principal_type`, `principal_id`                       | The principal the session acts as (any key type)                                                         |
+| `status`                                               | `active` (the default) or `pending`                                                                      |
+| `requires`                                             | What a pending session waits on, in order (`mfa`, `principal`)                                           |
+| `pending_key`                                          | Digest of the pending credential's secret                                                                |
+| `supersedes_session_id`, `supersedes_refresh_key`      | The session a pending session replaces when it first activates                                           |
+| `attempt_windows`                                      | The attempt slots a pending session keeps until it first activates                                       |
+| `tenant_id`, `tenant_policy_version`                   | The active tenant's opaque identifier (`null` for none, indexed), and the version of its policy last met |
+| `switched_at`                                          | When the session's context last changed (principal or active tenant, a return to pending, an activation) |
+| `guard`, `sign_in_method`                              | The guard and sign-in method that created it                                                             |
+| `sign_in_identifier_type`                              | The type of identifier that sign-in used, if any                                                         |
+| `client_name`, `platform`                              | What the client calls itself (`Work laptop`, `macOS`)                                                    |
+| `created_ip`, `created_user_agent`                     | The client at sign-in                                                                                    |
+| `last_used_at`, `last_used_ip`, `last_used_user_agent` | The client at the last use                                                                               |
+| `refresh_key`, `previous_refresh_key`                  | Digests of the current and previous rotation ids                                                         |
+| `refresh_rotated_at`                                   | When the current rotation id replaced the previous one                                                   |
+| `signed_in_at`                                         | When the session started (required)                                                                      |
+| `idle_expires_at`, `absolute_expires_at`               | End without a refresh (required), and end regardless (`null` for none)                                   |
+| `revoked_at`, `revoked_reason`                         | When and why the session was revoked                                                                     |
 
 Every timestamp is a `datetime` stored to the whole second, so a deadline years ahead fits on every engine (MySQL's
-`timestamp` type ends in January 2038), and the table is indexed on the owner, the principal, the guard, both
-deadlines, and the revocation time. Every authentication that binds a persisted session (a bearer request or a refresh)
+`timestamp` type ends in January 2038), and the table is indexed on the owner, the principal, the guard, both deadlines,
+the revocation time and the tenant. Every authentication that binds a persisted session (a bearer request or a refresh)
 records its last use: the time, the request's IP address (only when it is a valid IPv4 or IPv6 address), and its user
 agent (without NUL bytes, as valid UTF-8, at most 512 characters), at most once per `last_used_throttle_seconds` (0
 records every use).
@@ -416,12 +422,13 @@ session early, fail a refresh, or record extra uses; it never extends a session 
 
 The shipped `Session` model uses UUID v7 primary keys, a polymorphic `authenticatable` relation, and a polymorphic
 `principal()` relation over the principal columns. Only `client_name` and `platform` are mass assignable; set the owner,
-the request-derived columns, and the session state with `forceFill()`. Both refresh digests are hidden from `toArray()`
-and `toJson()` by `ActsAsSession`, under whatever column names the model uses. The session service writes
+the request-derived columns, and the session state with `forceFill()`. Both refresh digests, the pending credential's
+digest, the superseded session's refresh digest and the kept attempt slots are hidden from `toArray()` and `toJson()` by
+`ActsAsSession`, under whatever column names the model uses. The session service writes
 every column when it creates a session (see [Signing in](signing-in.md#signing-in-the-session-service)); `getGuard()`,
 `getSignInMethod()` and `getSignInIdentifierType()` read the guard, method and type of identifier it recorded. The
 bearer path and refresh honour a session only for the guard it records, refresh only while that guard still allows the
-method it records, and a switch of principal admits its target with the identifier type it records (`null` for a
+method it records, and a switch admits its destination principal with the identifier type it records (`null` for a
 sign-in that used none, which is held to no type), so a session written outside the session service must record all
 three.
 
@@ -432,27 +439,41 @@ column names come from the contract's accessors (`getRefreshKeyName()`, `getRevo
 migration creates the default names, so a model that renames a column needs its own migration.
 
 A session with `revoked_at` set is rejected everywhere: an access token naming it fails exactly as if the session were
-missing, and its refresh token fails with `session_revoked`. Revoking a session therefore ends it at once rather
-than when its access tokens expire. Revocation marks the row, with the time and a reason in `revoked_reason`, and clears
-both refresh digests; it never deletes the row (pruning does, later). The package revokes a session when it
-signs out, when the application revokes it or signs an identity or principal out everywhere (see
+missing, and its refresh token fails with `session_revoked`. Revoking a session therefore ends it at once rather than
+when its access tokens expire. Revocation marks the row, with the time and a reason in `revoked_reason`, and clears both
+refresh digests; it never deletes the row (pruning does, later). The package revokes a session when it signs out, when
+the application revokes it or signs an identity or principal out everywhere (see
 [Signing out and revoking sessions](sessions.md#signing-out-and-revoking-sessions)), when a sign-in that proves the
-client holds it replaces it (`superseded`, see [Signing in](signing-in.md#signing-in-the-session-service)), and when
-the refresh exchange detects a replay. Revoking is idempotent, so a session that is already revoked keeps its first
+client holds it replaces it (`superseded`, see [Signing in](signing-in.md#signing-in-the-session-service)), and when the
+refresh exchange detects a replay. Revoking is idempotent, so a session that is already revoked keeps its first
 revocation, and `SessionRevoked` reports each revocation the package makes. A session that has ended, past its idle or
 absolute deadline, is rejected the same way on the bearer path and as a sign-in pin, and fails refresh with
 `session_expired` (see [Token and session lifetimes](#token-and-session-lifetimes)). An access token that names a
-session is accepted only for the principal the session records (`principal_type`, `principal_id`), and only when it was
-issued no earlier than the second of the session's last principal switch (`principal_switched_at`); otherwise it fails
-with `session_principal_mismatch`. A switch therefore ends the access tokens of the principal it switched from at once,
-and switching back does not revive the ones issued before it. A session that records no principal accepts no token, and
-a session pinned on `attempt()` must record the principal being bound. Both checks read the row already loaded, with no
-extra query. `ActsAsSession` reads any stored timestamp as a value, with or without a `datetime` cast on the column, and
-throws a `LogicException` when the session was loaded without one of its refresh or revocation state columns (both
-digests, the rotation time, the session's start, the principal switch time, both deadlines, and the revocation time) or
-without the sign-in's identifier type (`sign_in_identifier_type`), for example through a `sessions()` relation or a
-global scope that selects other columns, so a partial select is reported instead of being read as a session that is not
-revoked, has no deadline, or whose sign-in used no identifier.
+session is accepted only in the tenant the session records (`tenant_id`, else `session_tenant_mismatch`), for the
+principal it records (`principal_type`, `principal_id`, else `session_principal_mismatch`), and only when it was issued
+no earlier than the second of the session's last context change (`switched_at`, else `session_switched`). A switch
+therefore ends the access tokens of the principal or tenant it switched from at once, and switching back does not revive
+the ones issued before it. A session that records no principal accepts no token, and a session pinned on `attempt()`
+must record the principal being bound. The checks read the row already loaded, with no extra query, except that a
+session acting in a tenant other than its principal's own resolves it once per request to check it is still active.
+`ActsAsSession` reads any stored timestamp as a value, with or without a `datetime` cast on the column, and throws a
+`LogicException` when the session was loaded without one of its refresh or revocation state columns (both digests, the
+rotation time, the session's start, the switch time, both deadlines, and the revocation time), without one of its
+standing columns (`status`, `requires`, `pending_key`, `tenant_id` and `tenant_policy_version`; the bearer path reads
+`status` and `tenant_id` on every request) or without the sign-in's identifier type (`sign_in_identifier_type`), for
+example through a `sessions()` relation or a global scope that selects other columns, so a partial select is reported
+instead of being read as a session that is not revoked, is active, acts in no tenant, has no deadline, or whose sign-in
+used no identifier.
+
+### Pending sessions
+
+A session is pending while it waits on a further factor or a choice of principal (see
+[Pending sessions](signing-in.md#pending-sessions)): `status` is `pending`, `requires` lists what it waits on, and it
+holds a pending credential, whose secret's digest is `pending_key`, and no token. The credential, and the pending
+session with it, ends `pending_ttl_seconds` after it is issued (an integer from 30 to 3600; anything else fails closed
+when a session becomes pending, and `authentication:check` reports it under `[session]`), and never after the session's
+absolute deadline. A pending session is never listed, and its access and refresh tokens, if it had any, are refused as
+`session_pending` until it activates.
 
 ## Proofs
 
@@ -525,8 +546,6 @@ else; `proofs` lists distinct kinds, at least one. A malformed entry fails close
 ```php
 'sign_in' => [
     'password_identifier' => 'email',
-    'pending_table'       => 'pending_sign_ins',
-    'pending_ttl_seconds' => 300,
 ],
 ```
 
@@ -547,8 +566,8 @@ another column names its own, and that is the one `signIn('password', ...)` and 
 
 Either must be a lower-case column name (a letter, then letters, digits, or underscores) that does not contain
 `password`; anything else, or any other key in a guard's `sign_in` block, fails with an `InvalidArgumentException` when
-a password sign-in runs. A sign-in that needs a further factor waits in `pending_table` (on the storage connection) for
-at most `pending_ttl_seconds`, an integer from 30 to 3600 (see [Additional factors](signing-in.md#additional-factors)).
+a password sign-in runs. A sign-in that needs a further factor or a choice of principal waits as a pending session (see
+[Pending sessions](#pending-sessions)).
 
 ## One-time codes
 
@@ -742,21 +761,21 @@ When the IP address's limit is full, the slot just taken for the identifier is g
 
 The password method also counts every password it checks against the account it checks it for, under the guard's
 `per_identifier` limit, and holds that slot with the sign-in's own: it is given back only when the sign-in starts its
-session (a pending sign-in keeps it until it completes), so a correct password that goes on to fail, or to wait for a
-further factor, still counts. A lookup can find one account by many spellings of its identifier (a column collation that
-ignores accents, widths or invisible characters, as MySQL's default `utf8mb4_unicode_ci` does, a query closure in
-`attempt()`, another column), and through every guard whose provider returns it, so the account keeps one count
-whichever guard checks it. An Eloquent identity's account is the row it is stored in (its connection, that connection's
-database, its table and its key), so two model classes over one table (an `Admin` model over the users table, say) count
-the same account once, and the same key in another tenant's database is another account; any other identity's account is
-its class and auth identifier. Each guard holds that one count to its own `per_identifier` limit, so the guesses at an
-account's password are bounded by the most permissive limit among the guards that check it: at most the largest `max` in
-each window of the shortest `decay_seconds`, whichever spelling and guard each guess uses. A guard with a looser limit
-therefore raises the bound for every guard, while a stricter one only stops its own sign-ins sooner, and guards with the
-same limit allow no more guesses together than one alone. A guard whose `per_identifier` is `null` neither checks nor
-counts the account, so it adds guesses of its own. Once an account has no attempts left, its password is not checked
-until the window ends, and the sign-in fails as `invalid_credentials`, as a wrong password would, so the refusal does
-not reveal that the account exists. Only your own listeners are told why: `AuthenticationFailed` carries
+session (a pending session keeps it until it first activates), so a correct password that goes on to fail, or to wait
+for a further factor, still counts. A lookup can find one account by many spellings of its identifier (a column
+collation that ignores accents, widths or invisible characters, as MySQL's default `utf8mb4_unicode_ci` does, a query
+closure in `attempt()`, another column), and through every guard whose provider returns it, so the account keeps one
+count whichever guard checks it. An Eloquent identity's account is the row it is stored in (its connection, that
+connection's database, its table and its key), so two model classes over one table (an `Admin` model over the users
+table, say) count the same account once, and the same key in another tenant's database is another account; any other
+identity's account is its class and auth identifier. Each guard holds that one count to its own `per_identifier` limit,
+so the guesses at an account's password are bounded by the most permissive limit among the guards that check it: at most
+the largest `max` in each window of the shortest `decay_seconds`, whichever spelling and guard each guess uses. A guard
+with a looser limit therefore raises the bound for every guard, while a stricter one only stops its own sign-ins sooner,
+and guards with the same limit allow no more guesses together than one alone. A guard whose `per_identifier` is `null`
+neither checks nor counts the account, so it adds guesses of its own. Once an account has no attempts left, its password
+is not checked until the window ends, and the sign-in fails as `invalid_credentials`, as a wrong password would, so the
+refusal does not reveal that the account exists. Only your own listeners are told why: `AuthenticationFailed` carries
 `account_rate_limited` and the wait, so a lockout notice or a SIEM can tell a locked account from a wrong password. A
 refresh cannot guess a secret (its tokens are signed and its rotation ids random), so it counts only its failures, per
 session and per IP address, and a successful refresh costs one read. A refresh refused for its failures is returned as
@@ -790,9 +809,8 @@ through. The one exception is giving back a completed further factor's slots aft
 > inside a transaction of yours: until your commit, a counter's row stays locked, and so does the gap of the index a
 > counter not created yet would go in, so two such transactions that each create a counter in one gap deadlock.
 
-Ended windows stay in the table until they are pruned, as do pending sign-ins that were never completed (see
-[Additional factors](signing-in.md#additional-factors)). Schedule Laravel's pruning command with both models, and the
-session model, as shown in [Pruning sessions](operations.md#pruning).
+Ended windows stay in the table until they are pruned. Schedule Laravel's pruning command with the attempt model and
+the session model (which prunes expired pending sessions too), as shown in [Pruning sessions](operations.md#pruning).
 
 ## API key settings
 

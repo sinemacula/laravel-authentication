@@ -22,14 +22,20 @@ claims a specific principal or session and the runtime cannot prove that claim, 
   column is rejected too, and a session loaded without one of its state columns throws a `LogicException` instead of
   being read as not revoked. The same lookup verifies a session pinned on `attempt()`, which must also come back as the
   same class.
-- A bearer `sid` is accepted only for the principal the session records: the session's `principal_type` and
-  `principal_id` must name the token's principal (a session that records none fails closed), and the token's `iat` must
-  not be before the second of the session's last principal switch (`principal_switched_at`), else
-  `session_principal_mismatch`. A switch from A to B ends A's tokens at once, and a switch back to A does not revive the
-  A tokens issued before it; the switch's own tokens are issued in its second, so they pass. The one residue is an A
-  token issued in the same second as an A -> B -> A pair completed within that second. A session pinned on `attempt()`
-  must record the principal being bound, else `session_mismatch`. Both read the row already loaded, with no query, and
-  a session loaded without `principal_switched_at` throws a `LogicException` rather than reading as never switched.
+- A bearer `sid` is accepted only in the tenant and for the principal the session records, in that order: the token's
+  `tenant_id` (absent for none) must be the session's `tenant_id`, its active tenant, else `session_tenant_mismatch`;
+  the session's `principal_type` and `principal_id` must name the token's principal (a session that records none fails
+  closed), else `session_principal_mismatch`; and the token's `iat` must not be before the second of the session's last
+  context change (`switched_at`: a switch of principal or active tenant, a return to pending, an activation), else
+  `session_switched`. A switch from A to B ends A's tokens at once, and a switch back to A does not revive the A tokens
+  issued before it; the switch's own tokens are issued in its second, so they pass, except after a second change in that
+  same second, whose floor is one second later (`SwitchFloor::after()`): its tokens are refused until the client
+  refreshes after it, and no earlier token is ever revived. The active tenant must then still resolve and be active
+  (`tenant_inactive`): the principal's own, already checked, is not read again, and any other is resolved through the
+  `TenantResolver`, with no access contract asked. A session pinned on `attempt()` must record the principal being
+  bound, else `session_mismatch`, and acts in the tenant it records, held to `TenantAccess` and its activity. The checks
+  read the row already loaded, with no query beyond the resolver's for another tenant, and a session loaded without
+  `tenant_id` or `switched_at` throws a `LogicException` rather than reading as acting in none or never switched.
 - Refresh is stricter than bearer auth: refresh always requires a valid `sid`, because refresh is session-backed.
 - A `sid` is checked against the session model's key format before any query; one that cannot be a key fails closed as
   an unresolved session, and a database error on a well-formed `sid` propagates instead of reading as a missing session.
@@ -106,6 +112,13 @@ claims a specific principal or session and the runtime cannot prove that claim, 
   stay on the same principal policy.
 
 ## Authoritative Tests
+
+- `tests/Feature/Tenancy/ActiveTenantTest.php` (the active tenant on every request, refresh and deactivation)
+- `tests/Integration/Guards/BearerAuthenticationTest.php` `testATokenTheRowsRejectIsReportedOnceWithItsReason`,
+  `testSwitchingAwayAndBackDoesNotReviveEarlierTokens`
+- `tests/Feature/Sessions/SessionSwitchTest.php` `testATenantOnlySwitchMovesTheSessionToAnotherTenant`,
+  `testSwitchingBackToATenantDoesNotRestoreItsOldTokens`, `testTwoSwitchesInOneSecondRefuseEveryEarlierToken`
+- `tests/Feature/SessionRecords/OwnedSessionTest.php` `testASessionActsOnlyInTheTenantItRecords`
 
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
   `testUserAttributesTheFailureToTheResolvedIdentityWhenPidHintRejectsToken`

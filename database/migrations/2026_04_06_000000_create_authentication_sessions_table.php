@@ -49,10 +49,36 @@ return new class extends Migration {
             $blueprint->string('principal_type')->nullable();
             $blueprint->string('principal_id')->nullable();
 
-            // When the session last switched the principal it acts as: access
-            // tokens issued before it are rejected, so a switch back to an
-            // earlier principal does not revive that principal's old tokens.
-            $blueprint->dateTime('principal_switched_at', 0)->nullable();
+            // `active`, or `pending` while the session waits on the
+            // requirements `requires` lists in order (a JSON list, such as
+            // `["mfa","principal"]`, `null` once active). A pending session
+            // holds only the digest of its pending credential's secret, never a
+            // refresh credential of its own until it first activates. Every row
+            // the package writes names its status; the default only keeps a row
+            // written outside the package from reading as a pending session's.
+            $blueprint->string('status', 16)->default('active');
+            $blueprint->string('requires', 64)->nullable();
+            $blueprint->string('pending_key', 64)->nullable();
+
+            // The session a sign-in's client proved it holds, and the refresh
+            // digest it proved, so its first activation supersedes that session
+            // only while it is unchanged; and the attempt-limit slots the
+            // sign-in holds until then (JSON).
+            $blueprint->string('supersedes_session_id')->nullable();
+            $blueprint->string('supersedes_refresh_key', 64)->nullable();
+            $blueprint->text('attempt_windows')->nullable();
+
+            // The active tenant's opaque id (`null` for none), and the version
+            // of its authentication policy the session was last checked
+            // against.
+            $blueprint->string('tenant_id')->nullable();
+            $blueprint->string('tenant_policy_version', 64)->nullable();
+
+            // The floor for the `iat` of the session's access tokens, moved by
+            // every change of its context (its principal or active tenant, a
+            // return to pending, an activation after one), so a token from
+            // before the change is refused even when the context comes back.
+            $blueprint->dateTime('switched_at', 0)->nullable();
 
             $blueprint->string('guard')->nullable();
             $blueprint->string('sign_in_method')->nullable();
@@ -97,6 +123,7 @@ return new class extends Migration {
             $blueprint->index(['authenticatable_type', 'authenticatable_id'], $table . '_owner_index');
             $blueprint->index(['principal_type', 'principal_id'], $table . '_principal_index');
             $blueprint->index('guard', $table . '_guard_index');
+            $blueprint->index('tenant_id', $table . '_tenant_index');
 
             // Separate single-column indexes so each condition of a pruning
             // query that matches either deadline or the revocation time can use

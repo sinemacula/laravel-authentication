@@ -147,20 +147,22 @@ final class ActiveSessionsTest extends TestCase
     }
 
     /**
-     * A session revoked or past a deadline is not listed.
+     * A session revoked, past a deadline or pending is not listed.
      *
      * @return void
      */
-    public function testRevokedAndEndedSessionsAreNotListed(): void
+    public function testRevokedEndedAndPendingSessionsAreNotListed(): void
     {
         $this->seedIdentity();
 
         $current = $this->signIn('api', 'Phone');
         $revoked = $this->signIn('api', 'Revoked');
         $ended   = $this->signIn('api', 'Ended');
+        $pending = $this->signIn('api', 'Pending');
 
         Session::query()->whereKey($revoked->record->getKey())->update(['revoked_at' => now(), 'revoked_reason' => 'revoked']);
         Session::query()->whereKey($ended->record->getKey())->update(['idle_expires_at' => now()]);
+        Session::query()->whereKey($pending->record->getKey())->update(['status' => 'pending', 'requires' => '["mfa"]']);
 
         $this->list($current->tokens->accessToken)->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.client_name', 'Phone');
     }

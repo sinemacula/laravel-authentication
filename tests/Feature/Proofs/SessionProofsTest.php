@@ -13,6 +13,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
@@ -26,6 +27,7 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofHistory;
+use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -180,6 +182,51 @@ final class SessionProofsTest extends TestCase
         $summary = AuthenticationClaims::forSession($record);
 
         self::assertSame([$this->now->getTimestamp(), ['pwd']], [$summary->authenticatedAt->getTimestamp(), $summary->methods]);
+    }
+
+    /**
+     * A session holds an accepted further factor only once a counting further
+     * factor or recovery code is recorded on it: not with its first factor or a
+     * reauthentication alone, not with one its adapter refused, a voided one,
+     * or one bound to another guard; a recovery code or a further factor its
+     * adapter accepted is one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionHoldsAnAcceptedFurtherFactorOnlyOnceOneCounts(): void
+    {
+        $record = $this->signedIn()->record;
+
+        self::recordProof($record, ProofKind::FIRST_FACTOR_REAUTHENTICATION, $this->now->addMinute(), ['pwd']);
+        self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now->addMinutes(2), ['otp'], new Evaluation(false, true));
+
+        self::assertFalse(SessionProofs::hasAcceptedAdditional($record));
+
+        self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now->addMinutes(3), ['otp'], new Evaluation(true, true));
+
+        DB::table('authentication_proofs')->where('kind', 'additional_factor')->where('accepted', true)->update(['voided_at' => $this->now]);
+
+        self::assertFalse(SessionProofs::hasAcceptedAdditional($record));
+
+        self::recordProof($record, ProofKind::RECOVERY_CODE, $this->now->addMinutes(4), ['kba'], new Evaluation(true, false));
+
+        DB::table('authentication_proofs')->where('kind', 'recovery_code')->update(['guard' => 'admin']);
+
+        self::assertFalse(SessionProofs::hasAcceptedAdditional($record));
+
+        DB::table('authentication_proofs')->where('kind', 'recovery_code')->update(['guard' => 'api']);
+
+        self::assertTrue(SessionProofs::hasAcceptedAdditional($record));
+
+        DB::table('authentication_proofs')->where('kind', 'recovery_code')->update(['voided_at' => $this->now]);
+
+        self::assertFalse(SessionProofs::hasAcceptedAdditional($record));
+
+        self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now->addMinutes(5), ['otp'], new Evaluation(true, true));
+
+        self::assertTrue(SessionProofs::hasAcceptedAdditional($record));
     }
 
     /**
@@ -474,6 +521,94 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
+     * A page of the counting proofs reads newest first, ties by id, only those
+     * made since the time given and of the kinds given when they are, and no
+     * more than the limit; the first factor is the oldest first-factor proof.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPageOfProofsIsBoundedByTimeKindAndLimit(): void
+    {
+        $session = $this->signedIn()->record;
+
+        self::recordProof($session, ProofKind::ADDITIONAL_FACTOR, $this->now->addMinutes(2), ['otp'], new Evaluation(true, true));
+        self::recordProof($session, ProofKind::RECOVERY_CODE, $this->now->addMinutes(2), [], new Evaluation(true, false));
+        self::recordProof($session, ProofKind::ADDITIONAL_FACTOR, $this->now->addMinute(), ['otp'], new Evaluation(false, false));
+        self::recordProof($session, ProofKind::FIRST_FACTOR_REAUTHENTICATION, $this->now->addMinutes(3), ['pwd']);
+
+        $all = SessionProofs::query($session, null, null, 10);
+
+        self::assertSame(
+            [ProofKind::FIRST_FACTOR_REAUTHENTICATION, ProofKind::ADDITIONAL_FACTOR, ProofKind::RECOVERY_CODE, ProofKind::FIRST_FACTOR],
+            array_map(static fn (RecordedProof $proof): ProofKind => $proof->kind, self::sortTies($all)),
+        );
+        self::assertCount(2, SessionProofs::query($session, null, null, 2));
+        self::assertSame(
+            [ProofKind::ADDITIONAL_FACTOR, ProofKind::RECOVERY_CODE],
+            array_map(
+                static fn (RecordedProof $proof): ProofKind => $proof->kind,
+                self::sortTies(SessionProofs::query($session, $this->now->addMinutes(2), [ProofKind::ADDITIONAL_FACTOR, ProofKind::RECOVERY_CODE], 10)),
+            ),
+        );
+        self::assertSame([], SessionProofs::query($session, $this->now->addMinutes(4), null, 10));
+
+        $first = SessionProofs::firstFactor($session);
+
+        self::assertNotNull($first);
+        self::assertSame(ProofKind::FIRST_FACTOR, $first->kind);
+        self::assertSame('password', $first->method);
+    }
+
+    /**
+     * Two proofs of one second come newest id first.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testProofsOfOneSecondComeNewestIdFirst(): void
+    {
+        $session = $this->signedIn()->record;
+
+        self::recordProof($session, ProofKind::ADDITIONAL_FACTOR, $this->now->addMinute(), ['otp'], new Evaluation(true, true));
+        self::recordProof($session, ProofKind::ADDITIONAL_FACTOR, $this->now->addMinute(), ['otp'], new Evaluation(true, true));
+
+        $page = SessionProofs::query($session, $this->now->addMinute(), null, 10);
+        $ids  = array_map(static fn (RecordedProof $proof): string => $proof->id, $page);
+
+        $sorted = $ids;
+
+        rsort($sorted);
+
+        self::assertCount(2, $ids);
+        self::assertSame($sorted, $ids);
+    }
+
+    /**
+     * The connection is the one the session's provenance records, and none for
+     * a session no external provider established.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheConnectionIsTheProvenances(): void
+    {
+        $password = $this->signedIn()->record;
+        $identity = $password->authenticatable()->first();
+
+        self::assertNull(SessionProofs::connectionId($password));
+        self::assertInstanceOf(Identity::class, $identity);
+
+        $external = $this->sessions()->start($identity, null, 'sso', null, new Provenance('conn-a'))->session?->record;
+
+        self::assertNotNull($external);
+        self::assertSame('conn-a', SessionProofs::connectionId($external));
+    }
+
+    /**
      * Configure the session guards.
      *
      * @param  mixed  $app
@@ -505,5 +640,22 @@ final class SessionProofsTest extends TestCase
         self::assertNotNull($session);
 
         return $session;
+    }
+
+    /**
+     * The proofs ordered by kind within one second, for comparing pages whose
+     * ties the ids order.
+     *
+     * @param  list<\SineMacula\Laravel\Authentication\Proofs\RecordedProof>  $proofs
+     * @return list<\SineMacula\Laravel\Authentication\Proofs\RecordedProof>
+     */
+    private static function sortTies(array $proofs): array
+    {
+        usort($proofs, static fn (RecordedProof $a, RecordedProof $b): int => [$b->authenticatedAt->getTimestamp(), $a->kind->value] <=> [
+            $a->authenticatedAt->getTimestamp(),
+            $b->kind->value,
+        ]);
+
+        return $proofs;
     }
 }

@@ -15,10 +15,10 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
   invalid argument from application code (`InvalidArgumentException`, `LogicException`, such as a machine identity given
   to a passkey ceremony or an unknown sign-in method) or a server error, which propagates.
 - **`null` never means success and never means a refusal.** A nullable return means there is nothing to act on: a lookup
-  that found nothing (`sessions()->pending()`, `choice()`, `apiKeys()->find()`, `identifierChanges()->pending()`),
+  that found nothing (`sessions()->pending()`, `apiKeys()->find()`, `identifierChanges()->pending()`),
   `apiKeys()->rotate()` when the principal has no rotatable key by that id (unknown, revoked, expired or already
   rotated, so nothing changed), or a call that reads a credential from the request when the request carries none
-  (`refreshFromRequest()`, `switchPrincipalFromRequest()`), in which case nothing was dispatched.
+  (`refreshFromRequest()`, `switchFromRequest()`), in which case nothing was dispatched.
 - **A result object when success carries a payload or the flow can be throttled.** It is `final readonly`, made only
   through named constructors (one per outcome), and says which outcome it is through `is<Outcome>()` predicates. The
   payload is in nullable public properties, set only for the outcome that has it. A refusal is named by `status` or by
@@ -77,9 +77,7 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
     delivered as Laravel's own throttle exception, as the `throttle` middleware would: it answers an anonymous ceremony
     request before any authentication, throttling is its only refusal, and a result would make every caller unwrap the
     options only to throw the same 429.
-- Refresh, which the guard answered with `?RefreshResult` (`null` for any refusal) from `refresh()` and
-  `FailureReason|RefreshResult|null` from `refreshFromRequest()`, both throwing `ThrottleRequestsException` for
-  `rate_limited`, now goes through the session service and returns every refusal, `rate_limited` included.
+- Refresh goes through the session service and returns every refusal, `rate_limited` included.
 - `Verification\Enums\IdentifierVerification` stays the `IdentifierVerifier` seam's own answer (`verified`,
   `already_verified`, `mismatch`): a verifier knows nothing of codes or links, so `codes()->verify()` and
   `VerificationLinks::consume()` each map it into their own enum. The two enums stay apart, as the convention asks a
@@ -87,13 +85,6 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
 - Laravel's `signed` middleware, when the application puts it on the verification route, answers an expired or tampered
   link with its own 403 (`InvalidSignatureException`) before `consume()` runs, so that route never answers `expired` and
   no `AuthenticationFailed` is reported. `consume()` checks the signature itself, so the route needs no middleware.
-- A caller that checked an old shape can change behaviour silently, not fail to compile: a `null`, `!== null` or
-  truthiness check on `verifyFactor()` (whose `null` meant verified) or on `VerificationLinks::consume()` (whose `null`
-  meant a refused link) is now always given a value, refusals included, and a check that `register()` answered a
-  `PasskeySummary`, or that `codes()->verify()` or `consume()` answered an `IdentifierVerification`, is now never true.
-  A call to the guard's `refresh()` or `refreshFromRequest()` now fails (the methods are gone), but a check that a
-  result is an instance of `Jwt\RefreshResult`, a class that no longer exists, is silently never true; the token pair
-  is `Jwt\TokenPair`, read from `$result->session->tokens`. The guides show each migration.
 
 ## Implementation Anchors
 

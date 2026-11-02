@@ -39,9 +39,9 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * the first revocation's time and reason kept, and only the call that changed
  * the row reporting `SessionRevoked`, once the revocation is committed on the
  * session's own connection. A bulk revocation moves the scope's "tokens valid
- * after" cutoff when it records one, ends its pending sign-ins and, for an
- * identity, cancels its pending identifier changes; it reports each session it
- * revoked and then `SignedOutEverywhere`, also when it revoked none.
+ * after" cutoff when it records one, ends its pending sessions with the rest
+ * and, for an identity, cancels its pending identifier changes; it reports each
+ * session it revoked and then `SignedOutEverywhere`, also when it revoked none.
  * Deactivation already stops every token at once through the live activity
  * checks; revoking makes the end outlast a reactivation and records why.
  *
@@ -210,9 +210,9 @@ final readonly class SessionRevocations
 
     /**
      * Revoke every session of the identity, of every guard, except the given
-     * one, end its pending sign-ins, and cancel its pending identifier changes;
-     * when the identity records a "tokens valid after" cutoff, move it to now
-     * first. Returns how many sessions this call revoked.
+     * one (its pending sessions among them), and cancel its pending identifier
+     * changes; when the identity records a "tokens valid after" cutoff, move it
+     * to now first. Returns how many sessions this call revoked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -231,9 +231,9 @@ final readonly class SessionRevocations
 
     /**
      * Revoke every session that acts as the principal, except the given one,
-     * and end the pending sign-ins that would act as it; when the principal
-     * records a "tokens valid after" cutoff, move it to now first. Returns how
-     * many sessions this call revoked.
+     * pending sessions that record it among them; when the principal records a
+     * "tokens valid after" cutoff, move it to now first. Returns how many
+     * sessions this call revoked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -335,12 +335,14 @@ final readonly class SessionRevocations
 
     /**
      * The tenant was deactivated: end every session acting as one of the
-     * principals listed for it (`tenant_deactivated`), since sessions record
-     * principals, not tenants. Every principal must act within the tenant, or
-     * nothing is written and an `InvalidArgumentException` is thrown; a
-     * principal listed twice counts once. All sessions and pending sign-ins are
-     * ended in one transaction, after each principal's cutoff moved, with one
-     * `SignedOutEverywhere` per principal.
+     * principals listed for it, and every session acting in it whatever its
+     * principal (its active tenant), as `tenant_deactivated`. Every principal
+     * listed must belong to the tenant, or nothing is written and an
+     * `InvalidArgumentException` is thrown; a principal listed twice counts
+     * once, and so does a session both find. All sessions, pending ones among
+     * them, are ended in one transaction, after each principal's cutoff moved,
+     * with one `SignedOutEverywhere` per principal and one `SessionRevoked` per
+     * session.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  iterable<\SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
@@ -369,7 +371,7 @@ final readonly class SessionRevocations
             $scopes[] = RevocationScope::principal($principal, $tenant);
         }
 
-        return $scopes === [] ? 0 : $this->endSessions($scopes, RevocationReason::TENANT_DEACTIVATED, null);
+        return $this->endSessions([...$scopes, RevocationScope::activeTenant($tenant)], RevocationReason::TENANT_DEACTIVATED, null);
     }
 
     /**
@@ -393,7 +395,9 @@ final readonly class SessionRevocations
 
     /**
      * End every session of the scopes, reporting each revoked session and then
-     * each scope once the revocations commit.
+     * each scope of an identity or a principal once the revocations commit; a
+     * tenant's scope signs no one out everywhere, so it reports only its
+     * sessions.
      *
      * @param  non-empty-list<\SineMacula\Laravel\Authentication\Sessions\RevocationScope>  $scopes
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -420,6 +424,10 @@ final readonly class SessionRevocations
                 $this->context->dispatch(new SessionRevoked($context, $reason));
             },
             function (RevocationScope $scope, int $revoked, ?CarbonImmutable $cutoff) use ($client, $guard, $reason, $except): void {
+                if ($scope->identity === null && $scope->principal === null) {
+                    return;
+                }
+
                 $context = new EventContext($guard, $client, $scope->identity, $scope->principal, $scope->tenant, $except);
 
                 $this->context->dispatch(new SignedOutEverywhere($context, $reason, $revoked, $cutoff));
@@ -428,14 +436,12 @@ final readonly class SessionRevocations
     }
 
     /**
-     * The tenant the binding's principal acts within, or `null` when there is
-     * none or it cannot be loaded. A principal loaded without the tenant's key
-     * is a misconfiguration, and its `LogicException` propagates.
+     * The binding's active tenant, or `null` when there is none or, bound by a
+     * trusted bind, it cannot be loaded: a revocation is reported either way.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\GuardBinding  $binding
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *
-     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     private static function boundTenant(GuardBinding $binding): ?Tenant

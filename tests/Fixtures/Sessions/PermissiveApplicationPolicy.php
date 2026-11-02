@@ -6,14 +6,13 @@ namespace Tests\Fixtures\Sessions;
 
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 
 /**
- * Application policy double that allows every method and admits every
- * principal, with the same lifetimes for every guard, for guard tests whose
- * guards no configuration describes.
+ * Application policy double that allows every method and admits every identity,
+ * with the same lifetimes for every guard, for guard tests whose guards no
+ * configuration describes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -60,23 +59,6 @@ final readonly class PermissiveApplicationPolicy implements ApplicationPolicy
     public function admitIdentifier(string $guard, Identity $identity, ?string $identifierType): ?FailureReason
     {
         unset($guard, $identity, $identifierType);
-
-        return null;
-    }
-
-    /**
-     * Admit every principal.
-     *
-     * @param  string  $guard
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?string  $identifierType
-     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
-     */
-    #[\Override]
-    public function admit(string $guard, Identity $identity, Principal $principal, ?string $identifierType): ?FailureReason
-    {
-        unset($guard, $identity, $principal, $identifierType);
 
         return null;
     }

@@ -14,12 +14,15 @@ use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
+use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -29,10 +32,14 @@ use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\BearerAuthentication;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
+use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Tenancy\DescendantTenants;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
@@ -171,6 +178,75 @@ final class BearerAuthenticationTest extends TestCase
     }
 
     /**
+     * A token for a session acting in a tenant below the member's own reports
+     * that tenant, resolved from the row, and never the membership's own.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testABearerRequestReportsTheTenantTheSessionActsIn(): void
+    {
+        [$member, $membership, $own] = $this->seedMember();
+
+        $tree       = new DescendantTenants;
+        $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
+
+        $tree->place($descendant->getKey(), $own->getKey());
+
+        app()->instance(TenantAccess::class, $tree);
+        app()->instance(TenantResolver::class, $tree);
+
+        $context = new SignInContext(ClientContext::fromRequest(Request::create('/')), tenant: TenantSelection::of($descendant->getKey()));
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), $context)->session;
+
+        self::assertNotNull($session);
+
+        $this->recordEvents([PrincipalAssigned::class]);
+
+        $this->bearer($session->tokens->accessToken, '/members/me')->assertOk()->assertJson(['identity' => $member->getKey()]);
+
+        $assigned = $this->recordedEvent(PrincipalAssigned::class)->context;
+
+        self::assertSame((string) $membership->getKey(), $assigned->principalId); // @phpstan-ignore cast.string
+        self::assertSame((string) $descendant->getKey(), $assigned->tenantId); // @phpstan-ignore cast.string
+    }
+
+    /**
+     * A bearer request checks the tenant the session acts in without asking
+     * `TenantAccess`: access is decided at sign-in, on a switch and on refresh,
+     * never per request.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testABearerRequestNeverAsksTenantAccess(): void
+    {
+        [, , $own] = $this->seedMember();
+
+        $tree       = new DescendantTenants;
+        $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
+
+        $tree->place($descendant->getKey(), $own->getKey());
+
+        app()->instance(TenantAccess::class, $tree);
+        app()->instance(TenantResolver::class, $tree);
+
+        $context = new SignInContext(ClientContext::fromRequest(Request::create('/')), tenant: TenantSelection::of($descendant->getKey()));
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), $context)->session;
+
+        self::assertNotNull($session);
+
+        $access = \Mockery::mock(TenantAccess::class);
+        $access->shouldNotReceive('mayActIn');
+
+        app()->instance(TenantAccess::class, $access);
+
+        $this->bearer($session->tokens->accessToken, '/members/me')->assertOk();
+    }
+
+    /**
      * A request without a token attempts nothing and dispatches nothing.
      *
      * @return void
@@ -256,8 +332,28 @@ final class BearerAuthenticationTest extends TestCase
 
             return null;
         }, FailureReason::SESSION_REVOKED];
-        yield 'a principal switch after the token was issued' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
-            Session::query()->whereKey($session->record->getKey())->update(['principal_switched_at' => Carbon::now()->addSecond()]);
+        yield 'a switch after the token was issued' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
+            Session::query()->whereKey($session->record->getKey())->update(['switched_at' => Carbon::now()->addSecond()]);
+
+            return null;
+        }, FailureReason::SESSION_SWITCHED];
+        yield 'a session acting in a tenant the token does not name' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
+            Session::query()->whereKey($session->record->getKey())->update(['tenant_id' => 'another-tenant']);
+
+            return null;
+        }, FailureReason::SESSION_TENANT_MISMATCH];
+        yield 'a revoked session acting in another tenant' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
+            Session::query()->whereKey($session->record->getKey())->update(['tenant_id' => 'another-tenant', 'revoked_at' => Carbon::now()]);
+
+            return null;
+        }, FailureReason::SESSION_REVOKED];
+        yield 'a session acting in another tenant as another principal' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
+            Session::query()->whereKey($session->record->getKey())->update(['tenant_id' => 'another-tenant', 'principal_id' => 'another-principal']);
+
+            return null;
+        }, FailureReason::SESSION_TENANT_MISMATCH];
+        yield 'a session acting as another principal since the token was issued' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
+            Session::query()->whereKey($session->record->getKey())->update(['principal_id' => 'another-principal', 'switched_at' => Carbon::now()->addSecond()]);
 
             return null;
         }, FailureReason::SESSION_PRINCIPAL_MISMATCH];
@@ -341,9 +437,9 @@ final class BearerAuthenticationTest extends TestCase
      * A switch away from a principal and back again does not revive the tokens
      * issued to it before the first switch: each switch is recorded on the
      * session, and a token issued before the last one is rejected as
-     * `session_principal_mismatch` even though the session records its
-     * principal again. A token issued in the second of the switch back is
-     * accepted, as the switch's own tokens are.
+     * `session_switched` even though the session records its principal again. A
+     * token issued in the second of the switch back is accepted, as the
+     * switch's own tokens are.
      *
      * @return void
      *
@@ -359,19 +455,19 @@ final class BearerAuthenticationTest extends TestCase
 
         $this->moveClocksTo(Carbon::now()->addMinute());
 
-        Session::query()->whereKey($sessionId)->update(['principal_type' => 'membership', 'principal_id' => 'another-principal', 'principal_switched_at' => Carbon::now()]);
+        Session::query()->whereKey($sessionId)->update(['principal_type' => 'membership', 'principal_id' => 'another-principal', 'switched_at' => Carbon::now()]);
 
         $this->bearer($earlier)->assertUnauthorized();
 
         $this->moveClocksTo(Carbon::now()->addMinute());
 
-        Session::query()->whereKey($sessionId)->update([...$recorded, 'principal_switched_at' => Carbon::now()]);
+        Session::query()->whereKey($sessionId)->update([...$recorded, 'switched_at' => Carbon::now()]);
 
         $this->recordEvents([AuthenticationFailed::class]);
 
         $this->bearer($earlier)->assertUnauthorized();
 
-        self::assertSame(FailureReason::SESSION_PRINCIPAL_MISMATCH, $this->recordedEvent(AuthenticationFailed::class)->reason);
+        self::assertSame(FailureReason::SESSION_SWITCHED, $this->recordedEvent(AuthenticationFailed::class)->reason);
 
         $tokens = Auth::jwt('api');
 

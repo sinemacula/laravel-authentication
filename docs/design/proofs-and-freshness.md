@@ -22,7 +22,7 @@ the token's claims and every freshness answer are worked out from them, never st
   holds.
 - Every session the package writes records a counting first factor in the transaction that writes the session; an
   external provider's session also records its provenance, once. Proofs and provenance carry unchanged from a pending
-  sign-in to its session and across every refresh and switch of principal; a sign-in that replaces a session starts a
+  sign-in to its session and across every refresh and switch; a sign-in that replaces a session starts a
   new session with its own.
 - Every read of proofs is of the session's own: those recorded under its key and bound to its guard and its owner (the
   morph type and key the session records), so another identity's or application's proof under the same key never
@@ -124,18 +124,19 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
 - Evidence: `accepted_evidence` has no writer and is always `null`. Nothing decides whether a provider's evidence is
   accepted, so an external reauthentication would never count for MFA or `amr`.
 - `external_reauthentication`: a reserved kind that nothing records; there is no reauthentication handoff from the
-  provider, and step-up and `complete()` refuse it.
+  provider, and step-up and `satisfy()` refuse it.
 - Provenance by connection or tenant: only the indexes exist. There is no lookup, listing or revocation of the
   sessions of a connection or of a tenant's connections.
-- `complete($token)` with no proof stays a transitional trusted assertion: the session records only its first factor,
-  so its `amr` and freshness under-claim, never over-claim, the further factor the caller verified.
 - The freshness requirement (proof kinds, maximum age, multifactor, phishing resistance) is what the stored proofs can
-  show. It is not a requirement value for additional verification or a minimum assurance level, and there is no
-  contract saying whether a session's proofs meet such a requirement. The package gates no factor change itself:
+  show. A tenant's further factor is a `Requirements\Requirement` instead (additional verification, multifactor, a
+  minimum assurance level, phishing resistance, each with an optional maximum age), and whether a session's proofs meet
+  it is `Contracts\RequirementCheck`'s answer, which by default meets nothing; freshness does not use either yet, and
+  the identity-level factor policy is still a yes or no. The package gates no factor change itself:
   `factor_change` and `password_establishment` name requirements for whatever gates those operations. A sibling that
   needs more rebinds `FreshnessPolicy` until the value is extended.
-- A pending sign-in carries its first factor and provenance in `pending_sign_ins` until it completes; it is not yet a
-  session row of its own.
+- A pending session records its first factor and provenance as any session does, when it is written; the further
+  factor `satisfy()` accepts is stored with them (`SessionProofs::hasAcceptedAdditional()` reads it for the factor
+  policy's re-run), and none counts for a token until the session activates.
 
 ## Implementation Anchors
 
@@ -156,7 +157,7 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
 ## Authoritative Tests
 
 - `tests/Feature/Proofs/SignInProofsTest.php`, `SignInProofTest.php`: the first factor and provenance of every sign-in
-  path, kept across a pending sign-in and a choice of principal, a superseding sign-in's own, a refused or cancelled
+  path, kept across a pending session and a choice of principal, a superseding sign-in's own, a refused or cancelled
   write rolled back.
 - `tests/Feature/Proofs/SessionProofsTest.php`, `tests/Unit/Proofs/ProofHistoryTest.php`: what counts, the aggregate
   read, `auth_time` and `amr` (order, `mfa`, reauthentications).

@@ -6,9 +6,7 @@ namespace Tests\Integration\Passwords;
 
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Events\QueryExecuted;
-use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Codes\IssuedCode;
@@ -93,9 +91,9 @@ final class ConcurrentResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A failure after the password is written (the pending sign-ins cannot be
-     * ended) rolls the token, the password, the cutoff and the sessions back
-     * together, reports nothing, and propagates.
+     * A failure after the password is written (the sessions cannot be revoked)
+     * rolls the token, the password, the cutoff and the sessions back together,
+     * reports nothing, and propagates.
      *
      * @return void
      *
@@ -111,13 +109,17 @@ final class ConcurrentResetSubmissionsTest extends TestCase
 
         $this->recordEvents([PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class]);
 
-        Schema::drop('pending_sign_ins');
+        DB::connection()->beforeExecuting(static function (string $query): void {
+            if (str_starts_with($query, 'update') && str_contains($query, 'authentication_sessions')) {
+                throw new \RuntimeException('The revocation failed.');
+            }
+        });
 
         try {
             $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]);
             self::fail('The failing revocation was swallowed.');
-        } catch (QueryException $exception) {
-            self::assertStringContainsString('pending_sign_ins', $exception->getMessage());
+        } catch (\RuntimeException $exception) {
+            self::assertSame('The revocation failed.', $exception->getMessage());
         }
 
         $identity = PasswordIdentity::query()->sole();

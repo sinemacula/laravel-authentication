@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Unit\Admission;
 
 use Illuminate\Config\Repository;
+use Illuminate\Container\Container;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -13,14 +14,18 @@ use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Admission\SignInAdmission;
 use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
+use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
+use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Unit\Stubs\StubVerifiableIdentity;
 
 /**
@@ -41,8 +46,21 @@ final class SignInAdmissionTest extends TestCase
     /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy The guards' application policy. */
     private MockInterface $policy;
 
+    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\ApplicationAccess Whether a principal may use the application. */
+    private MockInterface $access;
+
+    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\TenantAccess Whether a principal may act in a tenant. */
+    private MockInterface $tenants;
+
+    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\TenantResolver The tenant an identifier names. */
+    private MockInterface $resolver;
+
+    /** @var ?\Illuminate\Container\Container The container before the test. */
+    private ?Container $previous = null;
+
     /**
-     * Build a fresh application policy mock.
+     * Build fresh mocks of the application policy and the access contracts, and
+     * bind the contracts in a container of the test's own.
      *
      * @return void
      */
@@ -51,15 +69,44 @@ final class SignInAdmissionTest extends TestCase
     {
         parent::setUp();
 
-        $this->policy = \Mockery::mock(ApplicationPolicy::class);
+        $this->previous = Container::getInstance();
+        $this->policy   = \Mockery::mock(ApplicationPolicy::class);
+        $this->access   = \Mockery::mock(ApplicationAccess::class);
+        $this->tenants  = \Mockery::mock(TenantAccess::class);
+        $this->resolver = \Mockery::mock(TenantResolver::class);
 
         $this->policy->shouldReceive('admitIdentifier')->byDefault()->andReturnNull();
+        $this->access->shouldReceive('mayUse')->byDefault()->andReturnTrue();
+        $this->tenants->shouldReceive('mayActIn')->byDefault()->andReturnTrue();
+
+        $container = new Container;
+
+        $container->instance(ApplicationAccess::class, $this->access);
+        $container->instance(TenantAccess::class, $this->tenants);
+        $container->instance(TenantResolver::class, $this->resolver);
+
+        Container::setInstance($container);
     }
 
     /**
-     * An active identity, principal and tenant the application policy admits
-     * are admitted together, and the policy is asked with the guard and the
-     * identifier type.
+     * Restore the container.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function tearDown(): void
+    {
+        Container::setInstance($this->previous);
+
+        parent::tearDown();
+    }
+
+    /**
+     * An active identity, principal and tenant are admitted together, in the
+     * principal's own tenant: the policy is asked with the guard and the
+     * identifier type, `ApplicationAccess` with the guard and the principal,
+     * and `TenantAccess` with the principal and its own tenant, and the
+     * resolver is never asked for the principal's own tenant.
      *
      * @return void
      */
@@ -70,7 +117,9 @@ final class SignInAdmissionTest extends TestCase
         $principal = $this->principal(true, $tenant);
 
         $this->policy->shouldReceive('admitIdentifier')->once()->with('api', $identity, 'email')->andReturnNull();
-        $this->policy->shouldReceive('admit')->once()->with('api', $identity, $principal, 'email')->andReturnNull();
+        $this->access->shouldReceive('mayUse')->once()->with('api', $principal)->andReturnTrue();
+        $this->tenants->shouldReceive('mayActIn')->once()->with($principal, $tenant)->andReturnTrue();
+        $this->resolver->shouldNotReceive('resolve');
 
         $admitted = $this->admission()->admit('api', $identity, static fn (): Principal => $principal, FailureReason::PRINCIPAL_UNRESOLVED, 'email');
 
@@ -92,7 +141,7 @@ final class SignInAdmissionTest extends TestCase
         $resolved = false;
 
         $this->policy->shouldNotReceive('admitIdentifier');
-        $this->policy->shouldNotReceive('admit');
+        $this->access->shouldNotReceive('mayUse');
 
         $refused = $this->admission()->admit('api', $identity, static function () use (&$resolved): ?Principal {
             $resolved = true;
@@ -121,7 +170,7 @@ final class SignInAdmissionTest extends TestCase
         $resolved = false;
 
         $this->policy->shouldNotReceive('admitIdentifier');
-        $this->policy->shouldNotReceive('admit');
+        $this->access->shouldNotReceive('mayUse');
 
         $refused = $this->admission()->admit('api', $identity, static function () use (&$resolved): ?Principal {
             $resolved = true;
@@ -149,7 +198,7 @@ final class SignInAdmissionTest extends TestCase
         $resolved = false;
 
         $this->policy->shouldReceive('admitIdentifier')->once()->with('api', $identity, 'phone')->andReturn(FailureReason::IDENTIFIER_UNVERIFIED);
-        $this->policy->shouldNotReceive('admit');
+        $this->access->shouldNotReceive('mayUse');
 
         $refused = $this->admission()->admit('api', $identity, static function () use (&$resolved): ?Principal {
             $resolved = true;
@@ -216,7 +265,7 @@ final class SignInAdmissionTest extends TestCase
     {
         $identity = \Mockery::mock(Identity::class);
 
-        $this->policy->shouldNotReceive('admit');
+        $this->access->shouldNotReceive('mayUse');
 
         foreach ([FailureReason::PRINCIPAL_UNRESOLVED, FailureReason::PRINCIPAL_MISMATCH] as $reason) {
 
@@ -230,7 +279,8 @@ final class SignInAdmissionTest extends TestCase
     }
 
     /**
-     * An inactive principal is refused without its tenant being read.
+     * An inactive principal is refused without its tenant being read or the
+     * access contracts being asked.
      *
      * @return void
      */
@@ -241,7 +291,7 @@ final class SignInAdmissionTest extends TestCase
         $principal->shouldReceive('isActive')->once()->andReturnFalse();
         $principal->shouldNotReceive('getTenant');
 
-        $this->policy->shouldNotReceive('admit');
+        $this->access->shouldNotReceive('mayUse');
 
         $refused = $this->admission()->admit('api', $identity, static fn (): Principal => $principal, FailureReason::PRINCIPAL_UNRESOLVED, null);
 
@@ -252,7 +302,8 @@ final class SignInAdmissionTest extends TestCase
     }
 
     /**
-     * A principal whose tenant is inactive is refused, carrying the principal.
+     * A principal whose own tenant is inactive is refused, carrying the
+     * principal, before the access contracts are asked.
      *
      * @return void
      */
@@ -261,7 +312,7 @@ final class SignInAdmissionTest extends TestCase
         $identity  = \Mockery::mock(Identity::class);
         $principal = $this->principal(true, $this->tenant(false));
 
-        $this->policy->shouldNotReceive('admit');
+        $this->access->shouldNotReceive('mayUse');
 
         $refused = $this->admission()->admit('api', $identity, static fn (): Principal => $principal, FailureReason::PRINCIPAL_UNRESOLVED, null);
 
@@ -273,21 +324,21 @@ final class SignInAdmissionTest extends TestCase
     }
 
     /**
-     * The application policy's refusal is reported with its own reason and the
-     * whole context: identity, principal and tenant.
+     * A principal `ApplicationAccess` refuses is refused as
+     * `principal_ineligible`, with the whole context: identity, principal and
+     * the principal's own tenant, which the sign-in would have acted in; no
+     * tenant is asked about.
      *
      * @return void
      */
-    public function testRefusesWithTheApplicationPolicysReason(): void
+    public function testRefusesAPrincipalTheApplicationAccessRefuses(): void
     {
         $identity  = \Mockery::mock(Identity::class);
         $tenant    = \Mockery::mock(Tenant::class);
         $principal = $this->principal(true, $tenant);
 
-        $this->policy->shouldReceive('admit')
-            ->once()
-            ->with('admin', $identity, $principal, null)
-            ->andReturn(FailureReason::PRINCIPAL_INELIGIBLE);
+        $this->access->shouldReceive('mayUse')->once()->with('admin', $principal)->andReturnFalse();
+        $this->tenants->shouldNotReceive('mayActIn');
 
         $refused = $this->admission()->admit('admin', $identity, static fn (): Principal => $principal, FailureReason::PRINCIPAL_UNRESOLVED, null);
 
@@ -298,6 +349,67 @@ final class SignInAdmissionTest extends TestCase
         self::assertSame($tenant, $refused->tenant);
         self::assertNull($refused->session);
         self::assertNull($refused->retryAfter);
+    }
+
+    /**
+     * A selected tenant `TenantAccess` refuses is refused as
+     * `tenant_ineligible`, whether it is the principal's default or another
+     * tenant the resolver finds, and the refusal names no tenant.
+     *
+     * @return void
+     */
+    public function testRefusesATenantTheTenantAccessRefuses(): void
+    {
+        $identity  = \Mockery::mock(Identity::class);
+        $own       = $this->tenant(true);
+        $other     = \Mockery::mock(Tenant::class);
+        $principal = $this->principal(true, $own);
+
+        $own->shouldReceive('getTenantIdentifier')->andReturn('own');
+        $other->shouldReceive('getTenantIdentifier')->andReturn('other');
+
+        $this->resolver->shouldReceive('resolve')->once()->with('other')->andReturn($other);
+        $this->tenants->shouldReceive('mayActIn')->twice()->andReturnFalse();
+
+        foreach ([null, TenantSelection::of('other')] as $selection) {
+
+            $refused = $this->admission()->admit('api', $identity, static fn (): Principal => $principal, FailureReason::PRINCIPAL_UNRESOLVED, null, $selection);
+
+            self::assertInstanceOf(Refused::class, $refused);
+            self::assertSame(FailureReason::TENANT_INELIGIBLE, $refused->reason);
+            self::assertSame($principal, $refused->principal);
+            self::assertNull($refused->tenant);
+        }
+    }
+
+    /**
+     * A sign-in that names another tenant is admitted in it once the resolver
+     * finds it, `TenantAccess` lets the principal act in it and it is active;
+     * one that names none is admitted in no tenant.
+     *
+     * @return void
+     */
+    public function testAdmitsInTheTenantTheSignInSelects(): void
+    {
+        $identity  = \Mockery::mock(Identity::class);
+        $own       = $this->tenant(true);
+        $other     = $this->tenant(true);
+        $principal = $this->principal(true, $own);
+
+        $own->shouldReceive('getTenantIdentifier')->andReturn('own');
+        $other->shouldReceive('getTenantIdentifier')->andReturn('other');
+
+        $this->resolver->shouldReceive('resolve')->once()->with('other')->andReturn($other);
+        $this->tenants->shouldReceive('mayActIn')->once()->with($principal, $other)->andReturnTrue();
+        $this->tenants->shouldReceive('mayActIn')->once()->with($principal, null)->andReturnTrue();
+
+        $elsewhere = $this->admission()->admit('api', $identity, static fn (): Principal => $principal, FailureReason::PRINCIPAL_UNRESOLVED, null, TenantSelection::of('other'));
+        $nowhere   = $this->admission()->admit('api', $identity, static fn (): Principal => $principal, FailureReason::PRINCIPAL_UNRESOLVED, null, TenantSelection::none());
+
+        self::assertInstanceOf(Admitted::class, $elsewhere);
+        self::assertSame($other, $elsewhere->tenant);
+        self::assertInstanceOf(Admitted::class, $nowhere);
+        self::assertNull($nowhere->tenant);
     }
 
     /**
@@ -327,8 +439,8 @@ final class SignInAdmissionTest extends TestCase
     }
 
     /**
-     * Build an activatable principal reporting the given state and acting
-     * within the given tenant.
+     * Build an activatable principal reporting the given state and belonging to
+     * the given tenant.
      *
      * @param  bool  $active
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
@@ -337,8 +449,8 @@ final class SignInAdmissionTest extends TestCase
     private function principal(bool $active, ?Tenant $tenant): MockInterface
     {
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
-        $principal->shouldReceive('isActive')->once()->andReturn($active);
-        $principal->shouldReceive('getTenant')->once()->andReturn($tenant);
+        $principal->shouldReceive('isActive')->andReturn($active);
+        $principal->shouldReceive('getTenant')->andReturn($tenant);
 
         return $principal;
     }
@@ -357,7 +469,7 @@ final class SignInAdmissionTest extends TestCase
     }
 
     /**
-     * Build an activatable tenant that reports the given state once.
+     * Build an activatable tenant that reports the given state.
      *
      * @param  bool  $active
      * @return \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Tenant
@@ -365,7 +477,7 @@ final class SignInAdmissionTest extends TestCase
     private function tenant(bool $active): MockInterface
     {
         $tenant = \Mockery::mock(Tenant::class, CanBeActive::class);
-        $tenant->shouldReceive('isActive')->once()->andReturn($active);
+        $tenant->shouldReceive('isActive')->andReturn($active);
 
         return $tenant;
     }

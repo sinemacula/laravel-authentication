@@ -106,14 +106,17 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
             'idle deadline reached'   => ['idle', 2],
             'absolute deadline past'  => ['absolute', 2],
             'principal switched away' => ['switched', 2],
+            'tenant switched away'    => ['tenant', 2],
+            'pending session'         => ['pending', 2],
         ];
     }
 
     /**
      * A bearer token that fails after a lookup is resolved once per request:
      * asking the guard again through every accessor costs no further query. A
-     * revoked or ended session, or one that switched to another principal, is
-     * rejected from the row the session lookup already loaded.
+     * revoked, ended or pending session, or one that switched to another
+     * principal or tenant, is rejected from the row the session lookup already
+     * loaded.
      *
      * @param  string  $rejection
      * @param  int  $reads
@@ -134,7 +137,9 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
             'inactive' => $identity->forceFill(['is_active' => false])->save(),
             'idle'     => $session->forceFill(['idle_expires_at' => $this->now])->save(),
             'absolute' => $session->forceFill(['absolute_expires_at' => $this->now->copy()->subSecond()])->save(),
-            'switched' => $session->forceFill(['principal_id' => 'another principal', 'principal_switched_at' => $this->now])->save(),
+            'switched' => $session->forceFill(['principal_id' => 'another principal', 'switched_at' => $this->now])->save(),
+            'tenant'   => $session->forceFill(['tenant_id' => 'another tenant', 'switched_at' => $this->now])->save(),
+            'pending'  => $session->forceFill(['status' => 'pending', 'requires' => '["mfa"]'])->save(),
             default    => $session->forceFill(['revoked_at' => $this->now])->save(),
         };
 

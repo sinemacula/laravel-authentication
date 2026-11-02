@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
 use Tests\Concerns\InteractsWithSessionRecords;
+use Tests\Fixtures\Database\ShippedMigrations;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
@@ -52,14 +53,14 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
     /** @var string Plaintext rotation id of the session's first refresh token. */
     private const string ROTATION_ID = 'first-rotation-id';
 
-    /** @var string Path of the shipped sessions migration. */
-    private const string MIGRATION_PATH = __DIR__ . '/../../../database/migrations/2026_04_06_000000_create_authentication_sessions_table.php';
+    /** @var string File of the shipped sessions migration. */
+    private const string MIGRATION = '2026_04_06_000000_create_authentication_sessions_table.php';
 
-    /** @var string Path of the shipped rate limits migration, whose table the refresh exchange counts failures in. */
-    private const string RATE_LIMITS_MIGRATION_PATH = __DIR__ . '/../../../database/migrations/2026_04_06_000002_create_rate_limits_table.php';
+    /** @var string File of the shipped rate limits migration, whose table the refresh exchange counts failures in. */
+    private const string RATE_LIMITS_MIGRATION = '2026_04_06_000002_create_rate_limits_table.php';
 
-    /** @var string Path of the shipped proofs migration, whose table holds the first factor every session is signed in with. */
-    private const string PROOFS_MIGRATION_PATH = __DIR__ . '/../../../database/migrations/2026_04_06_000008_create_authentication_proofs_table.php';
+    /** @var string File of the shipped proofs migration, whose table holds the first factor every session is signed in with. */
+    private const string PROOFS_MIGRATION = '2026_04_06_000008_create_authentication_proofs_table.php';
 
     /** @var \Carbon\Carbon Frozen clock reference. */
     private Carbon $now;
@@ -176,18 +177,12 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
      * insert would abort the wrapping transaction.
      *
      * @return void
-     *
-     * @SuppressWarnings("php:S4833")
-     * @SuppressWarnings("php:S2003")
      */
     #[\Override]
     protected function defineDatabaseMigrations(): void
     {
-        foreach ([self::MIGRATION_PATH, self::RATE_LIMITS_MIGRATION_PATH, self::PROOFS_MIGRATION_PATH] as $path) {
-
-            $migration = include $path;
-
-            \call_user_func([$migration, 'up']);
+        foreach ([self::MIGRATION, self::RATE_LIMITS_MIGRATION, self::PROOFS_MIGRATION] as $file) {
+            ShippedMigrations::up($file);
         }
 
         Schema::create('stub_principals', static function (Blueprint $blueprint): void {

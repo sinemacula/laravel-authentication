@@ -13,10 +13,10 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 /**
  * The slots one sign-in takes on the limits of the accounts whose secret it
  * checks, held for as long as the sign-in lasts: given back when it starts a
- * session, kept by a pending sign-in until that completes, and left counted
+ * session, kept by a pending session until it first activates, and left counted
  * when it fails, exactly as the sign-in's own identifier and IP slots are. A
  * check whose slot is given back as soon as the secret matches would let every
- * spelling of an identifier that finds the account mint a pending sign-in, and
+ * spelling of an identifier that finds the account mint a pending session, and
  * so a guess at a further factor, outside the account's limit.
  *
  * It remembers when an account had no attempts left, so the failure events can
@@ -94,7 +94,7 @@ final class AccountAttempts
 
     /**
      * The windows of each reservation held, one entry per reservation, for a
-     * pending sign-in to keep until it completes and then give back as they
+     * pending session to keep until it activates and then give back as they
      * were taken: two reservations of one account (a method that checks two
      * secrets) give back two slots.
      *

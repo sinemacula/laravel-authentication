@@ -10,6 +10,7 @@ use Illuminate\Support\Carbon;
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\Refused;
+use SineMacula\Laravel\Authentication\Admission\TenantAdmission;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyLookup;
 use SineMacula\Laravel\Authentication\ApiKeys\CredentialBinding;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
@@ -55,11 +56,17 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * "tokens valid after" time (`issued_before_cutoff`); and, for a token that
  * names a session (`sid`), that session among the identity's own
  * (`session_unknown`), of this guard (`session_guard_mismatch`), not revoked
- * (`session_revoked`), not ended (`session_expired`), and acting as the token's
- * principal with no principal switch after the token was issued
- * (`session_principal_mismatch`). Fail closed: a token that names a principal
- * or session that does not resolve exactly is rejected rather than downgraded.
- * The token's `tenant_id`, `auth_time` and `amr` are not read here: they were
+ * (`session_revoked`), not ended (`session_expired`), in the tenant the token
+ * names, or none for none (`session_tenant_mismatch`), acting as the token's
+ * principal (`session_principal_mismatch`), not changed (its principal or
+ * active tenant switched) since the token was issued (`session_switched`), and
+ * acting in an active tenant (`tenant_inactive`). The session's active tenant
+ * is the one the guard binds; a token without a session acts in the principal's
+ * own. Fail closed: a token that names a principal or session that does not
+ * resolve exactly is rejected rather than downgraded. No access contract and no
+ * tenant policy is asked per request: access tokens are short-lived, a policy
+ * change revokes through `tenantPolicyChanged()`, and every refresh asks the
+ * policy again. The token's `auth_time` and `amr` are not read here: they were
  * derived when it was issued, and live no longer than it does.
  *
  * Built for one request with the guard's current collaborators, so it keeps
@@ -97,10 +104,11 @@ final readonly class BearerAuthentication
 
     /**
      * Authenticate the access token for a request from the client: the admitted
-     * identity, principal, the tenant its activity check loaded, and the
-     * session, with, for a client credentials token, its API key and scopes; or
-     * the failure that reports why not, with as much of the context as was
-     * established (the session id the token named included).
+     * identity, principal, active tenant (the one the session records, or the
+     * principal's own for a token without a session), and the session, with,
+     * for a client credentials token, its API key and scopes; or the failure
+     * that reports why not, with as much of the context as was established (the
+     * session id the token named included).
      *
      * @param  string  $token
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -121,7 +129,7 @@ final readonly class BearerAuthentication
         $credential = MachineTokens::credential($claims) ?: null;
         $sessionId  = $claims[Claims::SESSION_ID->value] ?? null;
         $admitted   = $credential === null ? $this->admit($claims, false) : $this->admitForKey($claims, $credential[0]);
-        $admitted   = $admitted instanceof Admitted ? $this->onSession($admitted, $sessionId, $claims[Claims::ISSUED_AT->value]) : $admitted;
+        $admitted   = $admitted instanceof Admitted ? $this->onSession($admitted, $sessionId, $claims) : $admitted;
 
         return $admitted instanceof Refused
             ? $this->failed($admitted, $client, IdentifierCoercion::stringify($sessionId), $credential)
@@ -240,50 +248,90 @@ final readonly class BearerAuthentication
     /**
      * Hold the admitted token to the session it names, when it names one: the
      * session must be one of the identity's own, of this guard, not revoked,
-     * and not ended, and it must act as the token's principal and not have
-     * switched principal since the token was issued
-     * (`session_principal_mismatch`), so a switch ends the tokens of the
-     * principal it switched from at once. A token that names no session has no
-     * session to revoke, so it must instead have been issued after the "tokens
-     * valid after" time of its identity and of its principal, when they record
-     * one (`issued_before_cutoff`).
+     * and not ended; it must act in the tenant the token names
+     * (`session_tenant_mismatch`) as the token's principal
+     * (`session_principal_mismatch`), and not have changed since the token was
+     * issued (`session_switched`), so a switch ends the tokens of the principal
+     * or tenant it switched from at once; and its active tenant must still be
+     * active (`tenant_inactive`), which is then the tenant admitted. A token
+     * that names no session has no session to revoke, so it must instead have
+     * been issued after the "tokens valid after" time of its identity and of
+     * its principal, when they record one (`issued_before_cutoff`).
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  mixed  $sessionId
-     * @param  mixed  $issuedAt
+     * @param  array<string, mixed>  $claims
      * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \LogicException
      */
-    private function onSession(Admitted $admitted, mixed $sessionId, mixed $issuedAt): Admitted|Refused
+    private function onSession(Admitted $admitted, mixed $sessionId, #[\SensitiveParameter] array $claims): Admitted|Refused
     {
+        $issuedAt = $claims[Claims::ISSUED_AT->value];
+
         if ($sessionId === null) {
             return self::isIssuedAfterCutoff($admitted, $issuedAt) ? $admitted : Refused::after(FailureReason::ISSUED_BEFORE_CUTOFF, $admitted);
         }
 
         $session = IdentitySessions::find($admitted->identity, $sessionId);
-        $refusal = $session === null
-            ? FailureReason::SESSION_UNKNOWN
-            : OwnedSession::refusal($session, $this->guard, Carbon::now()) ?? self::principalRefusal($session, $admitted->principal, $issuedAt);
 
-        return $refusal === null ? $admitted->on($session) : Refused::after($refusal, $admitted->on($session));
+        if ($session === null) {
+            return Refused::after(FailureReason::SESSION_UNKNOWN, $admitted);
+        }
+
+        $refusal = OwnedSession::refusal($session, $this->guard, Carbon::now()) ?? self::contextRefusal($session, $admitted->principal, $claims);
+
+        return $refusal === null ? self::inActiveTenant($admitted, $session) : Refused::after($refusal, $admitted->on($session));
     }
 
     /**
-     * Why the session may not serve a token of the principal issued at the
-     * given time, or `null` when it may: the session must act as the principal,
-     * and must not have switched principal after the token was issued.
+     * Why the session may not serve a token of the principal with the claims,
+     * or `null` when it may: the session must act in the tenant the token
+     * names, or in none for a token that names none, as the principal, and must
+     * not have changed after the token was issued.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  mixed  $issuedAt
+     * @param  array<string, mixed>  $claims
      * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      *
      * @throws \LogicException
      */
-    private static function principalRefusal(Session $session, Principal $principal, mixed $issuedAt): ?FailureReason
+    private static function contextRefusal(Session $session, Principal $principal, #[\SensitiveParameter] array $claims): ?FailureReason
     {
-        return OwnedSession::actsAs($session, $principal) && OwnedSession::isIssuedSinceSwitch($session, $issuedAt) ? null : FailureReason::SESSION_PRINCIPAL_MISMATCH;
+        return match (true) {
+            !OwnedSession::actsIn($session, $claims[Claims::TENANT_ID->value] ?? null)      => FailureReason::SESSION_TENANT_MISMATCH,
+            !OwnedSession::actsAs($session, $principal)                                     => FailureReason::SESSION_PRINCIPAL_MISMATCH,
+            !OwnedSession::isIssuedSinceSwitch($session, $claims[Claims::ISSUED_AT->value]) => FailureReason::SESSION_SWITCHED,
+            default                                                                         => null,
+        };
+    }
+
+    /**
+     * The admitted token on its session, in the session's active tenant, or
+     * `tenant_inactive` when that tenant no longer resolves or is inactive. The
+     * principal's own tenant, which the admission already found active, is not
+     * read again; any other is resolved, without asking `TenantAccess`, since
+     * no access contract is asked per request.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \LogicException
+     */
+    private static function inActiveTenant(Admitted $admitted, Session $session): Admitted|Refused
+    {
+        $tenantId = WriteConnection::during($session, static fn (): ?string => $session->getTenantId());
+        $tenant   = $tenantId === IdentifierCoercion::stringify($admitted->tenant?->getTenantIdentifier())
+            ? $admitted->tenant
+            : TenantAdmission::recorded($admitted->principal, $tenantId, false);
+
+        return $tenant instanceof FailureReason
+            ? Refused::after($tenant, $admitted->on($session))
+            : new Admitted($admitted->identity, $admitted->principal, $tenant, $session);
     }
 
     /**

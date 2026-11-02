@@ -150,8 +150,39 @@ final class SessionRevocationsTest extends TestCase
 
         self::assertNull($context->identity);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $context->identityId);
-        self::assertSame($identity->getMorphClass(), $context->principalMorphClass);
+        self::assertSame($identity->getMorphClass(), $context->principalType);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $context->principalId);
+    }
+
+    /**
+     * Signing out a trusted bind whose session acts in a tenant that no longer
+     * resolves still revokes and reports it: the event carries no tenant model,
+     * and the tenant the row records as its snapshot.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSigningOutATrustedBindWhoseTenantNoLongerResolvesReportsTheRowsTenant(): void
+    {
+        $identity    = $this->seedIdentity();
+        $session     = $this->signIn();
+        $guard       = $this->freshGuard();
+        $revocations = SessionRevocations::forContext($guard->context(), app());
+
+        DB::table('authentication_sessions')->update(['tenant_id' => 'gone']);
+
+        $guard->login($identity, $identity, SessionModel::query()->findOrFail(self::idOf($session)));
+
+        $this->recordEvents([SessionRevoked::class]);
+
+        self::assertTrue($revocations->signOut($guard));
+
+        $context = $this->recordedEvent(SessionRevoked::class)->context;
+
+        self::assertNull($context->tenant);
+        self::assertSame('gone', $context->tenantId);
+        self::assertSame('signed_out', DB::table('authentication_sessions')->value('revoked_reason'));
     }
 
     /**
@@ -233,7 +264,7 @@ final class SessionRevocationsTest extends TestCase
 
         self::assertSame(self::idOf($other), $revoked->sessionId);
         self::assertNull($revoked->principal);
-        self::assertSame($identity->getMorphClass(), $revoked->principalMorphClass);
+        self::assertSame($identity->getMorphClass(), $revoked->principalType);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $revoked->principalId);
         self::assertNull(DB::table('authentication_sessions')->where('id', self::idOf($current))->value('revoked_at'));
         self::assertSame('signed_out_everywhere', DB::table('authentication_sessions')->where('id', self::idOf($other))->value('revoked_reason'));
@@ -347,7 +378,7 @@ final class SessionRevocationsTest extends TestCase
         $context = $this->recordedEvent(SessionRevoked::class)->context;
 
         self::assertNull($context->principal);
-        self::assertSame($identity->getMorphClass(), $context->principalMorphClass);
+        self::assertSame($identity->getMorphClass(), $context->principalType);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $context->principalId);
         self::assertSame(1, $revocations->principalDeactivated($identity));
         self::assertSame('revoked', DB::table('authentication_sessions')->where('id', self::idOf($first))->value('revoked_reason'));
@@ -407,8 +438,8 @@ final class SessionRevocationsTest extends TestCase
     /**
      * A tenant's deactivation ends the sessions of the principals listed for
      * it, principals of two types with one identifier each, and reports one
-     * `SignedOutEverywhere` per principal, however often one is listed; with
-     * none listed it ends nothing.
+     * `SignedOutEverywhere` per principal, however often one is listed, and a
+     * session both find is ended once.
      *
      * @return void
      *
@@ -426,14 +457,43 @@ final class SessionRevocationsTest extends TestCase
 
         $this->recordEvents([SignedOutEverywhere::class]);
 
-        self::assertSame(0, $revocations->tenantDeactivated($tenant, []));
-        self::assertSame([], $this->recordedClasses());
         self::assertSame(1, $revocations->tenantDeactivated($tenant, [$membership, $membership, $eager]));
 
-        $principals = array_map(static fn (object $event): ?string => $event instanceof SignedOutEverywhere ? $event->context->principalMorphClass : null, $this->recorded);
+        $principals = array_map(static fn (object $event): ?string => $event instanceof SignedOutEverywhere ? $event->context->principalType : null, $this->recorded);
 
         self::assertSame([ActivatableTenantMembership::class, EagerTenantMembership::class], $principals);
         self::assertSame('tenant_deactivated', DB::table('authentication_sessions')->value('revoked_reason'));
+    }
+
+    /**
+     * With no principal listed, a tenant's deactivation still ends every
+     * session acting in the tenant, whatever its principal, reporting each
+     * revocation with the tenant and signing no one out everywhere; a session
+     * acting in another tenant is left alone, and a second call ends nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATenantsDeactivationEndsTheSessionsActingInIt(): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        $this->seedMember('other@example.test');
+
+        self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('member@example.test'));
+        self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('other@example.test'));
+
+        $revocations = SessionRevocations::forContext($this->freshGuard('members')->context(), app());
+
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class]);
+
+        self::assertSame(1, $revocations->tenantDeactivated($tenant, []));
+        self::assertSame([SessionRevoked::class], $this->recordedClasses());
+        self::assertSame($tenant, $this->recordedEvent(SessionRevoked::class)->context->tenant);
+        self::assertSame(RevocationReason::TENANT_DEACTIVATED, $this->recordedEvent(SessionRevoked::class)->reason);
+        self::assertSame(1, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
+        self::assertSame(0, $revocations->tenantDeactivated($tenant, []));
     }
 
     /**

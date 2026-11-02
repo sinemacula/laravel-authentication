@@ -3,12 +3,13 @@
 ## Purpose
 
 This note records what an application decides about the sessions it holds, beyond the token itself: which sign-in
-methods may start them and which machine credentials it accepts, which principals may hold them, whether the identifier
-a sign-in used must be verified, and how long they last. An application is the app being signed into, and each
-application is a guard, so these are per-guard settings, read by one contract (`ApplicationPolicy`) that every path that
-starts or continues a session consults. "Audience" names only the API a token is for, its `aud` claim
-(`jwt.audience`), which this policy does not touch. The note also records how the attempt limits and the identifier
-normalisers meet that policy, since a sign-in passes through all three.
+methods may start them and which machine credentials it accepts, whether the identifier a sign-in used must be verified,
+and how long they last, and which principals may hold them and in which tenants they may act. An application is the app
+being signed into, and each application is a guard, so the first are per-guard settings, read by one contract
+(`ApplicationPolicy`) that every path that starts or continues a session consults; the last two are the access contracts
+(`ApplicationAccess`, `TenantAccess`), answered from the application's own tree and roles. "Audience" names only the API
+a token is for, its `aud` claim (`jwt.audience`), which this policy does not touch. The note also records how the
+attempt limits and the identifier normalisers meet that policy, since a sign-in passes through all three.
 
 ## Invariants
 
@@ -42,35 +43,47 @@ normalisers meet that policy, since a sign-in passes through all three.
   credentials the guard accepts (`SignInMethodManager::CREDENTIAL_METHODS`): `api_key` on an `api_key` guard,
   `client_credentials` on a `jwt` guard whose client credentials exchange is open; neither is a sign-in method, and the
   manager refuses to register a method under either name (see `machine-credentials.md`).
-- The package has no rule about which principals may hold a guard's sessions: its `admit()` admits every principal and
-  is exactly `admitIdentifier()`. An application with such a rule rebinds the policy and refuses from `admit()` as
-  `principal_ineligible`, the one reason every path reports as such: a refresh, and a switch's check with no identifier
-  type, report any refusal as `principal_ineligible`, but a sign-in, a switch's check with the session's identifier type
-  and an API key report the reason the policy gives, and a client credentials exchange answers `unauthorized_client` for
-  `principal_ineligible` and `invalid_client` for any other reason. A caller's category (staff, a client's
-  administrator, a service) is the application's or authorisation's to model, never the token's: no claim carries it and
-  no accessor returns it.
+- Which principals may use an application is `Contracts\ApplicationAccess::mayUse($application, $principal)`, a yes or
+  no the package never interprets further. The default, `Applications\AdmitAnyPrincipal`, lets any principal use any
+  application. An application with a rule binds its own, and a refusal is `principal_ineligible` on every path: sign-in,
+  the choice and the list of principals, refresh, switch, API keys and their issue; a client credentials exchange
+  answers `unauthorized_client` for it and `invalid_client` for any other reason. The policy has no `admit()`: it only
+  ever delegated to `admitIdentifier()`, and two answers to one question would drift. A caller's category (staff, a
+  client's administrator, a service) is the application's or authorisation's to model, never the token's: no claim
+  carries it and no accessor returns it.
+- Which tenant a principal may act in is `Contracts\TenantAccess::mayActIn($principal, $tenant)` (`null` for none). The
+  default, `Tenancy\OwnTenantOnly`, lets a principal act only in its own tenant, by class and identifier, and a platform
+  principal only in none; a principal whose own tenant cannot be loaded may act nowhere. A tenant other than the
+  principal's own is found from its opaque identifier through `Contracts\TenantResolver`, whose default
+  (`Tenancy\ResolveNoTenant`) finds none, so the defaults never ask it. The selected tenant is asked at sign-in, at the
+  choice, on every switch for the destination and on refresh for the session's active tenant; a refusal, or a tenant the
+  resolver does not find, is `tenant_ineligible`. All three are bound `singletonIf`, so a binding made before or after
+  the provider registers wins; one that holds request state is bound `scoped`.
 - The verified-identifier gate applies only when the guard sets `require_verified_identifier` and the sign-in names an
   identifier type: the password method's is the guard's `sign_in.password_identifier`, else
   `authentication.sign_in.password_identifier` (default `email`), whatever the credentials look like, so a query closure
   in `attempt()` cannot skip it. The identity must then implement `HasVerifiableIdentifiers` (otherwise a
   `LogicException`: a misconfiguration) and report that identifier verified, read on the write connection; otherwise
-  `identifier_unverified`. `start()`, `complete()` without a stored type, and refresh carry no identifier type and are
-  never gated: an external verifier or an existing session vouches for them. A switch of principal is admitted with the
-  type the session's sign-in used (recorded on the session), as that sign-in was.
+  `identifier_unverified`. `start()`, a pending session's re-checks without a stored type, and refresh carry no
+  identifier type and are never gated: an external verifier or an existing session vouches for them. A switch is
+  admitted with the type the session's sign-in used (recorded on the session), as that sign-in was.
 - The gate depends on the identity alone, so it is the contract's `admitIdentifier($guard, $identity,
   $identifierType)`, which every sign-in (`attempt()` included) asks of whatever policy is bound after the identity's
   activity check and before resolving any principal: an unverified identifier is refused alike whether the identity
-  has principals or not. A switch of principal asks it with the session's identifier type before `admit()`. The
-  package's `admit()` also asks its own `admitIdentifier()`; a policy that wraps another asks the wrapped one's, and a
-  policy with no identity-level rule returns `null`.
-- `admit()` is asked only after the identity, the principal and its tenant have passed their activity checks.
-- Every `admitIdentifier()` runs inside `WriteConnection::during()` for the identity, and every `admit()` for the
-  identity and the principal (`Admission\ApplicationAdmission`), on every path: sign-in, `start()`, `complete()`,
-  `choose()` and the choice list, refresh, switch, API keys and their issue, client credentials and password resets. A
-  policy of the application's own decides from rows of its own (a grant, a membership), and a replica that lags behind
-  their withdrawal must not admit the principal, as the package's activity and tenant checks never do. Model reads and
-  query-builder reads on those two connections are covered; a policy pins any other read itself.
+  has principals or not. A switch asks it with the session's identifier type. A policy that wraps another asks the
+  wrapped one's, and a policy with no identity-level rule returns `null`. Verification is decided for the identity as a
+  whole: no answer refuses some principals to an identifier and admits others.
+- `ApplicationAccess` is asked only after the principal and its own tenant have passed their activity checks
+  (`Admission\PrincipalAdmission`), and `TenantAccess` only for a tenant that resolved, before its activity is read, so
+  an inactive tenant the principal may not act in is refused as `tenant_ineligible` and says nothing of its state
+  (`Admission\TenantAdmission`).
+- Every `admitIdentifier()` runs inside `WriteConnection::during()` for the identity (`Admission\ApplicationAdmission`),
+  every `mayUse()` and `resolve()` for the principal, and every `mayActIn()` for the principal and the tenant, on every
+  path: sign-in, `start()`, `satisfy()`, `choose()` and the choice list, refresh, switch, API keys and their issue,
+  client credentials and password resets. A contract of the application's own decides from rows of its own (a grant, a
+  membership), and a replica that lags behind their withdrawal must not admit the principal, as the package's activity
+  and tenant checks never do. Model reads and query-builder reads on those connections are covered; a contract pins
+  any other read itself.
 - Lifetimes are per guard only: `lifetimes($guard)` is the guard's token service's lifetimes, the same for every
   principal. Unlike the `application` block, they are read only when the token service is built: the token service
   factory keeps the service, so a later change reaches it only once the process restarts. Issuing an access token reads
@@ -82,26 +95,28 @@ normalisers meet that policy, since a sign-in passes through all three.
 
 - `signIn()` and `attempt()`: `Attempting`; `allowsMethod()` (nothing counted when it refuses); the attempt limiter's
   reservation; inside the credential timebox, the method's verification, activity, `admitIdentifier($guard,
-  $identity, $identifierType)`, the principal, then `admit($guard, $identity, $principal, $identifierType)`; the
-  session takes its deadlines from `lifetimes($guard)`.
-- `start()`: `allowsMethod()` and `admit()` with no identifier type; no limiter, no timebox.
-- `complete()` and `choose()`: the pending row is consumed first, then `allowsMethod()` for the stored method, and
-  `admitIdentifier()` and `admit()` with the stored identifier type, rechecked when the pending sign-in is used, so a
-  policy change while a factor is verified or a principal chosen still applies.
+  $identity, $identifierType)`, the principal and its own tenant's activity, `mayUse()`, then the selected tenant
+  (`mayActIn()`, its activity); the session takes its deadlines from `lifetimes($guard)`.
+- `start()`: `allowsMethod()`, then the same checks with no identifier type; no limiter, no timebox.
+- `satisfy()` and `choose()`: under the pending session's row lock, `allowsMethod()` for the stored method, and
+  `admitIdentifier()` and the access contracts with the stored identifier type, rechecked each time the pending session
+  is acted on, so a policy change while a factor is verified or a principal chosen still applies; a refusal leaves the
+  session pending.
 - Refresh: right after the session lookup, the session must record this guard (`session_guard_mismatch`); after the
   owner and principal are reloaded, the recorded method must still be allowed (`method_not_allowed`, also when the
-  session records none) and `admit()` must pass with no identifier type (`principal_ineligible`, whatever reason the
-  policy gives); a rotation's idle deadline comes from `lifetimes($guard)`.
+  session records none), `mayUse()` must still let the principal use the application (`principal_ineligible`) and
+  `mayActIn()` the session's active tenant (`tenant_ineligible`); a rotation's idle deadline comes from
+  `lifetimes($guard)`.
 - Bearer requests and `attempt()`'s session pin treat a session of another guard, or of none, as missing.
 
 ## Failure / Edge Cases
 
 - Attempt limits: a sign-in reserves a slot on its identifier's and its IP address's counters before the method runs
-  (`rate_limited` with the wait, the method never asked); a success gives its own slots back, a pending sign-in only
-  when it completes, and failures keep theirs until the window ends. A refresh counts only its failures, against the
-  session and the IP address, and is refused as `rate_limited`, with the wait, once either is full. Counters are kept
-  per guard, flow and scope as HMAC-SHA256 digests keyed from `app.key` (an enumerable IP address or identifier cannot
-  be recovered from the table alone), on `rate_limits.connection`. They are written outside the session's own
+  (`rate_limited` with the wait, the method never asked); a success gives its own slots back, a pending session only
+  when it first activates, and failures keep theirs until the window ends. A refresh counts only its failures, against
+  the session and the IP address, and is refused as `rate_limited`, with the wait, once either is full. Counters are
+  kept per guard, flow and scope as HMAC-SHA256 digests keyed from `app.key` (an enumerable IP address or identifier
+  cannot be recovered from the table alone), on `rate_limits.connection`. They are written outside the session's own
   transaction, but a caller transaction on the same connection holds them: with the default (`null`, the storage
   connection) a sign-in its caller rolls back takes its counts with it and is not counted. Counters on a connection of
   their own still count it.
@@ -131,17 +146,22 @@ normalisers meet that policy, since a sign-in passes through all three.
   `jwt` lifetimes, and is capped at the session's end, and the refresh grace window and its leeway are always the
   guard's token service's, whatever lifetimes the policy returns. A policy that returns lifetimes the guard's
   configuration does not describe therefore shortens or lengthens sessions, not access tokens or the grace window.
-- The policy is resolved from the container on every call, on every path, so a binding an application makes at any
-  time is the one used.
-- A switch of principal asks `admitIdentifier()` and `admit()` with the identifier type its session's sign-in used
-  (recorded on the session), besides the refresh's own `admit()` with none, and `lifetimes($guard)`, and never
+- The policy and the access contracts are resolved from the container on every call, on every path, so a binding an
+  application makes at any time is the one used.
+- A switch asks `admitIdentifier()` with the identifier type its session's sign-in used (recorded on the session),
+  `mayUse()` for the destination principal, `mayActIn()` for the destination tenant, and `lifetimes($guard)`, and never
   extends the session's absolute deadline (see `principal-choice-and-switch.md`).
 
 ## Implementation Anchors
 
 - `src/Contracts/ApplicationPolicy.php`, `src/Applications/GuardApplicationPolicy.php`,
   `src/Console/ApplicationChecks.php` (`authentication:check`).
-- `src/Admission/ApplicationAdmission.php` (every `admitIdentifier()` and `admit()` asked on the write connection).
+- `src/Admission/ApplicationAdmission.php` (every `admitIdentifier()` asked on the write connection),
+  `src/Admission/PrincipalAdmission.php` and `src/Admission/TenantAdmission.php` (the access contracts and the
+  resolver, asked on the write connection).
+- `src/Contracts/ApplicationAccess.php`, `src/Contracts/TenantAccess.php`, `src/Contracts/TenantResolver.php`,
+  `src/Applications/AdmitAnyPrincipal.php`, `src/Tenancy/OwnTenantOnly.php`, `src/Tenancy/ResolveNoTenant.php`,
+  `src/Tenancy/TenantSelection.php`.
 - `src/Jwt/JwtTokenServiceFactory.php` (the guard's lifetimes) and `src/Jwt/JwtTokenService.php` (`lifetimes()`).
 - `src/Sessions/SessionService.php`, `src/Sessions/CredentialAttempt.php` (the method check) and
   `src/Admission/SignInAdmission.php`, shared with `src/Guards/Concerns/SignsInWithCredentials.php` (`attempt()`).
@@ -159,13 +179,14 @@ normalisers meet that policy, since a sign-in passes through all three.
 - `tests/Feature/Applications/GuardApplicationPolicyTest.php`,
   `tests/Integration/Guards/ApplicationPolicyIntegrationTest.php`
 - `tests/Integration/Applications/EmptyApplicationIntegrationTest.php` (the shipped empty default, end to end), with
-  `testAPendingSignInWhoseMethodIsRemovedIsSpentAndRefused` in `SignInPolicyEndToEndTest` and
-  `testAChoiceWhoseMethodIsRemovedIsSpentAndRefused` in `tests/Integration/Sessions/PrincipalChoiceEndToEndTest.php`
+  `testAPendingSessionWhoseMethodIsRemovedIsRefused` in `SignInPolicyEndToEndTest`
 - `tests/Feature/Console/CheckConfigurationCommandTest.php` (the application checks and the warning)
 - `tests/Performance/AccessTokenIssueQueryBudgetTest.php`
 - `tests/Integration/Guards/RefreshApplicationIntegrationTest.php`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
   `testTheGraceWindowIsTheTokenServicesWhateverLifetimesThePolicyReturns`
+- `tests/Feature/Admission/PrincipalAdmissionTest.php`, `tests/Feature/Admission/TenantAdmissionTest.php`,
+  `tests/Feature/Tenancy/AccessContractsTest.php` (the access contracts through every path)
 - `tests/Integration/Admission/ApplicationAdmissionTest.php`,
   `tests/Integration/Applications/ReplicaApplicationPolicyTest.php` (sign-in, start, refresh, switch and choices),
   `testTheApplicationPolicyIsAskedOnThePrimary` in `tests/Integration/ApiKeys/ReplicaApiKeysTest.php` (API keys, their
@@ -181,8 +202,7 @@ Update this note when any of the following change:
 
 - the keys of an `application` block, their defaults, or how a guard's keys combine with the package's
 - what an empty `methods` list allows or refuses, or whether `authentication:check` warns about it
-- whether the package decides which principals may hold a guard's sessions, or how a rebound policy's refusal is
-  reported
+- the access contracts, their defaults, where they are asked, or how a refusal is reported
 - which sign-ins carry an identifier type, and so which the verified-identifier gate applies to
 - which paths consult the policy (sign-in, start, completion, refresh, bearer, pins), in what order, or whether any of
   its refusals revokes a session

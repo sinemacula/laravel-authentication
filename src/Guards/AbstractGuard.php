@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\EventContext;
+use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
 use SineMacula\Laravel\Authentication\Guards\Concerns\ExposesCollaborators;
 use SineMacula\Laravel\Authentication\Guards\Concerns\RebindsCollaborators;
@@ -358,9 +359,11 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * `bindVerifiedContext()` directly to avoid firing it twice.
      *
      * Previously bound state is cleared first so callers cannot inherit a stale
-     * session from a prior login on the same instance. The events carry the
-     * tenant the principal names (none when it cannot be loaded) and, with a
-     * session, the sign-in method the session records.
+     * session from a prior login on the same instance. With a session, the
+     * active tenant is the one the session records; without one, the
+     * principal's own; either unchecked, as for `authenticateAs()` (see
+     * `tenant()`). The events carry it and, with a session, the sign-in method
+     * the session records.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -389,23 +392,28 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * and the request is settled, so its own credential is not resolved
      * afterwards. A non-human identity (`MachineIdentity`) is limited to the
      * scopes given, as if a credential granted them (`[]`, none, when no list
-     * is given); only a machine identity takes scopes.
+     * is given); only a machine identity takes scopes. The active tenant is the
+     * one given, as given; with none given, the one the session records, or the
+     * principal's own without a session, unchecked, as for `login()` (see
+     * `tenant()`).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?list<string>  $scopes
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @return void
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
     #[\Override]
-    public function authenticateAs(Identity $identity, Principal $principal, ?Session $session = null, ?array $scopes = null): void
+    public function authenticateAs(Identity $identity, Principal $principal, ?Session $session = null, ?array $scopes = null, ?Tenant $tenant = null): void
     {
         self::assertScopable($identity, $scopes);
 
-        $this->bindVerifiedContext($identity, $principal, $session, self::boundTenant($principal), $session?->getSignInMethod(), false, null, $scopes);
+        $this->bindVerifiedContext($identity, $principal, $session, $tenant ?? self::trustedTenant($principal, $session), $session?->getSignInMethod(), false, null, $scopes);
     }
 
     /**
@@ -525,24 +533,25 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
     }
 
     /**
-     * Bind as a sign-in, with the tenant the principal names and the sign-in
-     * method the session records.
+     * Bind as a sign-in, in the tenant the session records (or the principal's
+     * own without a session), with the sign-in method the session records.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return void
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \LogicException
      */
     protected function bindAuthenticationLifecycle(Identity $identity, Principal $principal, ?Session $session = null): void
     {
-        $this->bindVerifiedContext($identity, $principal, $session, self::boundTenant($principal), $session?->getSignInMethod(), true);
+        $this->bindVerifiedContext($identity, $principal, $session, self::trustedTenant($principal, $session), $session?->getSignInMethod(), true);
     }
 
     /**
-     * Bind a context the guard verified itself, with the tenant its activity
-     * check loaded, the sign-in method to report and, for a context a
+     * Bind a context the guard verified itself, in the active tenant its
+     * admission found, with the sign-in method to report and, for a context a
      * credential authenticated, its identifier and the scopes it grants: clear
      * prior state and settle the request, dispatch `Login` when it is a
      * sign-in, then bind the triple and dispatch its events.
@@ -557,7 +566,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant|\SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException|null  $tenant
      * @param  ?string  $method
      * @param  bool  $signIn
      * @param  ?string  $credentialId
@@ -568,7 +577,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
         Identity $identity,
         Principal $principal,
         ?Session $session,
-        ?Tenant $tenant,
+        Tenant|TenantUnavailableException|null $tenant,
         ?string $method,
         bool $signIn,
         #[\SensitiveParameter]

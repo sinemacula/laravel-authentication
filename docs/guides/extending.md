@@ -20,7 +20,12 @@ inheritance:
 | Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` under a name the package does not use |
 | Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy` in the container; call `factorRemoved()` when a factor is removed         |
 | Passkeys as a further factor      | Call `Auth::passkeys()->factorOptions()` and `verifyFactor()` from your further-factor package                   |
-| Application decisions             | Implement `ApplicationPolicy` and bind it in the container                                                       |
+| Application decisions             | Implement `ApplicationPolicy` (methods, lifetimes, identifiers) and bind it in the container                     |
+| Who may use an application        | Implement `ApplicationAccess` and bind it in the container                                                       |
+| Tenants a principal may act in    | Implement `TenantAccess` and bind it in the container                                                            |
+| Tenants named by identifier       | Implement `TenantResolver` and bind it in the container                                                          |
+| Tenant authentication policies    | Implement `TenantAuthenticationPolicy` and bind it; call `tenantPolicyChanged()` when it changes                 |
+| Judging a further factor          | Implement `RequirementCheck` and bind it in the container (a further-factor package binds one)                   |
 | Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                                                          |
 | Identifier normal forms           | Implement `IdentifierNormalizer`, register it by type in the config                                              |
 | One-time code delivery            | Implement `OneTimeCodeSender` and bind it in the container                                                       |
@@ -42,7 +47,7 @@ so one method never has a second spelling for a guard to allow or a session to r
 An `AttemptLimiter` of your own counts a subject's `account` in one counter that every guard shares, held to each
 guard's `per_identifier` limit (and not counted where that limit is `null`), as well as the identifier's and the IP
 address's counters of the guard. Without that, the account bounds under [Rate limits](configuration.md#rate-limits) and
-[Additional factors](signing-in.md#additional-factors) do not hold: a limiter keyed only by guard, identifier and IP
+[In order](signing-in.md#in-order) do not hold: a limiter keyed only by guard, identifier and IP
 address (one built on Laravel's `RateLimiter`, say) lets every spelling of an identifier, and every guard, guess an
 account's password and its further factor anew. It records in each granted reservation's `windows` everything its
 `release()` needs to give the slots back (string keys and values), and gives them back from the windows alone. A sign-in
@@ -53,64 +58,126 @@ reserves the account twice), and each is given back.
 
 ### Deciding which principals may use an application
 
-The package's application policy admits every principal. To keep some principals out of an application, bind a policy of
-your own that refuses them from `admit()` as `principal_ineligible` and delegates everything else to the package's. A
-refused principal gets `principal_ineligible` at sign-in, on every refresh and switch, and for an API key or a client
-credentials exchange (`unauthorized_client`); its sessions are kept and refresh again once the policy admits it. Return
-that reason: a refresh reports any refusal as `principal_ineligible`, but a sign-in and an API key report the reason you
-return, and a client credentials exchange answers any other reason with `invalid_client`, as if the client's
-credentials were wrong:
+Which principals may use an application is the `ApplicationAccess` contract's answer, and the package's default
+(`AdmitAnyPrincipal`) lets any principal use any application. To keep some principals out of an application, bind your
+own. The package never interprets the answer beyond yes or no: a refused principal gets `principal_ineligible` at
+sign-in, at the choice of principal (and is left out of `principals()`), on every refresh and switch, and for an API key
+or a client credentials exchange (`unauthorized_client`); its sessions are kept and refresh again once it is let back
+in:
 
 ```php
-use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
-use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 
-final readonly class StaffOnlyConsolePolicy implements ApplicationPolicy
+final readonly class StaffOnlyConsole implements ApplicationAccess
 {
-    public function __construct(private GuardApplicationPolicy $package) {}
-
-    public function allowsMethod(string $guard, string $method): bool
+    public function mayUse(string $application, Principal $principal): bool
     {
-        return $this->package->allowsMethod($guard, $method);
-    }
-
-    public function admitIdentifier(string $guard, Identity $identity, ?string $identifierType): ?FailureReason
-    {
-        return $this->package->admitIdentifier($guard, $identity, $identifierType);
-    }
-
-    public function admit(string $guard, Identity $identity, Principal $principal, ?string $identifierType): ?FailureReason
-    {
-        if ($guard === 'console' && !$principal instanceof StaffMembership) {
-            return FailureReason::PRINCIPAL_INELIGIBLE;
-        }
-
-        return $this->package->admit($guard, $identity, $principal, $identifierType);
-    }
-
-    public function lifetimes(string $guard): TokenLifetimes
-    {
-        return $this->package->lifetimes($guard);
+        return $application !== 'console' || $principal instanceof StaffMembership;
     }
 }
 
-$this->app->singleton(ApplicationPolicy::class, StaffOnlyConsolePolicy::class);
+$this->app->singleton(ApplicationAccess::class, StaffOnlyConsole::class);
 ```
 
-The package asks `admitIdentifier()` inside `WriteConnection::during()` for the identity, and `admit()` for the identity
-and the principal, so a model your policy reads there, or a query-builder read on the identity's or the principal's
-connection, comes from the primary: a grant withdrawn moments ago is not still found on a lagging replica. Pin any other
-read that decides admission yourself, as [Operations](operations.md#read-replicas) shows.
+The package asks `mayUse()` inside `WriteConnection::during()` for the principal, so a model your contract reads there,
+or a query-builder read on the principal's connection, comes from the primary: a grant withdrawn moments ago is not
+still found on a lagging replica. Pin any other read that decides access yourself, as
+[Operations](operations.md#read-replicas) shows. A contract that holds request state is bound `scoped`, not
+`singleton`, so a long-running worker does not carry it into the next request.
+
+### Letting principals act in other tenants
+
+A session acts in one tenant, its active tenant: by default the principal's own, or none for a platform principal. The
+`TenantAccess` contract says whether a principal may act in a tenant (`null` for none), and the package's default
+(`OwnTenantOnly`) allows only that default. An application whose principals may act in a tenant below their own, or
+whose platform principals may act in any tenant, binds its own, answered from its own tree and roles, with a
+`TenantResolver` that finds a tenant by its opaque identifier. The package never sees the tree: it asks the resolver
+only for a tenant other than the principal's own, and its default (`ResolveNoTenant`) finds none, so binding
+`TenantAccess` alone still refuses every other tenant:
+
+```php
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
+use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
+
+final readonly class DescendantTenants implements TenantAccess, TenantResolver
+{
+    public function mayActIn(Principal $principal, ?Tenant $tenant): bool
+    {
+        $own = $principal->getTenant();
+
+        return $tenant === null ? $own === null : $own !== null && Organisation::isWithin($tenant, $own);
+    }
+
+    public function resolve(string $tenantId): ?Tenant
+    {
+        return Organisation::query()->useWritePdo()->find($tenantId);
+    }
+}
+
+$this->app->singleton(DescendantTenants::class);
+$this->app->singleton(TenantAccess::class, DescendantTenants::class);
+$this->app->singleton(TenantResolver::class, DescendantTenants::class);
+```
+
+A refused or unresolved tenant is `tenant_ineligible`, and an inactive one (`CanBeActive`) `tenant_inactive`, which is
+reported only for a tenant the principal may act in. The selected tenant is asked at sign-in
+(`SignInContext::$tenant`), at the choice of principal and on every switch, and the session's active tenant again on
+every refresh; a bearer request checks only that the active tenant is still active. Both contracts are asked inside
+`WriteConnection::during()` for the principal and the tenant, as `ApplicationAccess` is.
 
 `authentication:check` asks a policy of your own, this one included, whether it allows every registered sign-in method
 and `client_credentials` on each `jwt` guard, and reports an exception it throws as a problem for the guard. It still
 holds an `api_key` guard to allowing `api_key`, and checks the passkey relying party of a guard your policy allows
 `passkey`. It does not warn about an application that allows nothing: that warning reads the package's settings, and
 the names your policy allows are its own.
+
+### Tenant authentication policies
+
+Bind `Contracts\TenantAuthenticationPolicy` to say what a tenant requires of the sessions active in it. It is asked
+with a `Tenancy\TenantPolicyContext` (the application, the identity, the principal acting in the tenant, the tenant,
+and the session, or `null` before one is written) and answers a `Tenancy\TenantRequirement`: a `version` (1 to 64
+characters, or `null`), a further factor as a `Requirements\Requirement` (empty asks for none), and the
+`connections` a session must have been established through (`null` for no such requirement, `[]` for none that
+satisfies). Exemptions are the policy's own answer: answer an exempt identity's sessions with nothing required.
+
+```php
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
+use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext;
+use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
+
+final class OrganisationPolicy implements TenantAuthenticationPolicy
+{
+    public function requirementFor(TenantPolicyContext $context): TenantRequirement
+    {
+        $settings = TenantSecurity::query()->where('tenant_id', $context->tenant->getTenantIdentifier())->first();
+
+        return new TenantRequirement(
+            version: $settings?->version,
+            factor: $settings?->requires_mfa ? new Requirement(new RequirementPart(maxAgeSeconds: 43200)) : new Requirement,
+            connections: $settings?->sso_connections,
+        );
+    }
+}
+
+$this->app->singleton(TenantAuthenticationPolicy::class, OrganisationPolicy::class);
+```
+
+The package asks it inside `WriteConnection::during()` for the tenant, so read the policy's own state from the write
+connection, as there. Change the version whenever anything the answer depends on changes, the exemptions included, and
+call `Auth::sessions()->tenantPolicyChanged($tenant)` when it does (see [Tenant authentication
+policies](sessions.md#tenant-authentication-policies)). A `null` version is never taken as already checked.
+
+Whether a session's proofs meet a further factor is `Contracts\RequirementCheck`'s to judge: `evaluate()` takes a
+`Requirements\RequirementSubject` (the identity, the application, the session, the first factor it signed in with, the
+time, and `proofs($since, $kinds, $limit)`, a bounded query over its counting proofs, newest first, at most
+`RequirementSubject::MAX_LIMIT`) and the `Requirement`, and answers a `Requirements\RequirementEvaluation` listing the
+kinds left unmet. The default, `MeetNoRequirement`, meets nothing: a tenant that requires a further factor admits no
+session until a factor package binds its check. The package never asks it with an empty requirement.
 
 `AbstractGuard` is not final and may be extended for entirely new guard types.
 
@@ -125,14 +192,15 @@ in the guard's credential timebox, the one `attempt()` and `validate()` run in.
 
 `bindVerifiedContext()` binds what it is given and checks none of it, so a guard type admits what its credential named
 first, as the package's guards do: the application must allow the method it reports, the identity, the principal
-and the principal's tenant must be active (`Admission\ActivationPolicy`), and the application policy must admit the
-identity, then the identity as the principal, each asked inside `WriteConnection::during()` as the package asks them.
-The tenant the activity check loaded is the one it binds:
+and the principal's tenant must be active (`Admission\ActivationPolicy`), the application policy must admit the
+identity, and `ApplicationAccess` must let the principal use the application, each asked inside
+`WriteConnection::during()` as the package asks them. The tenant the activity check loaded is the one it binds:
 
 ```php
 use Illuminate\Container\Container;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
@@ -185,12 +253,9 @@ final class HeaderKeyGuard extends AbstractGuard
             return null;
         }
 
-        $refusal = WriteConnection::during($identity, fn (): ?FailureReason => WriteConnection::during(
-            $principal,
-            fn (): ?FailureReason => $policy->admit($guard, $identity, $principal, null),
-        ));
+        $access = Container::getInstance()->make(ApplicationAccess::class);
 
-        if ($refusal !== null) {
+        if (!WriteConnection::during($principal, fn (): bool => $access->mayUse($guard, $principal))) {
             return null;
         }
 
@@ -285,13 +350,20 @@ seam has a default that works alone.
 
 ### Further factors (`laravel-mfa`)
 
+- Bind `Contracts\RequirementCheck` (the default, `MeetNoRequirement`, meets nothing). It judges whether a session's
+  proofs meet the further factor a tenant's authentication policy requires, at sign-in, at the choice, on refresh, on a
+  switch and when a pending session is acted on; without it, a tenant that requires a further factor never activates a
+  session (see [Tenant authentication policies](#tenant-authentication-policies)).
 - Bind `Contracts\AdditionalFactorPolicy` (the default, `NeverRequireAdditionalFactor`, never asks). It is asked about
-  every admitted sign-in, from `signIn()` and `start()`, and again on a switch of principal, with the guard, identity,
-  principal, tenant, method, client and the session the client proved (see
-  [Additional factors](signing-in.md#additional-factors)).
-- When it asks for a factor, the sign-in waits: `SignInResult::requiresFactor()` and its `PendingFactor` token, then
-  `Auth::sessions()->pending()`, `complete()` or `discard()` once the factor is verified or fails. `attempt()` cannot
-  wait, so it fails as `additional_factor_required`.
+  every admitted identity's sign-in, from `signIn()` and `start()`, before any principal is chosen, and again whenever
+  its pending session is acted on (never on a switch), with the guard, identity, method, client and the session the
+  client proved; it names no principal or tenant (see [Additional factors](signing-in.md#additional-factors)). A stored
+  accepted further factor or recovery code meets it.
+- When it asks for a factor, the sign-in's session waits pending with `mfa` outstanding: `SignInResult::isPending()`,
+  its `PendingSession` and pending credential, then `Auth::sessions()->pending($credential, $action)` to check an
+  `mfa.*` action (`Sessions\Enums\PendingAction`) before the factor package acts, `satisfy()` once the factor is
+  verified, or `discard()` (see [Pending sessions](signing-in.md#pending-sessions)). `attempt()` cannot wait, so it
+  fails as `additional_factor_required`.
 - A factor removed ends the identity's other sessions: `Auth::sessions()->factorRemoved($identity, Auth::session())`.
 - Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity)` and `verifyFactor()`, which count and
   report nothing: the factor's outcome is the factor package's to limit and report. `verifyFactor()` answers a
@@ -302,11 +374,13 @@ seam has a default that works alone.
   channel, factor, what it observed (`null` for anything it did not), its `Evaluation` (accepted, and multifactor as it
   judged it: `amr` carries `mfa` only from there, never counted from the values, and a proof's own values may not name
   `mfa`), its `amr` values (at most 8, each 1 to 48 printable ASCII characters other than `"` and `\`; anything else is
-  an `InvalidArgumentException`), its time and its `ProofBinding` (identity, application, session or pending sign-in,
-  purpose). Complete a pending sign-in with `complete($token, $proof)`, bound to `PendingFactor::$id` for `sign_in` (see
-  [Additional factors](signing-in.md#additional-factors)). Nothing a factor package keeps about a session survives a
-  sign-in: every sign-in starts a new session with a new id and its own proofs, and the session the client proved
-  (`AdditionalFactorContext::$provenSession`) is revoked with its proofs left on it.
+  an `InvalidArgumentException`), its time and its `ProofBinding` (identity, application, session, purpose).
+  Satisfy a pending session with `satisfy($credential, $proof)`, bound to `PendingSession::$id` for `sign_in`,
+  or `enrollment` for the factor that confirms a bootstrap enrolment (see
+  [Satisfying a further factor](signing-in.md#satisfying-a-further-factor)). Nothing a factor package keeps about a
+  session survives a sign-in: every sign-in starts a new session with a new id and its own proofs, and the session the
+  client proved (`AdditionalFactorContext::$provenSession`) is revoked with its proofs left on it when the new one first
+  activates.
 - Step a signed-in session up with a factor the factor package has just verified: `Auth::sessions()->stepUp($proof)`,
   with the `ProofResult` bound to the session's key for `step_up`. The session keeps its refresh token and deadlines,
   and every access token issued for it from then on carries the factor in `auth_time` and `amr`; the session then
@@ -318,18 +392,16 @@ seam has a default that works alone.
   configuration may not lower (see [Freshness](sessions.md#freshness)). A caller that means only "within so many
   seconds" passes `FreshnessRequirement::within($seconds)`, which takes every proof kind: a list of kinds of its own
   narrows the configured kinds to those both take.
+- `factor_change` covers only this package's own factor changes, not the factor package's operation names
+  (`mfa.add_factor`, `mfa.replace_factor`, `mfa.remove_factor`, `mfa.generate_recovery_codes`). An application that
+  wants those to take only a further factor or a recovery code configures an entry for each under `freshness`, with
+  `additional_factor` and `recovery_code` as its proofs; without one, the factor package's own requirement decides.
 - When every sign-in requires a further factor, a password is no longer the only factor, and `passwords.min_length`
   may be lowered from 15 to 8, as NIST SP 800-63B allows (see [Password policy](passwords.md#password-policy)).
 
-`verifyFactor()` used to answer `null` once verified and the `FailureReason` otherwise. A factor package written against
-that still runs, wrongly: a `null` check, or a truthiness one, now takes every answer for a refusal. Ask the result:
+`verifyFactor()` answers a result: ask it, never check it for `null` or truthiness:
 
 ```php
-// Before: null once verified, else the FailureReason.
-$reason = Auth::passkeys()->verifyFactor($identity, $challenge, $credential);
-$passed = $reason === null;
-
-// After
 $result = Auth::passkeys()->verifyFactor($identity, $challenge, $credential);
 $passed = $result->isVerified();   // else $result->reason
 ```
@@ -362,6 +434,9 @@ $passed = $result->isVerified();   // else $result->reason
   evidence are the SSO package's: none of them reaches this package's `amr`.
 - Either way the session records the method, so the application can stop allowing it and its sessions stop
   refreshing.
+- A tenant that requires sign-in through its connections says so through its `TenantAuthenticationPolicy` (see
+  [Tenant authentication policies](#tenant-authentication-policies)): a session established through none of them is
+  refused as `sso_required`, at sign-in and at refresh (which also revokes it).
 - A reauthentication at the provider (`external_reauthentication`) is reserved for the provider's reauthentication
   handoff, which this package does not take yet; until then, a session reauthenticates with
   `Auth::sessions()->reauthenticate()` through a sign-in method the application allows, the package's or one
@@ -369,10 +444,14 @@ $passed = $result->isVerified();   // else $result->reason
 
 ### Audit (`laravel-audit-log`)
 
-- Every package event implements `Contracts\AuthenticationEvent` and carries one `Events\EventContext`, so one listener
-  records them all from its snapshot (`toArray()`): when, the guard, the client, the identity, principal and tenant by
-  morph class and identifier, the session's identifier, the method, and the credential and its scopes, never a secret.
-  The snapshot survives a queue whatever was deleted meanwhile, so a queued audit listener can take the event as it is
-  (see [Events](events.md#events)).
+- With `laravel-iam` installed, it maps every package event into the audit log, and there is nothing to wire. Without
+  it, register an `EventMapper` for `Contracts\AuthenticationEvent` with `AuditLog::map()`, giving each event an
+  explicit, dotted code (see [Events](events.md#events) for an example).
+- Every package event carries one `Events\EventContext`, so one mapper records them all from its snapshot: when, the
+  guard, the client, the identity, principal and tenant by type and identifier, the session's identifier, the method,
+  and the credential and its scopes, never a secret.
 - Events that report a write are dispatched once it commits on the written row's connection, and never for a rolled-back
-  one, so a queued audit listener records only what happened.
+  one, so a mapped event is recorded at once and only for what happened.
+- `laravel-audit-log` also records Laravel's own `Login`, `Failed` and `Logout`. This package's guards dispatch those
+  beside their own `SignedIn`, `AuthenticationFailed` and `SessionRevoked`, so list every guard whose driver is `jwt`
+  or `api_key` in `audit-log.capture.laravel.except_guards`, or each sign-in is recorded twice.

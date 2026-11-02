@@ -19,8 +19,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   token or an external identity provider. It does not guarantee that principal or session resolution will succeed
   afterwards.
 - `Login` is fired before `Authenticated` to mirror Laravel's first-party guard ordering.
-- A flow that writes a session and then binds it (the session service's sign-in, `complete()`, `choose()` and
-  `switchPrincipal()`, and `refresh()`) schedules the lifecycle events that report the write (`SessionCreated`,
+- A flow that writes a session and then binds it (the session service's sign-in, `satisfy()`, `choose()` and
+  `switchTo()`, and `refresh()`) schedules the lifecycle events that report the write (`SessionCreated`,
   `SignedIn`, `Refreshed`, `PrincipalSwitched`) on the session connection's commit before it binds, so a bind listener
   that throws (on `Validated`, `Login`, `Authenticated`, `PrincipalAssigned` or `SessionAuthenticated`) cannot withhold
   them; its exception still reaches the caller. With no transaction open on that connection they are therefore
@@ -64,18 +64,17 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - The session service's `signIn()` emits `Attempting`, then, once the session's transaction is done, `SessionCreated`
   and `SignedIn` when the session's connection commits (at once with no transaction open there), and binds through
   `login()` (`Validated -> Login -> Authenticated -> PrincipalAssigned -> SessionAuthenticated`); `start()` does the
-  same without `Attempting` (see `session-service.md`). A sign-in held for a further factor binds nothing: it emits
-  `Attempting` (from `signIn()`) and then `AdditionalFactorRequired` once the pending sign-in commits. `complete()`
-  emits the `signIn()` sequence without `Attempting`; `discard()` emits `Failed` and then `AuthenticationFailed`
-  (`additional_factor_failed`).
-- A sign-in held for a choice of principal binds nothing either: `Attempting` (from `signIn()`) and then
-  `PrincipalChoiceRequired` once the choice commits. `choose()` emits the `signIn()` sequence without `Attempting` (or
-  holds the chosen principal for a factor); a discarded choice emits `Failed` and then `AuthenticationFailed`
-  (`principal_choice_abandoned`).
-- `switchPrincipal()` is no sign-in: it dispatches `PrincipalSwitched` once the switch commits on the session's
-  connection, and binds through `authenticateAs()` (`Authenticated -> PrincipalAssigned -> SessionAuthenticated`, no
-  `Validated` or `Login`); a refusal emits only `AuthenticationFailed` (flow `principal_switch`), with `SessionRevoked`
-  first for a replayed token.
+  same without `Attempting` (see `session-service.md`). A sign-in whose session is written pending (a further factor or
+  a choice of principal outstanding) binds nothing: it emits `Attempting` (from `signIn()`) and then `SessionPending`
+  once the pending session commits. A `satisfy()` or `choose()` that activates it emits the `signIn()` sequence without
+  `Attempting`; one that leaves it pending emits nothing; a refused one emits `Failed` and then `AuthenticationFailed`;
+  `discard()` emits `SessionRevoked` (`signed_out`).
+- `switchTo()` is no sign-in: it dispatches `PrincipalSwitched` once the switch commits on the session's connection,
+  when it changed the principal or the tenant, and binds through `authenticateAs()` with the destination tenant
+  (`Authenticated -> PrincipalAssigned -> SessionAuthenticated`, no `Validated` or `Login`); one whose destination asks
+  for a further factor binds nothing, forgets a binding to that session (`forgetUser()`, no event), and emits
+  `SessionReturnedToPending` (flow `switch`), as a refresh's return to pending does; a refusal emits only
+  `AuthenticationFailed` (flow `switch`), with `SessionRevoked` first for a replayed token.
 - Direct `login()` emits the same sequence without `Attempting`. This is the package's public entry point for
   out-of-band authentication such as refresh, OAuth, or SSO callbacks.
 - `setUser()` (behind Laravel's `actingAs()`) clears the previous context and emits `Authenticated -> PrincipalAssigned`
@@ -248,9 +247,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `tests/Feature/Sessions/SessionRefreshTest.php`
   `testARefreshRotatesTheSessionAndBindsTheGuardToIt`, `testEveryRefusalIsReturnedWithItsReason`,
   `testARateLimitedRefreshIsReturnedWithItsWait`, `testTheRotationIsReportedBeforeTheBind`
-- `tests/Integration/Sessions/PendingFactorSessionServiceTest.php`
-  `testASignInHeldForAFactorReportsIt`, `testAFactorRequestIsReportedOnlyOnceItsPendingSignInCommits`,
-  `testADiscardedPendingSignInCannotBeCompleted`
+- `tests/Feature/Sessions/PendingSessionsTest.php` `testDiscardingRevokesThePendingSession`,
+  `testAPendingSessionIsListedNowhereAndAuthenticatesNothing`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
   `testUserBindsIdentityPrincipalAndSessionFromValidToken`
 - `tests/Feature/Guards/JwtGuardRefreshResolutionTest.php`
@@ -343,8 +341,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 Update this note when any of the following change:
 
 - the order or presence of `Attempting`, `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`, `PrincipalAssigned`,
-  `SessionAuthenticated`, `Refreshed`, `AuthenticationFailed`, `AdditionalFactorRequired`, `PrincipalChoiceRequired`,
-  `PrincipalSwitched`, `SessionRevoked`, or `IdentifierVerified`
+  `SessionAuthenticated`, `Refreshed`, `AuthenticationFailed`, `SessionPending`, `SessionReturnedToPending`,
+  `SessionActivated`, `PrincipalSwitched`, `SessionRevoked`, or `IdentifierVerified`
 - the order of the sign-in policy checks in `attempt()`, or which of its steps it shares with `signIn()`
 - which credential keys are redacted from `Attempting` and `Failed`
 - the response a guest gets on a route protected by package guards

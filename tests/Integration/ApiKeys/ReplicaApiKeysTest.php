@@ -24,7 +24,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithApplicationGrants;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Concerns\InteractsWithMachineCredentials;
-use Tests\Fixtures\Sessions\GrantedApplicationPolicy;
+use Tests\Fixtures\Database\ShippedMigrations;
+use Tests\Fixtures\Sessions\GrantedApplicationAccess;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\Integration\Fixtures\MachineMembership;
@@ -248,7 +249,7 @@ final class ReplicaApiKeysTest extends TestCase
         self::assertTrue($this->authenticates('machine', $issued->key()));
         self::assertTrue($this->exchange($client)->isGranted());
 
-        $this->withdrawOnThePrimary(GrantedApplicationPolicy::GRANTS, $grant);
+        $this->withdrawOnThePrimary(GrantedApplicationAccess::GRANTS, $grant);
         $this->recordMachineEvents([AuthenticationFailed::class]);
 
         self::assertFalse($this->authenticates('machine', $issued->key()));
@@ -295,12 +296,11 @@ final class ReplicaApiKeysTest extends TestCase
         $this->migratePackageTablesOnPrimaryAndReplica();
 
         /** @var \Illuminate\Database\DatabaseManager $manager */
-        $manager   = app(DatabaseManager::class);
-        $migration = require __DIR__ . '/../../../database/migrations/2026_04_06_000006_create_api_keys_table.php';
+        $manager = app(DatabaseManager::class);
 
         foreach ([self::PRIMARY_CONNECTION, self::REPLICA_CONNECTION] as $connection) {
             $manager->setDefaultConnection($connection);
-            $migration->up();
+            ShippedMigrations::up('2026_04_06_000006_create_api_keys_table.php');
         }
 
         $manager->setDefaultConnection(self::SPLIT_CONNECTION);

@@ -35,6 +35,8 @@ use SineMacula\Laravel\Authentication\Sessions\Concerns\ProvesSessions;
 use SineMacula\Laravel\Authentication\Sessions\ProofIssuance;
 use SineMacula\Laravel\Authentication\Sessions\SessionStepUp;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
+use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
@@ -262,12 +264,12 @@ final class SessionStepUpTest extends TestCase
      */
     public function testARefreshAndASwitchKeepTheStepUpsAuthentication(): void
     {
-        [$member, , $tenant] = $this->seedMember();
+        [$member, $first, $tenant] = $this->seedMember();
 
         $other  = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
         $second = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $other->getKey()]);
 
-        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), SignInContext::fromRequest(request(), principal: $first))->session;
 
         self::assertNotNull($signedIn);
 
@@ -284,7 +286,7 @@ final class SessionStepUpTest extends TestCase
 
         self::assertNotNull($refreshed);
 
-        $switched = $this->sessions('members')->switchPrincipal($refreshed->tokens->refreshToken, $second)->session;
+        $switched = $this->sessions('members')->switchTo($refreshed->tokens->refreshToken, SwitchTarget::principal($second))->session;
 
         self::assertNotNull($switched);
 
@@ -518,7 +520,7 @@ final class SessionStepUpTest extends TestCase
 
         $owner = IdentifierCoercion::stringify($signedIn->identity->getAuthIdentifier());
 
-        self::assertSame([IntegrationIdentity::class, $owner], [$context->identityMorphClass, $context->identityId]);
+        self::assertSame([IntegrationIdentity::class, $owner], [$context->identityType, $context->identityId]);
     }
 
     /**

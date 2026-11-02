@@ -63,7 +63,7 @@ final class ProofEnumsTest extends TestCase
      */
     public function testThePurposesChannelsAndKeyProtectionsAreTheRecordedValues(): void
     {
-        self::assertSame(['sign_in', 'reauthenticate', 'step_up'], array_map(static fn (Purpose $purpose): string => $purpose->value, Purpose::cases()));
+        self::assertSame(['sign_in', 'reauthenticate', 'step_up', 'enrollment'], array_map(static fn (Purpose $purpose): string => $purpose->value, Purpose::cases()));
         self::assertSame(
             ['password', 'sms', 'email', 'authenticator_app', 'passkey', 'external_provider', 'unknown'],
             array_map(static fn (ChannelKind $kind): string => $kind->value, ChannelKind::cases()),

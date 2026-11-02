@@ -17,10 +17,10 @@ use Tests\Unit\Stubs\StubPrincipal;
 
 /**
  * Integration tests for asking the application policy on the write connection,
- * against two read/write splits whose replicas lag behind their primaries: the
- * identity's (the default connection) and the principal's (`landlord`).
+ * against a read/write split whose replica lags behind its primary: the
+ * identity's (the default connection).
  *
- * Each test writes a row through a split connection, so it exists on that
+ * The test writes a row through the split connection, so it exists on the
  * primary only, and the policy admits only when its query-builder read finds
  * it: an answer of `null` shows the read was served by the writer.
  *
@@ -38,7 +38,7 @@ final class ApplicationAdmissionTest extends TestCase
     private const string GRANTS = 'grants';
 
     /**
-     * Create the grants table on both primaries and both replicas.
+     * Create the grants table on the primary and the replica.
      *
      * @return void
      */
@@ -52,7 +52,6 @@ final class ApplicationAdmissionTest extends TestCase
         };
 
         $this->createOnPrimaryAndReplica(self::GRANTS, $definition);
-        $this->createOnPrimaryAndReplica(self::GRANTS, $definition, self::LANDLORD_PRIMARY_CONNECTION, self::LANDLORD_REPLICA_CONNECTION);
     }
 
     /**
@@ -87,30 +86,6 @@ final class ApplicationAdmissionTest extends TestCase
     }
 
     /**
-     * `admit()` is asked with the identity's and the principal's connections
-     * both reading from their writers, which read from their replicas again
-     * afterwards.
-     *
-     * @return void
-     */
-    public function testAdmitIsAskedOnTheIdentitysAndThePrincipalsWriters(): void
-    {
-        DB::connection(self::SPLIT_CONNECTION)->table(self::GRANTS)->insert(['id' => 1]);
-        DB::connection(self::LANDLORD_CONNECTION)->table(self::GRANTS)->insert(['id' => 1]);
-
-        $policy    = $this->policy();
-        $identity  = new StubPrincipal;
-        $principal = new class extends StubPrincipal {
-            /** @var string|\UnitEnum|null The connection the principal is stored on. */
-            protected $connection = 'landlord';
-        };
-
-        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $policy->admit('api', $identity, $principal, null));
-        self::assertNull(ApplicationAdmission::admit($policy, 'api', $identity, $principal, null));
-        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $policy->admit('api', $identity, $principal, null));
-    }
-
-    /**
      * The class is a static utility that cannot be instantiated from outside.
      *
      * @return void
@@ -130,8 +105,7 @@ final class ApplicationAdmissionTest extends TestCase
     }
 
     /**
-     * Use the lagging split as the default connection, beside a lagging
-     * landlord split.
+     * Use the lagging split as the default connection.
      *
      * @param  mixed  $app
      * @return void
@@ -142,7 +116,6 @@ final class ApplicationAdmissionTest extends TestCase
         parent::defineEnvironment($app);
 
         $this->configureLaggingReplica(app(ConfigRepository::class));
-        $this->configureLaggingLandlordReplica(app(ConfigRepository::class));
     }
 
     /**
@@ -155,22 +128,16 @@ final class ApplicationAdmissionTest extends TestCase
 
     /**
      * A policy that admits the identity only when the identity's connection
-     * finds a grant, and the principal only when both the identity's and the
-     * principal's connections find one, each read through the query builder.
+     * finds a grant, read through the query builder.
      *
      * @return \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy
      */
     private function policy(): ApplicationPolicy
     {
-        $granted = static fn (string $connection): bool => DB::connection($connection)->table(self::GRANTS)->exists();
-        $policy  = self::createStub(ApplicationPolicy::class);
+        $policy = self::createStub(ApplicationPolicy::class);
 
         $policy->method('admitIdentifier')->willReturnCallback(
-            static fn (): ?FailureReason => $granted(self::SPLIT_CONNECTION) ? null : FailureReason::IDENTIFIER_UNVERIFIED,
-        );
-
-        $policy->method('admit')->willReturnCallback(
-            static fn (): ?FailureReason => $granted(self::SPLIT_CONNECTION) && $granted(self::LANDLORD_CONNECTION) ? null : FailureReason::PRINCIPAL_INELIGIBLE,
+            static fn (): ?FailureReason => DB::connection(self::SPLIT_CONNECTION)->table(self::GRANTS)->exists() ? null : FailureReason::IDENTIFIER_UNVERIFIED,
         );
 
         return $policy;

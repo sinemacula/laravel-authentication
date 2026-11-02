@@ -203,6 +203,48 @@ final class TokenProfileTest extends TestCase
     }
 
     /**
+     * A token of a session names the session's active tenant and no other:
+     * issued for the session with any other tenant, or with none, it is
+     * refused, and once the session acts in another tenant (one below the
+     * principal's own, say) its tokens name that one, which a token without a
+     * session never could.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionsTokenNamesTheSessionsActiveTenant(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+        [, , $other]                    = $this->seedMember('other@example.test');
+
+        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+
+        self::assertNotNull($signedIn);
+
+        $record = $signedIn->record;
+        $tokens = Auth::jwt('members');
+
+        foreach ([$other, null] as $given) {
+
+            try {
+                $tokens->issueAccessToken($member, $membership, $given, $record);
+
+                self::fail('Expected a tenant the session does not act in to be refused.');
+            } catch (\InvalidArgumentException $exception) {
+                self::assertStringContainsString('naming another tenant than the one the session acts in', $exception->getMessage());
+            }
+        }
+
+        $record->forceFill(['tenant_id' => IdentifierCoercion::stringify($other->getKey())])->save();
+
+        $claims = $this->claims($tokens->issueAccessToken($member, $membership, $other, $record), TokenType::ACCESS, 'members');
+
+        self::assertSame(IdentifierCoercion::stringify($other->getKey()), $claims['tenant_id'] ?? null);
+        self::assertNotSame(IdentifierCoercion::stringify($tenant->getKey()), $claims['tenant_id']);
+    }
+
+    /**
      * A grace retry, the refresh token a refresh replaced presented again
      * inside the grace window, is handed an access token that names the tenant
      * the session's principal acts within, as the refresh's own does.

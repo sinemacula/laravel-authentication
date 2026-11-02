@@ -11,8 +11,8 @@ and how the runtime models and the published migrations are kept choosing the sa
   for the default connection; `forRateLimits()` is `authentication.rate_limits.connection` when it names a connection,
   and `name()` otherwise. A value that is neither a name nor `null` or empty fails closed with an
   `InvalidArgumentException` naming the key, rather than putting a table on another connection than the one meant.
-- Every shipped model takes its connection from the resolver when it is built: `PendingSignIn`, `SessionProof`,
-  `SessionProvenance`, `OneTimeCode`, `Passkey`, `PasskeyChallenge`, `ApiKey` and `IdentifierChange` from `name()`,
+- Every shipped model takes its connection from the resolver when it is built: `SessionProof`, `SessionProvenance`,
+  `OneTimeCode`, `Passkey`, `PasskeyChallenge`, `ApiKey` and `IdentifierChange` from `name()`,
   `RateLimit` from `forRateLimits()`, and
   the shipped `Session` from `name()` unless its class names a connection of its own. No persistence model reads the
   session model, or `SessionRecords\SessionLookup`, for its connection.
@@ -23,11 +23,11 @@ and how the runtime models and the published migrations are kept choosing the sa
   connection and follow the migrator's, as `--database` chooses it; the `migrations` table always stays on the
   migrator's connection.
 - The tables share the storage connection because the flows that write several of them are single transactions on one
-  model's connection: a sign-in (the session, its first proof and any provenance, then both tokens), the completion of
-  a pending sign-in (its delete with the session and its proofs, on the pending row's connection), a step-up or a
-  reauthentication (the session's lock, its new proof and the access token), pruning (a chunk's proofs, provenance and
-  sessions), a bulk revocation (sessions, pending sign-ins and pending identifier changes), a password reset and an
-  identifier change (the proof with the identity, its cutoff and its sessions). Two connections cannot commit as one.
+  model's connection: a sign-in (the session, its first proof and any provenance, then both tokens), the activation of a
+  pending session (its row, its further proof and both tokens), a step-up or a reauthentication (the session's lock, its
+  new proof and the access token), pruning (a chunk's proofs, provenance and sessions), a bulk revocation (sessions,
+  pending ones included, and pending identifier changes), a password reset and an identifier change (the proof with the
+  identity, its cutoff and its sessions). Two connections cannot commit as one.
 - Proofs and provenance (`authentication.proofs.table`, `authentication.proofs.provenance_table`) record the session's
   key as a string, whatever the session model's key type, so they are found, and pruned, by bound string values on the
   string column rather than by comparing columns of two types; a session and its proofs commit together, and every read
@@ -74,7 +74,7 @@ and how the runtime models and the published migrations are kept choosing the sa
 ## Implementation Anchors
 
 - `src/Database/StorageConnection.php`: `name()`, `forRateLimits()`, `holds()`.
-- The constructors of `src/Models/Session.php`, `PendingSignIn.php`, `SessionProof.php`, `SessionProvenance.php`,
+- The constructors of `src/Models/Session.php`, `SessionProof.php`, `SessionProvenance.php`,
   `RateLimit.php`, `OneTimeCode.php`, `Passkey.php`, `PasskeyChallenge.php`, `ApiKey.php` and `IdentifierChange.php`;
   `getConnection()` in every migration under `database/migrations/`.
 - `src/Proofs/ProofWriter.php` (writes on the session's connection), `src/Concerns/PrunesSessions.php`: `pruneAll()`.

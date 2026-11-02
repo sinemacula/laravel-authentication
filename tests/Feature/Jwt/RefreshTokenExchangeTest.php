@@ -23,6 +23,7 @@ use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Random\RandomException;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
@@ -31,6 +32,8 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
+use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -52,6 +55,8 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 use SineMacula\Laravel\Authentication\Runtime\CredentialTimebox;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Tenancy\OwnTenantOnly;
+use SineMacula\Laravel\Authentication\Tenancy\ResolveNoTenant;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\FirstFactorRecorder;
@@ -130,6 +135,9 @@ final class RefreshTokenExchangeTest extends TestCase
     /** @var \Mockery\MockInterface Dispatcher mock. */
     private MockInterface $events;
 
+    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\ApplicationAccess Application access the exchange resolves from the container. */
+    private MockInterface $access;
+
     /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy Application policy the exchange resolves from the container. */
     private MockInterface $policy;
 
@@ -184,15 +192,20 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $this->policy = \Mockery::mock(ApplicationPolicy::class);
         $this->policy->shouldReceive('allowsMethod')->andReturn(true)->byDefault();
-        $this->policy->shouldReceive('admit')->andReturn(null)->byDefault();
         $this->policy->shouldReceive('lifetimes')->andReturn($this->tokens->lifetimes())->byDefault();
 
         $this->limiter = \Mockery::mock(AttemptLimiter::class);
         $this->limiter->shouldReceive('blocked')->andReturn(null)->byDefault();
         $this->limiter->shouldReceive('recordFailure')->byDefault();
 
+        $this->access = \Mockery::mock(ApplicationAccess::class);
+        $this->access->shouldReceive('mayUse')->andReturn(true)->byDefault();
+
         $this->app?->instance(ApplicationPolicy::class, $this->policy);
+        $this->app?->instance(ApplicationAccess::class, $this->access);
         $this->app?->instance(AttemptLimiter::class, $this->limiter);
+        $this->app?->singleton(TenantAccess::class, OwnTenantOnly::class);
+        $this->app?->singleton(TenantResolver::class, ResolveNoTenant::class);
 
         self::createSessionRecordTable('stub_sessions');
         self::migrateProofTables();
@@ -475,7 +488,7 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame($session->id, $failure->context->sessionId);
         self::assertNull($failure->context->identity);
         self::assertSame('9', $failure->context->identityId);
-        self::assertSame(PlainPrincipalFixture::class, $failure->context->principalMorphClass);
+        self::assertSame(PlainPrincipalFixture::class, $failure->context->principalType);
         self::assertSame('p-9', $failure->context->principalId);
     }
 
@@ -638,7 +651,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
-            ->times(4)
+            ->times(5)
             ->andReturn('p-12');
         $principal->shouldReceive('isActive')
             ->once()
@@ -775,7 +788,7 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $failure->reason);
         self::assertSame($session->id, $failure->context->sessionId);
         self::assertSame('15', $failure->context->identityId);
-        self::assertNull($failure->context->principalMorphClass);
+        self::assertNull($failure->context->principalType);
         self::assertNull($failure->context->principalId);
         self::assertSame(RefreshTokenHasher::hash($plainRotationId), $session->fresh()?->getRefreshKey());
     }
@@ -1667,7 +1680,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $before   = [$this->row($removed), $this->row($unstated)];
 
         $this->policy->shouldReceive('allowsMethod')->once()->with(self::GUARD_NAME, 'sso')->andReturn(false);
-        $this->policy->shouldNotReceive('admit');
+        $this->access->shouldNotReceive('mayUse');
         $this->expectRefreshContext(43, 2);
         $this->recordEvents();
 
@@ -1678,26 +1691,27 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * The application policy must still admit the owner as the principal, asked
-     * without an identifier type; when it does not, the exchange fails as
-     * `principal_ineligible` without writing.
+     * `ApplicationAccess` must still let the principal use the application;
+     * when it does not, the exchange fails as `principal_ineligible` without
+     * writing.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testThePolicyMustStillAdmitTheOwnerAsThePrincipal(): void
+    public function testTheAccessMustStillLetThePrincipalUseTheApplication(): void
     {
-        $session  = $this->seedSession(44, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
-        $before   = $this->row($session);
-        $identity = $this->expectRefreshContext(44);
+        $session = $this->seedSession(44, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
+        $before  = $this->row($session);
+
+        $this->expectRefreshContext(44);
 
         $this->policy->shouldReceive('allowsMethod')->once()->with(self::GUARD_NAME, 'password')->andReturn(true);
-        $this->policy->shouldReceive('admit')
+        $this->access->shouldReceive('mayUse')
             ->once()
-            ->with(self::GUARD_NAME, $identity, \Mockery::type(Principal::class), null)
-            ->andReturn(FailureReason::IDENTIFIER_UNVERIFIED);
+            ->with(self::GUARD_NAME, \Mockery::type(Principal::class))
+            ->andReturn(false);
         $this->recordEvents();
 
         $this->refused($this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client()));
@@ -2083,7 +2097,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         foreach ([$revocations[0]->context, $this->failures[0]->context] as $context) {
             self::assertSame($session->getAttribute('authenticatable_id'), $context->identityId);
-            self::assertSame(PlainPrincipalFixture::class, $context->principalMorphClass);
+            self::assertSame(PlainPrincipalFixture::class, $context->principalType);
             self::assertSame($session->getAttribute('principal_id'), $context->principalId);
         }
     }

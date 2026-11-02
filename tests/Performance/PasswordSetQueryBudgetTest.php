@@ -21,9 +21,9 @@ use Tests\Concerns\InteractsWithPasswords;
  * Query-budget contracts for setting a password: checking one touches no
  * database; a registration of a stored identity is the one `UPDATE` of its
  * password; a change or a reset adds the bulk revocation (the cutoff's
- * `UPDATE`, one read of the sessions, one `UPDATE` per session revoked and the
- * `DELETE` of the pending sign-ins); and a rejected password writes nothing.
- * The hasher runs once per password set, never for one rejected.
+ * `UPDATE`, one read of the sessions and one `UPDATE` per session revoked);
+ * and a rejected password writes nothing. The hasher runs once per password
+ * set, never for one rejected.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -129,9 +129,8 @@ final class PasswordSetQueryBudgetTest extends PerformanceContractTestCase
     /**
      * A change that keeps one of three sessions is the password's `UPDATE`, one
      * read of the row it updated and one `DELETE` of the reset links and codes
-     * it outdates, the cutoff's `UPDATE`, one read of the sessions, one
-     * `UPDATE` for each of the two it revokes and the `DELETE` of the pending
-     * sign-ins.
+     * it outdates, the cutoff's `UPDATE`, one read of the sessions and one
+     * `UPDATE` for each of the two it revokes.
      *
      * @return void
      *
@@ -149,7 +148,7 @@ final class PasswordSetQueryBudgetTest extends PerformanceContractTestCase
 
         $this->hashes = 0;
 
-        $result = $this->assertQueryBudget(2, 6, static fn () => $service->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE, $kept));
+        $result = $this->assertQueryBudget(2, 5, static fn () => $service->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE, $kept));
 
         self::assertSame(2, $result->revoked);
         self::assertSame(1, $this->hashesMade());

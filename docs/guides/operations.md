@@ -22,8 +22,9 @@ in carries the same obligation:
 - `resolveDefaultPrincipal()`, `resolveHintedPrincipal()`, `sessions()` and, when `ModelProvider` checks a password,
   `getAuthPassword()` already run inside `WriteConnection::during()` for the identity, `getTenant()` for the principal,
   `isActive()` for the model it belongs to, a session's guard, sign-in method, refresh state, session deadlines and
-  revocation for the session, and an application policy's `admitIdentifier()` for the identity and `admit()` for the
-  identity and the principal (so a policy of your own that admits on a grant or a membership row reads the primary's):
+  revocation for the session, an application policy's `admitIdentifier()` for the identity, `ApplicationAccess` and the
+  `TenantResolver` for the principal, and `TenantAccess` for the principal and the tenant (so a contract of your own
+  that admits on a grant or a membership row reads the primary's):
   every model read made there, on any connection, goes to that connection's writer, and so does a query-builder read on
   the model's own connection. A query-builder or `DB` read on another connection, or made by a principal or identity
   that is not an Eloquent model, or a read a policy makes from `allowsMethod()`, must pin itself.
@@ -70,7 +71,7 @@ for the next job. Only jobs a worker runs are reset: a job on the `sync` connect
 `dispatchSync()` whatever the default connection) runs inside the request that dispatched it and leaves its guards as
 they are, so a session the request just started stays bound and a request that signed out stays signed out. A
 dispatcher or principal resolver swapped in after a guard resolved (`Event::fake()`, a rebinding of
-`PrincipalResolver`) reaches the guard and its session service (and, through it, a refresh, a switch of principal and
+`PrincipalResolver`) reaches the guard and its session service (and, through it, a refresh, a switch and
 the revocations), which read the guard's collaborators each time they run.
 
 The package's singletons hold configuration only: the token service factory memoises each guard's signing configuration
@@ -108,7 +109,7 @@ for as long as it runs. To change a kept setting, change the configuration and r
 Like every setting, a change to an application's `application.methods` in the configuration files reaches a long-running
 process only after the restart above; the list itself is read on every use, so a runtime `config([...])` applies at
 once. Emptying the list (or removing a method) to stop an application's sign-ins and refreshes is therefore a deploy
-plus a worker restart, after which every sign-in, refresh, switch of principal, one-time code and password reset request
+plus a worker restart, after which every sign-in, refresh, switch, one-time code and password reset request
 and machine credential it no longer lists is refused (see [Applications](configuration.md#applications)). Nothing is
 revoked: access tokens already issued keep working until they expire, and sessions refresh again once the method is
 listed again.
@@ -158,7 +159,6 @@ one transaction; every other model in chunks of one conditional `DELETE` that re
 | Model                     | Pruned once                                                                                                   |
 |---------------------------|---------------------------------------------------------------------------------------------------------------|
 | `Models\Session`          | it has been over (revoked, or past a deadline) for `session.prune_after_days`, with its proofs and provenance |
-| `Models\PendingSignIn`    | it has expired                                                                                                |
 | `Models\RateLimit`        | its window has ended                                                                                          |
 | `Models\OneTimeCode`      | it has expired                                                                                                |
 | `Models\PasskeyChallenge` | it has expired                                                                                                |
@@ -169,22 +169,22 @@ Passkeys are never pruned: one lasts until its owner removes it.
 
 Revoked and ended sessions are kept for audit: a session is pruned once it has been over for `session.prune_after_days`
 (default 30, from 0 to 3650), counted from when it was revoked or passed its idle or absolute deadline, whichever came
-first, never from when it was created, so a long session is kept as long after it ends as a short one; a session with no
-absolute deadline is pruned once it went idle or was revoked. With 0, a session is pruned from the second it ends. The
-value must be an integer, or a digit string as `env()` returns one; anything else fails with an
-`InvalidArgumentException` when pruning runs. Each chunk, in one transaction on the session's connection, reads the keys
-of up to a chunk of prunable sessions, deletes the proofs and the provenance recorded for those keys (by the keys as
-strings, the form the proofs record them in, whatever the session model's key type), then deletes the sessions;
-`ModelsPruned` reports the sessions pruned so far after each chunk. The proofs and provenance have no pruning of their
-own: they go with their session, so a session deleted any other way (a truncation included) leaves them behind, and an
-application that deletes sessions itself deletes, in the same transaction, the rows of the `proofs.table` and
-`proofs.provenance_table` tables whose `session_id` is the session's key as a string (the form they record it in,
-whatever the session model's key type, so an integer key is compared as its digits). Every sign-in also deletes whatever
-is recorded under its new session's key before it records its own, so a key the database issues again (an integer key
-whose counter a truncation reset) does not inherit an earlier session's proofs. That deletion reads as of its
-transaction's snapshot: on MySQL at REPEATABLE READ, a sign-in inside a transaction of your own that read the database
-before the earlier session's rows were committed does not see them, so delete a session's rows with it rather than rely
-on the sign-in.
+first (a pending session's idle deadline is its credential's expiry), never from when it was created, so a long session
+is kept as long after it ends as a short one; a session with no absolute deadline is pruned once it went idle or was
+revoked. With 0, a session is pruned from the second it ends. The value must be an integer, or a digit string as `env()`
+returns one; anything else fails with an `InvalidArgumentException` when pruning runs. Each chunk, in one transaction on
+the session's connection, reads the keys of up to a chunk of prunable sessions, deletes the proofs and the provenance
+recorded for those keys (by the keys as strings, the form the proofs record them in, whatever the session model's key
+type), then deletes the sessions; `ModelsPruned` reports the sessions pruned so far after each chunk. The proofs and
+provenance have no pruning of their own: they go with their session, so a session deleted any other way (a truncation
+included) leaves them behind, and an application that deletes sessions itself deletes, in the same transaction, the rows
+of the `proofs.table` and `proofs.provenance_table` tables whose `session_id` is the session's key as a string (the form
+they record it in, whatever the session model's key type, so an integer key is compared as its digits). Every sign-in
+also deletes whatever is recorded under its new session's key before it records its own, so a key the database issues
+again (an integer key whose counter a truncation reset) does not inherit an earlier session's proofs. That deletion
+reads as of its transaction's snapshot: on MySQL at REPEATABLE READ, a sign-in inside a transaction of your own that
+read the database before the earlier session's rows were committed does not see them, so delete a session's rows with it
+rather than rely on the sign-in.
 
 The package's models live outside your application's `app/Models`, so name them when you schedule the command:
 
@@ -194,14 +194,12 @@ use SineMacula\Laravel\Authentication\Models\ApiKey;
 use SineMacula\Laravel\Authentication\Models\IdentifierChange;
 use SineMacula\Laravel\Authentication\Models\OneTimeCode;
 use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
-use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Models\RateLimit;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 Schedule::command('model:prune', [
     '--model' => [
         Session::class,
-        PendingSignIn::class,
         RateLimit::class,
         OneTimeCode::class,
         PasskeyChallenge::class,
@@ -240,29 +238,29 @@ policy, its settings) and rate limits; and, for the whole package, the storage a
 (`authentication.storage.connection`, `authentication.rate_limits.connection`: a connection name configured in
 `database.connections`, or none), the configured session model, which must live on the storage connection, and the
 pruning retention while any `jwt` guard is configured (`authentication.session.prune_after_days`, otherwise checked only
-when `model:prune` runs), the pending sign-in lifetime (`authentication.sign_in.pending_ttl_seconds`, otherwise checked
-only when a sign-in waits for a further factor or a choice of principal), the password policy settings
-(`authentication.passwords`), the one-time code settings and key (`authentication.codes`) and a bound
-`OneTimeCodeSender` when any guard allows a code sign-in method (`phone_code`, `email_code`, or a `CodeSignIn` you
-registered), the delivery queue (`authentication.delivery.queue`), the passkey challenge lifetime
-(`authentication.passkeys.challenge_ttl_seconds`), the API key settings (`authentication.api_keys`), the identifier
-change settings (`authentication.identifier_changes`) and the freshness requirements (`authentication.freshness`). Every
-check runs, so one run lists every problem, each as `[<guard>] <message>` (`[storage]` for the connections, `[session]`
-for the session model and retention, `[sign_in]` for the pending lifetime, `[passwords]` for the password policy,
-`[codes]` for the code settings and sender, `[delivery]` for the delivery queue, `[passkeys]` for the challenge
-lifetime, `[api_keys]` for the API key settings, `[identifier_changes]` for the identifier change settings,
-`[freshness]` for the freshness requirements), and a subject without one as `[<guard>] OK`. Delivery on a `sync` queue
-connection, or on a `failover` one that can fall back to `sync`, while any `jwt` guard is configured (any of them may
-send codes, reset links and codes, or identifier change codes and notices), is a `[delivery]` warning that leaves the
-exit code alone, as is a `jwt` guard whose package application settings allow nothing (its `methods` lists nothing, or
-only `api_key`; see [Applications](configuration.md#applications); a policy of your own, even one that wraps the
-package's, gets no such warning, since the names it allows are its own), and a `jwt` guard whose password resets or
-identifier changes would refuse to run: its provider's model on another connection than the storage connection, or, for
-resets, a password identifier other than `email` while Laravel's notification is the reset link sender (see [Password
-reset](passwords.md#password-reset)). Only the named guards are checked with `--guard=api --guard=admin`; a named guard
-that is not configured, or neither a `jwt` nor an `api_key` guard, is a problem. The `[codes]` sender check still asks
-every `jwt` guard's application whether it allows a code sign-in method, and an exception the policy throws for a guard
-left out of the run, whether the package's over settings it cannot read or one of your own, is a `[codes]` problem
-naming that guard. The package's checks read configuration only: they open no database connection and never print a key,
-though a policy of your own that reads the database when asked whether it allows a method opens a connection. The
-package does not run these checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
+when `model:prune` runs), the pending credential lifetime (`authentication.session.pending_ttl_seconds`, otherwise
+checked only when a session becomes pending), the password policy settings (`authentication.passwords`), the one-time
+code settings and key (`authentication.codes`) and a bound `OneTimeCodeSender` when any guard allows a code sign-in
+method (`phone_code`, `email_code`, or a `CodeSignIn` you registered), the delivery queue
+(`authentication.delivery.queue`), the passkey challenge lifetime (`authentication.passkeys.challenge_ttl_seconds`), the
+API key settings (`authentication.api_keys`), the identifier change settings (`authentication.identifier_changes`) and
+the freshness requirements (`authentication.freshness`). Every check runs, so one run lists every problem, each as
+`[<guard>] <message>` (`[storage]` for the connections, `[session]` for the session model, retention and pending
+lifetime, `[passwords]` for the password policy, `[codes]` for the code settings and sender, `[delivery]` for the
+delivery queue, `[passkeys]` for the challenge lifetime, `[api_keys]` for the API key settings, `[identifier_changes]`
+for the identifier change settings, `[freshness]` for the freshness requirements), and a subject without one as
+`[<guard>] OK`. Delivery on a `sync` queue connection, or on a `failover` one that can fall back to `sync`, while any
+`jwt` guard is configured (any of them may send codes, reset links and codes, or identifier change codes and notices),
+is a `[delivery]` warning that leaves the exit code alone, as is a `jwt` guard whose package application settings allow
+nothing (its `methods` lists nothing, or only `api_key`; see [Applications](configuration.md#applications); a policy of
+your own, even one that wraps the package's, gets no such warning, since the names it allows are its own), and a `jwt`
+guard whose password resets or identifier changes would refuse to run: its provider's model on another connection than
+the storage connection, or, for resets, a password identifier other than `email` while Laravel's notification is the
+reset link sender (see [Password reset](passwords.md#password-reset)). Only the named guards are checked with
+`--guard=api --guard=admin`; a named guard that is not configured, or neither a `jwt` nor an `api_key` guard, is a
+problem. The `[codes]` sender check still asks every `jwt` guard's application whether it allows a code sign-in method,
+and an exception the policy throws for a guard left out of the run, whether the package's over settings it cannot read
+or one of your own, is a `[codes]` problem naming that guard. The package's checks read configuration only: they open no
+database connection and never print a key, though a policy of your own that reads the database when asked whether it
+allows a method opens a connection. The package does not run these checks at boot; a misconfiguration otherwise surfaces
+when a guard first uses the setting.

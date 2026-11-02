@@ -400,6 +400,9 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
             'principal_type'       => $identity->getMorphClass(),
             'principal_id'         => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'guard'                => 'api',
+            'status'               => 'active',
+            'tenant_id'            => null,
+            'switched_at'          => null,
             'sign_in_method'       => 'password',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
             'signed_in_at'         => $now,

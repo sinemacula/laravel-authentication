@@ -17,17 +17,18 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
-use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SessionCreated;
+use SineMacula\Laravel\Authentication\Events\SessionPending;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
@@ -52,7 +53,7 @@ use Tests\TestCase;
  */
 #[CoversClass(SignedIn::class)]
 #[CoversClass(SessionCreated::class)]
-#[CoversClass(AdditionalFactorRequired::class)]
+#[CoversClass(SessionPending::class)]
 #[CoversClass(AuthenticationFailed::class)]
 #[CoversClass(EventContext::class)]
 final class SignInEventSerializationTest extends TestCase
@@ -176,36 +177,34 @@ final class SignInEventSerializationTest extends TestCase
     }
 
     /**
-     * `AdditionalFactorRequired` for a sign-in that proved a session comes back
-     * with that session reloaded, and with the pending sign-in's expiry.
+     * `SessionPending` for a sign-in that waits for a further factor comes back
+     * with its models and its pending session reloaded, still pending, and with
+     * what the session waits on and when its credential expires.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAdditionalFactorRequiredRestoresItsModelsAndProvenSession(): void
+    public function testSessionPendingRestoresItsModelsAndPendingSession(): void
     {
-        $first = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
-
-        self::assertNotNull($first);
-
         self::requireAFactor();
 
-        $this->recordEvents([AdditionalFactorRequired::class]);
+        $this->recordEvents([SessionPending::class]);
 
-        $context = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken);
+        $context = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT));
         $pending = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), $context)->pending;
 
         self::assertNotNull($pending);
 
-        $event = self::roundTrip($this->recordedEvent(AdditionalFactorRequired::class));
+        $event = self::roundTrip($this->recordedEvent(SessionPending::class));
 
         $this->assertRestoredModels($event->context->identity, $event->context->principal, $event->context->tenant);
-        self::assertNotNull($event->context->session);
-        self::assertSameModel($first->record, $event->context->session);
-        self::assertSame('Renamed', self::clientNameOf($event->context->session));
+        self::assertInstanceOf(Session::class, $event->context->session);
+        self::assertSame($pending->id, $event->context->session->getSessionIdentifier());
+        self::assertSame(SessionStatus::PENDING, $event->context->session->getStatus());
         self::assertSame('password', $event->context->method);
         self::assertEquals(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), $event->context->client);
+        self::assertSame(['mfa'], $event->requires);
         self::assertSame($pending->expiresAt->getTimestamp(), $event->expiresAt->getTimestamp());
     }
 
@@ -284,17 +283,17 @@ final class SignInEventSerializationTest extends TestCase
         $context = self::roundTrip($this->recordedEvent(SignedIn::class))->context;
 
         $keys = [
-            'occurred_at', 'guard', 'method', 'ip', 'user_agent', 'identity_morph_class', 'identity_id', 'principal_morph_class', 'principal_id',
-            'tenant_morph_class', 'tenant_id', 'session_id', 'credential_id', 'scopes',
+            'occurred_at', 'guard', 'method', 'ip', 'user_agent', 'identity_type', 'identity_id', 'principal_type', 'principal_id',
+            'tenant_type', 'tenant_id', 'session_id', 'credential_id', 'scopes',
         ];
 
         self::assertSame($this->recordedEvent(SignedIn::class)->context->toArray(), $context->toArray());
         self::assertSame($keys, array_keys($context->toArray()));
-        self::assertSame($this->member->getMorphClass(), $context->identityMorphClass);
+        self::assertSame($this->member->getMorphClass(), $context->identityType);
         self::assertSame((string) $this->member->getKey(), $context->identityId); // @phpstan-ignore cast.string
-        self::assertSame($this->membership->getMorphClass(), $context->principalMorphClass);
+        self::assertSame($this->membership->getMorphClass(), $context->principalType);
         self::assertSame((string) $this->membership->getKey(), $context->principalId); // @phpstan-ignore cast.string
-        self::assertSame($this->tenant->getMorphClass(), $context->tenantMorphClass);
+        self::assertSame($this->tenant->getMorphClass(), $context->tenantType);
         self::assertSame((string) $this->tenant->getKey(), $context->tenantId); // @phpstan-ignore cast.string
         self::assertSame($session->record->getKey(), $context->sessionId);
         self::assertTrue(CarbonImmutable::now()->equalTo($context->occurredAt));

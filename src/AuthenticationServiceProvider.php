@@ -23,9 +23,11 @@ use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Timebox;
+use SineMacula\Laravel\Authentication\Applications\AdmitAnyPrincipal;
 use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
 use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
@@ -34,7 +36,11 @@ use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
+use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
@@ -55,6 +61,7 @@ use SineMacula\Laravel\Authentication\Passwords\NoBreachedPasswordCheck;
 use SineMacula\Laravel\Authentication\Passwords\NotifyingResetLinkSender;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
+use SineMacula\Laravel\Authentication\Requirements\MeetNoRequirement;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Scopes\AcceptAnyScope;
@@ -62,6 +69,9 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
+use SineMacula\Laravel\Authentication\Tenancy\OwnTenantOnly;
+use SineMacula\Laravel\Authentication\Tenancy\RequireNothingOfTenants;
+use SineMacula\Laravel\Authentication\Tenancy\ResolveNoTenant;
 
 /**
  * Package service provider: registers the package's configuration, auth
@@ -76,7 +86,6 @@ final class AuthenticationServiceProvider extends ServiceProvider
     /** @var list<string> File names of the shipped migrations, published under the `authentication-migrations` tag. */
     private const array MIGRATIONS = [
         '2026_04_06_000000_create_authentication_sessions_table.php',
-        '2026_04_06_000001_create_pending_sign_ins_table.php',
         '2026_04_06_000002_create_rate_limits_table.php',
         '2026_04_06_000003_create_one_time_codes_table.php',
         '2026_04_06_000004_create_passkeys_table.php',
@@ -108,11 +117,16 @@ final class AuthenticationServiceProvider extends ServiceProvider
 
         $this->app->singletonIf(PrincipalResolver::class, DefaultPrincipalResolver::class);
         $this->app->singletonIf(ApplicationPolicy::class, GuardApplicationPolicy::class);
+        $this->app->singletonIf(ApplicationAccess::class, AdmitAnyPrincipal::class);
+        $this->app->singletonIf(TenantAccess::class, OwnTenantOnly::class);
+        $this->app->singletonIf(TenantResolver::class, ResolveNoTenant::class);
         $this->app->singletonIf(IdentifierNormalizers::class);
         $this->app->singletonIf(AttemptLimiter::class, DatabaseAttemptLimiter::class);
         $this->app->singletonIf(SignInMethodManager::class);
         $this->app->scopedIf(Rehashing::class);
         $this->app->singletonIf(AdditionalFactorPolicy::class, NeverRequireAdditionalFactor::class);
+        $this->app->singletonIf(TenantAuthenticationPolicy::class, RequireNothingOfTenants::class);
+        $this->app->singletonIf(RequirementCheck::class, MeetNoRequirement::class);
         $this->app->singletonIf(FreshnessPolicy::class, ConfiguredFreshness::class);
         $this->app->singletonIf(WebAuthn::class);
         $this->app->singletonIf(ScopeRegistry::class, AcceptAnyScope::class);

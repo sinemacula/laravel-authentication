@@ -10,7 +10,10 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Schema;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
+use Tests\Fixtures\Database\ShippedMigrations;
 
 /**
  * Shared session helpers for test cases that create session tables and rows.
@@ -52,19 +55,40 @@ trait InteractsWithSessionRecords
 
     /**
      * The session columns that record the principal a session acts as, as the
-     * session service writes them at sign-in: the principal, and no switch.
+     * session service writes them at sign-in: the principal, its own tenant as
+     * the active tenant (none when it has none, or it cannot be loaded), and no
+     * switch.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @return array{principal_type: string, principal_id: ?string, principal_switched_at: null}
+     * @return array{principal_type: string, principal_id: ?string, tenant_id: ?string, switched_at: null}
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      */
     protected static function recordedPrincipal(Principal $principal): array
     {
-        return ['principal_type' => PrincipalReference::type($principal), 'principal_id' => PrincipalReference::id($principal), 'principal_switched_at' => null];
+        try {
+            $tenant = $principal->getTenant();
+        } catch (TenantUnavailableException) {
+            $tenant = null;
+        }
+
+        return [
+            'principal_type' => PrincipalReference::type($principal),
+            'principal_id'   => PrincipalReference::id($principal),
+            'tenant_id'      => IdentifierCoercion::stringify($tenant?->getTenantIdentifier()),
+            'switched_at'    => null,
+        ];
     }
 
     /**
-     * A session of the guard, signed in with a password now, that ends at the
-     * given times.
+     * An active session of the guard, signed in with a password now, acting in
+     * no tenant, never switched, that ends at the given times.
      *
      * @formatter:off
      *
@@ -73,7 +97,7 @@ trait InteractsWithSessionRecords
      * @param  \Carbon\CarbonInterface  $idle
      * @param  \Carbon\CarbonInterface  $absolute
      * @param  string  $guard
-     * @return array{guard: string, sign_in_method: string, signed_in_at: \Carbon\CarbonInterface, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
+     * @return array{guard: string, sign_in_method: string, status: string, tenant_id: null, switched_at: null, signed_in_at: \Carbon\CarbonInterface, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -84,6 +108,9 @@ trait InteractsWithSessionRecords
         return [
             'guard'               => $guard,
             'sign_in_method'      => 'password',
+            'status'              => 'active',
+            'tenant_id'           => null,
+            'switched_at'         => null,
             'signed_in_at'        => Carbon::now(),
             'idle_expires_at'     => $idle,
             'absolute_expires_at' => $absolute,
@@ -100,14 +127,13 @@ trait InteractsWithSessionRecords
      */
     protected static function createCodeTableOn(string $connection): void
     {
-        $manager   = app(DatabaseManager::class);
-        $default   = $manager->getDefaultConnection();
-        $migration = require __DIR__ . '/../../database/migrations/2026_04_06_000003_create_one_time_codes_table.php';
+        $manager = app(DatabaseManager::class);
+        $default = $manager->getDefaultConnection();
 
         $manager->setDefaultConnection($connection);
 
         try {
-            $migration->up();
+            ShippedMigrations::up('2026_04_06_000003_create_one_time_codes_table.php');
         } finally {
             $manager->setDefaultConnection($default);
         }
@@ -118,19 +144,23 @@ trait InteractsWithSessionRecords
      * owner and both deadlines are nullable, unlike the shipped table, so tests
      * can store a session without an owner or deadlines. The table is created
      * on the given connection, or the default one, keyed by a UUID or, when
-     * `$incrementing`, by an integer the database issues.
+     * `$incrementing`, by an integer the database issues, or, when
+     * `$stringKey`, by any string the model gives it.
      *
      * @param  string  $table
      * @param  string  $key
      * @param  ?string  $connection
      * @param  bool  $incrementing
+     * @param  bool  $stringKey
      * @return void
      */
-    protected static function createSessionRecordTable(string $table, string $key = 'id', ?string $connection = null, bool $incrementing = false): void
+    protected static function createSessionRecordTable(string $table, string $key = 'id', ?string $connection = null, bool $incrementing = false, bool $stringKey = false): void
     {
-        Schema::connection($connection)->create($table, static function (Blueprint $blueprint) use ($key, $incrementing): void {
+        Schema::connection($connection)->create($table, static function (Blueprint $blueprint) use ($key, $incrementing, $stringKey): void {
             if ($incrementing) {
                 $blueprint->increments($key);
+            } elseif ($stringKey) {
+                $blueprint->string($key)->primary();
             } else {
                 $blueprint->uuid($key)->primary();
             }
@@ -140,7 +170,15 @@ trait InteractsWithSessionRecords
             $blueprint->string('authenticatable_id')->nullable();
             $blueprint->string('principal_type')->nullable();
             $blueprint->string('principal_id')->nullable();
-            $blueprint->dateTime('principal_switched_at', 0)->nullable();
+            $blueprint->string('status', 16)->default('active');
+            $blueprint->string('requires', 64)->nullable();
+            $blueprint->string('pending_key', 64)->nullable();
+            $blueprint->string('supersedes_session_id')->nullable();
+            $blueprint->string('supersedes_refresh_key', 64)->nullable();
+            $blueprint->text('attempt_windows')->nullable();
+            $blueprint->string('tenant_id')->nullable();
+            $blueprint->string('tenant_policy_version', 64)->nullable();
+            $blueprint->dateTime('switched_at', 0)->nullable();
             $blueprint->string('guard')->nullable();
             $blueprint->string('sign_in_method')->nullable();
             $blueprint->string('sign_in_identifier_type')->nullable();

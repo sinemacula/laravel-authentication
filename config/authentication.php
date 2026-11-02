@@ -14,20 +14,20 @@ return [
     |---------------------------------------------------------------------------
     |
     | The connection every package table lives on (`null` for the default):
-    | sessions, their proofs and provenance, pending sign-ins, one-time codes,
-    | passkeys and their challenges, API keys, identifier changes, and the rate
-    | limit counters unless `rate_limits.connection` names their own. The models
-    | read and write them there, and the published migrations create them there.
-    | They share one connection because a session, the completion of a pending
-    | sign-in, a password reset and an identifier change each write several of
-    | them in one transaction, which two connections cannot commit as one: a
-    | custom session model must live on it too, or every session flow fails
-    | closed, and password resets and identifier changes need the identity there
-    | as well. A value that is neither a connection name nor `null` or empty
-    | fails closed when a model is built, and `authentication:check` reports it,
-    | as it does a name `database.connections` does not configure. Keep it fixed
-    | while the application runs: moving the tables is a deploy, with a
-    | migration the application performs and a worker restart.
+    | sessions (pending ones among them), their proofs and provenance, one-time
+    | codes, passkeys and their challenges, API keys, identifier changes, and
+    | the rate limit counters unless `rate_limits.connection` names their own.
+    | The models read and write them there, and the published migrations create
+    | them there. They share one connection because a session, the activation of
+    | a pending one, a password reset and an identifier change each write
+    | several of them in one transaction, which two connections cannot commit as
+    | one: a custom session model must live on it too, or every session flow
+    | fails closed, and password resets and identifier changes need the identity
+    | there as well. A value that is neither a connection name nor `null` or
+    | empty fails closed when a model is built, and `authentication:check`
+    | reports it, as it does a name `database.connections` does not configure.
+    | Keep it fixed while the application runs: moving the tables is a deploy,
+    | with a migration the application performs and a worker restart.
     |
     */
 
@@ -58,6 +58,17 @@ return [
     | The shipped model opts in with the `PrunesSessions` trait, as a custom
     | model does.
     |
+    | A session is pending while it waits on requirements (a further factor,
+    | a choice of principal): it holds a pending credential, handed out once in
+    | a response body, and no token. The credential, and the pending session
+    | with it, expires `pending_ttl_seconds` after it is issued (30 to 3600; an
+    | integer, or a digit string as `env()` returns one; anything else fails
+    | closed when a session becomes pending, and `authentication:check` reports
+    | it), never after the session's absolute deadline. An expired pending
+    | session has ended, so it is pruned like any other ended session. An active
+    | session that falls short of a further factor during a refresh or a switch
+    | returns to pending with a new credential of the same lifetime.
+    |
     | `table` may be up to 47 characters: the migration names its indexes
     | after it (`<table>_owner_index` and so on), and PostgreSQL cuts a longer
     | index name short.
@@ -67,6 +78,7 @@ return [
     'session' => [
         'model'                      => env('AUTHENTICATION_SESSION_MODEL', Session::class),
         'table'                      => env('AUTHENTICATION_SESSION_TABLE', 'authentication_sessions'),
+        'pending_ttl_seconds'        => env('AUTHENTICATION_SESSION_PENDING_TTL_SECONDS', 300),
         'last_used_throttle_seconds' => (int) env('AUTHENTICATION_SESSION_LAST_USED_THROTTLE_SECONDS', 60),
         'prune_after_days'           => env('AUTHENTICATION_SESSION_PRUNE_AFTER_DAYS', 30),
     ],
@@ -113,19 +125,10 @@ return [
     | letter, then letters, digits, or underscores) that does not contain
     | `password`; anything else fails closed when a password sign-in runs.
     |
-    | A sign-in the additional-factor policy asks a further factor of, or that
-    | waits for the identity to choose its principal, waits in `pending_table`
-    | (on the storage connection) for at most `pending_ttl_seconds` (30 to 3600;
-    | an integer, or a digit string as `env()` returns one); anything else fails
-    | closed when a pending sign-in is issued, and `authentication:check`
-    | reports it. Prune expired pending sign-ins with `model:prune`.
-    |
     */
 
     'sign_in' => [
         'password_identifier' => env('AUTHENTICATION_SIGN_IN_PASSWORD_IDENTIFIER', 'email'),
-        'pending_table'       => env('AUTHENTICATION_SIGN_IN_PENDING_TABLE', 'pending_sign_ins'),
-        'pending_ttl_seconds' => env('AUTHENTICATION_SIGN_IN_PENDING_TTL_SECONDS', 300),
     ],
 
     /*
@@ -271,7 +274,10 @@ return [
     | sign-ins that use no identifier, such as SSO, are not affected. A
     | malformed value, or an unknown key, fails closed with an
     | `InvalidArgumentException` naming the guard and the key when the guard's
-    | policy is first used.
+    | policy is first used. Which principals may use an application, and which
+    | tenants they may act in, are not settings here but the `ApplicationAccess`
+    | and `TenantAccess` contracts: by default any principal may use any
+    | application, in its own tenant only.
     |
     */
 

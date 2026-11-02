@@ -4,24 +4,34 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Guards\Concerns;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Container\Container;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Admission\SignInAdmission;
+use SineMacula\Laravel\Authentication\Admission\TenantAdmission;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Proofs\Channel;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
+use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\CredentialAttempt;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
+use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
+use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
+use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
 
 /**
  * The sign-in policy checks behind `attempt()`.
@@ -149,8 +159,10 @@ trait SignsInWithCredentials
 
     /**
      * Admit an identity whose password was accepted: activity, the principal
-     * (the pinned one, or the resolver's default), the application policy, and
-     * the pinned session.
+     * (the pinned one, or the resolver's default), the application policy and
+     * the access contracts, and the pinned session, whose active tenant is then
+     * the one admitted: the principal must still be let act in it
+     * (`tenant_ineligible`), and it must be active (`tenant_inactive`).
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\SignInAdmission  $admission
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -185,28 +197,51 @@ trait SignsInWithCredentials
 
         return $resolvedSession === null
             ? Refused::after(FailureReason::SESSION_MISMATCH, $admitted)
-            : $admitted->on($resolvedSession);
+            : self::inPinnedSession($admitted, $resolvedSession);
+    }
+
+    /**
+     * The admitted sign-in on the pinned session, in the tenant the session
+     * acts in, or why not.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \LogicException
+     */
+    private static function inPinnedSession(Admitted $admitted, Session $session): Admitted|Refused
+    {
+        $tenant = TenantAdmission::recorded($admitted->principal, WriteConnection::during($session, static fn (): ?string => $session->getTenantId()), true);
+
+        return $tenant instanceof FailureReason
+            ? Refused::after($tenant, $admitted->on($session))
+            : new Admitted($admitted->identity, $admitted->principal, $tenant, $session);
     }
 
     /**
      * Refuse the admitted sign-in when the additional-factor policy asks it for
      * a further factor, which `attempt()` cannot hand out. A pinned session
      * proves nothing about who holds the client, so the policy is never told of
-     * one.
+     * one. The authentication policy of the active tenant (the principal's own,
+     * or the one a pinned session records) is then judged against the password
+     * the sign-in proved: one that requires a connection refuses it as
+     * `sso_required`, and one that requires a further factor as
+     * `additional_factor_required`.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
      */
     private function refuseIfAFactorIsRequired(Admitted $admitted, ClientContext $client): Admitted|Refused
     {
         $required = self::signInCollaborator(AdditionalFactorPolicy::class)->requiresAdditionalFactor(new AdditionalFactorContext(
             $this->context->name(),
             $admitted->identity,
-            $admitted->principal,
-            $admitted->tenant,
             PasswordSignIn::NAME,
             $client,
             null,
@@ -214,7 +249,19 @@ trait SignsInWithCredentials
             null,
         ));
 
-        return $required ? Refused::after(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $admitted) : $admitted;
+        if ($required) {
+            return Refused::after(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $admitted);
+        }
+
+        $now      = CarbonImmutable::now()->startOfSecond();
+        $password = SignInProof::verified(PasswordSignIn::NAME, new FirstFactor($admitted->identity, new Channel(ChannelKind::PASSWORD), methods: [PasswordSignIn::AMR]), $now);
+        $policy   = TenantPolicyCheck::check($this->context->name(), $admitted->identity, $admitted->principal, $admitted->tenant, null, $now, SessionEvidence::of($password));
+
+        return match ($policy->standing) {
+            TenantPolicyStanding::SSO_REQUIRED    => Refused::after(FailureReason::SSO_REQUIRED, $admitted),
+            TenantPolicyStanding::FACTOR_REQUIRED => Refused::after(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $admitted),
+            TenantPolicyStanding::MET             => $admitted,
+        };
     }
 
     /**

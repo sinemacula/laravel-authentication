@@ -37,9 +37,9 @@ request may carry the token in only one place; and the cookie that carries a bro
   that does not list `cookie`, and `cookie()` an `InvalidArgumentException` for a session that has ended. Nothing is
   stored on the server.
 - The session service's `refresh(string)` is for a token the caller reads itself and makes none of the cookie's checks,
-  so only `refreshFromRequest()` reads the cookie for a refresh. A switch of principal is proven by the refresh token
-  too: `SessionService::switchPrincipalFromRequest()` reads it with `read()`, so a token from the cookie gets the same
-  checks (a refusal is an `AuthenticationFailed` of flow `principal_switch` that touches no session), and its
+  so only `refreshFromRequest()` reads the cookie for a refresh. A switch of principal or tenant is proven by the
+  refresh token too: `SessionService::switchFromRequest()` reads it with `read()`, so a token from the cookie gets the
+  same checks (a refusal is an `AuthenticationFailed` of flow `switch` that touches no session), and its
   `SwitchResult::$source` lets the application answer a switch read from the cookie with `cookie()` (see
   `principal-choice-and-switch.md`).
 - `isSameSiteRequest($request)` is the cookie's same-site check on its own (the `Origin` and the `csrf_header`), for a
@@ -85,7 +85,7 @@ request may carry the token in only one place; and the cookie that carries a bro
 ## Implementation Anchors
 
 - `src/Http/RefreshTokenTransport.php`: `read()`, `isSameSiteRequest()`, `cookie()`, `forgetCookie()`.
-- `src/Sessions/SessionService.php`: `switchPrincipalFromRequest()`, and `src/Sessions/SessionRefresh.php`:
+- `src/Sessions/SessionService.php`: `switchFromRequest()`, and `src/Sessions/SessionRefresh.php`:
   `refreshFromRequest()`, which build the guard's transport from the configuration
   (`RefreshTokenTransport::forGuard()`), as the guard's own factory does.
 - `src/Http/RefreshTokenSettings.php`: `forGuard()`.

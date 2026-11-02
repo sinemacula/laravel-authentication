@@ -21,6 +21,11 @@ if ($result->isFailed()) {
     abort(401);
 }
 
+if ($result->isPending()) {
+    // The session's tenant now asks for a further factor: no pair, only a pending credential.
+    return ['pending_credential' => $result->credential, 'requires' => ['mfa']];
+}
+
 return [
     'access_token'  => $result->session->tokens->accessToken,
     'refresh_token' => $result->session->tokens->refreshToken,
@@ -31,7 +36,9 @@ A refresh rotates the session's refresh token and binds the guard to the refresh
 The result's `session` is that session: its `identity`, `principal`, `record` (the session row to set a refresh cookie
 for), the `method` its sign-in used, and the new pair in `tokens`. Every refusal is returned, never thrown, with its
 `reason`; `rate_limited` also carries the seconds to wait in `retryAfter`, which the route answers with a 429 and
-`Retry-After` so the client waits.
+`Retry-After` so the client waits. A refresh that finds the session's tenant now asking for a further factor the
+session lacks returns it to pending instead: `isPending()`, with `pending` and `credential` and no `session`, until the
+factor is satisfied (see [Tenant authentication policies](sessions.md#tenant-authentication-policies)).
 
 The guard reads the token only from the sources its `refresh_token` settings list: `body` and `header` by default, the
 `refresh_token` field of the JSON or form body (never the query string) and the `X-Refresh-Token` header, or the
@@ -72,10 +79,14 @@ the absolute deadline: a session capped at its sign-in's own deadline stays capp
 (an application that sets no absolute limit) gets none from a refresh. The new refresh token, and the cookie that
 carries it, expire at the session's end, its idle deadline alone when it has no absolute one.
 
-A refresh token is accepted only for the principal its session records. After a switch (see [Switching
-principal](sessions.md#switching-principal)), the refresh token of the principal switched from fails with
-`session_principal_mismatch`, even inside the grace window, and the session is left alone; a token presented after the
-grace window is a replay, as any rotated token is. A refresh that loses its write to a switch is judged the same way.
+A refresh token is accepted only for the principal its session records. After a switch of principal (see [Switching
+principal or tenant](sessions.md#switching-principal-or-tenant)), the refresh token of the principal switched from fails
+with `session_principal_mismatch`, even inside the grace window, and the session is left alone; a token presented after
+the grace window is a replay, as any rotated token is. A refresh that loses its write to a switch is judged the same
+way: when the switch moved the session to another principal it fails as `session_principal_mismatch`, and when it moved
+it to another tenant as `session_tenant_mismatch`, so no pair is ever issued for a context the refresh did not judge. A
+refresh keeps the session in its active tenant, and is refused once the tenant is no longer one `TenantAccess` lets the
+principal act in (`tenant_ineligible`) or is inactive (`tenant_inactive`).
 
 Failed refreshes are counted against the token's session and the request's IP address by the bound `AttemptLimiter`;
 successful ones are not. Once either count is full, a refresh dispatches `Failed` and `AuthenticationFailed`
@@ -133,9 +144,9 @@ stateless. List the cookie as the guard's source and give it the path its routes
 ],
 ```
 
-Put the routes that read the cookie under that path (refresh, a switch of principal, see
-[Switching principal](sessions.md#switching-principal), and sign-in for a browser that proves its session), and set the
-cookie with the guard's transport whenever the API hands out a pair:
+Put the routes that read the cookie under that path (refresh, a switch, see
+[Switching principal or tenant](sessions.md#switching-principal-or-tenant), and sign-in for a browser that proves its
+session), and set the cookie with the guard's transport whenever the API hands out a pair:
 
 ```php
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
@@ -263,7 +274,10 @@ replay. With `refresh_grace_seconds` set to 0 the previous id is a replay too. A
 credential cannot tell a replay from anything else, so its tokens fail with `refresh_key_missing` and the session is
 left alone. When a parallel refresh changes the session between this refresh's read and its write, the row is judged
 again as it now is: usually that makes this refresh a grace retry; a deadline that moved in between fails it with
-`rotation_conflict`, without revoking anything, and the client can simply retry.
+`rotation_conflict`, without revoking anything, and the client can simply retry. So does a refresh that found the
+session short of its tenant's policy and lost its revocation or return to pending to another request: the policy it
+asked refused a pair, so it gets none, and a revocation never applies to a session another request moved on (a switch
+to a tenant it meets, say), whose next refresh is judged afresh.
 
 A refresh token for a rotation id the session never held is a replay too. A client that signs in again with its current
 refresh token (see [Signing in](signing-in.md#signing-in-the-session-service)) gets a new session, and its previous

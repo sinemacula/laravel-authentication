@@ -6,9 +6,8 @@ namespace SineMacula\Laravel\Authentication\ApiKeys;
 
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
-use SineMacula\Laravel\Authentication\Admission\ApplicationAdmission;
+use SineMacula\Laravel\Authentication\Admission\PrincipalAdmission;
 use SineMacula\Laravel\Authentication\Admission\Refused;
-use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
@@ -28,9 +27,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * must resolve exactly to the one the key records (`principal_mismatch`) and be
  * active (`principal_inactive`) in an active tenant (`tenant_inactive`); the
  * key's binding to its owner, principal and tenant must hold
- * (`CredentialBinding`); and the application policy must admit the principal
- * (refused with the reason it gives, `principal_ineligible` for a principal it
- * keeps out).
+ * (`CredentialBinding`); and `ApplicationAccess` must let the principal use the
+ * application (`principal_ineligible`).
  *
  * Built for one use with the guard's current collaborators, so it keeps nothing
  * between requests.
@@ -48,7 +46,6 @@ final readonly class ApiKeyAdmission
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
      * @param  \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver  $resolver
-     * @param  \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy  $policy
      */
     public function __construct(
 
@@ -60,9 +57,6 @@ final readonly class ApiKeyAdmission
 
         /** The guard's principal resolver. */
         private PrincipalResolver $resolver,
-
-        /** The application policy the principal must be admitted by. */
-        private ApplicationPolicy $policy,
     ) {}
 
     /**
@@ -122,7 +116,7 @@ final readonly class ApiKeyAdmission
     /**
      * Admit the owner as the active principal within its tenant (`false` for
      * one that is inactive or cannot be loaded), once the key's binding holds
-     * and the application admits the principal.
+     * and `ApplicationAccess` lets the principal use the application.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\ApiKey  $key
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -130,8 +124,7 @@ final readonly class ApiKeyAdmission
      * @param  false|\SineMacula\Laravel\Authentication\Contracts\Tenant|null  $tenant
      * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
      *
-     * @throws \InvalidArgumentException
-     * @throws \LogicException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function admitWithin(ApiKey $key, Identity $identity, Principal $principal, false|Tenant|null $tenant): Admitted|Refused
     {
@@ -139,7 +132,8 @@ final readonly class ApiKeyAdmission
             return new Refused(FailureReason::TENANT_INACTIVE, $identity, $principal);
         }
 
-        $refusal = CredentialBinding::refusal($key, $identity, $principal, $tenant) ?? ApplicationAdmission::admit($this->policy, $this->guard, $identity, $principal, null);
+        $refusal = CredentialBinding::refusal($key, $identity, $principal, $tenant)
+            ?? (PrincipalAdmission::mayUse($this->guard, $principal) ? null : FailureReason::PRINCIPAL_INELIGIBLE);
 
         return $refusal === null
             ? new Admitted($identity, $principal, $tenant)

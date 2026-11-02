@@ -751,8 +751,10 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
         return new StubSession([
             'id'                  => $identifier,
             'guard'               => self::GUARD_NAME,
+            'status'              => 'active',
             'principal_type'      => $principal === null ? null : PrincipalReference::type($principal),
             'principal_id'        => $principal === null ? null : PrincipalReference::id($principal),
+            'tenant_id'           => null,
             'revoked_at'          => $revokedAt,
             'idle_expires_at'     => CarbonImmutable::now()->addDays(90),
             'absolute_expires_at' => CarbonImmutable::now()->addDays(180),

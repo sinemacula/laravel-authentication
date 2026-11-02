@@ -44,8 +44,14 @@ The current note set is:
 - `session-lifecycle.md`: which sessions are active, how an identity's sessions are listed, how a session signs out and
   sessions are revoked (one, every session of an identity or a principal, and on security changes, by method or optional
   listener), and when ended sessions are pruned.
+- `pending-sessions.md`: how a session waits for the further factor or the choice of principal its sign-in still owes,
+  the credential that acts on it and the actions it allows, how it activates, and how an active session returns to
+  pending.
 - `principal-choice-and-switch.md`: how a sign-in that names no principal waits for the identity to choose one, and how
-  a session switches to another principal in place, proven by its refresh token.
+  a session switches to another principal or active tenant in place, proven by its refresh token.
+- `active-tenant-and-switching.md`: which tenant a session acts in, the access contracts that decide it and their
+  defaults, the bearer checks against it, the switch, and the tenant authentication policy with the helper that
+  applies a change of it.
 - `application-policy.md`: what each application (a guard) decides about its sessions (methods and machine credentials,
   none until it lists them; verified identifiers; the principals it admits; lifetimes), where every path enforces it,
   and how the attempt limits and identifier normalisers meet it.

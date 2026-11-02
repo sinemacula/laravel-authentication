@@ -9,8 +9,8 @@ use Carbon\CarbonInterface;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 
 /**
- * A proof an adapter verified and hands to the session service, to complete a
- * pending sign-in or to step a session up: what kind it is, the method and
+ * A proof an adapter verified and hands to the session service, to satisfy a
+ * pending session or to step a session up: what kind it is, the method and
  * channel, the factor used, what was observed, the adapter's evaluation, the
  * `amr` values it stands for, when it was made, and what it was made for.
  *

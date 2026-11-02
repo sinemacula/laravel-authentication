@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions\Concerns;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Pagination\LengthAwarePaginator;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -12,16 +13,19 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Sessions\ActiveSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
+use SineMacula\Laravel\Authentication\Sessions\TenantPolicyChanges;
 
 /**
  * The session service's session list, and its sign-out, revocation and
  * security-change methods, which `SessionRevocations` carries out: signing out
  * and signing out everywhere for the binding the service is given, the rest for
- * whatever identity, principal or tenant they are given.
+ * whatever identity, principal or tenant they are given; and the application of
+ * a tenant's changed authentication policy, which `TenantPolicyChanges` carries
+ * out.
  *
- * They are delegations with no state of their own but the revocations; they sit
- * in a trait only so the service stays within the number of methods one class
- * may declare.
+ * They are delegations with no state of their own but those two; they sit in a
+ * trait only so the service stays within the number of methods one class may
+ * declare.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -32,6 +36,9 @@ trait EndsSessions
 {
     /** @var \SineMacula\Laravel\Authentication\Sessions\SessionRevocations Signs sessions out and ends them, on the guard's context. */
     private readonly SessionRevocations $revocations;
+
+    /** @var \SineMacula\Laravel\Authentication\Sessions\TenantPolicyChanges Applies a tenant's changed authentication policy to its sessions. */
+    private readonly TenantPolicyChanges $policyChanges;
 
     /**
      * One page of the identity's active sessions, of every guard, for a session
@@ -129,11 +136,11 @@ trait EndsSessions
 
     /**
      * Revoke every session of the identity, of every guard, except the given
-     * one, end its pending sign-ins, and cancel its pending identifier changes
-     * (a change link needs no session); when the identity records a "tokens
-     * valid after" cutoff, move it to now first, so its access tokens issued
-     * without a session stop as well. Returns how many sessions this call
-     * revoked.
+     * one (its pending sessions among them), and cancel its pending identifier
+     * changes (a change link needs no session); when the identity records a
+     * "tokens valid after" cutoff, move it to now first, so its access tokens
+     * issued without a session stop as well. Returns how many sessions this
+     * call revoked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -152,9 +159,9 @@ trait EndsSessions
 
     /**
      * Revoke every session that acts as the principal, except the given one,
-     * and end the pending sign-ins that would act as it; when the principal
-     * records a "tokens valid after" cutoff, move it to now first. Returns how
-     * many sessions this call revoked.
+     * pending sessions that record it among them; when the principal records a
+     * "tokens valid after" cutoff, move it to now first. Returns how many
+     * sessions this call revoked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -259,17 +266,18 @@ trait EndsSessions
 
     /**
      * The tenant was deactivated: end every session acting as one of the
-     * principals the application lists for it (`tenant_deactivated`), since
-     * sessions record principals, not tenants. Every principal must act within
-     * the tenant (the same class and identifier, read on the write connection),
-     * or nothing is written and an `InvalidArgumentException` is thrown; a
-     * principal listed twice counts once. A tenant that opts into activation
+     * principals the application lists for it, and every session whose active
+     * tenant it is, whatever principal it acts as (`tenant_deactivated`). Every
+     * principal must belong to the tenant (the same class and identifier, read
+     * on the write connection), or nothing is written and an
+     * `InvalidArgumentException` is thrown; a principal listed twice counts
+     * once, and so does a session both find. A tenant that opts into activation
      * (`CanBeActive`) and is already deleted or soft-deleted works too: a
      * principal whose `getTenant()` throws the `TenantUnavailableException`
      * naming it (its class, key name and key, as `ActsAsPrincipal` does) acts
      * within it. A tenant that does not opt in reads as no tenant once it
-     * cannot be loaded, so call this before deleting it. All sessions and
-     * pending sign-ins are ended in one transaction, after each principal's
+     * cannot be loaded, so call this before deleting it. All sessions, pending
+     * ones among them, are ended in one transaction, after each principal's
      * cutoff moved, with one `SignedOutEverywhere` per principal.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
@@ -283,5 +291,31 @@ trait EndsSessions
     public function tenantDeactivated(Tenant $tenant, iterable $principals): int
     {
         return $this->revocations->tenantDeactivated($tenant, $principals);
+    }
+
+    /**
+     * Apply a change of the tenant's authentication policy to the live sessions
+     * acting in it, on every guard, at once: an active session that no longer
+     * meets the policy is revoked (`tenant_policy_changed`) and one that meets
+     * it records the version answered; a pending one is revoked only when it
+     * would need another connection; a session recorded at the very version
+     * answered (neither `null`) is skipped, and one that has already ended is
+     * left for pruning. Returns how many sessions were revoked.
+     *
+     * Call it in the transaction that publishes the change, on the storage
+     * connection, so both commit or roll back together (it runs as a savepoint
+     * there and never commits on its own), and for a strict cut-off once more
+     * after that commits: a session that entered the tenant while the first
+     * call ran is then judged too, and every session the first call recorded is
+     * skipped. `SessionRevoked` reports each revocation once committed.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @return int
+     *
+     * @throws \Throwable
+     */
+    public function tenantPolicyChanged(Tenant $tenant): int
+    {
+        return $this->policyChanges->apply($tenant, CarbonImmutable::now()->startOfSecond());
     }
 }

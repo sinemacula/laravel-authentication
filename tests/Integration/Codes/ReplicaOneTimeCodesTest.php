@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Codes\SendOneTimeCode;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 use Tests\Concerns\InteractsWithCodeIdentities;
 use Tests\Concerns\InteractsWithLaggingReplica;
+use Tests\Fixtures\Database\ShippedMigrations;
 use Tests\Integration\Fixtures\CodeIdentity;
 use Tests\Integration\Fixtures\QueryingCodeIdentity;
 use Tests\TestCase;
@@ -237,12 +238,11 @@ final class ReplicaOneTimeCodesTest extends TestCase
         $this->migratePackageTablesOnPrimaryAndReplica();
 
         /** @var \Illuminate\Database\DatabaseManager $manager */
-        $manager   = app(DatabaseManager::class);
-        $migration = require __DIR__ . '/../../../database/migrations/2026_04_06_000003_create_one_time_codes_table.php';
+        $manager = app(DatabaseManager::class);
 
         foreach ([self::PRIMARY_CONNECTION, self::REPLICA_CONNECTION] as $connection) {
             $manager->setDefaultConnection($connection);
-            $migration->up();
+            ShippedMigrations::up('2026_04_06_000003_create_one_time_codes_table.php');
         }
 
         $manager->setDefaultConnection(self::SPLIT_CONNECTION);

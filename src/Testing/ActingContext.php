@@ -13,6 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -43,7 +44,7 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  */
 final class ActingContext
 {
-    /** @var array<string, array{identity: \SineMacula\Laravel\Authentication\Contracts\Identity, principal: \SineMacula\Laravel\Authentication\Contracts\Principal, session: ?\SineMacula\Laravel\Authentication\Contracts\Session, scopes: ?list<string>}> The context acted as, by guard name. */
+    /** @var array<string, array{identity: \SineMacula\Laravel\Authentication\Contracts\Identity, principal: \SineMacula\Laravel\Authentication\Contracts\Principal, session: ?\SineMacula\Laravel\Authentication\Contracts\Session, scopes: ?list<string>, tenant: ?\SineMacula\Laravel\Authentication\Contracts\Tenant}> The context acted as, by guard name. */
     private array $acting = [];
 
     /** @var array<string, \SineMacula\Laravel\Authentication\Guards\AbstractGuard> The guard instance, by name, whose request rebinding binds the context again. */
@@ -209,18 +210,19 @@ final class ActingContext
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?list<string>  $scopes
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @return void
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public function act(AbstractGuard $guard, Identity $identity, Principal $principal, ?Session $session, ?array $scopes = null): void
+    public function act(AbstractGuard $guard, Identity $identity, Principal $principal, ?Session $session, ?array $scopes = null, ?Tenant $tenant = null): void
     {
         $name = $guard->getName();
 
-        $guard->authenticateAs($identity, $principal, $session, $scopes);
+        $guard->authenticateAs($identity, $principal, $session, $scopes, $tenant);
 
-        $this->acting[$name] = ['identity' => $identity, 'principal' => $principal, 'session' => $session, 'scopes' => $scopes];
+        $this->acting[$name] = ['identity' => $identity, 'principal' => $principal, 'session' => $session, 'scopes' => $scopes, 'tenant' => $tenant];
 
         if (($this->wired[$name] ?? null) === $guard) {
             return;
@@ -231,6 +233,29 @@ final class ActingContext
         $this->container->rebinding('request', function () use ($guard): void {
             $this->bind($guard);
         });
+    }
+
+    /**
+     * Act in the tenant, as the active tenant, with the context the guard is
+     * acted as: bound now and on every request after, as `act()` binds it.
+     * Fails with an `InvalidArgumentException` when the test does not act on
+     * the guard.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Guards\AbstractGuard  $guard
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @return void
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function actIn(AbstractGuard $guard, Tenant $tenant): void
+    {
+        $acting = $this->acting[$guard->getName()] ?? null;
+
+        if ($acting === null || ($this->wired[$guard->getName()] ?? null) !== $guard) {
+            throw new \InvalidArgumentException(sprintf('The test does not act on guard [%s]: act as an identity, a principal or a session first.', $guard->getName()));
+        }
+
+        $this->act($guard, $acting['identity'], $acting['principal'], $acting['session'], $acting['scopes'], $tenant);
     }
 
     /**
@@ -261,7 +286,7 @@ final class ActingContext
             return;
         }
 
-        $guard->authenticateAs($acting['identity'], $acting['principal'], $acting['session'], $acting['scopes']);
+        $guard->authenticateAs($acting['identity'], $acting['principal'], $acting['session'], $acting['scopes'], $acting['tenant']);
     }
 
     /**

@@ -32,14 +32,14 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * revocation either commits first (and the proof is refused) or after (and the
  * new token dies at the next request, as every access token of a revoked
  * session does): the session must exist (`session_unknown`); be this guard's,
- * not revoked and not ended (`OwnedSession::refusal()`); belong to a person
- * (`machine_identity`); take the proof (the operation's own check, given the
- * session's start); and be admitted again as a refresh admits it (the owner,
- * the principal the session records and its tenant active, the method still
- * allowed, the principal still eligible). Then the proof is recorded and one
- * access token issued, its `auth_time` and `amr` derived from the proofs, the
- * new one included, and answered with when it expires (the access lifetime from
- * its issue, never past the session's end). Nothing else is written: the
+ * not revoked, not pending and not ended (`OwnedSession::refusal()`); belong to
+ * a person (`machine_identity`); take the proof (the operation's own check,
+ * given the session's start); and be admitted again as a refresh admits it (the
+ * owner, the principal the session records and its tenant active, the method
+ * still allowed, the principal still eligible). Then the proof is recorded and
+ * one access token issued, its `auth_time` and `amr` derived from the proofs,
+ * the new one included, and answered with when it expires (the access lifetime
+ * from its issue, never past the session's end). Nothing else is written: the
  * refresh token, the deadlines and the session row stay as they were, so a
  * concurrent refresh's compare-and-swap is unaffected.
  *

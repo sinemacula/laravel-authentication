@@ -15,8 +15,8 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
  *   enough for the operation (`identifier_change`, see `FreshnessPolicy`): its
  *   first factor, a reauthentication, a further factor or a recovery code, as
  *   the guard's freshness takes them, made within its age. A refresh or a
- *   principal switch records no proof, so neither renews it; a reauthentication
- *   or a step-up does.
+ *   switch records no proof, so neither renews it; a reauthentication or a
+ *   step-up does.
  * - `password($password)`: the identity's current password, a reauthentication
  *   with the first factor made now, checked when the change is requested and
  *   counted against its sign-in limits; taken only when the guard's freshness

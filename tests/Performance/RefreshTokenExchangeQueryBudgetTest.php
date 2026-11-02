@@ -12,8 +12,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
+use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
@@ -27,10 +29,14 @@ use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\RefreshResult;
+use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
-use Tests\Fixtures\Sessions\RefusingApplicationPolicy;
+use Tests\Fixtures\Sessions\RefusingApplicationAccess;
+use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\TenantAware3dIdentity;
 use Tests\Integration\Fixtures\TenantAware3dPrincipal;
 use Tests\Integration\Fixtures\TenantAware3dTenant;
@@ -583,7 +589,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $session  = $this->seedSession($identity, ['refresh_key' => RefreshTokenHasher::hash('ineligible-rotation-id')]);
         $token    = $this->tokens()->issueRefreshToken($session, 'ineligible-rotation-id', $identity);
 
-        app()->instance(ApplicationPolicy::class, new RefusingApplicationPolicy(app(ApplicationPolicy::class), static fn (): bool => true));
+        app()->instance(ApplicationAccess::class, new RefusingApplicationAccess(static fn (): bool => true));
 
         $guard  = $this->freshJwtGuard(self::GUARD);
         $events = $this->recordRefreshEvents();
@@ -704,6 +710,62 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         self::assertNotNull($result);
         self::assertSame($secondaryPrincipal->getPrincipalIdentifier(), $guard->principal()?->getPrincipalIdentifier());
         self::assertSame($secondaryPrincipal->getTenant()?->getTenantIdentifier(), $guard->tenant()?->getTenantIdentifier());
+    }
+
+    /**
+     * Rows of `[requirement, reason, writes]`: a tenant policy the session no
+     * longer meets, why the refresh is refused (`null` for a return to
+     * pending), and what it writes.
+     *
+     * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement, 1: ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason, 2: int}>
+     */
+    public static function provideTenantPoliciesTheSessionFallsShortOf(): iterable
+    {
+        yield 'a further factor' => [new TenantRequirement('v2', new Requirement(new RequirementPart)), null, 1];
+        yield 'a connection' => [new TenantRequirement('v2', connections: ['conn-a']), FailureReason::SSO_REQUIRED, 5];
+    }
+
+    /**
+     * A 3D refresh that falls short of its tenant's policy reads what a
+     * rotation reads up to the principal and tenant, then the one proof or
+     * provenance row the policy is judged on instead of the proofs a new access
+     * token needs, and writes one update: the return to pending, which counts
+     * no failure, or the revocation, then the refusal's count.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement  $requirement
+     * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @param  int  $writes
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    #[DataProvider('provideTenantPoliciesTheSessionFallsShortOf')]
+    public function testThreeDimensionalRefreshShortOfItsTenantsPolicyWritesOneUpdate(TenantRequirement $requirement, ?FailureReason $reason, int $writes): void
+    {
+        [$identity, $principal] = $this->seedTenantAwareThreeDimensionalFixtures();
+        $rotationId             = 'refresh-tenant-aware-short';
+
+        $session = new Session;
+        $session->forceFill([
+            ...self::liveSession(self::TENANT_AWARE_GUARD, $principal),
+            'authenticatable_type' => TenantAware3dIdentity::class,
+            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'refresh_key'          => RefreshTokenHasher::hash($rotationId),
+            'last_used_at'         => $this->now,
+        ])->save();
+
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy($requirement));
+
+        $jwt = PackageAuth::jwt(self::TENANT_AWARE_GUARD);
+        self::assertNotNull($jwt);
+
+        $token  = $jwt->issueRefreshToken($session, $rotationId, $principal);
+        $guard  = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
+        $result = $this->assertQueryBudget(5, $writes, static fn (): RefreshResult => GuardSessions::of($guard)->refresh($token));
+
+        self::assertNull($result->session);
+        self::assertSame($reason, $result->reason);
+        self::assertSame($reason === null, $result->isPending());
     }
 
     /**

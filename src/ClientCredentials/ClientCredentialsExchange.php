@@ -42,7 +42,7 @@ use SineMacula\Laravel\Authentication\Scopes\Scopes;
  * default, as a client id is no secret (`slow_down`, 429 with `Retry-After`);
  * the key must be this guard's, live, its secret right, and its owner and
  * principal admitted as on an `api_key` guard (`invalid_client`, or
- * `unauthorized_client` for a principal the application policy refuses as
+ * `unauthorized_client` for a principal `ApplicationAccess` refuses, which is
  * `principal_ineligible`); the requested scope, space-separated, must be
  * granted to the key (none asks for every granted scope; else `invalid_scope`).
  * The token then carries the key's id in `cid` and the scopes in `scope`, lives
@@ -267,9 +267,9 @@ final readonly class ClientCredentialsExchange
 
     /**
      * Refuse a client that failed to authenticate: `unauthorized_client` for a
-     * principal the application policy refuses as `principal_ineligible`,
-     * `invalid_client` otherwise (any other reason the policy gives included),
-     * with the context established by then.
+     * principal `ApplicationAccess` refuses (`principal_ineligible`),
+     * `invalid_client` for any other reason, with the context established by
+     * then.
      *
      * @param  \SineMacula\Laravel\Authentication\ApiKeys\ApiKeyOutcome  $outcome
      * @param  \SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient  $presented

@@ -28,9 +28,11 @@ use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
+use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use Symfony\Component\HttpFoundation\Cookie;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
+use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
@@ -331,10 +333,12 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
-     * Sign the member in as its default membership and answer with the access
-     * token in the body and the refresh token in the cookie, for a request from
-     * the API's own site only: a cross-site form must not sign the browser in.
-     * A browser that holds the cookie proves its session with it.
+     * Sign the member in as its default membership, named at sign-in (a member
+     * with more than one membership would otherwise be held pending for the
+     * choice), and answer with the access token in the body and the refresh
+     * token in the cookie, for a request from the API's own site only: a
+     * cross-site form must not sign the browser in. A browser that holds the
+     * cookie proves its session with it.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
@@ -349,8 +353,10 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
             return new JsonResponse(['reason' => 'cross_site_request'], 403);
         }
 
+        $member    = ActivatableTenantMember::query()->where('email', 'member@example.test')->firstOrFail();
         $presented = $transport->read($request);
-        $context   = SignInContext::fromRequest($request, refreshToken: $presented instanceof PresentedRefreshToken ? $presented->token : null);
+        $proven    = $presented instanceof PresentedRefreshToken ? $presented->token : null;
+        $context   = SignInContext::fromRequest($request, principal: $member->resolveDefaultPrincipal(), refreshToken: $proven);
         $session   = Auth::sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'), $context)->session;
 
         assert($session !== null);
@@ -400,7 +406,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     private static function switchRoute(Request $request): JsonResponse
     {
         $target = ActivatableTenantMembership::query()->findOrFail($request->integer('membership'));
-        $result = Auth::sessions(self::GUARD)->switchPrincipalFromRequest($target);
+        $result = Auth::sessions(self::GUARD)->switchFromRequest(SwitchTarget::principal($target));
 
         if ($result?->reason === FailureReason::RATE_LIMITED) {
             throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $result->retryAfter]);

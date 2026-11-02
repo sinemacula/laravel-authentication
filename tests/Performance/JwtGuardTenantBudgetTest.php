@@ -15,15 +15,20 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
+use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
+use SineMacula\Laravel\Authentication\Guards\BearerAuthentication;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\RefreshResult;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
+use Tests\Fixtures\Tenancy\DescendantTenants;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -47,6 +52,7 @@ use Tests\Integration\Fixtures\UncheckedTenantUser;
  * @internal
  */
 #[CoversClass(ActivationPolicy::class)]
+#[CoversClass(BearerAuthentication::class)]
 #[CoversClass(JwtGuard::class)]
 #[CoversClass(RefreshTokenExchange::class)]
 final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
@@ -119,6 +125,82 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
         Schema::dropIfExists('activatable_tenants');
 
         parent::tearDown();
+    }
+
+    /**
+     * A bearer request on a member's session in the member's own tenant reads
+     * one row more than a token without a session, its session, and nothing for
+     * the tenant the session acts in, which is the one the activity check
+     * already loaded. On a session acting in a tenant below the member's own it
+     * reads one row more, the resolver's, and asks no access contract.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testBearerOnAMembersSessionReadsTheActiveTenantOnlyWhenItIsAnother(): void
+    {
+        [$member, $membership, $own] = $this->seedMembership('members');
+
+        $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
+        $tree       = (new DescendantTenants)->place($descendant->getKey(), $own->getKey());
+
+        app()->instance(TenantAccess::class, $tree);
+        app()->instance(TenantResolver::class, $tree);
+
+        $inOwn  = $this->seedSession($member, 'members', $membership);
+        $below  = $this->seedSession($member, 'members', $membership)->forceFill(['tenant_id' => IdentifierCoercion::stringify($descendant->getKey())]);
+        $tokens = $this->tokensFor('members');
+
+        $below->save();
+
+        $this->bindRequestWithBearer('/perf/tenant', $tokens->issueAccessToken($member, $membership, $own, $inOwn));
+
+        $owned = $this->freshJwtGuard('members');
+
+        self::assertTrue($this->assertQueryBudget(4, 0, static fn (): bool => $owned->check()));
+
+        $this->bindRequestWithBearer('/perf/tenant', $tokens->issueAccessToken($member, $membership, $descendant, $below));
+
+        $placed = $this->freshJwtGuard('members');
+
+        self::assertTrue($this->assertQueryBudget(5, 0, static fn (): bool => $placed->check()));
+        self::assertSame($descendant->getKey(), $this->assertQueryBudget(0, 0, static fn (): mixed => $placed->tenant()?->getTenantIdentifier()));
+        self::assertSame(0, $tree->asked);
+    }
+
+    /**
+     * A bearer request on a session whose active tenant, below the member's
+     * own, was deactivated is rejected once that tenant is read: the reads of a
+     * request on a session acting there, and no write.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testBearerOnASessionWhoseActiveTenantIsInactiveIsRejectedInFiveReads(): void
+    {
+        [$member, $membership, $own] = $this->seedMembership('members');
+
+        $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
+        $tree       = (new DescendantTenants)->place($descendant->getKey(), $own->getKey());
+
+        app()->instance(TenantAccess::class, $tree);
+        app()->instance(TenantResolver::class, $tree);
+
+        $below = $this->seedSession($member, 'members', $membership)->forceFill(['tenant_id' => IdentifierCoercion::stringify($descendant->getKey())]);
+
+        $below->save();
+
+        $this->bindRequestWithBearer('/perf/tenant', $this->tokensFor('members')->issueAccessToken($member, $membership, $descendant, $below));
+
+        $descendant->forceFill(['is_active' => false])->save();
+
+        $guard = $this->freshJwtGuard('members');
+
+        self::assertFalse($this->assertQueryBudget(5, 0, static fn (): bool => $guard->check()));
     }
 
     /**

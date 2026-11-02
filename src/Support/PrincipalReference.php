@@ -9,9 +9,9 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * How a principal is recorded on the rows that remember it (a session, a
- * pending sign-in): a polymorphic type, which is an Eloquent principal's morph
- * class and any other principal's class name, and its identifier as a string.
+ * How a principal is recorded on the rows that remember it (a session, active
+ * or pending): a polymorphic type, which is an Eloquent principal's morph class
+ * and any other principal's class name, and its identifier as a string.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

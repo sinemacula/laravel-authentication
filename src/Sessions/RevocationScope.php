@@ -4,7 +4,6 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions;
 
-use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -18,21 +17,21 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * The sessions a bulk revocation ends: an identity's, or a principal's, with
- * the pending sign-ins that could still start one, the "tokens valid after"
- * cutoff that ends its access tokens issued without a session, and, for an
- * identity whose identifiers can be changed, its pending identifier changes,
- * which end with them.
+ * The sessions a bulk revocation ends: an identity's, a principal's, or those
+ * acting in a tenant, pending sessions among them (a pending session is a
+ * session row like any other, so its credential ends with it), the "tokens
+ * valid after" cutoff that ends its access tokens issued without a session,
+ * and, for an identity whose identifiers can be changed, its pending identifier
+ * changes, which end with them.
  *
  * An identity's sessions are those its `sessions()` relation returns, of every
  * guard; a principal's are the configured session model's sessions that record
  * it as their principal. Only an identity that implements `HasSessions` can
- * hold a session or a pending sign-in (the session service refuses to start a
- * session for any other), so a scope whose identity does not (access-only mode,
- * where the package's tables may not exist) touches neither and only moves its
- * cutoff, and an unsaved principal has neither to find. A principal's scope
- * ends no identifier change: the identity that requested one keeps its other
- * sessions.
+ * hold a session (the session service refuses to start a session for any
+ * other), so a scope whose identity does not (access-only mode, where the
+ * package's tables may not exist) touches none and only moves its cutoff, and
+ * an unsaved principal has none to find. A principal's scope ends no identifier
+ * change: the identity that requested one keeps its other sessions.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -49,7 +48,6 @@ final readonly class RevocationScope
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  ?array{0: \Illuminate\Contracts\Database\Eloquent\Builder, 1: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession}  $sessions
-     * @param  ?array<string, string>  $pendings
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter  $cutoff
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -64,9 +62,6 @@ final readonly class RevocationScope
 
         /** A query of the scope's sessions, in any state, with their model, or `null` when it has none to find. */
         public ?array $sessions,
-
-        /** The columns and values that pick the scope's pending sign-ins, or `null` when it has none. */
-        public ?array $pendings,
 
         /** The scope's "tokens valid after" holder, when it records one. */
         public ?HasTokensValidAfter $cutoff,
@@ -100,10 +95,9 @@ final readonly class RevocationScope
     public static function identity(Identity $identity, array $changeTypes = []): self
     {
         $sessions = $identity instanceof HasSessions ? IdentitySessions::query($identity) : null;
-        $pendings = $identity instanceof HasSessions && $identity instanceof Model ? self::owner($identity) : null;
         $changes  = array_map(static fn (string $type): string => PendingChanges::key($identity, $type), $changeTypes);
 
-        return new self($sessions, $pendings, $identity instanceof HasTokensValidAfter ? $identity : null, $identity, null, changes: $changes);
+        return new self($sessions, $identity instanceof HasTokensValidAfter ? $identity : null, $identity, null, changes: $changes);
     }
 
     /**
@@ -111,9 +105,8 @@ final readonly class RevocationScope
      * read on the write connection, with the tenant whose deactivation ends
      * them when that is why, and the principal's owning identity, read afresh
      * on the write connection (a 2D principal is its own). When that identity
-     * does not implement `HasSessions`, the principal can have no session or
-     * pending sign-in, so none is looked for; when the owner cannot be read,
-     * they are.
+     * does not implement `HasSessions`, the principal can have no session, so
+     * none is looked for; when the owner cannot be read, they are.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
@@ -125,26 +118,51 @@ final readonly class RevocationScope
     {
         $owner    = self::ownerOf($principal);
         $id       = PrincipalReference::id($principal);
-        $recorded = $id === null || ($owner !== null && !$owner instanceof HasSessions) ? null : ['principal_type' => PrincipalReference::type($principal), 'principal_id' => $id];
         $sessions = null;
 
-        if ($recorded !== null) {
+        if ($id !== null && ($owner === null || $owner instanceof HasSessions)) {
 
             $model = SessionLookup::model();
 
             [$type, $key] = PrincipalReference::columns($model);
 
-            $sessions = [WriteConnection::query($model->newQuery())->where([$type => $recorded['principal_type'], $key => $recorded['principal_id']]), $model];
+            $sessions = [WriteConnection::query($model->newQuery())->where([$type => PrincipalReference::type($principal), $key => $id]), $model];
         }
 
         return new self(
             $sessions,
-            $recorded,
             $principal instanceof HasTokensValidAfter ? $principal : null,
             $owner,
             $principal,
             $tenant,
         );
+    }
+
+    /**
+     * Every session acting in the tenant (whose active tenant it is), of the
+     * configured session model, of every guard, read on the write connection
+     * through the session table's tenant index, whatever principal it acts as:
+     * a principal of another tenant may act in this one, and pending sessions
+     * recording the tenant end with the rest. It has no cutoff and no identity
+     * or principal of its own: a token without a session acts only in its
+     * principal's own tenant, which the principals' scopes end.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @return self
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     */
+    public static function activeTenant(Tenant $tenant): self
+    {
+        $id = IdentifierCoercion::stringify($tenant->getTenantIdentifier());
+
+        if ($id === null) {
+            return new self(null, null, null, null, $tenant);
+        }
+
+        $model = SessionLookup::model();
+
+        return new self([WriteConnection::query($model->newQuery())->where($model->qualifyColumn($model->getTenantIdName()), $id), $model], null, null, null, $tenant);
     }
 
     /**
@@ -156,7 +174,7 @@ final readonly class RevocationScope
      */
     public function keepingCutoff(): self
     {
-        return new self($this->sessions, $this->pendings, null, $this->identity, $this->principal, $this->tenant, $this->changes);
+        return new self($this->sessions, null, $this->identity, $this->principal, $this->tenant, $this->changes);
     }
 
     /**
@@ -179,19 +197,5 @@ final readonly class RevocationScope
         } catch (\LogicException) {
             return null;
         }
-    }
-
-    /**
-     * The pending sign-in columns that pick the identity's, as the pending
-     * sign-ins record their owner.
-     *
-     * @param  \Illuminate\Database\Eloquent\Model  $identity
-     * @return ?array<string, string>
-     */
-    private static function owner(Model $identity): ?array
-    {
-        $key = IdentifierCoercion::stringify($identity->getKey());
-
-        return $key === null ? null : ['authenticatable_type' => $identity->getMorphClass(), 'authenticatable_id' => $key];
     }
 }

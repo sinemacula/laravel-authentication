@@ -126,27 +126,31 @@ final class JwtTokenService
      * token to match. `$issuedAt` (default now, cut to the whole second) sets
      * `iat` and the start of the lifetime, so a caller that has just judged the
      * session at a given time issues at that same time. Issuing reads nothing
-     * from the principal beyond its identifier and, when a tenant is given, its
-     * tenant (`getTenant()`), to check the tenant is its own.
+     * from the principal beyond its identifier and, for a token without a
+     * session given a tenant, its tenant (`getTenant()`), to check the tenant
+     * is its own.
      *
-     * The token's subject type is `person`. `$tenant` is the tenant the
-     * caller's admission loaded for the principal, written to `tenant_id`; the
-     * claim is carried for the token's readers and not checked by the package
-     * on a request. A token for a session carries the session's latest
-     * authentication time in `auth_time` (never after the issue time: an
-     * authentication another server recorded with its clock ahead is carried as
-     * the issue time) and its authentication method references in `amr`, both
-     * derived from the session when the token is issued.
+     * The token's subject type is `person`. `$tenant` is the active tenant the
+     * caller's admission found, written to `tenant_id`: for a token of a
+     * session, the tenant the session acts in, which the bearer path checks on
+     * every request against the session; without a session, the principal's
+     * own, since a principal acts in another tenant only through a session. A
+     * token for a session carries the session's latest authentication time in
+     * `auth_time` (never after the issue time: an authentication another server
+     * recorded with its clock ahead is carried as the issue time) and its
+     * authentication method references in `amr`, both derived from the session
+     * when the token is issued.
      *
      * Refuses to issue a token that `parse()` would reject or that would lose
      * part of its context: the identity and principal, the tenant when one is
      * given, and the session when one is given, must each have an identifier
-     * that can be written into its claim (a saved model's scalar key), and a
-     * tenant given must be the principal's own, by identifier (a principal
-     * whose tenant cannot be loaded throws the `TenantUnavailableException` its
-     * `getTenant()` does). Refuses, too, a session that has ended or that has
-     * no idle deadline, and a non-human identity: a machine gets tokens only
-     * from a client credentials exchange.
+     * that can be written into its claim (a saved model's scalar key). With a
+     * session, the tenant given must be the one the session records, by
+     * identifier, or none for a session that records none; without one, it must
+     * be the principal's own (a principal whose tenant cannot be loaded throws
+     * the `TenantUnavailableException` its `getTenant()` does). Refuses, too, a
+     * session that has ended or that has no idle deadline, and a non-human
+     * identity: a machine gets tokens only from a client credentials exchange.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -364,8 +368,14 @@ final class JwtTokenService
         $payload[Claims::SUBJECT_TYPE->value] = ($identity instanceof MachineIdentity ? SubjectType::MACHINE : SubjectType::PERSON)->value;
         $payload[Claims::PRINCIPAL->value]    = $this->requireClaimValue(Claims::PRINCIPAL, $principal->getPrincipalIdentifier());
 
-        if ($tenant !== null) {
-            $payload[Claims::TENANT_ID->value] = TokenProfile::ownTenant($principal, $this->requireClaimValue(Claims::TENANT_ID, $tenant->getTenantIdentifier()));
+        $tenantId = $tenant === null ? null : $this->requireClaimValue(Claims::TENANT_ID, $tenant->getTenantIdentifier());
+
+        if ($tenantId !== null) {
+            $payload[Claims::TENANT_ID->value] = $session === null ? TokenProfile::ownTenant($principal, $tenantId) : $tenantId;
+        }
+
+        if ($session !== null) {
+            TokenProfile::sessionTenant($session, $tenantId);
         }
 
         if ($session !== null) {

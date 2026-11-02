@@ -19,6 +19,8 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PasswordSet;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
+use SineMacula\Laravel\Authentication\Events\SessionPending;
+use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
@@ -191,7 +193,8 @@ trait RecordsEventSequences
 
     /**
      * What the event says happened, beyond its class (a switch's previous
-     * principal, say): `null` when its class says it all.
+     * principal, what a pending session waits on, say): `null` when its class
+     * says it all.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent  $event
      * @return ?string
@@ -199,13 +202,29 @@ trait RecordsEventSequences
     private function detailOf(AuthenticationEvent $event): ?string
     {
         return match (true) {
-            $event instanceof PrincipalSwitched    => 'from:' . $this->nameOf('principal', $event->previousPrincipalMorphClass, $event->previousPrincipalId),
+            $event instanceof PrincipalSwitched    => 'from:' . $this->nameOf('principal', $event->previousPrincipalType, $event->previousPrincipalId),
             $event instanceof AuthenticationFailed => $event->flow->value . ':' . $event->reason->value,
             $event instanceof SessionRevoked       => $event->reason->value,
             $event instanceof SignedOutEverywhere  => $event->reason->value . ':' . $event->revoked,
             $event instanceof SignedIn             => $event->refresh ? 'refresh' : 'new',
             $event instanceof PasswordSet          => $event->flow->value,
-            default                                => null,
+            default                                => self::pendingDetailOf($event),
+        };
+    }
+
+    /**
+     * What a pending session's event says it waits on, and from which flow a
+     * session returned to pending: `null` for any other event.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent  $event
+     * @return ?string
+     */
+    private static function pendingDetailOf(AuthenticationEvent $event): ?string
+    {
+        return match (true) {
+            $event instanceof SessionPending           => implode(',', $event->requires),
+            $event instanceof SessionReturnedToPending => $event->flow->value . ':' . implode(',', $event->requires),
+            default                                    => null,
         };
     }
 
@@ -218,8 +237,8 @@ trait RecordsEventSequences
     private function nameOfContext(EventContext $context): string
     {
         return implode('/', [
-            $this->nameOf('identity', $context->identityMorphClass, $context->identityId),
-            $this->nameOf('principal', $context->principalMorphClass, $context->principalId),
+            $this->nameOf('identity', $context->identityType, $context->identityId),
+            $this->nameOf('principal', $context->principalType, $context->principalId),
             $this->nameOf('session', 'session', $context->sessionId),
         ]);
     }

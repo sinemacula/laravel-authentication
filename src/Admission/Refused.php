@@ -42,7 +42,7 @@ final readonly class Refused
         /** The resolved principal, if the flow got that far. */
         public ?Principal $principal = null,
 
-        /** The tenant the principal acts within, if the flow got that far. */
+        /** The active tenant, or the principal's own before one was selected, if the flow got that far. */
         public ?Tenant $tenant = null,
 
         /** The session the flow concerned, if any. */

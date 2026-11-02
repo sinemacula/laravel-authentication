@@ -22,12 +22,15 @@ use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Models\SessionProof;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\RecordsEventSequences;
@@ -56,7 +59,7 @@ use Tests\TestCase;
 #[CoversClass(AfterCommit::class)]
 final class EventSequenceTest extends TestCase
 {
-    use InteractsWithRateLimits, InteractsWithSessions, RecordsEventSequences;
+    use InteractsWithProofs, InteractsWithRateLimits, InteractsWithSessions, RecordsEventSequences;
 
     /** @var list<string> The events a sign-in's bind dispatches. */
     private const array BIND = [
@@ -223,16 +226,16 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * A completion whose bind listener throws still gives back the slots its
+     * An activation whose bind listener throws still gives back the slots its
      * sign-in took: the give-back was scheduled before the bind.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testACompletionWhoseBindListenerThrowsGivesItsSlotsBack(): void
+    public function testAnActivationWhoseBindListenerThrowsGivesItsSlotsBack(): void
     {
-        $token = $this->pendingToken();
+        [$credential, $proof] = $this->pendingSession();
 
         self::assertSame([1, 1], self::slotsTaken());
 
@@ -241,10 +244,10 @@ final class EventSequenceTest extends TestCase
         $this->recordSequence();
         $this->throwOn(Authenticated::class);
 
-        self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => $sessions->complete($token)));
+        self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => $sessions->satisfy($credential, $proof)));
         self::assertSame([...self::REPORT, 'Validated api i1', 'Login api i1', 'Authenticated api i1'], $this->recordedSequence());
         self::assertSame([0, 0], self::slotsTaken());
-        self::assertSame(0, PendingSignIn::query()->count());
+        self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
         self::assertSame('s1', $this->nameOfSession(Session::query()->sole()));
     }
 
@@ -272,27 +275,27 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * A lifecycle listener that throws on a completion leaves the pending
-     * sign-in used up and its slots counted: the give-back is scheduled only
-     * after the report.
+     * A lifecycle listener that throws on an activation leaves the session
+     * active and its slots counted: the give-back is scheduled only after the
+     * report.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testALifecycleListenerThatThrowsOnACompletionKeepsItsSlots(): void
+    public function testALifecycleListenerThatThrowsOnAnActivationKeepsItsSlots(): void
     {
-        $token    = $this->pendingToken();
+        [$credential, $proof] = $this->pendingSession();
+
         $sessions = $this->sessions();
 
         $this->recordSequence();
         $this->throwOn(SignedIn::class);
 
-        self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => $sessions->complete($token)));
+        self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => $sessions->satisfy($credential, $proof)));
         self::assertSame(self::REPORT, $this->recordedSequence());
         self::assertSame([1, 1], self::slotsTaken());
-        self::assertSame(0, PendingSignIn::query()->count());
-        self::assertSame(1, Session::query()->count());
+        self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
         self::assertSame('s1', $this->nameOfSession(Session::query()->sole()));
     }
 
@@ -358,33 +361,34 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * A completion whose session write fails rolls back the use of the pending
-     * sign-in: nothing is reported or given back, and the pending sign-in
-     * completes afterwards, giving its slots back once.
+     * An activation whose proof write fails rolls back: the session stays
+     * pending, nothing is reported or given back, and the credential satisfies
+     * it afterwards, giving its slots back once.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testACompletionWhoseSessionWriteFailsRestoresThePendingSignIn(): void
+    public function testAnActivationWhoseProofWriteFailsKeepsTheSessionPending(): void
     {
-        $token    = $this->pendingToken();
+        [$credential, $proof] = $this->pendingSession();
+
         $sessions = $this->sessions();
 
         $this->recordSequence();
 
-        Event::listen('eloquent.creating: ' . Session::class, static function (): never {
+        Event::listen('eloquent.creating: ' . SessionProof::class, static function (): never {
             throw new \RuntimeException('listener failed');
         });
 
-        self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => $sessions->complete($token)));
+        self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => $sessions->satisfy($credential, $proof)));
         self::assertSame([], $this->recordedSequence());
         self::assertSame([1, 1], self::slotsTaken());
-        self::assertSame([1, 0], [PendingSignIn::query()->count(), Session::query()->count()]);
+        self::assertSame([SessionStatus::PENDING, 1], [Session::query()->sole()->getStatus(), SessionProof::query()->count()]);
 
-        Event::forget('eloquent.creating: ' . Session::class);
+        Event::forget('eloquent.creating: ' . SessionProof::class);
 
-        self::assertTrue($sessions->complete($token)->isSignedIn());
+        self::assertTrue($sessions->satisfy($credential, $proof)->isSignedIn());
         self::assertSame([...self::REPORT, ...self::BIND], $this->recordedSequence());
         self::assertSame([0, 0], self::slotsTaken());
         self::assertSame('s1', $this->nameOfSession(Session::query()->sole()));
@@ -435,11 +439,12 @@ final class EventSequenceTest extends TestCase
 
     /**
      * Hold a sign-in of the seeded identity for a further factor, and return
-     * the token that completes it.
+     * its pending credential and an accepted further factor's proof bound to
+     * its session.
      *
-     * @return string
+     * @return array{0: string, 1: \SineMacula\Laravel\Authentication\Proofs\ProofResult}
      */
-    private function pendingToken(): string
+    private function pendingSession(): array
     {
         app()->instance(AdditionalFactorPolicy::class, new class implements AdditionalFactorPolicy {
             /**
@@ -455,11 +460,12 @@ final class EventSequenceTest extends TestCase
             }
         });
 
-        $token = $this->sessions()->signIn('password', self::credentials())->pending?->token;
+        $result = $this->sessions()->signIn('password', self::credentials());
 
-        self::assertIsString($token);
+        self::assertNotNull($result->pending);
+        self::assertIsString($result->credential);
 
-        return $token;
+        return [$result->credential, self::adapterProof($result->pending->identity, 'api', $result->pending->id, Purpose::SIGN_IN)];
     }
 
     /**

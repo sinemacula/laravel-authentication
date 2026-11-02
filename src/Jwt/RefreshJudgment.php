@@ -12,12 +12,13 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionDeadlines;
+use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 
 /**
  * Judges a presented refresh rotation id against the session it names, the way
- * both a refresh and a switch of principal do: whether the session is still
- * live, and whether the id is its current one, the one the current one replaced
- * inside the grace window, or a replay.
+ * both a refresh and a switch do: whether the session is still live, and
+ * whether the id is its current one, the one the current one replaced inside
+ * the grace window, or a replay.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -34,15 +35,18 @@ final class RefreshJudgment
     /**
      * Judge the presented rotation id against the session at `$now`.
      *
-     * In order: a revoked session fails as `session_revoked`; a session past
-     * either deadline, or without an idle one, as `session_expired` (an ended
-     * session is not revoked: it simply cannot be refreshed); a session holding
-     * no refresh credential as `refresh_key_missing`. Only then is the rotation
-     * id compared, in constant time: the current one, with the absolute
-     * deadline the rotation keeps (`null` for none); the previous one inside
-     * the grace window; or anything else, which is a replay (`rotation_reuse`).
-     * Nothing is compared before the session is known to be live, so such a row
-     * cannot be used to time-probe the valid rotation-id space.
+     * In order: a revoked session fails as `session_revoked`; a pending one as
+     * `session_pending`, before its keys are compared, so a refresh token it
+     * held before it returned to pending is never taken for a replay and never
+     * revokes it; a session past either deadline, or without an idle one, as
+     * `session_expired` (an ended session is not revoked: it simply cannot be
+     * refreshed); a session holding no refresh credential as
+     * `refresh_key_missing`. Only then is the rotation id compared, in constant
+     * time: the current one, with the absolute deadline the rotation keeps
+     * (`null` for none); the previous one inside the grace window; or anything
+     * else, which is a replay (`rotation_reuse`). Nothing is compared before
+     * the session is known to be live, so such a row cannot be used to
+     * time-probe the valid rotation-id space.
      *
      * The session's state is read inside `WriteConnection::during()` for the
      * session, so a session that derives any of it from a relation or another
@@ -64,8 +68,10 @@ final class RefreshJudgment
     {
         return WriteConnection::during($session, static function () use ($session, $rotationId, $now, $lifetimes): array|FailureReason {
 
-            if ($session->getRevokedAt() !== null) {
-                return FailureReason::SESSION_REVOKED;
+            $standing = self::standingRefusal($session);
+
+            if ($standing !== null) {
+                return $standing;
             }
 
             $deadlines = SessionDeadlines::liveDeadlines($session, $now);
@@ -83,6 +89,24 @@ final class RefreshJudgment
 
             return $match === null ? FailureReason::ROTATION_REUSE : [$match, $deadlines[1]];
         });
+    }
+
+    /**
+     * Why the session can be refreshed by no rotation id at all: it is revoked
+     * (`session_revoked`), or pending (`session_pending`); `null` otherwise.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     *
+     * @throws \LogicException
+     */
+    private static function standingRefusal(Session $session): ?FailureReason
+    {
+        return match (true) {
+            $session->getRevokedAt() !== null                => FailureReason::SESSION_REVOKED,
+            $session->getStatus() === SessionStatus::PENDING => FailureReason::SESSION_PENDING,
+            default                                          => null,
+        };
     }
 
     /**

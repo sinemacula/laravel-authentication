@@ -15,6 +15,7 @@ use SineMacula\Laravel\Authentication\Passkeys\PasskeyCredentials;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Database\ShippedMigrations;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
@@ -171,11 +172,9 @@ final class ReplicaPasskeysTest extends TestCase
 
         foreach (['2026_04_06_000004_create_passkeys_table.php', '2026_04_06_000005_create_passkey_challenges_table.php'] as $file) {
 
-            $migration = require __DIR__ . '/../../../database/migrations/' . $file;
-
             foreach ([self::PRIMARY_CONNECTION, self::REPLICA_CONNECTION] as $connection) {
                 $manager->setDefaultConnection($connection);
-                $migration->up();
+                ShippedMigrations::up($file);
             }
         }
 

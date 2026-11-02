@@ -11,7 +11,7 @@ principal auth without session tracking or refresh rotation.
   package's tables.
 - `attempt()` counts its attempts in the `rate_limits` table, unless the guard turns its sign-in limits off
   (`rate_limits.sign_in = null`): a deployment that signs in with `attempt()` keeps that table, and the
-  `authentication_sessions` and `pending_sign_ins` tables stay empty.
+  `authentication_sessions` table stays empty.
 - Access tokens for this mode must be issued with `session = null`, which means the JWT carries no `sid`, and so no
   `auth_time` or `amr` either: a token that names no session and carries one of those fails to parse. `sid` is the one
   access-token claim that may be absent (or `null`); `iss`, `aud`, `client_id`, `sub`, `sub_type` (`person`),
@@ -54,8 +54,10 @@ principal auth without session tracking or refresh rotation.
 - Its revocation methods work, and are how session-less tokens end early: for an identity without `HasSessions`, or a
   principal whose owner is one, a bulk revocation (`revokeSessions()`, `signOutEverywhere()`, the security-change
   methods, `principalDeactivated()`, `revokePrincipalSessions()`) only moves the scope's "tokens valid after" cutoff and
-  reports it; it reads no `authentication_sessions` row and deletes no `pending_sign_ins` row, since no session of such
-  an identity can hold either, so neither table needs to exist.
+  reports it; it reads no `authentication_sessions` row, since such an identity can hold no session, pending or active,
+  so the table need not exist.
+  `tenantDeactivated()` also ends every session acting in the tenant, whatever its principal, so it reads the
+  `authentication_sessions` table, which must exist for it.
 - Guard construction still validates the configured session model: its class, and that it lives on the storage
   connection. The package tolerates a missing table on this path because bearer auth with no `sid` never tries to query
   it.

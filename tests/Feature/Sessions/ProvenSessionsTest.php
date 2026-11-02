@@ -135,6 +135,24 @@ final class ProvenSessionsTest extends TestCase
     }
 
     /**
+     * A session that returned to pending keeps its refresh digest but proves
+     * nothing until it is active again, so a factor policy is never told of a
+     * session that may not refresh.
+     *
+     * @return void
+     */
+    public function testASessionReturnedToPendingProvesNothing(): void
+    {
+        $token = $this->session->tokens->refreshToken;
+
+        $this->updateSession(['status' => 'pending', 'requires' => '["mfa"]']);
+        self::assertNull($this->prove($token));
+
+        $this->updateSession(['status' => 'active', 'requires' => null]);
+        self::assertNotNull($this->prove($token));
+    }
+
+    /**
      * The session must be the identity's own, record the guard proving it, and
      * record the principal signing in.
      *

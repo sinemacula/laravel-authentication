@@ -160,18 +160,18 @@ then another identity may hold the address the session was opened with. Take and
 transaction: inside it, the counters' rows would stay locked until the commit, and on MySQL two transactions that each
 create a counter in the same gap of the index deadlock. A change ends every session of the identity, through every
 guard, but the session in `$except` (the request's own session, to keep it signed in; `null` ends them all); a reset
-ends every session. Both move the identity's "tokens valid after" cutoff when it keeps one and end its pending sign-ins
-(see [Revoking on security changes](sessions.md#revoking-on-security-changes)), and report each revoked session with
-`SessionRevoked` and then `SignedOutEverywhere`. `$except` is for a change only. Whatever the flow, the same transaction
-invalidates every password reset link and code still waiting for the identity's identifiers, through every guard whose
-provider returns the identity (a provider whose configuration names no model, a custom `Auth::provider()` driver, is
-assumed to; see [Password reset](#password-reset)): a link or code someone else obtained before cannot take the account
-back once its owner has set a new password. A change or a reset also invalidates the sign-in codes waiting for those
-identifiers, which would open a session after the ones it ended, and cancels every identifier change the identity has
-pending (see [Changing identifiers](identifier-changes.md)); a registration ends no session and leaves them. The
-identifiers are those its row holds, read again inside the transaction, so a model you loaded with only some columns, or
-before its identifier changed, outdates them all. A guard whose provider's configured model reads another table binds
-its links and codes to the identities there, so they are left alone.
+ends every session. Both move the identity's "tokens valid after" cutoff when it keeps one, its pending sessions ended
+with the rest (see [Revoking on security changes](sessions.md#revoking-on-security-changes)), and report each revoked
+session with `SessionRevoked` and then `SignedOutEverywhere`. `$except` is for a change only. Whatever the flow, the
+same transaction invalidates every password reset link and code still waiting for the identity's identifiers, through
+every guard whose provider returns the identity (a provider whose configuration names no model, a custom
+`Auth::provider()` driver, is assumed to; see [Password reset](#password-reset)): a link or code someone else obtained
+before cannot take the account back once its owner has set a new password. A change or a reset also invalidates the
+sign-in codes waiting for those identifiers, which would open a session after the ones it ended, and cancels every
+identifier change the identity has pending (see [Changing identifiers](identifier-changes.md)); a registration ends no
+session and leaves them. The identifiers are those its row holds, read again inside the transaction, so a model you
+loaded with only some columns, or before its identifier changed, outdates them all. A guard whose provider's configured
+model reads another table binds its links and codes to the identities there, so they are left alone.
 
 A stored identity gets one query-builder update of its password column (and `updated_at` when the model keeps
 timestamps) on its own row, without its scopes: nothing else you changed on the model is saved or discarded, and no
@@ -302,7 +302,7 @@ deactivation committed since the lookup counts. A refused proof is `invalid` (an
 its attempt stays counted; a proof accepted for no identity, or one the job would not have sent to, is `invalid` and
 stays unspent; a proof accepted for an eligible identity is spent with the new password in the same transaction, set as
 `set()` sets it with `PasswordFlow::RESET` (see [Setting a password](#setting-a-password)): every session of the
-identity ended, its cutoff moved, its pending sign-ins and identifier changes ended, every other reset link and code and
+identity ended, its cutoff moved, its pending identifier changes ended, every other reset link and code and
 every sign-in code for its identifiers invalidated, through every guard whose provider returns it (a provider whose
 configuration names no model is assumed to), and `PasswordSet` reported once that commits. Only a reset returns before
 the timebox ends. The result is a `ResetResult`: `reset` with how many sessions were `revoked`, `invalid`,

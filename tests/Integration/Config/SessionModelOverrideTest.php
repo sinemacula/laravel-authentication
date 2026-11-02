@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessionRecords;
+use Tests\Fixtures\Database\ShippedMigrations;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubLookupIdentityProvider;
@@ -80,7 +81,7 @@ final class SessionModelOverrideTest extends TestCase
 
         self::createSessionRecordTable('custom_sessions');
 
-        (include __DIR__ . '/../../../database/migrations/2026_04_06_000002_create_rate_limits_table.php')->up();
+        ShippedMigrations::up('2026_04_06_000002_create_rate_limits_table.php');
         self::migrateProofTables();
 
         Schema::create('stub_principals', static function (Blueprint $blueprint): void {

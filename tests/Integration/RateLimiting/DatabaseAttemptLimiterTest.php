@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\RateLimiting\RateLimitStore;
 use Tests\Concerns\InteractsWithRateLimits;
+use Tests\Fixtures\Database\ShippedMigrations;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubReversingNormalizer;
 
@@ -767,8 +768,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
         config()->set('database.connections.limits', ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
         config()->set('authentication.rate_limits.connection', 'limits');
 
-        $migration = require __DIR__ . '/../../../database/migrations/2026_04_06_000002_create_rate_limits_table.php';
-        $migration->up();
+        ShippedMigrations::up('2026_04_06_000002_create_rate_limits_table.php');
 
         $this->limiter()->acquire($this->signIn('ben@example.com'));
 

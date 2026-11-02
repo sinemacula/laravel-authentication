@@ -8,8 +8,9 @@ use Illuminate\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
-use SineMacula\Laravel\Authentication\Admission\ApplicationAdmission;
+use SineMacula\Laravel\Authentication\Admission\PrincipalAdmission;
 use SineMacula\Laravel\Authentication\Admission\Refused;
+use SineMacula\Laravel\Authentication\Admission\TenantAdmission;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -21,13 +22,17 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * Decides whom a session's refresh token signs in again: the session's owner,
  * reloaded through the guard's identity provider so the provider's scopes
  * apply, as the principal the token names (or the resolver's default), with the
- * identity, principal and tenant active and the application policy still
- * allowing the session. None of its refusals revokes the session.
+ * identity, principal and its own tenant active, the application policy still
+ * allowing the session's method, `ApplicationAccess` still letting the
+ * principal use the application, and the session's active tenant still one the
+ * principal may act in (`TenantAccess`) and active. None of its refusals
+ * revokes the session.
  *
  * Built for one exchange with the guard's current provider and resolver, so it
  * keeps nothing between exchanges.
@@ -60,9 +65,14 @@ final readonly class RefreshAdmission
 
     /**
      * Admit the session: its owner, active, as the principal the token's hint
-     * names (or the resolver's default). Returns the admitted session with the
-     * tenant its activity check loaded, or the refusal with as much of it as
-     * was resolved.
+     * names (or the resolver's default), in the session's active tenant.
+     * Returns the admitted session with that tenant, or the refusal with as
+     * much of it as was resolved (`tenant_inactive` when the active tenant no
+     * longer resolves or is inactive, `tenant_ineligible` when `TenantAccess`
+     * no longer lets the principal act in it). A principal the session does not
+     * record is admitted in its own tenant, for the caller to refuse as
+     * `session_principal_mismatch` before anything is asked of a tenant the
+     * session acts in for another principal.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  mixed  $principalHint
@@ -74,6 +84,31 @@ final readonly class RefreshAdmission
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function admit(EloquentSession&Model $session, mixed $principalHint): Admitted|Refused
+    {
+        $admitted = $this->admitPrincipal($session, $principalHint);
+
+        return $admitted instanceof Admitted && PrincipalReference::isRecordedOn($session, $admitted->principal)
+            ? self::inActiveTenant($session, $admitted)
+            : $admitted;
+    }
+
+    /**
+     * Admit the session's owner, active, as the principal the hint names (or
+     * the resolver's default), held to the application policy and
+     * `ApplicationAccess`, in the principal's own tenant, whatever tenant the
+     * session acts in: for a switch, which admits its destination tenant
+     * itself.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  mixed  $principalHint
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function admitPrincipal(EloquentSession&Model $session, mixed $principalHint): Admitted|Refused
     {
         $identity = $this->owner($session);
 
@@ -92,8 +127,9 @@ final readonly class RefreshAdmission
 
     /**
      * Admit the session's active owner as the principal the token names (or the
-     * resolver's default): the principal and its tenant must be active, and the
-     * application policy must still allow the session.
+     * resolver's default): the principal and its tenant must be active, the
+     * application policy must still allow the session's method, and
+     * `ApplicationAccess` the principal.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -123,15 +159,15 @@ final readonly class RefreshAdmission
     }
 
     /**
-     * Hold an admitted refresh to the application policy: the method that
-     * started the session must still be allowed to (a session that records none
-     * fails closed, as `method_not_allowed`), and the policy must still admit
-     * the identity as the principal (`principal_ineligible`). A refresh names
-     * no identifier, so the verified-identifier requirement does not apply to
-     * it. The method is read, and `admit()` asked, on the write connection, so
-     * a lagging replica can neither allow a method the primary no longer
-     * records for the session nor answer `admit()` from rows the primary has
-     * since changed.
+     * Hold an admitted refresh to the application: the policy must still allow
+     * the method that started the session (a session that records none fails
+     * closed, as `method_not_allowed`), and `ApplicationAccess` must still let
+     * the principal use the application (`principal_ineligible`). A refresh
+     * names no identifier, so the verified-identifier requirement does not
+     * apply to it. The method is read, and the access contract asked, on the
+     * write connection, so a lagging replica can neither allow a method the
+     * primary no longer records for the session nor answer from rows the
+     * primary has since changed.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
@@ -148,12 +184,35 @@ final readonly class RefreshAdmission
         $allowed = $method !== null && $policy->allowsMethod($this->guard, $method);
 
         $refusal = match (true) {
-            !$allowed                                                                                                    => FailureReason::METHOD_NOT_ALLOWED,
-            ApplicationAdmission::admit($policy, $this->guard, $admitted->identity, $admitted->principal, null) !== null => FailureReason::PRINCIPAL_INELIGIBLE,
-            default                                                                                                      => null,
+            !$allowed                                                       => FailureReason::METHOD_NOT_ALLOWED,
+            !PrincipalAdmission::mayUse($this->guard, $admitted->principal) => FailureReason::PRINCIPAL_INELIGIBLE,
+            default                                                         => null,
         };
 
         return $refusal === null ? $admitted : Refused::after($refusal, $admitted);
+    }
+
+    /**
+     * Hold the admitted principal to the session's active tenant, read on the
+     * write connection: the principal's own when the identifiers match, any
+     * other through the `TenantResolver`, still one `TenantAccess` lets the
+     * principal act in, and active.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \LogicException
+     */
+    private static function inActiveTenant(EloquentSession&Model $session, Admitted $admitted): Admitted|Refused
+    {
+        $tenantId = WriteConnection::during($session, static fn (): ?string => $session->getTenantId());
+        $tenant   = TenantAdmission::recorded($admitted->principal, $tenantId, true);
+
+        return $tenant instanceof FailureReason
+            ? Refused::after($tenant, $admitted)
+            : new Admitted($admitted->identity, $admitted->principal, $tenant, $session);
     }
 
     /**

@@ -126,11 +126,11 @@ final class EventContextTest extends TestCase
         $client  = new ClientContext(null, null);
         $context = new EventContext('api', $client, new PlainIdentityFixture(7), new PlainPrincipalFixture(42), new PlainTenantFixture(3), new PlainSessionFixture('session-1'));
 
-        self::assertSame(PlainIdentityFixture::class, $context->identityMorphClass);
+        self::assertSame(PlainIdentityFixture::class, $context->identityType);
         self::assertSame('7', $context->identityId);
-        self::assertSame(PlainPrincipalFixture::class, $context->principalMorphClass);
+        self::assertSame(PlainPrincipalFixture::class, $context->principalType);
         self::assertSame('42', $context->principalId);
-        self::assertSame(PlainTenantFixture::class, $context->tenantMorphClass);
+        self::assertSame(PlainTenantFixture::class, $context->tenantType);
         self::assertSame('3', $context->tenantId);
         self::assertSame('session-1', $context->sessionId);
     }
@@ -174,11 +174,11 @@ final class EventContextTest extends TestCase
 
         $context = new EventContext('api', new ClientContext(null, null), $principal, $principal, $tenant);
 
-        self::assertSame('member', $context->identityMorphClass);
+        self::assertSame('member', $context->identityType);
         self::assertSame('9', $context->identityId);
-        self::assertSame('member', $context->principalMorphClass);
+        self::assertSame('member', $context->principalType);
         self::assertSame('9', $context->principalId);
-        self::assertSame('workspace', $context->tenantMorphClass);
+        self::assertSame('workspace', $context->tenantType);
         self::assertSame('4', $context->tenantId);
     }
 
@@ -198,14 +198,14 @@ final class EventContextTest extends TestCase
         $unmapped = new EventContext('api', new ClientContext(null, null), (new StubIdentity)->forceFill(['id' => 7]), new Stub3dPrincipal(['id' => 8]), self::tenant(4));
         $mapped   = new EventContext('api', new ClientContext(null, null), $member, $member);
 
-        self::assertSame(StubIdentity::class, $unmapped->identityMorphClass);
+        self::assertSame(StubIdentity::class, $unmapped->identityType);
         self::assertSame('7', $unmapped->identityId);
-        self::assertSame(Stub3dPrincipal::class, $unmapped->principalMorphClass);
+        self::assertSame(Stub3dPrincipal::class, $unmapped->principalType);
         self::assertSame('8', $unmapped->principalId);
-        self::assertSame(StubTenant::class, $unmapped->tenantMorphClass);
+        self::assertSame(StubTenant::class, $unmapped->tenantType);
         self::assertSame('4', $unmapped->tenantId);
-        self::assertSame('member', $mapped->identityMorphClass);
-        self::assertSame('member', $mapped->principalMorphClass);
+        self::assertSame('member', $mapped->identityType);
+        self::assertSame('member', $mapped->principalType);
     }
 
     /**
@@ -224,11 +224,11 @@ final class EventContextTest extends TestCase
         self::assertNull($context->tenant);
         self::assertNull($context->session);
         self::assertNull($context->method);
-        self::assertNull($context->identityMorphClass);
+        self::assertNull($context->identityType);
         self::assertNull($context->identityId);
-        self::assertNull($context->principalMorphClass);
+        self::assertNull($context->principalType);
         self::assertNull($context->principalId);
-        self::assertNull($context->tenantMorphClass);
+        self::assertNull($context->tenantType);
         self::assertNull($context->tenantId);
         self::assertNull($context->sessionId);
     }
@@ -306,20 +306,20 @@ final class EventContextTest extends TestCase
 
         self::assertInstanceOf(Arrayable::class, $context);
         self::assertSame([
-            'occurred_at'           => '2026-04-06T12:00:00.123456Z',
-            'guard'                 => 'api',
-            'method'                => 'password',
-            'ip'                    => '203.0.113.7',
-            'user_agent'            => 'agent',
-            'identity_morph_class'  => PlainIdentityFixture::class,
-            'identity_id'           => '7',
-            'principal_morph_class' => $context->principal === null ? null : $context->principal::class,
-            'principal_id'          => '5',
-            'tenant_morph_class'    => PlainTenantFixture::class,
-            'tenant_id'             => '3',
-            'session_id'            => 'session-1',
-            'credential_id'         => 'key-1',
-            'scopes'                => ['read'],
+            'occurred_at'    => '2026-04-06T12:00:00.123456Z',
+            'guard'          => 'api',
+            'method'         => 'password',
+            'ip'             => '203.0.113.7',
+            'user_agent'     => 'agent',
+            'identity_type'  => PlainIdentityFixture::class,
+            'identity_id'    => '7',
+            'principal_type' => $context->principal === null ? null : $context->principal::class,
+            'principal_id'   => '5',
+            'tenant_type'    => PlainTenantFixture::class,
+            'tenant_id'      => '3',
+            'session_id'     => 'session-1',
+            'credential_id'  => 'key-1',
+            'scopes'         => ['read'],
         ], $context->toArray());
         self::assertSame('14', $context->occurredAt->format('H'));
         self::assertJson(json_encode($context->toArray(), JSON_THROW_ON_ERROR));

@@ -29,12 +29,13 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * as much as it got to before it failed, and a session id a token named is kept
  * even when no session row was loaded. An event about the session row itself (a
  * revocation, or a refresh or switch refused on the row's own state before its
- * owner was read) is built with `fromSession`: an identity or principal it does
- * not hold then takes the snapshot of the owner and the principal the row
- * records; sessions record no tenant. Every other event keeps the snapshots of
- * what it holds, so an identity's sign-out everywhere, a pending choice of
- * principal or a refused switch to another principal names no principal, even
- * when it carries a session.
+ * owner was read) is built with `fromSession`: an identity, principal or tenant
+ * it does not hold then takes the snapshot of the owner, the principal and the
+ * active tenant's identifier the row records (a tenant has no morph class
+ * there: the row records only its opaque identifier). Every other event keeps
+ * the snapshots of what it holds, so an identity's sign-out everywhere, a
+ * pending choice of principal or a refused switch to another principal names no
+ * principal, even when it carries a session.
  *
  * Everything but the four models is the snapshot, fixed when the context is
  * built: when (`occurredAt`), the guard, the client, the method, the
@@ -67,19 +68,19 @@ final readonly class EventContext implements Arrayable
     public CarbonImmutable $occurredAt;
 
     /** @var ?string The identity's morph class (an Eloquent model's morph class, or its class name) when the event was built. */
-    public ?string $identityMorphClass;
+    public ?string $identityType;
 
     /** @var ?string The identity's auth identifier when the event was built. */
     public ?string $identityId;
 
     /** @var ?string The principal's morph class (an Eloquent model's morph class, or its class name), as a session records it, when the event was built. */
-    public ?string $principalMorphClass;
+    public ?string $principalType;
 
     /** @var ?string The principal's identifier when the event was built. */
     public ?string $principalId;
 
     /** @var ?string The tenant's morph class (an Eloquent model's morph class, or its class name) when the event was built. */
-    public ?string $tenantMorphClass;
+    public ?string $tenantType;
 
     /** @var ?string The tenant's identifier when the event was built. */
     public ?string $tenantId;
@@ -116,7 +117,7 @@ final readonly class EventContext implements Arrayable
         /** Principal the identity acts as, if known. */
         public ?Principal $principal = null,
 
-        /** Tenant the principal acts within, if known and there is one. */
+        /** The active tenant, the one the principal acts in, if known and there is one. */
         public ?Tenant $tenant = null,
 
         /** The session, if one was loaded. */
@@ -142,14 +143,14 @@ final readonly class EventContext implements Arrayable
     ) {
         $recorded = $fromSession ? $session : null;
 
-        $this->occurredAt          = CarbonImmutable::now();
-        $this->identityMorphClass  = $identity  === null ? self::recordedOn($recorded, 'ownerType') : self::morphClassOf($identity);
-        $this->identityId          = $identity  === null ? self::recordedOn($recorded, 'owner') : IdentifierCoercion::stringify($identity->getAuthIdentifier());
-        $this->principalMorphClass = $principal === null ? self::recordedOn($recorded, 'type') : self::morphClassOf($principal);
-        $this->principalId         = $principal === null ? self::recordedOn($recorded, 'id') : PrincipalReference::id($principal);
-        $this->tenantMorphClass    = $tenant    === null ? null : self::morphClassOf($tenant);
-        $this->tenantId            = IdentifierCoercion::stringify($tenant?->getTenantIdentifier());
-        $this->sessionId           = $session === null ? $sessionId : IdentifierCoercion::stringify($session->getSessionIdentifier());
+        $this->occurredAt    = CarbonImmutable::now();
+        $this->identityType  = $identity  === null ? self::recordedOn($recorded, 'ownerType') : self::morphClassOf($identity);
+        $this->identityId    = $identity  === null ? self::recordedOn($recorded, 'owner') : IdentifierCoercion::stringify($identity->getAuthIdentifier());
+        $this->principalType = $principal === null ? self::recordedOn($recorded, 'type') : self::morphClassOf($principal);
+        $this->principalId   = $principal === null ? self::recordedOn($recorded, 'id') : PrincipalReference::id($principal);
+        $this->tenantType    = $tenant    === null ? null : self::morphClassOf($tenant);
+        $this->tenantId      = $tenant    === null ? self::recordedOn($recorded, 'tenant') : IdentifierCoercion::stringify($tenant->getTenantIdentifier());
+        $this->sessionId     = $session   === null ? $sessionId : IdentifierCoercion::stringify($session->getSessionIdentifier());
     }
 
     /**
@@ -163,20 +164,20 @@ final readonly class EventContext implements Arrayable
     public function toArray(): array
     {
         return [
-            'occurred_at'           => $this->occurredAt->utc()->format('Y-m-d\TH:i:s.u\Z'),
-            'guard'                 => $this->guard,
-            'method'                => $this->method,
-            'ip'                    => $this->client->ip,
-            'user_agent'            => $this->client->userAgent,
-            'identity_morph_class'  => $this->identityMorphClass,
-            'identity_id'           => $this->identityId,
-            'principal_morph_class' => $this->principalMorphClass,
-            'principal_id'          => $this->principalId,
-            'tenant_morph_class'    => $this->tenantMorphClass,
-            'tenant_id'             => $this->tenantId,
-            'session_id'            => $this->sessionId,
-            'credential_id'         => $this->credentialId,
-            'scopes'                => $this->scopes,
+            'occurred_at'    => $this->occurredAt->utc()->format('Y-m-d\TH:i:s.u\Z'),
+            'guard'          => $this->guard,
+            'method'         => $this->method,
+            'ip'             => $this->client->ip,
+            'user_agent'     => $this->client->userAgent,
+            'identity_type'  => $this->identityType,
+            'identity_id'    => $this->identityId,
+            'principal_type' => $this->principalType,
+            'principal_id'   => $this->principalId,
+            'tenant_type'    => $this->tenantType,
+            'tenant_id'      => $this->tenantId,
+            'session_id'     => $this->sessionId,
+            'credential_id'  => $this->credentialId,
+            'scopes'         => $this->scopes,
         ];
     }
 
@@ -203,12 +204,13 @@ final readonly class EventContext implements Arrayable
 
     /**
      * What an Eloquent session row records, read from its attributes without a
-     * query: its owner's morph class (`ownerType`) or identifier (`owner`), or
-     * its principal's morph class (`type`) or identifier (`id`); `null` when
-     * the row records none or there is no such row.
+     * query: its owner's morph class (`ownerType`) or identifier (`owner`), its
+     * principal's morph class (`type`) or identifier (`id`), or its active
+     * tenant's identifier (`tenant`); `null` when the row records none or there
+     * is no such row.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
-     * @param  'id'|'owner'|'ownerType'|'type'  $part
+     * @param  'id'|'owner'|'ownerType'|'tenant'|'type'  $part
      * @return ?string
      */
     private static function recordedOn(?Session $session, string $part): ?string
@@ -222,7 +224,7 @@ final readonly class EventContext implements Arrayable
         /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession $blank */
         $blank   = $session->newInstance();
         $owner   = $blank->authenticatable();
-        $columns = ['ownerType' => $owner->getMorphType(), 'owner' => $owner->getForeignKeyName(), 'type' => $type, 'id' => $id];
+        $columns = ['ownerType' => $owner->getMorphType(), 'owner' => $owner->getForeignKeyName(), 'type' => $type, 'id' => $id, 'tenant' => $session->getTenantIdName()];
 
         return IdentifierCoercion::stringify($session->getAttributes()[$columns[$part]] ?? null);
     }

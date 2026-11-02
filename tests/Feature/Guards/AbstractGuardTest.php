@@ -16,11 +16,14 @@ use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
+use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
@@ -31,6 +34,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use Tests\Unit\Stubs\PlainTenantFixture;
 use Tests\Unit\Stubs\StubCredentialGuard;
 use Tests\Unit\Stubs\StubRequestResolvingGuard;
 use Tests\Unit\Stubs\StubSession;
@@ -58,6 +62,9 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy The application policy in the container. */
     private MockInterface $policy;
 
+    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\ApplicationAccess The application access in the container. */
+    private MockInterface $access;
+
     /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\AttemptLimiter The attempt limiter in the container. */
     private MockInterface $limiter;
 
@@ -84,7 +91,6 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $this->policy->shouldReceive('allowsMethod')->byDefault()->andReturnUsing(fn (): bool => $this->record('allowsMethod', true));
         $this->policy->shouldReceive('admitIdentifier')->byDefault()->andReturnUsing(fn (): mixed => $this->record('admitIdentifier', null));
-        $this->policy->shouldReceive('admit')->byDefault()->andReturnUsing(fn (): mixed => $this->record('admit', null));
         $this->limiter->shouldReceive('acquire')
             ->byDefault()
             ->andReturnUsing(fn (AttemptSubject $subject): AttemptReservation => $this->record('acquire', new AttemptReservation($subject, null)));
@@ -93,7 +99,11 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         assert($this->app !== null);
 
+        $this->access = \Mockery::mock(ApplicationAccess::class);
+        $this->access->shouldReceive('mayUse')->byDefault()->andReturnUsing(fn (): bool => $this->record('mayUse', true));
+
         $this->app->instance(ApplicationPolicy::class, $this->policy);
+        $this->app->instance(ApplicationAccess::class, $this->access);
         $this->app->instance(AttemptLimiter::class, $this->limiter);
         $this->app->instance(AdditionalFactorPolicy::class, $this->factors);
 
@@ -105,10 +115,10 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     /**
      * A successful attempt asks the application policy for the method first,
      * then reserves an attempt, finds the account, reserves an attempt on the
-     * account, checks the password, admits the identity with its identifier and
-     * then as its principal, rehashes the password with the credentials it
-     * signed in with, asks the factor policy, and only then gives both
-     * reservations back, the attempt's and the account's.
+     * account, checks the password, admits the identity with its identifier,
+     * asks whether its principal may use the application, rehashes the password
+     * with the credentials it signed in with, asks the factor policy, and only
+     * then gives both reservations back, the attempt's and the account's.
      *
      * @return void
      *
@@ -133,7 +143,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
             ->once()
             ->with(self::GUARD_NAME, $identity, 'email')
             ->andReturnUsing(fn (): mixed => $this->record('admitIdentifier', null));
-        $this->policy->shouldReceive('admit')->once()->with(self::GUARD_NAME, $identity, $principal, 'email')->andReturnUsing(fn (): mixed => $this->record('admit', null));
+        $this->access->shouldReceive('mayUse')->once()->with(self::GUARD_NAME, $principal)->andReturnUsing(fn (): bool => $this->record('mayUse', true));
 
         $reservations = [];
 
@@ -178,7 +188,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
                 'acquire account',
                 'validateCredentials',
                 'admitIdentifier',
-                'admit',
+                'mayUse',
                 'rehashPasswordIfRequired',
                 'requiresAdditionalFactor',
                 'release',
@@ -405,7 +415,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         $this->resolver->shouldReceive('resolve')->once()->andReturn($principal);
 
         $this->policy->shouldReceive('admitIdentifier')->once()->with(self::GUARD_NAME, $identity, 'username')->andReturnNull();
-        $this->policy->shouldReceive('admit')->once()->with(self::GUARD_NAME, $identity, $principal, 'username')->andReturnNull();
+        $this->access->shouldReceive('mayUse')->once()->with(self::GUARD_NAME, $principal)->andReturnTrue();
 
         $subjects = [];
 
@@ -564,15 +574,15 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * When the application policy refuses the identity as its principal, the
-     * attempt fails with the policy's reason and the whole context, and nothing
-     * is bound.
+     * When `ApplicationAccess` keeps the principal out of the application, the
+     * attempt fails as `principal_ineligible` with the whole context, and
+     * nothing is bound.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAnApplicationPolicyRefusalFailsTheAttempt(): void
+    public function testAnApplicationAccessRefusalFailsTheAttempt(): void
     {
         $identity  = $this->mockIdentity();
         $principal = $this->mockActivePrincipal();
@@ -581,7 +591,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $this->resolver->shouldReceive('resolve')->once()->andReturn($principal);
 
-        $this->policy->shouldReceive('admit')->once()->andReturn(FailureReason::PRINCIPAL_INELIGIBLE);
+        $this->access->shouldReceive('mayUse')->once()->andReturnFalse();
         $this->factors->shouldNotReceive('requiresAdditionalFactor');
         $this->provider->shouldNotReceive('rehashPasswordIfRequired');
         $this->expectNoSlotGivenBack();
@@ -610,7 +620,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
      * The additional-factor policy is asked about the admitted sign-in with
      * the password method and the request's client, and is never told of a
      * session; when it requires a factor the attempt fails, because
-     * `attempt()` cannot hand out a pending sign-in.
+     * `attempt()` cannot leave a session pending.
      *
      * @return void
      *
@@ -644,8 +654,6 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         self::assertInstanceOf(AdditionalFactorContext::class, $asked);
         self::assertSame(self::GUARD_NAME, $asked->guard);
         self::assertSame($identity, $asked->identity);
-        self::assertSame($principal, $asked->principal);
-        self::assertNull($asked->tenant);
         self::assertSame('password', $asked->method);
         self::assertSame(self::IP, $asked->client->ip);
         self::assertNull($asked->clientName);
@@ -660,14 +668,15 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * The additional-factor policy is told of the tenant the principal acts
-     * within, as the activity check loaded it, so it can decide per tenant.
+     * The additional-factor policy is asked about the identity alone, whatever
+     * principal and tenant the attempt admitted: a tenant that asks more says
+     * so through its tenant authentication policy.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testTheFactorPolicyIsToldOfThePrincipalsTenant(): void
+    public function testTheFactorPolicyIsAskedAboutTheIdentityAlone(): void
     {
         $identity = $this->mockIdentity();
         $tenant   = \Mockery::mock(Tenant::class);
@@ -690,8 +699,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         self::assertTrue($this->makeGuard()->attempt(['email' => 'ada@example.test', 'password' => 'secret']));
         self::assertInstanceOf(AdditionalFactorContext::class, $asked);
-        self::assertSame($principal, $asked->principal);
-        self::assertSame($tenant, $asked->tenant);
+        self::assertSame($identity, $asked->identity);
+        self::assertSame(['guard', 'identity', 'method', 'client', 'clientName', 'platform', 'provenSession'], array_keys(get_object_vars($asked)));
     }
 
     /**
@@ -725,6 +734,108 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         self::assertSame(FailureReason::SESSION_MISMATCH, $signIn->reason);
         self::assertSame($principal, $signIn->context->principal);
         self::assertNull($signIn->context->session);
+    }
+
+    /**
+     * `attempt()` with a pinned session acts in the tenant the session records:
+     * the principal's own is bound, while a tenant the session acts in that no
+     * longer resolves (the shipped resolver finds none) fails the attempt as
+     * `tenant_inactive`, with the session, and binds nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPinnedSessionIsAdmittedInTheTenantItRecords(): void
+    {
+        $sessionId = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f71';
+
+        $principal = $this->mockActivePrincipal();
+        $own       = $this->pinnableSession($sessionId, $principal);
+        $elsewhere = $this->pinnableSession($sessionId, $principal)->forceFill(['tenant_id' => 'tenant-2']);
+
+        $sessions = \Mockery::mock(Builder::class);
+        $sessions->shouldReceive('useWritePdo')->andReturnSelf();
+        $sessions->shouldReceive('getModel')->andReturn(new StubSession);
+        $sessions->shouldReceive('find')->with($sessionId)->andReturn($own, $elsewhere);
+
+        $identity = $this->mockIdentity(HasSessions::class);
+        $identity->shouldReceive('sessions')->andReturn($sessions);
+
+        $this->provider->shouldReceive('retrieveByCredentials')->twice()->andReturn($identity);
+        $this->provider->shouldReceive('validateCredentials')->twice()->andReturnTrue();
+
+        $this->resolver->shouldReceive('resolve')->twice()->andReturn($principal);
+
+        $guard = $this->makeGuard();
+
+        self::assertTrue($guard->attempt(['email' => 'ada@example.test', 'password' => 'secret'], null, $own));
+        self::assertNull($guard->tenant());
+
+        $events  = $this->recordEvents();
+        $refused = $this->makeGuard();
+
+        self::assertFalse($refused->attempt(['email' => 'ada@example.test', 'password' => 'secret'], null, $own));
+        self::assertFalse($refused->hasUser());
+
+        $signIn = $events[count($events) - 1];
+
+        self::assertInstanceOf(AuthenticationFailed::class, $signIn);
+        self::assertSame(FailureReason::TENANT_INACTIVE, $signIn->reason);
+        self::assertSame($elsewhere, $signIn->context->session);
+    }
+
+    /**
+     * `attempt()` with a pinned session holds the principal to the tenant the
+     * session acts in: once `TenantAccess` no longer lets it act there, the
+     * attempt fails as `tenant_ineligible`, with the session, though the access
+     * still lets it act in its own, and binds nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPinnedSessionInATenantTheAccessNoLongerAllowsIsIneligible(): void
+    {
+        $sessionId = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f72';
+
+        $principal = $this->mockActivePrincipal();
+        $session   = $this->pinnableSession($sessionId, $principal)->forceFill(['tenant_id' => 'tenant-2']);
+        $elsewhere = new PlainTenantFixture('tenant-2');
+
+        $sessions = \Mockery::mock(Builder::class);
+        $sessions->shouldReceive('useWritePdo')->andReturnSelf();
+        $sessions->shouldReceive('getModel')->andReturn(new StubSession);
+        $sessions->shouldReceive('find')->with($sessionId)->andReturn($session);
+
+        $identity = $this->mockIdentity(HasSessions::class);
+        $identity->shouldReceive('sessions')->andReturn($sessions);
+
+        $this->expectPasswordAccepted($identity);
+        $this->resolver->shouldReceive('resolve')->once()->andReturn($principal);
+
+        $resolver = \Mockery::mock(TenantResolver::class);
+        $resolver->shouldReceive('resolve')->with('tenant-2')->andReturn($elsewhere);
+        $access = \Mockery::mock(TenantAccess::class);
+        $access->shouldReceive('mayActIn')->with($principal, null)->andReturnTrue();
+        $access->shouldReceive('mayActIn')->once()->with($principal, $elsewhere)->andReturnFalse();
+
+        assert($this->app !== null);
+
+        $this->app->instance(TenantResolver::class, $resolver);
+        $this->app->instance(TenantAccess::class, $access);
+
+        $events = $this->recordEvents();
+        $guard  = $this->makeGuard();
+
+        self::assertFalse($guard->attempt(['email' => 'ada@example.test', 'password' => 'secret'], null, $session));
+        self::assertFalse($guard->hasUser());
+
+        $signIn = $events[count($events) - 1];
+
+        self::assertInstanceOf(AuthenticationFailed::class, $signIn);
+        self::assertSame(FailureReason::TENANT_INELIGIBLE, $signIn->reason);
+        self::assertSame($session, $signIn->context->session);
     }
 
     /**
@@ -822,7 +933,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $this->policy->shouldNotReceive('allowsMethod');
         $this->policy->shouldNotReceive('admitIdentifier');
-        $this->policy->shouldNotReceive('admit');
+        $this->access->shouldNotReceive('mayUse');
         $this->limiter->shouldNotReceive('acquire');
         $this->factors->shouldNotReceive('requiresAdditionalFactor');
         $this->provider->shouldNotReceive('rehashPasswordIfRequired');
@@ -1072,6 +1183,29 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         self::assertInstanceOf(PrincipalAssigned::class, $events[1]);
         self::assertNull($events[1]->context->method);
         self::assertNull($events[1]->context->session);
+    }
+
+    /**
+     * `authenticateAs()` binds the tenant it is given as given, over the
+     * principal's own; without one, the principal's own.
+     *
+     * @return void
+     */
+    public function testAuthenticateAsBindsTheTenantGivenOverThePrincipalsOwn(): void
+    {
+        $own       = new PlainTenantFixture(7);
+        $given     = new PlainTenantFixture(9);
+        $principal = $this->mockPrincipal();
+        $principal->shouldReceive('getTenant')->andReturn($own);
+        $guard = $this->makeGuard();
+
+        $guard->authenticateAs($this->mockIdentity(), $principal, null, null, $given);
+
+        self::assertSame($given, $guard->tenant());
+
+        $guard->authenticateAs($this->mockIdentity(), $principal);
+
+        self::assertSame($own, $guard->tenant());
     }
 
     /**
