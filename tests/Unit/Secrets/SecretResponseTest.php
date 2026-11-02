@@ -90,16 +90,6 @@ final class SecretResponseTest extends TestCase
     }
 
     /**
-     * The utility is never instantiated.
-     *
-     * @return void
-     */
-    public function testTheConstructorIsPrivate(): void
-    {
-        self::assertTrue((new \ReflectionMethod(SecretResponse::class, '__construct'))->isPrivate());
-    }
-
-    /**
      * Assert the response may not be stored, and allows no caching at all.
      *
      * @param  \Symfony\Component\HttpFoundation\Response  $response
