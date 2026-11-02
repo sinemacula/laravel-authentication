@@ -15,6 +15,7 @@ use SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck;
 use SineMacula\Laravel\Authentication\Codes\IssuedCode;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use Tests\Concerns\InteractsWithCodes;
+use Tests\Fixtures\Database\LockMarkingSQLiteGrammar;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
@@ -140,6 +141,94 @@ final class OneTimeCodesTest extends TestCase
         self::assertInstanceOf(IssuedCode::class, $issued);
         self::assertMatchesRegularExpression('/^[0-9]{10}$/', $issued->code());
         self::assertSame('2026-04-06 12:02:00', DB::table('one_time_codes')->value('expires_at'));
+    }
+
+    /**
+     * A code issued first for a request of its own is written by the insert
+     * alone, with nothing read before it, at the configured length and
+     * lifetime; it is capped by its delivery window as `issue()`'s is.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAFirstIssueInsertsBeforeItReadsAndIsCappedByItsWindow(): void
+    {
+        config()->set('authentication.codes.length', 8);
+
+        $statements = [];
+
+        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
+            $statements[] = strtolower($query->sql);
+        });
+
+        $issued = self::codes()->issueFirst(self::binding(), $this->now);
+
+        self::assertInstanceOf(IssuedCode::class, $issued);
+        self::assertMatchesRegularExpression('/^[0-9]{8}$/', $issued->code());
+        self::assertTrue($this->now->addSeconds(600)->equalTo($issued->expiresAt));
+        self::assertCount(1, $statements);
+        self::assertStringStartsWith('insert', $statements[0]);
+
+        $late = self::codes()->issueFirst(self::binding(), $this->now->addSeconds(1500));
+
+        self::assertInstanceOf(IssuedCode::class, $late);
+        self::assertTrue($this->now->addSeconds(1800)->equalTo($late->expiresAt));
+    }
+
+    /**
+     * A code never outlives the delivery window it was delivered in, while a
+     * token keeps the lifetime it was issued with, whatever is left of its
+     * window.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testOnlyACodeIsCutShortByItsDeliveryWindow(): void
+    {
+        $late = $this->now->addSeconds(1500);
+
+        $this->issued(self::binding());
+        self::assertInstanceOf(IssuedCode::class, self::codes()->issueToken(self::linkBinding(), $this->now, 900));
+
+        $code  = self::codes()->issue(self::binding(), $late);
+        $token = self::codes()->issueToken(self::linkBinding(), $late, 900);
+
+        self::assertInstanceOf(IssuedCode::class, $code);
+        self::assertInstanceOf(IssuedCode::class, $token);
+        self::assertTrue($this->now->addSeconds(1800)->equalTo($code->expiresAt));
+        self::assertTrue($late->addSeconds(900)->equalTo($token->expiresAt));
+    }
+
+    /**
+     * A check reads the challenge without a lock unless asked to lock it until
+     * the caller's transaction ends.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testACheckLocksTheChallengeOnlyWhenAsked(): void
+    {
+        $connection = DB::connection();
+
+        if ($connection->getDriverName() === 'sqlite') {
+            $connection->setQueryGrammar(new LockMarkingSQLiteGrammar($connection));
+        }
+
+        $issued = $this->issued(self::binding(), '123456');
+        $reads  = [];
+
+        $connection->listen(static function (QueryExecuted $query) use (&$reads): void {
+            if (str_starts_with(strtolower($query->sql), 'select')) {
+                $reads[] = str_contains($query->sql, 'for update');
+            }
+        });
+
+        self::assertSame(CodeCheck::WRONG, self::codes()->check(self::binding(), $issued->challengeId, '654321', $this->now));
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check(self::binding(), $issued->challengeId, '123456', $this->now, true));
+        self::assertSame([false, true], $reads);
     }
 
     /**

@@ -67,4 +67,25 @@ final class FactorReferenceTest extends TestCase
     {
         self::assertFalse(FactorReference::isValid($reference));
     }
+
+    /**
+     * The class is a utility container only.
+     *
+     * @return void
+     *
+     * @SuppressWarnings("php:S3011")
+     */
+    public function testConstructorIsPrivate(): void
+    {
+        $reflection  = new \ReflectionClass(FactorReference::class);
+        $constructor = $reflection->getConstructor();
+
+        self::assertNotNull($constructor);
+        self::assertTrue($constructor->isPrivate());
+
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $constructor->invoke($instance);
+
+        self::assertInstanceOf(FactorReference::class, $instance);
+    }
 }

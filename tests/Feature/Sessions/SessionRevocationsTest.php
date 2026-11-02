@@ -302,6 +302,12 @@ final class SessionRevocationsTest extends TestCase
             true,
         ];
 
+        yield 'password established' => [
+            static fn (SessionRevocations $revocations, Identity $identity, Session $record): int => $revocations->passwordEstablished($identity, $record),
+            RevocationReason::PASSWORD_ESTABLISHED,
+            true,
+        ];
+
         yield 'password reset' => [
             static fn (SessionRevocations $revocations, Identity $identity): int => $revocations->passwordReset($identity),
             RevocationReason::PASSWORD_RESET,

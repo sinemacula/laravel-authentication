@@ -117,6 +117,27 @@ final class CodeRowsTest extends TestCase
     }
 
     /**
+     * The class is a utility container only.
+     *
+     * @return void
+     *
+     * @SuppressWarnings("php:S3011")
+     */
+    public function testConstructorIsPrivate(): void
+    {
+        $reflection  = new \ReflectionClass(CodeRows::class);
+        $constructor = $reflection->getConstructor();
+
+        self::assertNotNull($constructor);
+        self::assertTrue($constructor->isPrivate());
+
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $constructor->invoke($instance);
+
+        self::assertInstanceOf(CodeRows::class, $instance);
+    }
+
+    /**
      * Insert the row with the columns given over a live code's.
      *
      * @param  array<string, mixed>  $columns
