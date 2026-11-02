@@ -26,6 +26,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Routing\CallerCredentials;
+use SineMacula\Laravel\Authentication\Routing\DeclaredCredential;
 use SineMacula\Laravel\Authentication\Routing\MeBinding;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithMeBindings;
@@ -205,6 +206,7 @@ final class MeBindingTest extends TestCase
     {
         $this->get('/open/sessions/me', ['Accept' => 'text/html'])->assertUnauthorized()->assertExactJson(['message' => 'Unauthenticated.']);
         $this->getJson('/open/members/me')->assertUnauthorized()->assertExactJson(['message' => 'Unauthenticated.']);
+        $this->getJson('/open/memberships/me')->assertUnauthorized()->assertExactJson(['message' => 'Unauthenticated.']);
         $this->getJson('/open/sessions/' . Str::uuid())->assertNotFound();
 
         self::assertSame([], $this->failures());
@@ -441,6 +443,36 @@ final class MeBindingTest extends TestCase
     }
 
     /**
+     * A sign-in that named its membership and awaits a further factor acts as
+     * that membership already: while verifying, the pending credential binds it
+     * as `me` and by its id, though its session offers no choice, and never
+     * another of the member's.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testWhileAFactorIsOutstandingThePendingCredentialBindsTheMembershipItNamed(): void
+    {
+        [, [$first, $second]] = $this->seedMember('ada@example.test', 2);
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        $result = $this->memberSignIn('ada@example.test', $first);
+
+        self::assertNotNull($result->pending);
+        self::assertSame($first->getKey(), $result->pending->principal?->getPrincipalIdentifier());
+
+        $body = ['pending_credential' => $result->credential?->reveal()];
+
+        $this->send('/verify/principals/me', $body)->assertOk()->assertExactJson(['id' => $first->getKey()]);
+        $this->send('/verify/principals/' . self::key($first), $body)->assertOk()->assertExactJson(['id' => $first->getKey()]);
+        $this->send('/verify/principals/' . self::key($second), $body)->assertNotFound();
+
+        self::assertSame([], $this->failures());
+    }
+
+    /**
      * As a scoped child of the caller's member, a session binds only one of
      * the member's own, `me` the bearer's, and a membership one the member
      * may use; a child of another member is a `404`, as the parent is.
@@ -588,6 +620,41 @@ final class MeBindingTest extends TestCase
     }
 
     /**
+     * The session a refresh credential proves is bound by its id only as a
+     * model of the session's own class: a session model of another class over
+     * the same record is not it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefreshCredentialsSessionIsBoundOnlyAsAModelOfItsClass(): void
+    {
+        $this->seedMember('ada@example.test');
+
+        $session = $this->signedIn('ada@example.test');
+        $record  = $session->record;
+        $body    = (string) json_encode(['refresh_token' => $session->tokens->refreshToken?->reveal()]);
+        $request = Request::create('/bound', 'POST', server: ['CONTENT_TYPE' => 'application/json'], content: $body);
+
+        app()->instance('request', $request);
+
+        Auth::forgetGuards();
+
+        DeclaredCredential::refresh(null)->declareOn($request);
+
+        $other = new class extends Session {
+            use ResolvesMeRouteBinding;
+        };
+
+        $own     = static fn (): ?MeSession => MeSession::query()->whereKey($record->getKey())->first();
+        $another = static fn (): ?Session => $other->newQuery()->whereKey($record->getKey())->first();
+
+        self::assertSame($record->getKey(), MeBinding::current()->resolve(new MeSession, self::key($record), $own)?->getKey());
+        self::assertNull(MeBinding::current()->resolve($other, self::key($record), $another));
+    }
+
+    /**
      * Any other value runs the model's own lookup only for a request with a
      * caller, and binds what it finds only when it is of the model's class.
      *
@@ -683,6 +750,7 @@ final class MeBindingTest extends TestCase
         Route::middleware(SubstituteBindings::class)->group(static function () use ($id): void {
             Route::get('/open/members/{member}', static fn (MeMember $member): array => $id($member));
             Route::get('/open/sessions/{session}', static fn (MeSession $session): array => $id($session));
+            Route::get('/open/memberships/{membership}', static fn (MeMembership $membership): array => $id($membership));
         });
 
         Route::middleware(['authentication.refresh:' . self::MEMBERS, SubstituteBindings::class])->prefix('/refresh')->group(static function () use ($id, $nested): void {
@@ -701,8 +769,10 @@ final class MeBindingTest extends TestCase
             Route::post('/members/{member}/sessions/{session}', static fn (MeMember $member, MeSession $session): array => $nested($member, $session))->scopeBindings();
         });
 
-        Route::middleware(['authentication.pending:mfa.verify', SubstituteBindings::class])
-            ->post('/verify/sessions/{session}', static fn (MeSession $session): array => $id($session));
+        Route::middleware(['authentication.pending:mfa.verify', SubstituteBindings::class])->prefix('/verify')->group(static function () use ($id): void {
+            Route::post('/sessions/{session}', static fn (MeSession $session): array => $id($session));
+            Route::post('/principals/{membership}', static fn (MeMembership $membership): array => $id($membership));
+        });
     }
 
     /**
