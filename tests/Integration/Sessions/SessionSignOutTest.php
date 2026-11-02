@@ -24,9 +24,10 @@ use Tests\TestCase;
 /**
  * Integration tests of signing out by refresh token against the database: the
  * revocation and its reason are written to the row, a token a concurrent
- * refresh replaced moments before still signs the session out, and the
- * revocation's conditional write makes two sign-outs, or a sign-out and another
- * revocation, revoke and report once.
+ * refresh replaced moments before, or one that rotates the session between the
+ * proof and the revocation, still signs the session out, and the revocation's
+ * conditional write makes two sign-outs, or a sign-out and another revocation,
+ * revoke and report once.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -129,6 +130,44 @@ final class SessionSignOutTest extends TestCase
         self::assertTrue($this->sessions()->signOutWith($replaced)->isSignedOut());
         self::assertSame('signed_out', DB::table('authentication_sessions')->value('revoked_reason'));
         self::assertSame(FailureReason::SESSION_REVOKED, $this->sessions()->refresh($refreshed)->reason);
+    }
+
+    /**
+     * A refresh that rotates the session between the proof's read and the
+     * sign-out's write does not stop the sign-out: the session is revoked and
+     * reported once, and the token the refresh issued is refused as revoked.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARotationBetweenTheProofAndTheRevocationStillSignsOut(): void
+    {
+        $this->seedIdentity();
+
+        $token = $this->signedIn();
+
+        /** @var \ArrayObject<string, bool|string|null> $armed */
+        $armed = new \ArrayObject(['armed' => true, 'issued' => null]);
+
+        DB::listen(function (QueryExecuted $query) use ($token, $armed): void {
+
+            if ($armed['armed'] !== true || !str_starts_with(strtolower(ltrim($query->sql)), 'select') || !str_contains($query->sql, 'authentication_sessions')) {
+                return;
+            }
+
+            $armed['armed'] = false;
+
+            $armed['issued'] = $this->sessions()->refresh($token)->session?->tokens->refreshToken?->reveal();
+        });
+
+        $this->recordEvents([SessionRevoked::class, Logout::class]);
+
+        self::assertTrue($this->sessions()->signOutWith($token)->isSignedOut());
+        self::assertIsString($armed['issued']);
+        self::assertSame([SessionRevoked::class, Logout::class], $this->recordedClasses());
+        self::assertSame('signed_out', DB::table('authentication_sessions')->value('revoked_reason'));
+        self::assertSame(FailureReason::SESSION_REVOKED, $this->sessions()->refresh($armed['issued'])->reason);
     }
 
     /**
