@@ -59,6 +59,12 @@ final class MeBindingTest extends TestCase
     /** @var string The id pattern of the members and sessions, both UUID-keyed, or `me`. */
     private const string UUID_OR_ME = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|me';
 
+    /** @var string A cookie application over the same members, on the root path. */
+    private const string BROWSERS = 'browsers';
+
+    /** @var string The refresh cookie the cookie application derives on the root path. */
+    private const string BROWSER_COOKIE = '__Host-browsers_refresh_token';
+
     /** @var \ArrayObject<int, \SineMacula\Laravel\Authentication\Events\AuthenticationFailed> The failures reported since the test began. */
     private \ArrayObject $failures;
 
@@ -280,6 +286,50 @@ final class MeBindingTest extends TestCase
         $this->bearer('POST', '/refresh/sessions/me', $session->tokens->accessToken->reveal())->assertUnauthorized();
 
         self::assertCount(1, $this->failures());
+    }
+
+    /**
+     * On a cookie application, the refresh credential is read from its cookie:
+     * `me` binds the session the cookie proves and a session id binds only that
+     * very session, reporting nothing; a cookie sent without the custom header
+     * binds nothing and is reported once as a cross-site request.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefreshCookieBindsOnlyTheSessionItProves(): void
+    {
+        config()->set('auth.guards.' . self::BROWSERS, [
+            'driver'        => 'jwt',
+            'provider'      => 'me_members',
+            'application'   => ['methods' => ['password']],
+            'refresh_token' => ['transport' => 'cookie', 'cookie' => ['path' => '/']],
+        ]);
+
+        Route::middleware(['authentication.refresh:' . self::BROWSERS, SubstituteBindings::class])
+            ->post('/browser/sessions/{session}', static fn (MeSession $session): array => ['id' => $session->getKey()]);
+
+        $this->seedMember('ada@example.test');
+
+        $proven = $this->signedIn('ada@example.test', guard: self::BROWSERS);
+        $other  = $this->signedIn('ada@example.test', guard: self::BROWSERS);
+        $cookie = $proven->tokens->refreshCookie?->cookie()->getValue();
+        $id     = self::key($proven->record);
+
+        self::assertNull($proven->tokens->refreshToken);
+        self::assertIsString($cookie);
+
+        $this->fromCookie('/browser/sessions/me', $cookie)->assertOk()->assertExactJson(['id' => $id]);
+        $this->fromCookie('/browser/sessions/' . $id, $cookie)->assertOk()->assertExactJson(['id' => $id]);
+        $this->fromCookie('/browser/sessions/' . self::key($other->record), $cookie)->assertNotFound();
+        $this->fromCookie('/browser/sessions/me', $cookie, sameSite: false)->assertUnauthorized();
+
+        self::assertCount(1, $this->failures());
+        self::assertSame(AuthenticationFlow::REFRESH, $this->failures()[0]->flow);
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->failures()[0]->reason);
+        self::assertSame(self::BROWSERS, $this->failures()[0]->context->guard);
+        self::assertStringNotContainsString($cookie, serialize($this->failures()[0]));
     }
 
     /**
@@ -700,6 +750,25 @@ final class MeBindingTest extends TestCase
         Auth::forgetGuards();
 
         return $this->postJson($uri, $body);
+    }
+
+    /**
+     * Send a JSON post carrying the refresh cookie of the cookie application,
+     * from the API's own origin and with the custom header unless it is to look
+     * cross-site, on guards resolved afresh.
+     *
+     * @param  string  $uri
+     * @param  string  $cookie
+     * @param  bool  $sameSite
+     * @return \Illuminate\Testing\TestResponse<\Symfony\Component\HttpFoundation\Response>
+     */
+    private function fromCookie(string $uri, #[\SensitiveParameter] string $cookie, bool $sameSite = true): TestResponse
+    {
+        Auth::forgetGuards();
+
+        $headers = $sameSite ? ['Origin' => 'http://localhost', 'X-Requested-With' => 'XMLHttpRequest'] : ['Origin' => 'http://localhost'];
+
+        return $this->withCredentials()->withUnencryptedCookie(self::BROWSER_COOKIE, $cookie)->postJson($uri, [], $headers);
     }
 
     /**
