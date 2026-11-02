@@ -14,8 +14,8 @@ use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 
 /**
  * What every path that makes a session pending shares: the pending credential's
- * lifetime, its expiry, and how the requirements and the other JSON columns are
- * written.
+ * lifetime, its expiry, the body field it is read from, and how the
+ * requirements and the other JSON columns are written.
  *
  * The JSON columns are written as stored, bypassing the model's casts, so a
  * session model that casts them (the shipped one does, as arrays) and one that
@@ -31,6 +31,15 @@ final class PendingState
 {
     /** @var string Configuration key of the pending credential's lifetime. */
     public const string TTL_KEY = 'authentication.session.pending_ttl_seconds';
+
+    /** @var string Configuration key of the body field a pending credential is read from. */
+    public const string FIELD_KEY = 'authentication.session.pending_credential_field';
+
+    /** @var string Field used when the configuration names none. */
+    private const string DEFAULT_FIELD = 'pending_credential';
+
+    /** @var string A field name PHP keeps as it is in a form body: no whitespace, `.`, brackets or control characters. */
+    private const string FIELD_PATTERN = '/^[^\s.\[\]\x00-\x1F\x7F]+$/D';
 
     /** @var int Lifetime used when the configuration has none, in seconds. */
     private const int DEFAULT_TTL_SECONDS = 300;
@@ -59,6 +68,29 @@ final class PendingState
     public static function ttlSeconds(Repository $config): int
     {
         return IntegerSetting::read($config, self::TTL_KEY, self::DEFAULT_TTL_SECONDS, self::MIN_TTL_SECONDS, self::MAX_TTL_SECONDS);
+    }
+
+    /**
+     * The body field a route that declares the pending credential reads it
+     * from (`pending_credential` when unset), read each time it is asked for;
+     * `authentication:check` validates it the same way. A name PHP would file
+     * under another key in a form body (with whitespace, a `.`, a bracket or a
+     * control character) fails closed.
+     *
+     * @param  \Illuminate\Contracts\Config\Repository  $config
+     * @return string
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function credentialField(Repository $config): string
+    {
+        $field = $config->get(self::FIELD_KEY, self::DEFAULT_FIELD);
+
+        if (!is_string($field) || preg_match(self::FIELD_PATTERN, $field) !== 1) {
+            throw new \InvalidArgumentException(sprintf('%s must be a field name without `.`, spaces or brackets.', self::FIELD_KEY));
+        }
+
+        return $field;
     }
 
     /**

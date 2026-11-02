@@ -52,6 +52,9 @@ are caught on the server.
   meets it, list and get one, sign out (by the access token, or by the refresh credential once the access token has
   expired), sign out everywhere, revoke on security changes, and list, get and switch to the principals an identity may
   use, or switch its active tenant.
+- **`me` route binding**: an opt-in trait for the session, identity and principal models that binds `me` to the
+  caller's own instance, from the access, refresh or pending credential the route reads, and scopes every other id to
+  the caller.
 - **Machine credentials**: API keys and OAuth 2.0 client credentials for non-human identities, with scopes.
 - **Account lifecycle**: password policy, password reset, identifier verification and changing an email or phone.
 - **Per-application settings**: which sign-in methods and machine credentials each application allows (none until it
@@ -175,7 +178,7 @@ Route::middleware('auth:api')->get('/me', fn () => Auth::identity());
 | [Identity models](docs/guides/identity-models.md)         | 2D and 3D models, identifiers, verification, activity                                                                  |
 | [Signing in](docs/guides/signing-in.md)                   | The session service, pending sessions, one-time codes, passkeys, custom methods, factors                               |
 | [Refreshing](docs/guides/refreshing.md)                   | Refresh, the refresh cookie and replay detection                                                                       |
-| [Sessions](docs/guides/sessions.md)                       | Proofs, step-up, reauthentication, freshness, switching principal or tenant, signing out, listing sessions, revocation |
+| [Sessions](docs/guides/sessions.md)                       | Proofs, step-up, reauthentication, freshness, switching, signing out, listing sessions, revocation, the `me` binding   |
 | [Passwords](docs/guides/passwords.md)                     | Password policy, setting a password and password reset                                                                 |
 | [Changing identifiers](docs/guides/identifier-changes.md) | Changing an email address or phone number                                                                              |
 | [Machine credentials](docs/guides/machine-credentials.md) | Non-human identities, scopes, API keys and client credentials                                                          |

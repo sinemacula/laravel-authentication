@@ -69,6 +69,13 @@ return [
     | session that falls short of a further factor during a refresh or a switch
     | returns to pending with a new credential of the same lifetime.
     |
+    | A route that declares the pending credential for the `me` route binding
+    | (`authentication.pending:<action>`) reads it from the body field
+    | `pending_credential_field` (a JSON or form body, never the query string
+    | or a header): a field name without `.`, spaces or brackets; anything
+    | else fails closed when such a route binds, and `authentication:check`
+    | reports it.
+    |
     | `table` may be up to 47 characters: the migration names its indexes
     | after it (`<table>_owner_index` and so on), and PostgreSQL cuts a longer
     | index name short.
@@ -79,6 +86,7 @@ return [
         'model'                      => env('AUTHENTICATION_SESSION_MODEL', Session::class),
         'table'                      => env('AUTHENTICATION_SESSION_TABLE', 'authentication_sessions'),
         'pending_ttl_seconds'        => env('AUTHENTICATION_SESSION_PENDING_TTL_SECONDS', 300),
+        'pending_credential_field'   => env('AUTHENTICATION_SESSION_PENDING_CREDENTIAL_FIELD', 'pending_credential'),
         'last_used_throttle_seconds' => (int) env('AUTHENTICATION_SESSION_LAST_USED_THROTTLE_SECONDS', 60),
         'prune_after_days'           => env('AUTHENTICATION_SESSION_PRUNE_AFTER_DAYS', 30),
     ],

@@ -1,4 +1,4 @@
-# Sessions: proofs, stepping up, freshness, switching principal and signing out
+# Sessions: proofs, stepping up, freshness, switching principal, signing out and the `me` binding
 
 ## Proofs and provenance
 
@@ -664,3 +664,108 @@ Every revocation records one of these reasons in the session's `revoked_reason` 
 
 `revokeSession()`, `revokeSessions()` and `revokePrincipalSessions()` take the reason as an argument (`REVOKED` in the
 examples above); the others set their own.
+
+## The `me` route binding
+
+`ResolvesMeRouteBinding` lets a route parameter of a session, identity or principal model be `me`, the caller's own
+instance, and scopes every other value to the caller. It is opt-in: put it on the models your routes bind (the shipped
+session model does not use it, so extend it and point `authentication.session.model` at yours):
+
+```php
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
+use SineMacula\Laravel\Authentication\Concerns\ResolvesMeRouteBinding;
+use SineMacula\Laravel\Authentication\Models\Session as PackageSession;
+
+class Session extends PackageSession
+{
+    use ResolvesMeRouteBinding;
+}
+
+class Member extends Model implements HasPrincipals, HasSessions, Identity
+{
+    use Authenticatable, ResolvesMeRouteBinding;
+
+    public function principals(): HasMany
+    {
+        return $this->hasMany(Membership::class);
+    }
+
+    public function sessions(): MorphMany
+    {
+        return $this->morphMany(Session::class, 'authenticatable');
+    }
+
+    // ...
+}
+
+class Membership extends Model implements Principal
+{
+    use ActsAsPrincipal, ResolvesMeRouteBinding;
+}
+```
+
+Register `me` as a value of each parameter, once, beside the pattern of its ids (a UUID for the shipped session model):
+
+```php
+Route::pattern('session', '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|me');
+Route::pattern('member', '[0-9]+|me');
+Route::pattern('membership', '[0-9]+|me');
+```
+
+`me` binds the caller's own instance from the credential the route reads: its identity for an identity model (one that
+is its own principal included), the principal it acts as for a principal model, and its session for a session model. A
+request with no such credential, or whose credential holds no instance of that kind (an access-only token has no
+session; a pending session waiting for the choice has no principal), is refused with an `AuthenticationException`, which
+the package's guards answer `401` as JSON. Any other value goes to Eloquent's own lookup
+(`parent::resolveRouteBinding()` and its soft-deletable and child forms), so custom keys (`{member:email}`),
+`withTrashed()` and scoped bindings keep working; the lookup, and every relation it eager-loads, reads the write
+connection. What it finds must then agree with the credential, or the binding misses, which Laravel answers `404`: an
+identity must be the caller's; a session must be one of the caller's identity's sessions, and, when the route reads a
+refresh or a pending credential, the very session that credential proves; a principal must be the one the caller acts
+as, one its identity may use the application as (`Auth::sessions()->principal()`, with the type of identifier its
+session's sign-in used), or, with a pending credential, the one the pending session records or one it offers for the
+choice. A request without a caller finds nothing.
+
+A route reads the access credential of its guard (the one `auth:<guard>` makes the default) unless it declares another:
+
+```php
+Route::middleware('auth:api')->group(function (): void {
+    Route::get('/members/{member}', fn (Member $member) => $member);
+    Route::get('/sessions/{session}', fn (Session $session) => Auth::sessions('api')->session(Auth::identity(), $session->getKey()));
+    Route::get('/members/{member}/sessions/{session}', fn (Member $member, Session $session) => $session)->scopeBindings();
+});
+
+// The session the refresh credential proves, read by cookie or by body as the guard's transport reads it.
+Route::middleware('authentication.refresh:api')->get('/refresh/sessions/{session}', fn (Session $session) => $session);
+
+// Only while the pending session allows choosing; the credential is read from the `pending_credential` body field.
+Route::middleware('authentication.pending:choose_principal,api')->post('/sign-in/principals/{membership}', function (Membership $membership) {
+    return Auth::sessions('api')->choose(request()->input('pending_credential'), $membership);
+});
+```
+
+`authentication.refresh[:<guard>]` declares the refresh credential: the one the guard's refresh token transport reads
+(see [Refreshing](refreshing.md)), proven and admitted as a refresh would be, without rotating it.
+`authentication.pending:<action>[,<guard>]` declares the pending credential for a pending action by its stable name
+(`mfa.verify`, `choose_principal`, ...): it binds only for a live pending session of the guard that allows that action
+now, so nothing is bound because of a route's purpose, and the operation the route then takes (`satisfy()`, `choose()`,
+an adapter's action after `pending()`) makes its own checks. An action that is not a pending action is an
+`InvalidArgumentException`. Each makes a guard it names the default for the request, as `auth:<guard>` does, and records
+the declaration, nothing else: the credential is never inferred from what a request carries, so a refresh cookie that
+rides on every request does not turn a read route into one a refresh token authenticates. The package orders both
+before `SubstituteBindings` in the HTTP kernel's middleware priority; an application that replaces that list keeps
+`SubstituteBindings` in it.
+
+The caller is read only when a parameter asks for it, and once per request for a guard and a credential, so two bound
+parameters prove a refresh credential once. A refresh or pending credential the request carries and that is refused is
+reported once with `AuthenticationFailed`: flow `refresh` with the reason the refresh would give, or flow `sign_in` with
+`pending_invalid` or `pending_action_not_allowed`, never the credential; a request that carries none is not reported.
+
+The trait reserves `me` as a value of every parameter its model binds, and binds only the caller's own instances: a
+route that must bind another identity's (an administrator's screen) binds through `Route::bind()` or a model without the
+trait. A scoped child binding reaches the trait only through its parent (Laravel asks the parent's
+`resolveChildRouteBinding()`), so use it on both models, through an Eloquent relation (`morphMany()`, `hasMany()`): a
+child of a parent with the trait resolves as a top-level binding, through the parent's relation, and a `me` child must
+also be within it. A model that is not a session, an identity or a principal is a `LogicException`, as is a route on a
+guard that is not one of the package's.

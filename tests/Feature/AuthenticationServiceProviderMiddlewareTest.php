@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Http\Middleware\NoStore;
+use SineMacula\Laravel\Authentication\Http\Middleware\UsePendingCredential;
+use SineMacula\Laravel\Authentication\Http\Middleware\UseRefreshCredential;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
@@ -36,6 +38,9 @@ final class AuthenticationServiceProviderMiddlewareTest extends TestCase
 
     /** @var list<class-string> The priority list the application sets itself. */
     private const array APPLICATION_PRIORITY = [AuthenticatesRequests::class, SubstituteBindings::class];
+
+    /** @var list<class-string> The priority list once the package has ordered its middleware into it. */
+    private const array PACKAGE_PRIORITY = [NoStore::class, AuthenticatesRequests::class, UseRefreshCredential::class, UsePendingCredential::class, SubstituteBindings::class];
 
     /**
      * Create the tables and a route that lists `auth` before the middleware.
@@ -69,7 +74,8 @@ final class AuthenticationServiceProviderMiddlewareTest extends TestCase
     /**
      * The alias names the middleware, and the middleware comes first in the
      * kernel's priority, once, ahead of the application's own order, and in the
-     * router's, which the kernel keeps in step.
+     * router's, which the kernel keeps in step; the credential middleware join
+     * the application's order just before `SubstituteBindings`.
      *
      * @return void
      */
@@ -79,8 +85,8 @@ final class AuthenticationServiceProviderMiddlewareTest extends TestCase
         $router = app()->make(Router::class);
 
         self::assertInstanceOf(Kernel::class, $kernel);
-        self::assertSame([NoStore::class, ...self::APPLICATION_PRIORITY], $kernel->getMiddlewarePriority());
-        self::assertSame([NoStore::class, ...self::APPLICATION_PRIORITY], $router->middlewarePriority);
+        self::assertSame(self::PACKAGE_PRIORITY, $kernel->getMiddlewarePriority());
+        self::assertSame(self::PACKAGE_PRIORITY, $router->middlewarePriority);
         self::assertSame(NoStore::class, $router->getMiddleware()['authentication.no-store']);
     }
 
@@ -112,7 +118,7 @@ final class AuthenticationServiceProviderMiddlewareTest extends TestCase
         $kernel = app()->make(HttpKernel::class);
 
         self::assertInstanceOf(Kernel::class, $kernel);
-        self::assertSame([NoStore::class, ...self::APPLICATION_PRIORITY], $kernel->getMiddlewarePriority());
+        self::assertSame(self::PACKAGE_PRIORITY, $kernel->getMiddlewarePriority());
     }
 
     /**

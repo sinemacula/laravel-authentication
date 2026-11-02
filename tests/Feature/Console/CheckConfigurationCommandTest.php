@@ -241,6 +241,10 @@ final class CheckConfigurationCommandTest extends TestCase
             ['authentication.session.pending_ttl_seconds' => 5],
             '[session] authentication.session.pending_ttl_seconds must be an integer from 30 to 3600.',
         ];
+        yield 'a pending credential field PHP would file under another key' => [
+            ['authentication.session.pending_credential_field' => 'pending.credential'],
+            '[session] authentication.session.pending_credential_field must be a field name without `.`, spaces or brackets.',
+        ];
         yield 'a password minimum below 8' => [
             ['authentication.passwords.min_length' => 7],
             '[passwords] authentication.passwords.min_length must be an integer from 8 to 128.',

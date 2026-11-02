@@ -39,10 +39,10 @@ use Symfony\Component\Console\Attribute\AsCommand;
  * guard the way the guard would, and the package-wide settings, and exits
  * non-zero on a problem, for deploy pipelines and readiness probes.
  *
- * Every check runs, so one run lists every problem, each as
- * `[<guard>] <message>`. For a `jwt` guard: the token service (keys, active
- * kid, algorithm, key lengths, lifetimes, leeway, and the issuer and audience,
- * which are required, so a guard with either unset reports it), the identity
+ * Every check runs, so one run lists every problem, each as `[<guard>]
+ * <message>`. For a `jwt` guard: the token service (keys, active kid,
+ * algorithm, key lengths, lifetimes, leeway, and the issuer and audience, which
+ * are required, so a guard with either unset reports it), the identity
  * provider, a principal resolver override, its application (the package
  * application policy's settings, or that a policy of the application's own
  * answers), every flow's rate limits, the password identifier, the refresh
@@ -54,22 +54,22 @@ use Symfony\Component\Console\Attribute\AsCommand;
  * are reported as `[storage]` (the storage connection and the rate limits
  * connection, each a connection name configured in `database.connections`, or
  * none), `[session]` (while a `jwt` guard is configured: the session model,
- * which must live on the storage connection, the pruning retention and the
- * pending credential's lifetime), `[passwords]` (the password policy settings),
- * `[codes]` (the one-time code settings and key, a sender bound when a guard
- * allows a code sign-in method, the package's or an application's own
- * `CodeSignIn`, and an exception a guard's application policy throws when asked
- * whether it allows one, for a guard `--guard` leaves out; a checked guard
- * reports it as its own problem), `[delivery]` (the delivery queue, with a
- * warning, not a problem, when a `jwt` guard is configured and deliveries run
- * on a `sync` queue connection, or a `failover` one that can fall back to
- * `sync`), `[passkeys]` (the passkey challenge lifetime), `[api_keys]` (the key
- * prefix, the rotation overlaps, the last-use throttle and the pruning
- * retention), `[identifier_changes]` (the pending change lifetime) and
- * `[freshness]` (the package's freshness requirements). It also warns about a
- * `jwt` guard whose package application settings allow no sign-in method or
- * machine credential (see `ApplicationChecks::warnings()`), and one whose
- * password resets and identifier changes would refuse to run (see
+ * which must live on the storage connection, the pruning retention, and the
+ * pending credential's lifetime and body field), `[passwords]` (the password
+ * policy settings), `[codes]` (the one-time code settings and key, a sender
+ * bound when a guard allows a code sign-in method, the package's or an
+ * application's own `CodeSignIn`, and an exception a guard's application policy
+ * throws when asked whether it allows one, for a guard `--guard` leaves out; a
+ * checked guard reports it as its own problem), `[delivery]` (the delivery
+ * queue, with a warning, not a problem, when a `jwt` guard is configured and
+ * deliveries run on a `sync` queue connection, or a `failover` one that can
+ * fall back to `sync`), `[passkeys]` (the passkey challenge lifetime),
+ * `[api_keys]` (the key prefix, the rotation overlaps, the last-use throttle
+ * and the pruning retention), `[identifier_changes]` (the pending change
+ * lifetime) and `[freshness]` (the package's freshness requirements). It also
+ * warns about a `jwt` guard whose package application settings allow no sign-in
+ * method or machine credential (see `ApplicationChecks::warnings()`), and one
+ * whose password resets and identifier changes would refuse to run (see
  * `PasswordChecks::warnings()`). The command reads configuration only: its own
  * checks open no database connection, though a policy of the application's own
  * may open one when asked, and it prints no secret.
@@ -141,10 +141,10 @@ final class CheckConfigurationCommand extends Command
     /**
      * The package-wide checks, by what they check: the connections the
      * package's tables live on, the session model and how long pruning keeps a
-     * session and the lifetime of a pending session's credential (only while a
-     * `jwt` guard, which keeps sessions, is configured), the API key settings,
-     * the identifier change settings and the freshness requirements, each of
-     * which otherwise fails only when it is first used.
+     * session and the lifetime and body field of a pending session's credential
+     * (only while a `jwt` guard, which keeps sessions, is configured), the API
+     * key settings, the identifier change settings and the freshness
+     * requirements, each of which otherwise fails only when it is first used.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @param  list<string>  $checked
@@ -159,6 +159,7 @@ final class CheckConfigurationCommand extends Command
                 },
                 static fn (): int => SessionRetention::days(),
                 static fn (): int => PendingState::ttlSeconds($config),
+                static fn (): string => PendingState::credentialField($config),
             ],
         ];
 
