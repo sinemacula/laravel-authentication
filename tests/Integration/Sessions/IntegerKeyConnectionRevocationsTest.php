@@ -123,8 +123,8 @@ final class IntegerKeyConnectionRevocationsTest extends TestCase
     /**
      * A disabled connection reads its integer-keyed provenance a chunk at a
      * time: the first read names only the connection, and the next reads on
-     * from the last key read before it, taking longer keys or ones as long
-     * that sort after it.
+     * from the last key read before it, taking longer keys or ones as long that
+     * sort after it.
      *
      * @return void
      *
@@ -137,9 +137,11 @@ final class IntegerKeyConnectionRevocationsTest extends TestCase
         $reads = [];
 
         DB::listen(static function (QueryExecuted $query) use (&$reads): void {
-            if (str_starts_with($query->sql, 'select') && str_contains($query->sql, 'authentication_provenance')) {
-                $reads[] = $query->bindings;
+            if (!str_starts_with($query->sql, 'select') || !str_contains($query->sql, 'authentication_provenance')) {
+                return;
             }
+
+            $reads[] = $query->bindings;
         });
 
         Auth::sessions('api')->connectionDisabled('conn-a');

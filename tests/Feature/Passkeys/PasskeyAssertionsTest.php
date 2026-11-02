@@ -241,7 +241,9 @@ final class PasskeyAssertionsTest extends TestCase
 
             self::assertNotNull($options);
 
-            return $this->assertions()->verify(self::rp(), ChallengePurpose::FACTOR, $identity, $options->challengeId, $this->authenticator()->get($options->options, $answerWith), $owner, $this->now);
+            $answer = $this->authenticator()->get($options->options, $answerWith);
+
+            return $this->assertions()->verify(self::rp(), ChallengePurpose::FACTOR, $identity, $options->challengeId, $answer, $owner, $this->now);
         };
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $verify($refusing, $other));

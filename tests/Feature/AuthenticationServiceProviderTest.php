@@ -575,8 +575,8 @@ final class AuthenticationServiceProviderTest extends TestCase
     /**
      * The default tenant authentication policy, which requires nothing, the
      * default requirement check, which meets nothing, and the default factor
-     * code counters, which refuse every factor code, are bound as singletons
-     * so a single sign-on or further-factor package can rebind them.
+     * code counters, which refuse every factor code, are bound as singletons so
+     * a single sign-on or further-factor package can rebind them.
      *
      * @return void
      */

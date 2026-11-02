@@ -496,7 +496,9 @@ final class PasswordChangesTest extends TestCase
      */
     public static function provideMalformedSettings(): iterable
     {
-        yield 'the password policy' => ['authentication.passwords.breached.when_unavailable', 'maybe', 'authentication.passwords.breached.when_unavailable must be `reject` or `allow`.'];
+        $breached = 'authentication.passwords.breached.when_unavailable';
+
+        yield 'the password policy' => [$breached, 'maybe', "{$breached} must be `reject` or `allow`."];
         yield 'the code key' => ['authentication.codes.key', 'too-short', 'authentication.codes.key must be a string of at least 32 bytes'];
     }
 

@@ -1702,7 +1702,15 @@ final class PasskeyServiceTest extends TestCase
      * another guard, no session, an empty session, and a session longer than
      * 255 characters.
      *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
      * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Contracts\Identity, \SineMacula\Laravel\Authentication\Contracts\Identity): \SineMacula\Laravel\Authentication\Proofs\ProofBinding}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      */
     public static function provideForeignBindings(): iterable
     {
@@ -1718,8 +1726,16 @@ final class PasskeyServiceTest extends TestCase
      * most 255 characters is a programming error, refused before anything is
      * written.
      *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Contracts\Identity, \SineMacula\Laravel\Authentication\Contracts\Identity): \SineMacula\Laravel\Authentication\Proofs\ProofBinding  $binding
      * @return void
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      *
      * @throws \Throwable
      */

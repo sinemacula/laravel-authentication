@@ -221,9 +221,11 @@ final class OneTimeCodesTest extends TestCase
         $reads  = [];
 
         $connection->listen(static function (QueryExecuted $query) use (&$reads): void {
-            if (str_starts_with(strtolower($query->sql), 'select')) {
-                $reads[] = str_contains($query->sql, 'for update');
+            if (!str_starts_with(strtolower($query->sql), 'select')) {
+                return;
             }
+
+            $reads[] = str_contains($query->sql, 'for update');
         });
 
         self::assertSame(CodeCheck::WRONG, self::codes()->check(self::binding(), $issued->challengeId, '654321', $this->now));

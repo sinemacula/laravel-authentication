@@ -357,8 +357,8 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * A verification job carrying a machine identity, an identity that holds
-     * no verifiable identifiers, or none, sends nothing.
+     * A verification job carrying a machine identity, an identity that holds no
+     * verifiable identifiers, or none, sends nothing.
      *
      * @return void
      *

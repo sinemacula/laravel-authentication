@@ -155,6 +155,7 @@ final class SignsInWithCredentialsTest extends TestCase
      */
     public function testThePolicyIsToldOfThePasswordAsTheFirstFactor(): void
     {
+        /** @var \ArrayObject<int, \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext> $told */
         $told = new \ArrayObject;
 
         $this->app?->instance(AdditionalFactorPolicy::class, new class ($told) implements AdditionalFactorPolicy {
@@ -186,6 +187,7 @@ final class SignsInWithCredentialsTest extends TestCase
 
         self::assertTrue(Auth::guard('api')->attempt(['email' => self::EMAIL, 'password' => self::PASSWORD]));
         self::assertCount(1, $told);
+        self::assertInstanceOf(AdditionalFactorContext::class, $told[0]);
 
         $firstFactor = $told[0]->firstFactor;
 
