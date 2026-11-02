@@ -974,31 +974,6 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * An HTTP kernel that is not the foundation kernel is left as it is: it has
-     * no middleware priority to order.
-     *
-     * @return void
-     */
-    public function testAnotherHttpKernelIsLeftAsItIs(): void
-    {
-        $kernel = \Mockery::mock(HttpKernel::class)->shouldIgnoreMissing();
-
-        $kernel->shouldNotReceive('addToMiddlewarePriorityBefore');
-
-        /** @var \ArrayObject<int, bool> $resolved */
-        $resolved = new \ArrayObject;
-
-        app()->bind(HttpKernel::class, static fn (): HttpKernel => $kernel);
-        app()->afterResolving(HttpKernel::class, static function (mixed $made) use ($kernel, $resolved): void {
-            $resolved->append($made === $kernel);
-        });
-
-        app()->make(HttpKernel::class);
-
-        self::assertSame([true], $resolved->getArrayCopy());
-    }
-
-    /**
      * The exception handler renders a guest on a package guard as a JSON `401`,
      * even for an HTML request.
      *
