@@ -658,7 +658,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
 
-        $left = DB::table('one_time_codes')->pluck('id')->all();
+        $left = DB::table('one_time_codes')->whereNull('consumed_at')->pluck('id')->all();
 
         foreach ($outdated as $binding) {
             self::assertNotContains(self::bindingDigest($binding), $left);
@@ -668,7 +668,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
             self::assertContains(self::bindingDigest($binding), $left);
         }
 
-        self::assertCount(5, $left);
+        self::assertCount(4, $left);
     }
 
     /**
@@ -748,7 +748,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
         $codes->issue($proofs[0], $this->now);
         $codes->issueToken($proofs[1], $this->now, 900);
 
-        $live = static fn (): int => DB::table('one_time_codes')->whereIn('id', array_map(self::bindingDigest(...), $proofs))->count();
+        $live = static fn (): int => DB::table('one_time_codes')->whereIn('id', array_map(self::bindingDigest(...), $proofs))->whereNull('consumed_at')->count();
 
         self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity))->isSent());
         self::assertSame(2, $live());

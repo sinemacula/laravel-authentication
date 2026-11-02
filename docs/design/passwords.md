@@ -107,8 +107,9 @@ only duplicate them.
      discarded and no model event fires, so `RevokeSessionsOnPasswordChange` neither sees the write nor undoes the
      session a change kept. The model is given the hash with `forceFill()` and `syncOriginalAttributes()`.
    - an unsaved identity (registration only): `forceFill()->save()`; a save a model event cancels is a `LogicException`.
-   - `OutdatedProofs::invalidate()`: one `DELETE` on the codes' table of the reset link and code bindings, and for a
-     change or a reset the sign-in code bindings, of every `jwt` guard whose provider can return the identity (its
+   - `OutdatedProofs::invalidate()`: one `UPDATE` on the codes' table (see `one-time-codes.md`; each row keeps its
+     delivery window and cooldown) that ends the reset link and code bindings, and for a change or a reset the sign-in
+     code bindings, of every `jwt` guard whose provider can return the identity (its
      configured model reads the identity's table on the identity's connection, or it names no model) for each identifier
      the identity holds, in canonical form, of a type a reset can be bound to (each guard's password identifier, for
      links, and every type with a registered normaliser, for codes). The identifiers are read from the identity's row as

@@ -39,7 +39,9 @@ the same whether or not anyone has the identifier, and who a code is ever delive
   accepts only when its conditional consume wins. Reset codes and tokens are delivered by their own job
   (`SendPasswordReset`, see `passwords.md`); `SendOneTimeCode` refuses any purpose but `sign_in`, `verification`, `mfa`
   and `enrollment`, and delivers a factor code to the identity it was issued for, read again, never a machine identity.
-  `invalidate()` deletes the live secrets of a set of bindings in one statement.
+  `invalidate()` ends the challenges of a set of bindings in one statement: each unused one is used up under a new
+  `issue_id`, and its row keeps its window, deliveries, `issued_at` and `expires_at`, so ending a challenge (a password
+  write or an identifier change) never resets the delivery cap or the cooldown; pruning deletes the row as any other.
 - Every issuance has a random `issue_id`. Every attempt, use and delivery is conditional on the `issue_id` the caller
   read, so a check or a delivery job for an issuance a resend replaced never touches the replacement, even when the
   resend drew the same digits.

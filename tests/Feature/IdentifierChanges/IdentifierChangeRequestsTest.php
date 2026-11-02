@@ -242,8 +242,8 @@ final class IdentifierChangeRequestsTest extends TestCase
         self::assertNotSame($first, $email['request_id']);
         self::assertSame(['admin', self::EMAIL, 'ada@third.example.test'], [$email['guard'], $email['previous'], $email['identifier']]);
         self::assertSame('2026-04-06 12:01:00', $email['requested_at']);
-        self::assertSame(0, DB::table('one_time_codes')->where('id', self::bindingDigest($binding))->count());
-        self::assertSame(1, self::rows('one_time_codes'));
+        self::assertNotNull(DB::table('one_time_codes')->where('id', self::bindingDigest($binding))->value('consumed_at'));
+        self::assertSame(1, DB::table('one_time_codes')->whereNull('consumed_at')->count());
     }
 
     /**
@@ -718,9 +718,9 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
-     * `cancel()` removes this guard's pending change and its code, so neither
-     * it nor its link confirms anything; it reports whether there was one, and
-     * leaves another guard's change alone.
+     * `cancel()` removes this guard's pending change and ends its code, so
+     * neither it nor its link confirms anything; it reports whether there was
+     * one, and leaves another guard's change alone.
      *
      * @return void
      *
@@ -735,7 +735,7 @@ final class IdentifierChangeRequestsTest extends TestCase
         self::assertFalse($this->changes('admin')->cancel($identity, 'email'));
         self::assertSame(1, self::rows('identifier_changes'));
         self::assertTrue($this->changes()->cancel($identity, 'email'));
-        self::assertSame([0, 0], [self::rows('identifier_changes'), self::rows('one_time_codes')]);
+        self::assertSame([0, 0], [self::rows('identifier_changes'), DB::table('one_time_codes')->whereNull('consumed_at')->count()]);
         self::assertFalse($this->changes()->cancel($identity, 'email'));
         self::assertSame(1, $this->runQueued(SendIdentifierChangeCode::class));
         self::assertSame(0, $this->sender->count());

@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
+use SineMacula\Laravel\Authentication\Codes\DeliveryRefusal;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck;
 use SineMacula\Laravel\Authentication\Codes\IssuedCode;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
@@ -152,16 +153,12 @@ final class OneTimeCodesTest extends TestCase
      */
     public function testDrawsCodesUniformly(): void
     {
-        config()->set('authentication.codes.resend_cooldown_seconds', 0);
-
         $engine = self::codes();
         $counts = array_fill(0, 10, 0);
 
         for ($draw = 0; $draw < 1000; $draw++) {
 
-            $issued = $engine->issue(self::binding(), $this->now);
-
-            $engine->invalidate([self::binding()]);
+            $issued = $engine->issue(self::binding(), $this->now->addSeconds($draw * 1800));
 
             self::assertInstanceOf(IssuedCode::class, $issued);
             self::assertSame(6, strlen($issued->code()));
@@ -732,16 +729,18 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * Invalidating deletes exactly the live codes of the bindings listed,
-     * whatever their state (live, used, locked), in one statement, and leaves
-     * every other binding's code working; a binding listed twice or with no
-     * code costs nothing more, and an empty list runs no statement.
+     * Invalidating ends exactly the listed bindings' unused challenges, in one
+     * statement (none for an empty list, a binding listed twice or one with no
+     * row): each is used up now under a new issuance, so none can be checked
+     * again, while its row keeps its window, deliveries, last delivery and
+     * expiry. A binding not listed is left as it is, and invalidating an ended
+     * challenge again ends nothing.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testInvalidatingDeletesExactlyTheListedBindings(): void
+    public function testInvalidatingEndsExactlyTheListedBindings(): void
     {
         $ada    = new PlainIdentityFixture(1);
         $signIn = self::binding();
@@ -756,6 +755,8 @@ final class OneTimeCodesTest extends TestCase
 
         self::codes()->check($signIn, self::challenge($signIn), '000000', $this->now);
 
+        $before = self::rows();
+
         /** @var \ArrayObject<int, string> $statements */
         $statements = new \ArrayObject;
 
@@ -766,13 +767,63 @@ final class OneTimeCodesTest extends TestCase
         self::assertSame(0, self::codes()->invalidate([]));
         self::assertCount(0, $statements);
 
-        $deleted = self::codes()->invalidate([$signIn, $reset, $link, $change, $reset, CodeBinding::signIn('web', 'phone', self::PHONE)]);
+        CarbonImmutable::setTestNow($this->now->addSeconds(30));
 
-        self::assertSame(4, $deleted);
+        $ended = self::codes()->invalidate([$signIn, $reset, $link, $change, $reset, CodeBinding::signIn('web', 'phone', self::PHONE)]);
+
+        self::assertSame(4, $ended);
         self::assertCount(1, $statements);
-        self::assertStringStartsWith('delete', strtolower($statements[0]));
-        self::assertSame([self::bindingDigest($kept)], DB::table('one_time_codes')->pluck('id')->all());
+        self::assertStringStartsWith('update', strtolower($statements[0]));
+
+        $after = self::rows();
+
+        self::assertSame(array_keys($before), array_keys($after));
+
+        foreach ($after as $id => $row) {
+
+            $endedNow = $id !== self::bindingDigest($kept);
+
+            self::assertSame($endedNow ? '2026-04-06 12:00:30' : null, $row['consumed_at']);
+            self::assertSame($endedNow, $row['issue_id'] !== $before[$id]['issue_id']);
+
+            foreach (['challenge_id', 'code_hash', 'attempts', 'deliveries', 'window_started_at', 'issued_at', 'expires_at'] as $column) {
+                self::assertSame($before[$id][$column], $row[$column], $column);
+            }
+        }
+
         self::assertSame(CodeCheck::INVALID, self::codes()->check($reset, self::challenge($reset), '000000', $this->now));
+        self::assertSame(0, self::codes()->invalidate([$signIn, $reset]));
+    }
+
+    /**
+     * Ending a key's challenge resets neither its delivery cap nor its resend
+     * cooldown: a delivery straight after waits out the cooldown since the last
+     * one, the next is refused while the window has had all its deliveries, and
+     * one is made again only once the window ends.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAnEndedChallengeKeepsItsKeysCooldownAndDeliveryCap(): void
+    {
+        $binding = self::binding();
+
+        foreach ([0, 60, 120] as $second) {
+            self::assertInstanceOf(IssuedCode::class, self::codes()->issue($binding, $this->now->addSeconds($second)));
+        }
+
+        self::codes()->invalidate([$binding]);
+
+        $soon = self::codes()->issue($binding, $this->now->addSeconds(130));
+        $late = self::codes()->issue($binding, $this->now->addSeconds(180));
+
+        self::assertInstanceOf(DeliveryRefusal::class, $soon);
+        self::assertSame([50, false], [$soon->retryAfter, $soon->exhausted]);
+        self::assertInstanceOf(DeliveryRefusal::class, $late);
+        self::assertSame([1620, true], [$late->retryAfter, $late->exhausted]);
+        self::assertSame(3, self::deliveries());
+        self::assertInstanceOf(IssuedCode::class, self::codes()->issue($binding, $this->now->addSeconds(1800)));
     }
 
     /**
@@ -786,6 +837,8 @@ final class OneTimeCodesTest extends TestCase
      */
     public function testACheckForAnotherChallengeSpendsNothing(): void
     {
+        config()->set('authentication.codes.resend_cooldown_seconds', 0);
+
         $binding = self::binding();
         $first   = self::issued($binding);
 
@@ -843,6 +896,36 @@ final class OneTimeCodesTest extends TestCase
         self::assertIsNumeric($attempts);
 
         return (int) $attempts;
+    }
+
+    /**
+     * The deliveries counted in the live code's delivery window.
+     *
+     * @return int
+     */
+    private static function deliveries(): int
+    {
+        $deliveries = DB::table('one_time_codes')->value('deliveries');
+
+        self::assertIsNumeric($deliveries);
+
+        return (int) $deliveries;
+    }
+
+    /**
+     * Every row of the table as stored, by key.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private static function rows(): array
+    {
+        $rows = [];
+
+        foreach (DB::table('one_time_codes')->orderBy('id')->get() as $row) {
+            $rows[(string) $row->id] = (array) $row;
+        }
+
+        return $rows;
     }
 
     /**

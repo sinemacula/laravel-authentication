@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Codes;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Config\Repository;
+use Illuminate\Support\Str;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck;
 use SineMacula\Laravel\Authentication\Models\OneTimeCode;
 
@@ -250,9 +251,14 @@ final readonly class OneTimeCodes
     }
 
     /**
-     * Delete the live code of each binding, whatever its state, in one
-     * statement, so none of them can be checked again. Returns how many rows it
-     * deleted.
+     * End the challenge of each binding that is not used yet, whatever else its
+     * state, in one statement, so none of them can be checked again: each is
+     * used up now under a new issuance, so a write conditional on the issuance
+     * read before also fails. The row stays, with its delivery window, its
+     * deliveries, the time of its last delivery and its expiry, so ending a
+     * challenge never resets the window's delivery cap or the resend cooldown;
+     * pruning deletes it once its window and its expiry have passed. Returns
+     * how many it ended.
      *
      * @param  iterable<\SineMacula\Laravel\Authentication\Codes\CodeBinding>  $bindings
      * @return int
@@ -269,7 +275,17 @@ final readonly class OneTimeCodes
             $digests[] = $this->keys->binding($binding);
         }
 
-        return $digests === [] ? 0 : CodeRows::table()->whereIn('id', $digests)->delete();
+        if ($digests === []) {
+            return 0;
+        }
+
+        return CodeRows::table()
+            ->whereIn('id', $digests)
+            ->whereNull('consumed_at')
+            ->update([
+                'issue_id'    => Str::uuid()->toString(),
+                'consumed_at' => (new OneTimeCode)->fromDateTime(CarbonImmutable::now()->startOfSecond()),
+            ]);
     }
 
     /**

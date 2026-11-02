@@ -135,7 +135,7 @@ final class PasswordServiceTest extends TestCase
         $result = $passwords->set($identity, self::NEW_PASSWORD, PasswordFlow::REGISTRATION);
 
         self::assertSame([true, [], 0], [$result->set, $result->violations, $result->revoked]);
-        self::assertSame(['insert', 'select', 'delete'], $statements->getArrayCopy());
+        self::assertSame(['insert', 'select', 'update'], $statements->getArrayCopy());
         self::assertTrue($identity->exists);
 
         $stored = DB::table('password_identities')->where('email', 'grace@example.test')->value('password');

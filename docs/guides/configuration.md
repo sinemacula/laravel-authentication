@@ -643,10 +643,11 @@ one: a verification, a factor code) are capped at `max_deliveries` (1 to 10) in 
 holds (`deliveries_exhausted` until it ends), and no code outlives its window, so a resend never extends a challenge
 past it. Nor is a code delivered with less than `resend_cooldown_seconds` left of its window: it could expire before
 another may be asked for, so the request is answered `rate_limited` with the seconds until the window ends, after which
-the next starts a new window. A reset link's token works for its own lifetime but counts against the cap. Each number is
-an integer, or a digit string as `env()` returns one; anything else fails closed with an `InvalidArgumentException`
-naming the key when a code is first issued, and `authentication:check` reports it. The settings are global, not per
-guard.
+the next starts a new window. A reset link's token works for its own lifetime but counts against the cap. A password
+write or an identifier change ends the codes and links it outdates but keeps their windows, so it resets neither the
+cap nor the cooldown. Each number is an integer, or a digit string as `env()` returns one; anything else fails closed
+with an `InvalidArgumentException` naming the key when a code is first issued, and `authentication:check` reports it.
+The settings are global, not per guard.
 
 Codes live in `table` (`authentication-migrations` creates `one_time_codes`), on the storage connection, one row per
 delivery key: the purpose (a sign-in, a verification, a further factor's code, an enrolment's, a password reset code or
