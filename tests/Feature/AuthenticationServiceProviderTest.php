@@ -61,6 +61,7 @@ use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
+use SineMacula\Laravel\Authentication\Http\Middleware\NoStore;
 use SineMacula\Laravel\Authentication\Http\Middleware\UsePendingCredential;
 use SineMacula\Laravel\Authentication\Http\Middleware\UseRefreshCredential;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
@@ -946,20 +947,25 @@ final class AuthenticationServiceProviderTest extends TestCase
     /**
      * The credential middleware a route declares its `me` bindings' credential
      * with are aliased, and ordered before `SubstituteBindings` in the HTTP
-     * kernel's middleware priority, as the router sorts route middleware by it.
+     * kernel's middleware priority, as the router sorts route middleware by it;
+     * `authentication.no-store` is aliased too, and comes first, so it wraps
+     * every other route middleware the kernel sorts.
      *
      * @return void
      */
-    public function testTheCredentialMiddlewareAreAliasedAndOrderedBeforeSubstituteBindings(): void
+    public function testTheRouteMiddlewareAreAliasedAndOrderedInThePriority(): void
     {
         $router = app(Router::class);
         $kernel = app(HttpKernel::class);
 
         self::assertInstanceOf(Kernel::class, $kernel);
+        self::assertSame(NoStore::class, $router->getMiddleware()['authentication.no-store'] ?? null);
         self::assertSame(UseRefreshCredential::class, $router->getMiddleware()['authentication.refresh'] ?? null);
         self::assertSame(UsePendingCredential::class, $router->getMiddleware()['authentication.pending'] ?? null);
 
         foreach ([$kernel->getMiddlewarePriority(), $router->middlewarePriority] as $priority) {
+
+            self::assertSame(NoStore::class, $priority[0] ?? null);
 
             $bindings = array_search(SubstituteBindings::class, $priority, true);
             $refresh  = array_search(UseRefreshCredential::class, $priority, true);
