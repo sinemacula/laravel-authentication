@@ -130,7 +130,7 @@ final readonly class SessionSignOut
      * cookie, with the cookie's cross-site checks, so on a cookie application
      * this is a misconfiguration (`LogicException`).
      *
-     * @param  string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
      * @return \SineMacula\Laravel\Authentication\Sessions\SignOutResult
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -138,7 +138,7 @@ final readonly class SessionSignOut
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    public function with(#[\SensitiveParameter] string $refreshToken): SignOutResult
+    public function with(#[\SensitiveParameter] Secret|string $refreshToken): SignOutResult
     {
         SessionRefresh::refuseHandedIn($this->transport());
 

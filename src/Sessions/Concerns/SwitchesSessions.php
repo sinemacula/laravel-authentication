@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\PendingTransitions;
 use SineMacula\Laravel\Authentication\Sessions\ReturnedToPending;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
@@ -81,13 +82,13 @@ trait SwitchesSessions
      * delivered as the application's transport says: a cookie application's
      * refresh token only in its cookie.
      *
-     * @param  string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
      * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchTarget  $target
      * @return \SineMacula\Laravel\Authentication\Sessions\SwitchResult
      *
      * @throws \Throwable
      */
-    public function switchTo(#[\SensitiveParameter] string $refreshToken, SwitchTarget $target): SwitchResult
+    public function switchTo(#[\SensitiveParameter] Secret|string $refreshToken, SwitchTarget $target): SwitchResult
     {
         $transport = $this->transport();
 
@@ -121,7 +122,7 @@ trait SwitchesSessions
         $presented = $transport->read($request);
 
         if ($presented instanceof PresentedRefreshToken) {
-            return $this->switchWith($presented->token->reveal(), $target, $transport)->withSource($presented->source);
+            return $this->switchWith($presented->token, $target, $transport)->withSource($presented->source);
         }
 
         if ($presented !== null) {
@@ -140,14 +141,14 @@ trait SwitchesSessions
      * Switch the session the refresh token proves to the target, and deliver
      * the switched session's pair through the transport.
      *
-     * @param  string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
      * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchTarget  $target
      * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
      * @return \SineMacula\Laravel\Authentication\Sessions\SwitchResult
      *
      * @throws \Throwable
      */
-    private function switchWith(#[\SensitiveParameter] string $refreshToken, SwitchTarget $target, RefreshTokenTransport $transport): SwitchResult
+    private function switchWith(#[\SensitiveParameter] Secret|string $refreshToken, SwitchTarget $target, RefreshTokenTransport $transport): SwitchResult
     {
         $client = $this->context->client();
         $revoke = function (EloquentSession&Model $record, CarbonImmutable $now) use ($client): bool {

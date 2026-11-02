@@ -34,6 +34,7 @@ use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -124,12 +125,12 @@ final readonly class SessionSwitch
      * client's IP address; once either count is full the switch is refused as
      * `rate_limited` before the session is looked up.
      *
-     * @param  string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
      *
      * @throws \Throwable
      */
-    public function switch(#[\SensitiveParameter] string $refreshToken): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal
+    public function switch(#[\SensitiveParameter] Secret|string $refreshToken): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal
     {
         $claims    = $this->tokens->parse($refreshToken, TokenType::REFRESH);
         $sessionId = IdentifierCoercion::stringify($claims[Claims::SESSION_ID->value] ?? null);

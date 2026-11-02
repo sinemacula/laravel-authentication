@@ -11,6 +11,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\ActiveSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionSignOut;
@@ -140,7 +141,7 @@ trait EndsSessions
      * cookie's cross-site checks, so on a cookie application this throws a
      * `LogicException`: use `signOutFromRequest()`.
      *
-     * @param  string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
      * @return \SineMacula\Laravel\Authentication\Sessions\SignOutResult
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -150,7 +151,7 @@ trait EndsSessions
      *
      * @imperative
      */
-    public function signOutWith(#[\SensitiveParameter] string $refreshToken): SignOutResult
+    public function signOutWith(#[\SensitiveParameter] Secret|string $refreshToken): SignOutResult
     {
         return $this->signOuts->with($refreshToken);
     }

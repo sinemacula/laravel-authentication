@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions\Concerns;
 
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\RefreshCredential;
 use SineMacula\Laravel\Authentication\Sessions\RefreshResult;
 use SineMacula\Laravel\Authentication\Sessions\SessionRefresh;
@@ -61,12 +62,12 @@ trait RefreshesSessions
      * only `refreshFromRequest()` makes, so on a cookie application this throws
      * a `LogicException`.
      *
-     * @param  string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
      * @return \SineMacula\Laravel\Authentication\Sessions\RefreshResult
      *
      * @throws \Throwable
      */
-    public function refresh(#[\SensitiveParameter] string $refreshToken): RefreshResult
+    public function refresh(#[\SensitiveParameter] Secret|string $refreshToken): RefreshResult
     {
         return $this->refreshes->refresh($refreshToken);
     }

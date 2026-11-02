@@ -187,6 +187,29 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
+     * The refresh token a sign-in returned is taken as the `Secret` it was
+     * returned as, as its revealed string is.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefreshTakesTheTokenAsTheSecretItWasReturnedAs(): void
+    {
+        $this->seedIdentity();
+
+        $session = $this->signedIn();
+        $token   = $session->tokens->refreshToken;
+
+        self::assertNotNull($token);
+
+        $result = self::sessionsOf($this->freshGuard())->refresh($token);
+
+        self::assertTrue($result->isRefreshed());
+        self::assertSame($session->record->getKey(), $result->session?->record->getKey());
+    }
+
+    /**
      * The bind events carry the tenant the refresh admitted the principal in
      * and the sign-in method the session records, as the rotation's report
      * does.

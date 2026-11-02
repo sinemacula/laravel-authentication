@@ -339,6 +339,30 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
+     * The refresh token a sign-in returned switches its session when it is
+     * handed in as the `Secret` it was returned as.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchTakesTheTokenAsTheSecretItWasReturnedAs(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $token = $this->signIn()->tokens->refreshToken;
+
+        self::assertNotNull($token);
+
+        $this->advance(60);
+
+        $result = $this->sessions(self::GUARD)->switchTo($token, SwitchTarget::principal($second));
+
+        self::assertTrue($result->isSwitched());
+        self::assertTrue($result->session?->principal->is($second)); // @phpstan-ignore method.notFound
+    }
+
+    /**
      * After A -> B -> A the access token issued for A before the first switch
      * stays refused, while the one the second switch issued is accepted.
      *

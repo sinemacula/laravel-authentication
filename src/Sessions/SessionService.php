@@ -34,6 +34,7 @@ use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\LooksUpSessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\ProvesSessions;
@@ -301,13 +302,13 @@ final readonly class SessionService
      * principals a choice screen lists. A read: it dispatches nothing and
      * writes nothing.
      *
-     * @param  string  $credential
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction  $action
      * @return ?\SineMacula\Laravel\Authentication\Sessions\PendingSession
      *
      * @throws \Throwable
      */
-    public function pending(#[\SensitiveParameter] string $credential, ?PendingAction $action = null): ?PendingSession
+    public function pending(#[\SensitiveParameter] Secret|string $credential, ?PendingAction $action = null): ?PendingSession
     {
         return $this->pendings->pending($credential, $action, CarbonImmutable::now()->startOfSecond());
     }
@@ -335,13 +336,13 @@ final readonly class SessionService
      * `pending_invalid`. Every refusal is reported with Laravel's `Failed` and
      * `AuthenticationFailed`.
      *
-     * @param  string  $credential
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
-    public function satisfy(#[\SensitiveParameter] string $credential, ProofResult $proof): SignInResult
+    public function satisfy(#[\SensitiveParameter] Secret|string $credential, ProofResult $proof): SignInResult
     {
         $transport = $this->transport();
 
@@ -368,14 +369,14 @@ final readonly class SessionService
      * for another choice; a credential that names no live pending session of
      * this guard fails as `pending_invalid`.
      *
-     * @param  string  $credential
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Tenancy\TenantSelection  $tenant
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
-    public function choose(#[\SensitiveParameter] string $credential, Principal $principal, ?TenantSelection $tenant = null): SignInResult
+    public function choose(#[\SensitiveParameter] Secret|string $credential, Principal $principal, ?TenantSelection $tenant = null): SignInResult
     {
         $transport = $this->transport();
 
@@ -391,14 +392,14 @@ final readonly class SessionService
      * whether the credential named a live pending session of this guard, which
      * this call ended.
      *
-     * @param  string  $credential
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @return bool
      *
      * @throws \Throwable
      *
      * @imperative
      */
-    public function discard(#[\SensitiveParameter] string $credential): bool
+    public function discard(#[\SensitiveParameter] Secret|string $credential): bool
     {
         return $this->pendings->discard($credential, CarbonImmutable::now()->startOfSecond());
     }

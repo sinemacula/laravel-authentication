@@ -25,6 +25,7 @@ use SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
@@ -92,7 +93,7 @@ final readonly class SessionRefresh
      * with the cookie's cross-site checks, by `refreshFromRequest()` alone, so
      * a token handed in here is a misconfiguration (`LogicException`).
      *
-     * @param  string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
      * @return \SineMacula\Laravel\Authentication\Sessions\RefreshResult
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -101,7 +102,7 @@ final readonly class SessionRefresh
      * @throws \Random\RandomException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function refresh(#[\SensitiveParameter] string $refreshToken): RefreshResult
+    public function refresh(#[\SensitiveParameter] Secret|string $refreshToken): RefreshResult
     {
         $transport = $this->transport();
 
@@ -149,7 +150,7 @@ final readonly class SessionRefresh
         $presented = $transport->read($this->context->request());
 
         if ($presented instanceof PresentedRefreshToken) {
-            return $this->exchange($presented->token->reveal(), $transport)->withSource($presented->source);
+            return $this->exchange($presented->token, $transport)->withSource($presented->source);
         }
 
         if ($presented === null) {
@@ -228,7 +229,7 @@ final readonly class SessionRefresh
      * credential instead of a pair, nothing is bound, and a binding to that
      * session is forgotten.
      *
-     * @param  string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
      * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
      * @return \SineMacula\Laravel\Authentication\Sessions\RefreshResult
      *
@@ -238,7 +239,7 @@ final readonly class SessionRefresh
      * @throws \Random\RandomException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    private function exchange(#[\SensitiveParameter] string $refreshToken, RefreshTokenTransport $transport): RefreshResult
+    private function exchange(#[\SensitiveParameter] Secret|string $refreshToken, RefreshTokenTransport $transport): RefreshResult
     {
         $this->context->dispatch(new Attempting($this->context->name(), [], false));
 

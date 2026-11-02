@@ -490,6 +490,36 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
+     * The pending credential a sign-in returned is taken as the `Secret` it was
+     * returned as, as its revealed string is: looked up, satisfied, chosen with
+     * and discarded.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testThePendingCredentialIsTakenAsTheSecretItWasReturnedAs(): void
+    {
+        [$member, $first] = $this->seedChooser();
+
+        $signIn = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'));
+        $again  = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'));
+
+        self::assertNotNull($signIn->pending);
+        self::assertNotNull($signIn->credential);
+        self::assertNotNull($again->credential);
+
+        $credential = $signIn->credential;
+        $proof      = self::adapterProof($member, self::CHOOSERS, $signIn->pending->id, Purpose::SIGN_IN);
+
+        self::assertSame($signIn->pending->id, $this->sessions(self::CHOOSERS)->pending($credential)?->id);
+        self::assertTrue($this->sessions(self::CHOOSERS)->satisfy($credential, $proof)->isPending());
+        self::assertTrue($this->sessions(self::CHOOSERS)->choose($credential, $first)->isSignedIn());
+        self::assertTrue($this->sessions(self::CHOOSERS)->discard($again->credential));
+        self::assertNull($this->sessions(self::CHOOSERS)->pending($again->credential));
+    }
+
+    /**
      * A session waiting on a factor and then a choice moves on to the choice
      * once the factor is satisfied: still pending, with the same credential,
      * which now lists the principals and allows the choice, and no token; the

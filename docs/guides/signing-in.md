@@ -260,7 +260,10 @@ The plaintext leaves only through `reveal()`, where you send it. Casting a secre
 throws `Exceptions\SecretNotRevealedException`, a `LogicException`: a bug in the calling code, never a result to handle.
 `var_dump`, `print_r` and Laravel's `dump` and `dd` show `[redacted]` (`Secret::REDACTED`), and a stack trace that
 records arguments holds the object, never the plaintext. The values your code hands in (a password, the input a client
-sent, a refresh token or pending credential a request carried) are strings, covered by `#[\SensitiveParameter]`.
+sent, a refresh token or pending credential a request carried) are strings, covered by `#[\SensitiveParameter]`. A
+method that takes a token or credential back (`refresh()`, `switchTo()`, `signOutWith()`, `pending()`, `satisfy()`,
+`choose()`, `discard()`) takes either that string or the `Secret` the package returned, so there is nothing to reveal
+to hand one back.
 
 Answer with `Secrets\SecretResponse::json($data, $status, $headers)`: it reveals every `Secret` in `$data`, at any depth
 of arrays, and marks the response `Cache-Control: no-store` and `Pragma: no-cache`, replacing any caching headers, so no

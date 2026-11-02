@@ -29,7 +29,11 @@ which values are secrets and which stay strings, and what the redaction tests ch
   encrypted delivery job, and whose `__debugInfo()` redacts it); and a closure that needs a password or a pending
   credential captures the `\SensitiveParameterValue`, never the string.
 - Values the application hands in (a password, a sign-in's input, a refresh token or pending credential a request
-  carried) stay strings, covered by `#[\SensitiveParameter]` on every parameter that receives one. A credential id (an
+  carried) stay strings, covered by `#[\SensitiveParameter]` on every parameter that receives one. A method that takes
+  back a token or credential the package returned (`refresh()`, `switchTo()`, `signOutWith()`, `pending()`,
+  `satisfy()`, `choose()`, `discard()`, `JwtTokenService::parse()`) takes it as the `Secret` it was returned as or as
+  the string a request carried, and reveals it only at the step that reads it (`Secrets\Plaintext`), so a token read
+  through the transport reaches the parser as a `Secret`. A credential id (an
   API key's or a passkey's) and a refresh token's rotation id are identifiers, not secrets, and stay strings.
 - Events never carry a secret, and `JwtTokenService`'s debug logger is never handed a token.
 - `ClientCredentialsResult` keeps `JsonSerializable` with the token still a `Secret`, so encoding a granted result
@@ -66,14 +70,15 @@ which values are secrets and which stay strings, and what the redaction tests ch
 
 ## Implementation Anchors
 
-- `src/Secrets/Secret.php`, `src/Secrets/SecretResponse.php`, `src/Exceptions/SecretNotRevealedException.php`
+- `src/Secrets/Secret.php`, `src/Secrets/SecretResponse.php`, `src/Secrets/Plaintext.php`,
+  `src/Exceptions/SecretNotRevealedException.php`
 - `src/Http/Middleware/NoStore.php`; `src/AuthenticationServiceProvider.php` (`registerMiddleware()`)
 - `src/Http/RefreshCookie.php`, `src/ClientCredentials/ClientCredentialsResult.php`, `src/Sessions/SignInRequest.php`,
   `src/Codes/IssuedCode.php`
 
 ## Authoritative Tests
 
-- `tests/Unit/Secrets/SecretTest.php`, `tests/Unit/Secrets/SecretResponseTest.php`,
+- `tests/Unit/Secrets/SecretTest.php`, `tests/Unit/Secrets/SecretResponseTest.php`, `tests/Unit/Secrets/PlaintextTest.php`,
   `tests/Unit/Exceptions/SecretNotRevealedExceptionTest.php`
 - `tests/Feature/Http/Middleware/NoStoreTest.php`, `tests/Feature/AuthenticationServiceProviderMiddlewareTest.php`
 - `tests/Feature/Secrets/SecretRedactionTest.php`: a throwing sign-in method and throwing listeners during a sign-in,

@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\SubjectType;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Proofs\AuthenticationClaims;
 use SineMacula\Laravel\Authentication\Proofs\AuthenticationSummary;
+use SineMacula\Laravel\Authentication\Secrets\Plaintext;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionDeadlines;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
@@ -284,7 +285,7 @@ final class JwtTokenService
      */
     public function parse(#[\SensitiveParameter] Secret|string $token, ?TokenType $expectedType = null): ?array
     {
-        return $this->verifiedClaims($token instanceof Secret ? $token->reveal() : $token, $expectedType, false);
+        return $this->verifiedClaims(Plaintext::of($token), $expectedType, false);
     }
 
     /**
@@ -306,7 +307,7 @@ final class JwtTokenService
      */
     public function parseRefreshProof(#[\SensitiveParameter] Secret|string $token): ?array
     {
-        return $this->verifiedClaims($token instanceof Secret ? $token->reveal() : $token, TokenType::REFRESH, true);
+        return $this->verifiedClaims(Plaintext::of($token), TokenType::REFRESH, true);
     }
 
     /**

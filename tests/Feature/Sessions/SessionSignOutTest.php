@@ -486,6 +486,26 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
+     * The refresh token a sign-in returned signs its session out when it is
+     * handed in as the `Secret` it was returned as.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATokenHandedInAsTheSecretItWasReturnedAsSignsItsSessionOut(): void
+    {
+        $this->seedIdentity();
+
+        $session = $this->signedIn();
+        $token   = $session->tokens->refreshToken;
+
+        self::assertNotNull($token);
+        self::assertTrue($this->serving()->signOutWith($token)->isSignedOut());
+        self::assertSame('signed_out', $this->revokedReasonOf($session));
+    }
+
+    /**
      * A token handed in that proves no session is refused with its reason and
      * no source, reported with the flow `sign_out`.
      *
