@@ -106,7 +106,10 @@ final class IdentifierChangeRoutesTest extends TestCase
 
         $access = $this->signIn();
 
-        $this->bearer($access, 'post', '/email/change', ['email' => self::NEW_EMAIL])->assertAccepted()->assertJsonStructure(['expires_at']);
+        $challenge = $this->bearer($access, 'post', '/email/change', ['email' => self::NEW_EMAIL])
+            ->assertAccepted()
+            ->assertJsonStructure(['challenge', 'expires_at'])
+            ->json('challenge');
 
         $code = $this->sender->lastCodeFor(self::NEW_EMAIL);
 
@@ -114,8 +117,8 @@ final class IdentifierChangeRoutesTest extends TestCase
 
         $wrong = $code === '000000' ? '111111' : '000000';
 
-        $this->bearer($access, 'post', '/email/change/confirm', ['code' => $wrong])->assertUnprocessable();
-        $this->bearer($access, 'post', '/email/change/confirm', ['code' => $code])->assertNoContent();
+        $this->bearer($access, 'post', '/email/change/confirm', ['challenge' => $challenge, 'code' => $wrong])->assertUnprocessable();
+        $this->bearer($access, 'post', '/email/change/confirm', ['challenge' => $challenge, 'code' => $code])->assertNoContent();
 
         $notices = array_map(static fn (IdentifierChangeNotice $notice): array => [$notice->previous, $notice->identifier], $this->notifier->sent());
 
@@ -272,12 +275,12 @@ final class IdentifierChangeRoutesTest extends TestCase
      */
     private static function confirmByCode(Request $request): Response
     {
-        $input    = $request->validate(['code' => ['required', 'string']]); // @phpstan-ignore staticMethod.dynamicCall
+        $input    = $request->validate(['challenge' => ['required', 'string'], 'code' => ['required', 'string']]); // @phpstan-ignore staticMethod.dynamicCall
         $identity = Auth::identity();
 
         abort_unless($identity instanceof Identity, 401);
 
-        return self::confirmed(Auth::identifierChanges('web')->confirmByCode($identity, 'email', $input['code']));
+        return self::confirmed(Auth::identifierChanges('web')->confirmByCode($identity, 'email', $input['challenge'], $input['code']));
     }
 
     /**
@@ -315,7 +318,7 @@ final class IdentifierChangeRoutesTest extends TestCase
     private static function answer(IdentifierChangeRequest $result): JsonResponse
     {
         return match ($result->status) {
-            IdentifierChangeRequestStatus::SENT                      => response()->json(['expires_at' => $result->expiresAt?->toIso8601String()], 202),
+            IdentifierChangeRequestStatus::SENT                      => response()->json(['challenge' => $result->challengeId, 'expires_at' => $result->expiresAt?->toIso8601String()], 202), // phpcs:ignore Generic.Files.LineLength.TooLong
             IdentifierChangeRequestStatus::RATE_LIMITED              => response()->json(['message' => 'Too Many Attempts.'], 429, ['Retry-After' => (string) $result->retryAfter]),
             IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED => response()->json(['message' => 'Confirm your password, or sign in again.'], 403),
             IdentifierChangeRequestStatus::IDENTIFIER_INVALID,

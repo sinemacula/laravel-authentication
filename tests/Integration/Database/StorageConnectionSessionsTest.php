@@ -158,7 +158,7 @@ final class StorageConnectionSessionsTest extends TestCase
 
         self::assertInstanceOf(IssuedCode::class, $issued);
         self::assertSame(1, DB::connection(self::STORAGE)->table('one_time_codes')->count());
-        self::assertSame(CodeCheck::ACCEPTED, $codes->check($binding, $issued->code(), $now));
+        self::assertSame(CodeCheck::ACCEPTED, $codes->check($binding, $issued->challengeId, $issued->code(), $now));
         self::assertNotNull(DB::connection(self::STORAGE)->table('one_time_codes')->value('consumed_at'));
     }
 

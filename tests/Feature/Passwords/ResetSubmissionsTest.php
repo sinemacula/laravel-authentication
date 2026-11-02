@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
 use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
@@ -122,7 +123,7 @@ final class ResetSubmissionsTest extends TestCase
         self::assertIsString($code);
         self::assertNull($this->codes->lastCodeFor(self::PHONE, CodePurpose::SIGN_IN));
 
-        $this->postJson('/password/reset/code', ['phone' => self::PHONE, 'code' => $code, 'password' => self::NEW_PASSWORD])
+        $this->postJson('/password/reset/code', ['phone' => self::PHONE, 'challenge' => self::challenge(), 'code' => $code, 'password' => self::NEW_PASSWORD])
             ->assertExactJson(['status' => 'reset', 'revoked' => 1, 'violations' => []]);
 
         self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, (string) PasswordIdentity::query()->sole()->password));
@@ -274,9 +275,11 @@ final class ResetSubmissionsTest extends TestCase
 
         app()->instance(BreachedPasswordChecker::class, new FailingBreachedPasswordChecker);
 
+        $byCode = ['phone' => self::PHONE, 'challenge' => self::challenge(CodeBinding::passwordReset('web', 'phone', self::PHONE)), 'code' => $code];
+
         $resets = [
             [$token, fn (): mixed => $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])],
-            [$code, fn (): mixed => $this->passwords()->resetWithCode('phone', ['phone' => self::PHONE, 'code' => $code, 'password' => self::NEW_PASSWORD])],
+            [$code, fn (): mixed => $this->passwords()->resetWithCode('phone', [...$byCode, 'password' => self::NEW_PASSWORD])],
         ];
 
         foreach ($resets as [$proof, $reset]) {
@@ -348,18 +351,21 @@ final class ResetSubmissionsTest extends TestCase
 
         $token = $this->requestLink();
 
-        self::assertTrue($this->passwords()->sendResetCode('phone', ['phone' => self::PHONE])->isSent());
+        $challenge = $this->passwords()->sendResetCode('phone', ['phone' => self::PHONE])->challengeId;
 
         app()->terminate();
 
         $code   = (string) $this->codes->lastCodeFor(self::PHONE, CodePurpose::PASSWORD_RESET);
         $link   = $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => "correct horse battery\0staple"]);
-        $byCode = $this->passwords()->resetWithCode('phone', ['phone' => self::PHONE, 'code' => $code, 'password' => "correct horse battery\0staple"]);
+        $byCode = $this->passwords()->resetWithCode('phone', ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => $code, 'password' => "correct horse battery\0staple"]);
 
         self::assertSame([ResetStatus::PASSWORD_REJECTED, [PasswordViolation::NULL_CHARACTER]], [$link->status, $link->violations]);
         self::assertSame([ResetStatus::PASSWORD_REJECTED, [PasswordViolation::NULL_CHARACTER]], [$byCode->status, $byCode->violations]);
         self::assertSame([0, 0], [(int) DB::table('one_time_codes')->sum('attempts'), DB::table('one_time_codes')->whereNotNull('consumed_at')->count()]);
-        self::assertSame(ResetStatus::RESET, $this->passwords()->resetWithCode('phone', ['phone' => self::PHONE, 'code' => $code, 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(
+            ResetStatus::RESET,
+            $this->passwords()->resetWithCode('phone', ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => $code, 'password' => self::NEW_PASSWORD])->status,
+        );
     }
 
     /**
@@ -440,7 +446,7 @@ final class ResetSubmissionsTest extends TestCase
 
         foreach ([$wrong, $wrong, $code] as $attempt) {
 
-            $result = $this->passwords()->resetWithCode('phone', ['phone' => self::PHONE, 'code' => $attempt, 'password' => self::NEW_PASSWORD]);
+            $result = $this->passwords()->resetWithCode('phone', ['phone' => self::PHONE, 'challenge' => self::challenge(), 'code' => $attempt, 'password' => self::NEW_PASSWORD]);
 
             self::assertSame(ResetStatus::INVALID, $result->status);
         }
@@ -471,9 +477,11 @@ final class ResetSubmissionsTest extends TestCase
             'a code for a link'     => ['link', ['email' => self::EMAIL, 'token' => '123456', 'password' => self::NEW_PASSWORD]],
             'no password'           => ['link', ['email' => self::EMAIL, 'token' => $token]],
             'a password list'       => ['link', ['email' => self::EMAIL, 'token' => $token, 'password' => [self::NEW_PASSWORD]]],
-            'a code too long'       => ['code', ['phone' => self::PHONE, 'code' => '1234567', 'password' => self::NEW_PASSWORD]],
-            'a token for a code'    => ['code', ['phone' => self::PHONE, 'code' => $token, 'password' => self::NEW_PASSWORD]],
-            'a number not in E.164' => ['code', ['phone' => '07700 900123', 'code' => '123456', 'password' => self::NEW_PASSWORD]],
+            'a code too long'       => ['code', ['phone' => self::PHONE, 'challenge' => self::NO_CHALLENGE, 'code' => '1234567', 'password' => self::NEW_PASSWORD]],
+            'a token for a code'    => ['code', ['phone' => self::PHONE, 'challenge' => self::NO_CHALLENGE, 'code' => $token, 'password' => self::NEW_PASSWORD]],
+            'a number not in E.164' => ['code', ['phone' => '07700 900123', 'challenge' => self::NO_CHALLENGE, 'code' => '123456', 'password' => self::NEW_PASSWORD]],
+            'no challenge'          => ['code', ['phone' => self::PHONE, 'code' => '123456', 'password' => self::NEW_PASSWORD]],
+            'a malformed challenge' => ['code', ['phone' => self::PHONE, 'challenge' => 'NOT-A-CHALLENGE', 'code' => '123456', 'password' => self::NEW_PASSWORD]],
         ];
     }
 
@@ -665,7 +673,7 @@ final class ResetSubmissionsTest extends TestCase
     public function testACodeResetNeedsANormalizedType(): void
     {
         try {
-            $this->passwords()->resetWithCode('username', ['username' => 'ada', 'code' => '123456', 'password' => self::NEW_PASSWORD]);
+            $this->passwords()->resetWithCode('username', ['username' => 'ada', 'challenge' => self::challenge(), 'code' => '123456', 'password' => self::NEW_PASSWORD]);
             self::fail('A reset code was checked for a type with no normaliser.');
         } catch (\InvalidArgumentException $exception) {
             self::assertStringStartsWith('Password reset codes need a normaliser registered for identifier type [username]', $exception->getMessage());

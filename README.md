@@ -44,6 +44,9 @@ are caught on the server.
   cookie named after it, with CSRF checks, whose results never hand its code the plain refresh token.
 - **Sign-in methods**: password, one-time code to a phone or email, and passkeys, behind one contract that SSO and
   custom methods plug into.
+- **One-time code challenges**: every code is a challenge with an id the check names, kept across resends with its
+  attempt budget, capped in deliveries per destination, and bound to its purpose; a further-factor package's codes are
+  bound to the session and factor too, with its counters asked and told inside the transaction that checks them.
 - **Pending sessions**: a sign-in that still owes a further factor or a choice of principal waits as a pending session,
   with a short-lived credential that allows only the actions it owes; an identity's factor policy and a tenant's
   authentication policy each answer a requirement (an additional verification, multifactor, a minimum assurance level,

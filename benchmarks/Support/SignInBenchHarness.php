@@ -14,6 +14,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
+use SineMacula\Laravel\Authentication\Codes\IssuedCode;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
@@ -74,13 +75,13 @@ final class SignInBenchHarness
     /** @var \SineMacula\Laravel\Authentication\Codes\OneTimeCodes */
     private readonly OneTimeCodes $codes;
 
-    /** @var list<string> Phone numbers with a live sign-in code, for the code sign-in path. */
+    /** @var list<array{0: string, 1: string}> Phone numbers with a live sign-in code, and its challenge id, for the code sign-in path. */
     private array $signInPhones = [];
 
     /** @var int Current index into the sign-in phone pool. */
     private int $signInIndex = 0;
 
-    /** @var list<\SineMacula\Laravel\Authentication\Codes\CodeBinding> Verification bindings with a live code, for the code check path. */
+    /** @var list<array{0: \SineMacula\Laravel\Authentication\Codes\CodeBinding, 1: string}> Verification bindings with a live code, and its challenge id, for the code check path. */
     private array $checkBindings = [];
 
     /** @var int Current index into the check binding pool. */
@@ -144,9 +145,9 @@ final class SignInBenchHarness
      */
     public function runCodeSignIn(): void
     {
-        $phone = BenchOutcome::take('code sign-in', $this->signInPhones, $this->signInIndex++);
+        [$phone, $challenge] = BenchOutcome::take('code sign-in', $this->signInPhones, $this->signInIndex++);
 
-        $this->codeSignIn($phone);
+        $this->codeSignIn($phone, $challenge);
     }
 
     /**
@@ -159,9 +160,9 @@ final class SignInBenchHarness
      */
     public function runCodeCheck(): void
     {
-        $binding = BenchOutcome::take('code check', $this->checkBindings, $this->checkIndex++);
+        [$binding, $challenge] = BenchOutcome::take('code check', $this->checkBindings, $this->checkIndex++);
 
-        $this->codes->check($binding, self::CODE, CarbonImmutable::now());
+        $this->codes->check($binding, $challenge, self::CODE, CarbonImmutable::now());
     }
 
     /**
@@ -188,14 +189,31 @@ final class SignInBenchHarness
 
             $holder = CodeIdentity::query()->create(['phone' => $phone, 'phone_verified_at' => $now, 'is_active' => true]);
 
-            $this->codes->issue(CodeBinding::signIn(self::CODE_GUARD, 'phone', $phone), $now);
-            $this->signInPhones[] = $phone;
+            $this->signInPhones[] = [$phone, $this->challenge(CodeBinding::signIn(self::CODE_GUARD, 'phone', $phone), $now)];
 
             $binding = CodeBinding::verification(self::CODE_GUARD, 'phone', $phone, $holder);
 
-            $this->codes->issue($binding, $now);
-            $this->checkBindings[] = $binding;
+            $this->checkBindings[] = [$binding, $this->challenge($binding, $now)];
         }
+    }
+
+    /**
+     * Issue the binding's code and answer the challenge it was issued for.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return string
+     *
+     * @throws \LogicException
+     * @throws \Random\RandomException
+     */
+    private function challenge(CodeBinding $binding, CarbonImmutable $now): string
+    {
+        $issued = $this->codes->issue($binding, $now);
+
+        BenchOutcome::assert('code issue', $issued instanceof IssuedCode);
+
+        return $issued instanceof IssuedCode ? $issued->challengeId : '';
     }
 
     /**
@@ -214,8 +232,8 @@ final class SignInBenchHarness
         $binding = array_pop($this->checkBindings);
 
         BenchOutcome::assert('password sign-in', $this->passwordSignIn()->isSignedIn());
-        BenchOutcome::assert('code sign-in', $phone !== null && $this->codeSignIn($phone)->isSignedIn());
-        BenchOutcome::assert('code check', $binding !== null && $this->codes->check($binding, self::CODE, CarbonImmutable::now())->failure() === null);
+        BenchOutcome::assert('code sign-in', $phone !== null && $this->codeSignIn(...$phone)->isSignedIn());
+        BenchOutcome::assert('code check', $binding !== null && $this->codes->check($binding[0], $binding[1], self::CODE, CarbonImmutable::now())->failure() === null);
     }
 
     /**
@@ -232,11 +250,12 @@ final class SignInBenchHarness
      * Sign the identity with the phone number in by its code on a fresh guard.
      *
      * @param  string  $phone
+     * @param  string  $challenge
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      */
-    private function codeSignIn(string $phone): SignInResult
+    private function codeSignIn(string $phone, string $challenge): SignInResult
     {
-        return $this->sessions(self::CODE_GUARD, CodeIdentity::class)->signIn('phone_code', ['phone' => $phone, 'code' => self::CODE]);
+        return $this->sessions(self::CODE_GUARD, CodeIdentity::class)->signIn('phone_code', ['phone' => $phone, 'challenge' => $challenge, 'code' => self::CODE]);
     }
 
     /**

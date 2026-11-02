@@ -30,22 +30,24 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * `extend('whatsapp_code', fn ($app) => $app->make(CodeSignIn::class, ['type' => 'whatsapp']))`,
  * given a normaliser for the type.
  *
- * The identifier is brought to its normal form by its type's normaliser, and
- * the code must be exactly the configured number of digits; anything else is
- * `invalid_credentials` with nothing counted. The code is checked against the
- * one issued for the guard and identifier whether or not an identity has the
- * identifier, so a guess at an unknown identifier counts against, and locks,
- * that code exactly as one at a known identifier does; for a known identity the
- * check also counts against the account's own limit first. An identity the
- * guard's provider finds holds the identifier only when its own identifier of
- * the type, in its normal form, is exactly the one the code is bound to (see
- * `CodeIdentifiers`), so an identity found by a look-alike is treated as no
- * identity at all. A code that expired or used up its attempts is refused as
- * `code_expired` or `code_exhausted`, which the sign-in's result conceals as
- * `invalid_credentials`. A correct code for an identity whose identifier of the
- * type is not verified is `identifier_unverified`: the code proved the
- * identifier is held, so this tells a guesser nothing, and a code is never sent
- * to an unverified identifier in the first place.
+ * The identifier is brought to its normal form by its type's normaliser, the
+ * code must be exactly the configured number of digits, and the challenge must
+ * be an id the engine issues; anything else is `invalid_credentials` with
+ * nothing counted. A challenge id that is not the live challenge's is
+ * `invalid_credentials` too, with no attempt spent. The code is checked against
+ * the one issued for the guard and identifier whether or not an identity has
+ * the identifier, so a guess at an unknown identifier counts against, and
+ * locks, that code exactly as one at a known identifier does; for a known
+ * identity the check also counts against the account's own limit first. An
+ * identity the guard's provider finds holds the identifier only when its own
+ * identifier of the type, in its normal form, is exactly the one the code is
+ * bound to (see `CodeIdentifiers`), so an identity found by a look-alike is
+ * treated as no identity at all. A code that expired or used up its attempts is
+ * refused as `code_expired` or `code_exhausted`, which the sign-in's result
+ * conceals as `invalid_credentials`. A correct code for an identity whose
+ * identifier of the type is not verified is `identifier_unverified`: the code
+ * proved the identifier is held, so this tells a guesser nothing, and a code is
+ * never sent to an unverified identifier in the first place.
  *
  * A verified code is a proof over the channel it was sent through, with the
  * identifier in its normal form as the destination: an `email` channel and the
@@ -69,6 +71,9 @@ final readonly class CodeSignIn implements SignInMethod
 
     /** @var string Input key holding the code. */
     private const string CODE_KEY = 'code';
+
+    /** @var string Input key holding the challenge's id. */
+    private const string CHALLENGE_KEY = 'challenge';
 
     /** @var array<string, array{0: \SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind, 1: string}> The channel and `amr` value of each identifier type a code is sent through, by type. */
     private const array CHANNELS = [
@@ -103,8 +108,8 @@ final readonly class CodeSignIn implements SignInMethod
         /** Gives an identity's own identifier its canonical form, to compare with the bound one. */
         private IdentifierVerifier $verifier,
     ) {
-        if (IdentifierType::assertValid($type) === self::CODE_KEY) {
-            throw new \InvalidArgumentException(sprintf('A code sign-in method cannot use the identifier type [%s]: its input key holds the code.', self::CODE_KEY));
+        if (in_array(IdentifierType::assertValid($type), [self::CODE_KEY, self::CHALLENGE_KEY], true)) {
+            throw new \InvalidArgumentException(sprintf('A code sign-in method cannot use the identifier type [%s]: its input key holds the code or its challenge.', $type));
         }
     }
 
@@ -147,17 +152,18 @@ final readonly class CodeSignIn implements SignInMethod
     #[\Override]
     public function authenticate(SignInRequest $request): FailureReason|FirstFactor
     {
-        $binding = $this->binding($request->guard, $request->input());
-        $code    = $request->input()[self::CODE_KEY] ?? null;
+        $binding   = $this->binding($request->guard, $request->input());
+        $code      = $request->input()[self::CODE_KEY]      ?? null;
+        $challenge = $request->input()[self::CHALLENGE_KEY] ?? null;
 
-        if ($binding === null || !is_string($code) || !$this->codes->isWellFormed($code)) {
+        if ($binding === null || !is_string($code) || !is_string($challenge) || !$this->isWellFormed($code, $challenge)) {
             return FailureReason::INVALID_CREDENTIALS;
         }
 
         $identity = $this->holder($request->provider->retrieveByCredentials([$this->type => $binding->identifier]), $binding);
         $failure  = $identity !== null && !$request->reserveAccountAttempt($identity)
             ? FailureReason::INVALID_CREDENTIALS
-            : $this->codes->check($binding, $code, CarbonImmutable::now()->startOfSecond())->failure();
+            : $this->codes->check($binding, $challenge, $code, CarbonImmutable::now()->startOfSecond())->failure();
 
         $accepted = $failure ?? $this->accepted($identity);
 
@@ -183,6 +189,21 @@ final readonly class CodeSignIn implements SignInMethod
         $identifier = $given === null ? null : $this->normalizers->get($this->type)->normalize($given);
 
         return $identifier === null ? null : CodeBinding::signIn($guard, $this->type, $identifier);
+    }
+
+    /**
+     * Whether the code and the challenge id have the shapes the engine issues
+     * them in.
+     *
+     * @param  string  $code
+     * @param  string  $challenge
+     * @return bool
+     *
+     * @throws \InvalidArgumentException
+     */
+    private function isWellFormed(#[\SensitiveParameter] string $code, string $challenge): bool
+    {
+        return $this->codes->isWellFormed($code) && $this->codes->isWellFormedChallenge($challenge);
     }
 
     /**

@@ -11,6 +11,7 @@ use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Codes\CodeKeys;
 use SineMacula\Laravel\Authentication\Codes\CodeRequest;
 use SineMacula\Laravel\Authentication\Codes\CodeSettings;
+use SineMacula\Laravel\Authentication\Codes\DeliveryRefusal;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
@@ -42,12 +43,13 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * must allow the password method; the identifier must be one its type's
  * normaliser accepts (as given, for a link whose type has none); the identifier
  * and the IP address must have reset requests left (`password_reset_request`,
- * counted on every request and never given back); and no link or code may have
- * been issued for the identifier within the codes' resend cooldown. Then the
- * link's token or the code is issued, for any identifier, and its delivery
- * queued once it is committed; the job alone decides, later, whether anyone
- * receives it (see `SendPasswordReset`). Refusals are reported by
- * `AuthenticationFailed` (`password_reset`).
+ * counted on every request and never given back); no link or code may have been
+ * issued for the identifier within the codes' resend cooldown, and its delivery
+ * window must allow another delivery. Then the link's token or the code is
+ * issued, for any identifier, and its delivery queued once it is committed; a
+ * code's answer carries the challenge id its reset names. The job alone
+ * decides, later, whether anyone receives it (see `SendPasswordReset`).
+ * Refusals are reported by `AuthenticationFailed` (`password_reset`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -156,13 +158,13 @@ final readonly class ResetRequests
         $binding = $link ? CodeBinding::passwordResetLink($guard, $type, $identifier) : CodeBinding::passwordReset($guard, $type, $identifier);
         $issued  = $link ? $codes->issueToken($binding, $now, $ttl) : $codes->issue($binding, $now);
 
-        if (is_int($issued)) {
-            return $this->refuse([CodeRequest::rateLimited($issued), FailureReason::RATE_LIMITED, $issued], $context, $given);
+        if ($issued instanceof DeliveryRefusal) {
+            return $this->refuse([$issued->request(), $issued->reason(), $issued->retryAfter], $context, $given);
         }
 
         $delivery->dispatch(new SendPasswordReset($binding, $issued), new OneTimeCode);
 
-        return CodeRequest::sent($issued->expiresAt);
+        return CodeRequest::sent($issued->expiresAt, $link ? null : $issued->challengeId);
     }
 
     /**

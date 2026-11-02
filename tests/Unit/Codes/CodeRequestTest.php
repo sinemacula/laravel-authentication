@@ -9,6 +9,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Codes\CodeRequest;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodeRequestStatus;
+use SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeRefusal;
 
 /**
  * Unit tests for the result of a request for a one-time code.
@@ -22,17 +23,54 @@ use SineMacula\Laravel\Authentication\Codes\Enums\CodeRequestStatus;
 final class CodeRequestTest extends TestCase
 {
     /**
-     * A sent request carries when its code expires and no wait.
+     * A sent request carries when its code expires and the challenge it was
+     * sent for, and no wait; a reset link's carries no challenge.
      *
      * @return void
      */
-    public function testASentRequestCarriesTheExpiry(): void
+    public function testASentRequestCarriesTheExpiryAndTheChallenge(): void
     {
         $expiresAt = CarbonImmutable::createStrict(2026, 4, 6, 12, 10, 0);
-        $request   = CodeRequest::sent($expiresAt);
+        $request   = CodeRequest::sent($expiresAt, 'challenge-1');
+        $link      = CodeRequest::sent($expiresAt);
 
-        self::assertSame([CodeRequestStatus::SENT, $expiresAt, null], [$request->status, $request->expiresAt, $request->retryAfter]);
+        self::assertSame([CodeRequestStatus::SENT, $expiresAt, null, 'challenge-1'], [$request->status, $request->expiresAt, $request->retryAfter, $request->challengeId]);
+        self::assertSame([null, null], [$request->lockedUntil, $request->refusal]);
+        self::assertNull($link->challengeId);
         self::assertTrue($request->isSent());
+    }
+
+    /**
+     * A request out of deliveries for its window carries the wait until the
+     * window ends, and nothing else.
+     *
+     * @return void
+     */
+    public function testARequestOutOfDeliveriesCarriesTheWait(): void
+    {
+        $request = CodeRequest::deliveriesExhausted(900);
+
+        self::assertSame([CodeRequestStatus::DELIVERIES_EXHAUSTED, null, 900, null], [$request->status, $request->expiresAt, $request->retryAfter, $request->challengeId]);
+        self::assertFalse($request->isSent());
+    }
+
+    /**
+     * A request the factor package locks carries until when, when it said; one
+     * it refuses carries why.
+     *
+     * @return void
+     */
+    public function testAFactorPackagesAnswerIsCarried(): void
+    {
+        $until   = CarbonImmutable::createStrict(2026, 4, 6, 12, 15, 0);
+        $locked  = CodeRequest::locked($until);
+        $refused = CodeRequest::refused(FactorCodeRefusal::NO_FACTOR);
+
+        self::assertSame([CodeRequestStatus::LOCKED, $until, null, null], [$locked->status, $locked->lockedUntil, $locked->refusal, $locked->retryAfter]);
+        self::assertNull(CodeRequest::locked(null)->lockedUntil);
+        self::assertSame([CodeRequestStatus::REFUSED, null, FactorCodeRefusal::NO_FACTOR], [$refused->status, $refused->lockedUntil, $refused->refusal]);
+        self::assertFalse($locked->isSent());
+        self::assertFalse($refused->isSent());
     }
 
     /**

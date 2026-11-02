@@ -268,10 +268,12 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A confirmation by code locks the identity's row first, then reads the
-     * pending change, the code and the holder of the new identifier and the row
-     * under its lock; it counts the attempt, uses the code up, deletes the
-     * change, invalidates the outdated proofs and writes the identifier.
+     * A confirmation by code counts against the identity's account and the IP
+     * address, locks the identity's row first, then reads the pending change,
+     * the code and the holder of the new identifier and the row under its
+     * lock; it counts the attempt, uses the code up, deletes the change,
+     * invalidates the outdated proofs, writes the identifier and gives the two
+     * counts back.
      *
      * @return void
      *
@@ -284,7 +286,8 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
 
         $changes->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD));
 
-        $outcome = $this->assertQueryBudget(5, 5, static fn (): IdentifierChangeOutcome => $changes->confirmByCode($identity, 'email', '135790'));
+        $challenge = self::changeChallenge($identity, 'email');
+        $outcome   = $this->assertQueryBudget(5, 9, static fn (): IdentifierChangeOutcome => $changes->confirmByCode($identity, 'email', $challenge, '135790'));
 
         self::assertSame(IdentifierChangeOutcome::CHANGED, $outcome);
     }

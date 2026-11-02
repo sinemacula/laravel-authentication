@@ -29,19 +29,19 @@ final class IssuedCodeTest extends TestCase
 
     /**
      * The code is read in clear through `code()` and as a secret through
-     * `secret()`, with the issuance and expiry beside it.
+     * `secret()`, with the issuance, the expiry and the challenge beside it.
      *
      * @return void
      */
     public function testCarriesTheCodeTheIssuanceAndTheExpiry(): void
     {
         $expiresAt = CarbonImmutable::createStrict(2026, 4, 6, 12, 10, 0);
-        $issued    = new IssuedCode(self::CODE, 'issue-1', $expiresAt);
+        $issued    = new IssuedCode(self::CODE, 'issue-1', $expiresAt, 'challenge-1');
 
         self::assertSame(self::CODE, $issued->code());
         self::assertInstanceOf(Secret::class, $issued->secret());
         self::assertSame(self::CODE, $issued->secret()->reveal());
-        self::assertSame(['issue-1', $expiresAt], [$issued->issueId, $issued->expiresAt]);
+        self::assertSame(['issue-1', $expiresAt, 'challenge-1'], [$issued->issueId, $issued->expiresAt, $issued->challengeId]);
     }
 
     /**
@@ -54,7 +54,7 @@ final class IssuedCodeTest extends TestCase
     public function testTheCodeIsShownByNoDump(): void
     {
         $expiresAt = CarbonImmutable::createStrict(2026, 4, 6, 12, 10, 0);
-        $issued    = new IssuedCode(self::CODE, 'issue-1', $expiresAt);
+        $issued    = new IssuedCode(self::CODE, 'issue-1', $expiresAt, 'challenge-1');
 
         $dumps = [
             (string) (new CliDumper)->dump((new VarCloner)->cloneVar($issued), true),
@@ -67,7 +67,7 @@ final class IssuedCodeTest extends TestCase
             self::assertStringContainsString('issue-1', $dumped);
         }
 
-        self::assertSame(['code' => Secret::REDACTED, 'issueId' => 'issue-1', 'expiresAt' => $expiresAt], $issued->__debugInfo());
+        self::assertSame(['code' => Secret::REDACTED, 'issueId' => 'issue-1', 'expiresAt' => $expiresAt, 'challengeId' => 'challenge-1'], $issued->__debugInfo());
         self::assertNotSame([], (new \ReflectionParameter([IssuedCode::class, '__construct'], 'code'))->getAttributes(\SensitiveParameter::class));
     }
 
@@ -81,15 +81,15 @@ final class IssuedCodeTest extends TestCase
     public function testTheJobPayloadRoundTripsTheCode(): void
     {
         $expiresAt = CarbonImmutable::createStrict(2026, 4, 6, 12, 10, 0);
-        $issued    = new IssuedCode(self::CODE, 'issue-1', $expiresAt);
+        $issued    = new IssuedCode(self::CODE, 'issue-1', $expiresAt, 'challenge-1');
 
-        self::assertSame(['code' => self::CODE, 'issue_id' => 'issue-1', 'expires_at' => $expiresAt], $issued->__serialize());
+        self::assertSame(['code' => self::CODE, 'issue_id' => 'issue-1', 'expires_at' => $expiresAt, 'challenge_id' => 'challenge-1'], $issued->__serialize());
 
         $restored = unserialize(serialize($issued));
 
         self::assertInstanceOf(IssuedCode::class, $restored);
         self::assertSame(self::CODE, $restored->code());
-        self::assertSame('issue-1', $restored->issueId);
+        self::assertSame(['issue-1', 'challenge-1'], [$restored->issueId, $restored->challengeId]);
         self::assertTrue($expiresAt->equalTo($restored->expiresAt));
         self::assertStringNotContainsString(self::CODE, print_r($restored, true));
     }

@@ -45,6 +45,9 @@ final class AttemptLimitsTest extends TestCase
         self::assertSame(['per_identifier' => [5, 3600], 'per_ip' => [50, 3600]], $this->resolved(AttemptFlow::CODE_REQUEST));
         self::assertSame(['per_identifier' => null, 'per_ip' => [100, 300]], $this->resolved(AttemptFlow::PASSKEY_OPTIONS));
         self::assertSame(['per_identifier' => null, 'per_ip' => [100, 60]], $this->resolved(AttemptFlow::CLIENT_CREDENTIALS));
+        self::assertSame(['per_identifier' => [5, 3600], 'per_ip' => [50, 3600]], $this->resolved(AttemptFlow::IDENTIFIER_CHANGE));
+        self::assertSame(['per_identifier' => [10, 900], 'per_ip' => [50, 900]], $this->resolved(AttemptFlow::IDENTIFIER_VERIFICATION));
+        self::assertSame(['per_identifier' => null, 'per_ip' => [50, 300]], $this->resolved(AttemptFlow::FACTOR_CODE));
     }
 
     /**
@@ -190,6 +193,33 @@ final class AttemptLimitsTest extends TestCase
         $this->setGuardLimits(['passkey_options' => ['per_identifier' => null]]);
 
         self::assertSame(['per_identifier' => null, 'per_ip' => [100, 300]], $this->resolved(AttemptFlow::PASSKEY_OPTIONS));
+    }
+
+    /**
+     * The factor package counts factor code checks per factor and per identity,
+     * so a `factor_code.per_identifier` limit could never apply here: one set
+     * at either level fails closed.
+     *
+     * @return void
+     */
+    public function testAFactorCodeLimitPerIdentifierFailsClosed(): void
+    {
+        $message = 'Rate limit `factor_code.per_identifier` for guard [api] must be null: the factor package counts factor code checks'
+            . ' per factor and per identity, so only `per_ip` limits them here.';
+
+        $this->setGuardLimits(['factor_code' => ['per_identifier' => ['max' => 5, 'decay_seconds' => 60]]]);
+
+        $this->assertFailsClosed($message, AttemptFlow::FACTOR_CODE);
+
+        $this->setGuardLimits(null);
+
+        config()->set('authentication.rate_limits.factor_code.per_identifier', ['max' => 5, 'decay_seconds' => 60]);
+
+        $this->assertFailsClosed($message, AttemptFlow::FACTOR_CODE);
+
+        $this->setGuardLimits(['factor_code' => ['per_identifier' => null]]);
+
+        self::assertSame(['per_identifier' => null, 'per_ip' => [50, 300]], $this->resolved(AttemptFlow::FACTOR_CODE));
     }
 
     /**

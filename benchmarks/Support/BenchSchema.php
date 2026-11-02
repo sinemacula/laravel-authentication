@@ -307,11 +307,15 @@ final class BenchSchema
     {
         self::ensureTable('one_time_codes', static function (Blueprint $blueprint): void {
             $blueprint->char('id', 64)->primary();
+            $blueprint->uuid('challenge_id');
+            $blueprint->char('context', 64)->nullable();
             $blueprint->string('purpose', 32);
             $blueprint->string('guard');
             $blueprint->uuid('issue_id');
             $blueprint->char('code_hash', 64);
             $blueprint->unsignedSmallInteger('attempts');
+            $blueprint->unsignedSmallInteger('deliveries');
+            $blueprint->dateTime('window_started_at', 0);
             $blueprint->dateTime('issued_at', 0);
             $blueprint->dateTime('expires_at', 0)->index();
             $blueprint->dateTime('consumed_at', 0)->nullable();

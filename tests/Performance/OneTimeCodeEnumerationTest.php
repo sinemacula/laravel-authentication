@@ -159,14 +159,14 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
         [$known, $knownSql]     = $this->recorded(fn (): CodeRequest => $this->codeService('slow')->send($method, [$field => $knownIdentifier], $knownClient));
         [$unknown, $unknownSql] = $this->recorded(fn (): CodeRequest => $this->codeService('slow')->send($method, [$field => $unknownIdentifier], $unknownClient));
 
-        self::assertEquals($known, $unknown);
+        self::assertSame(self::shape($known), self::shape($unknown));
         self::assertSame($knownSql, $unknownSql);
         self::assertNotSame([], $knownSql);
 
         [$knownAgain, $knownAgainSql]     = $this->recorded(fn (): CodeRequest => $this->codeService('slow')->send($method, [$field => $knownIdentifier], $knownClient));
         [$unknownAgain, $unknownAgainSql] = $this->recorded(fn (): CodeRequest => $this->codeService('slow')->send($method, [$field => $unknownIdentifier], $unknownClient));
 
-        self::assertEquals($knownAgain, $unknownAgain);
+        self::assertSame(self::shape($knownAgain), self::shape($unknownAgain));
         self::assertSame($knownAgainSql, $unknownAgainSql);
         self::assertSame(0, SlowModelProvider::$lookups);
     }
@@ -221,6 +221,8 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
             'used code'                      => 'used',
             'account without attempts'       => 'account',
             'malformed code'                 => 'malformed',
+            'another challenge'              => 'another_challenge',
+            'malformed challenge'            => 'malformed_challenge',
         ];
 
         foreach (self::provideMethods() as $name => $method) {
@@ -257,7 +259,7 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
 
         $identity   = self::seedCodeIdentity();
         $identifier = [$field => in_array($failure, ['unknown', 'unknown_right'], true) ? $unknownIdentifier : $knownIdentifier];
-        $code       = $this->prepare($failure, $identity, $method, $identifier);
+        $input      = $identifier + $this->prepare($failure, $identity, $method, $identifier);
 
         $this->recordEvents([AuthenticationFailed::class]);
 
@@ -265,7 +267,7 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions('slow');
         $started  = hrtime(true);
-        $result   = $sessions->signIn($method, $identifier + ['code' => $code]);
+        $result   = $sessions->signIn($method, $input);
         $elapsed  = hrtime(true) - $started;
 
         self::assertEquals(SignInResult::failed(FailureReason::INVALID_CREDENTIALS), $result);
@@ -312,12 +314,12 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
 
             self::issueCodes([self::CODE]);
 
-            $this->codeService('slow')->send($method, [$field => $knownIdentifier]);
+            $challenge = $this->codeService('slow')->send($method, [$field => $knownIdentifier])->challengeId;
 
             $sessions = $this->sessions('slow');
             $started  = hrtime(true);
 
-            self::assertTrue($sessions->signIn($method, [$field => $knownIdentifier, 'code' => self::CODE])->isSignedIn());
+            self::assertTrue($sessions->signIn($method, [$field => $knownIdentifier, 'challenge' => $challenge, 'code' => self::CODE])->isSignedIn());
 
             $fastest = min($fastest, hrtime(true) - $started);
         }
@@ -352,21 +354,21 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
 
     /**
      * Bring the code the method sent to the identifier into the state the
-     * failure needs, and return the code the sign-in enters.
+     * failure needs, and return the challenge and the code the sign-in enters.
      *
      * @param  string  $failure
      * @param  \Tests\Integration\Fixtures\CodeIdentity  $identity
      * @param  string  $method
      * @param  array<string, string>  $identifier
-     * @return string
+     * @return array{challenge: string, code: string}
      *
      * @throws \Throwable
      */
-    private function prepare(string $failure, CodeIdentity $identity, string $method, array $identifier): string
+    private function prepare(string $failure, CodeIdentity $identity, string $method, array $identifier): array
     {
         self::issueCodes([self::CODE]);
 
-        $this->codeService('slow')->send($method, $identifier);
+        $challenge = (string) $this->codeService('slow')->send($method, $identifier)->challengeId;
 
         match ($failure) {
             'expired'   => CarbonImmutable::setTestNow(CarbonImmutable::instance($this->now)->addSeconds(600)),
@@ -380,11 +382,42 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
             default => null,
         };
 
-        return match ($failure) {
+        $code = match ($failure) {
             'unknown', 'wrong' => '000000',
             'malformed'        => '1357',
             default            => self::CODE,
         };
+
+        return ['challenge' => self::challengeFor($failure, $challenge), 'code' => $code];
+    }
+
+    /**
+     * The challenge id the sign-in names for the failure: another challenge's,
+     * a malformed one, or the one sent.
+     *
+     * @param  string  $failure
+     * @param  string  $sent
+     * @return string
+     */
+    private static function challengeFor(string $failure, string $sent): string
+    {
+        return match ($failure) {
+            'another_challenge'   => self::NO_CHALLENGE,
+            'malformed_challenge' => strtoupper($sent),
+            default               => $sent,
+        };
+    }
+
+    /**
+     * What a code request answers, its challenge id reduced to whether it is
+     * one, so a known identifier's answer and an unknown one's compare.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Codes\CodeRequest  $request
+     * @return array{0: \SineMacula\Laravel\Authentication\Codes\Enums\CodeRequestStatus, 1: ?string, 2: ?int, 3: bool}
+     */
+    private static function shape(CodeRequest $request): array
+    {
+        return [$request->status, $request->expiresAt?->toIso8601String(), $request->retryAfter, preg_match(self::CHALLENGE_PATTERN, (string) $request->challengeId) === 1];
     }
 
     /**

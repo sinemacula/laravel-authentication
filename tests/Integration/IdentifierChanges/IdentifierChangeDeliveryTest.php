@@ -84,7 +84,7 @@ final class IdentifierChangeDeliveryTest extends TestCase
 
         $identity = $this->requestedByCode();
 
-        $this->changes()->confirmByCode($identity, 'email', self::CODE);
+        $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE);
 
         foreach ([SendIdentifierChangeCode::class, SendIdentifierChangeNotice::class] as $class) {
             self::assertContains(ShouldBeEncrypted::class, class_implements($class));
@@ -204,7 +204,7 @@ final class IdentifierChangeDeliveryTest extends TestCase
         $identity = $this->requestedByCode();
 
         $this->recordEvents([IdentifierChanged::class]);
-        $this->changes()->confirmByCode($identity, 'email', self::CODE);
+        $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE);
 
         $payload = serialize(Queue::pushed(SendIdentifierChangeNotice::class)[0]);
 

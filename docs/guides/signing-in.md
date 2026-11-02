@@ -296,7 +296,8 @@ verified email address: either signs in with no password, as a primary method or
 identity a normalised `phone` or `email` column with `HasVerifiableIdentifiers` (see
 [Identifiers](identity-models.md#identifiers) and [Identifier
 verification](identity-models.md#identifier-verification)). The input carries the identifier under its type's name
-(`phone`, `email`) and the code under `code`:
+(`phone`, `email`), the code under `code`, and the id of the challenge the code was sent for, which the request
+answers, under `challenge`:
 
 ```php
 'mobile' => [
@@ -319,16 +320,19 @@ Route::post('/codes', function (Request $request) {
 
     // The same answer whether or not anyone has the number.
     return match ($result->status) {
-        CodeRequestStatus::RATE_LIMITED       => response()->json(['message' => __('Too Many Attempts.')], 429, ['Retry-After' => $result->retryAfter]),
-        CodeRequestStatus::IDENTIFIER_INVALID => response()->json(['message' => 'Enter a number in international format.'], 422),
-        CodeRequestStatus::METHOD_NOT_ALLOWED => abort(403),
-        CodeRequestStatus::SENT               => response()->json(['expires_at' => $result->expiresAt->toIso8601String()], 202),
+        CodeRequestStatus::RATE_LIMITED,
+        CodeRequestStatus::DELIVERIES_EXHAUSTED => response()->json(['message' => __('Too Many Attempts.')], 429, ['Retry-After' => $result->retryAfter]),
+        CodeRequestStatus::IDENTIFIER_INVALID   => response()->json(['message' => 'Enter a number in international format.'], 422),
+        CodeRequestStatus::METHOD_NOT_ALLOWED,
+        CodeRequestStatus::LOCKED,
+        CodeRequestStatus::REFUSED              => abort(403),
+        CodeRequestStatus::SENT                 => response()->json(['challenge' => $result->challengeId, 'expires_at' => $result->expiresAt->toIso8601String()], 202),
     };
 });
 
 Route::post('/sign-in/code', function (Request $request) {
-    $input  = $request->validate(['phone' => ['required', 'string'], 'code' => ['required', 'string']]);
-    $result = Auth::sessions('mobile')->signIn('phone_code', ['phone' => $input['phone'], 'code' => $input['code']]);
+    $input  = $request->validate(['phone' => ['required', 'string'], 'challenge' => ['required', 'string'], 'code' => ['required', 'string']]);
+    $result = Auth::sessions('mobile')->signIn('phone_code', ['phone' => $input['phone'], 'challenge' => $input['challenge'], 'code' => $input['code']]);
 
     abort_unless($result->isSignedIn(), 401);
 
@@ -343,23 +347,28 @@ address the `email` normaliser rejects (blank, or not valid UTF-8) is `identifie
 
 A code request does nothing that depends on whether anyone has the number. The guard must allow the method
 (`method_not_allowed`), the number must be one the `phone` normaliser accepts (`identifier_invalid`), the number and the
-IP address must have code requests left (`rate_limited`, with the wait), and no code may have been sent to the number
-within the resend cooldown (`rate_limited`, with the seconds left); then a code is issued, for anyone's number, and its
-delivery queued. The job alone finds the recipient, when it runs: the active identity the guard's provider returns for
-the number that holds exactly that number, reports it verified and is not a machine identity. For anyone else it sends
-nothing and says nothing, so the response, the statements run and the time taken are the same for a number no one has.
-"Exactly" is decided by the package, not your database: the identity's own identifier, in its normal form, must be
-byte for byte the requested one. A lookup matches whatever the column's collation does, and MySQL's default
-`utf8mb4_unicode_ci` ignores accents, so `ben@examplé.com` (another domain, which anyone can register) finds the holder
-of `ben@example.com`; such an identity neither receives the code nor signs in with it. Each refusal is reported
-with `AuthenticationFailed` on the `code_request` flow (an invalid number as `invalid_credentials`).
+IP address must have code requests left (`rate_limited`, with the wait), no code may have been sent to the number within
+the resend cooldown (`rate_limited`, with the seconds left), and the number's delivery window must allow another
+delivery (`deliveries_exhausted`, with the wait until the window ends); then a code is issued, for anyone's number, and
+its delivery queued. The answer carries the challenge's id: a request after the cooldown, while the challenge lives, is
+a resend of the same challenge (the same id, its attempts kept, a new code that replaces the previous one at once, never
+past the window's end), and otherwise a new challenge, under the same delivery cap. The job alone finds the recipient,
+when it runs: the active identity the guard's provider returns for the number that holds exactly that number, reports it
+verified and is not a machine identity. For anyone else it sends nothing and says nothing, so the response, the
+statements run and the time taken are the same for a number no one has. "Exactly" is decided by the package, not your
+database: the identity's own identifier, in its normal form, must be byte for byte the requested one. A lookup matches
+whatever the column's collation does, and MySQL's default `utf8mb4_unicode_ci` ignores accents, so `ben@examplé.com`
+(another domain, which anyone can register) finds the holder of `ben@example.com`; such an identity neither receives the
+code nor signs in with it. Each refusal is reported with `AuthenticationFailed` on the `code_request` flow (an invalid
+number as `invalid_credentials`).
 
-Signing in, the method brings the number to its normal form and requires a code of exactly `length` digits
-(`invalid_credentials` otherwise, nothing counted), looks the identity up (an identity that does not hold exactly that
-number, as above, counts as none), counts the check against the account's limit as the password method does, and checks
-the code against the one sent to the number on this guard. It checks it whether or not anyone has the number, so a guess
-at a number no one has counts against, and locks, its code exactly as one at a known number does. A wrong code, a code
-used before, a code for another guard, purpose or number, and the right code for a number no one has are
+Signing in, the method brings the number to its normal form and requires a code of exactly `length` digits and a
+challenge id the package issues (`invalid_credentials` otherwise, nothing counted), looks the identity up (an identity
+that does not hold exactly that number, as above, counts as none), counts the check against the account's limit as the
+password method does, and checks the code against the one sent to the number on this guard. It checks it whether or not
+anyone has the number, so a guess at a number no one has counts against, and locks, its code exactly as one at a known
+number does. A code naming another challenge than the live one is `invalid_credentials` and spends no attempt. A wrong
+code, a code used before, a code for another guard, purpose or number, and the right code for a number no one has are
 `invalid_credentials`; an expired code and one that used up its attempts are refused as `code_expired` and
 `code_exhausted`, which only `AuthenticationFailed` says: the result says `invalid_credentials`. The right code for an
 identity whose number is not verified is `identifier_unverified` (the code proved the number is held, so this tells a
@@ -757,8 +766,8 @@ pending session of this guard, or whose session does not allow the action now (n
 can never activate because the gate would refuse its identity (a machine identity, an inactive one, or an identifier
 type the application no longer admits), its method, or the principal and active tenant it records (the principal
 inactive or refused by `ApplicationAccess`, its own tenant inactive, or the active tenant unresolvable, inactive or
-refused by `TenantAccess`), so no code is sent and no enrolment begun for it. The tenant it describes is the one the gate
-admitted. Whether a bootstrap enrolment applies (a factor is required and the identity has none) is the factor
+refused by `TenantAccess`), so no code is sent and no enrolment begun for it. The tenant it describes is the one the
+gate admitted. Whether a bootstrap enrolment applies (a factor is required and the identity has none) is the factor
 package's to judge.
 
 ### Satisfying a further factor
@@ -847,10 +856,10 @@ yours; what the package guarantees for each method and helper, and what its test
 | Flow                      | Same outcome for an unknown identifier                                                                                                                                                              | Delivery                                          | Timing                                                                                                       |
 |---------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------|--------------------------------------------------------------------------------------------------------------|
 | Password sign-in          | `invalid_credentials` for an unknown identifier, a wrong password and a locked account                                                                                                              | None                                              | Padded to the credential timebox                                                                             |
-| Code request              | A code is issued for any identifier: same status, expiry, cooldown, limits and statements                                                                                                           | Queued job (after the response on `sync`)         | No identity work at all, so nothing to pad                                                                   |
-| Code sign-in              | `invalid_credentials` for an unknown identifier, a wrong, expired, exhausted or used code, and a locked account                                                                                     | None                                              | Padded to the credential timebox                                                                             |
+| Code request              | A code is issued for any identifier: same status, a challenge id, expiry, cooldown, delivery cap, limits and statements                                                                             | Queued job (after the response on `sync`)         | No identity work at all, so nothing to pad                                                                   |
+| Code sign-in              | `invalid_credentials` for an unknown identifier, a wrong, expired, exhausted or used code, another challenge, and a locked account                                                                  | None                                              | Padded to the credential timebox                                                                             |
 | Verification by code      | Not applicable: the caller holds the identity                                                                                                                                                       | Queued job (after the response on `sync`)         | Not applicable                                                                                               |
-| Reset request             | A token or code is issued for any identifier: same status, expiry, cooldown, limits and statements                                                                                                  | Queued job (after the response on `sync`)         | No identity work at all, so nothing to pad                                                                   |
+| Reset request             | A token or code is issued for any identifier: same status, a code's challenge id, expiry, cooldown, delivery cap, limits and statements                                                             | Queued job (after the response on `sync`)         | No identity work at all, so nothing to pad                                                                   |
 | Reset submission          | `invalid` for an unknown identifier and for a wrong, expired, exhausted, used or ineligible proof (an inactive, machine or unverified holder); the policy's verdict does not depend on the identity | None                                              | Padded to the credential timebox; a held address adds only the lock of its row                               |
 | Identifier change request | Not applicable: the caller holds the identity; the answer never depends on whether another identity holds the new identifier                                                                        | Queued job for a code; a link is returned to send | Not applicable                                                                                               |
 | Passkey sign-in           | No identifier to probe: an unknown, foreign or ownerless passkey, a bad signature or user handle, a regressed counter and a locked account all answer `invalid_credentials`                         | None                                              | Padded to the credential timebox, owner looked up or not; sign-in options do no identity work                |

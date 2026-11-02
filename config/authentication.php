@@ -355,15 +355,25 @@ return [
     | identifier no one holds the same. A request to change an identifier counts
     | every request against the new identifier, under `per_identifier`, the
     | identity's own account under the same limit, and the IP address, and gives
-    | them back only when it is refused under the identity's lock
-    | (`identifier_change`). Counts on `connection` are rolled back with any
-    | transaction a caller opened there around a sign-in. A guard overrides any
-    | limit in a `rate_limits` block on its `config/auth.php` entry, where a
-    | scope that is present wins, `null` included, and a flow set to `null`
-    | turns both of its limits off. A malformed limit or an unknown key fails
-    | closed with an `InvalidArgumentException` naming the guard and the key.
-    | Counters are stored under digests keyed from `app.key`, so rotating it
-    | starts every window afresh. Prune ended windows with `model:prune`.
+    | them back only when it is refused under the identity's lock, and a
+    | confirmation by code counts against the identity's account and the IP
+    | address and gives them back when the code is accepted
+    | (`identifier_change`). A check of a code that verifies an identifier
+    | counts against the identity's account, under `per_identifier`, and the IP
+    | address, and gives a correct one back (`identifier_verification`). A check
+    | of a factor package's code counts per IP address and gives a verified one
+    | back; the factor package counts per factor and per identity, so its
+    | `per_identifier` must stay `null` (`factor_code`). A request for a factor
+    | package's code counts under `code_request` on the destination, the
+    | identity's account and the IP address. Counts on `connection` are rolled
+    | back with any transaction a caller opened there around a sign-in. A guard
+    | overrides any limit in a `rate_limits` block on its `config/auth.php`
+    | entry, where a scope that is present wins, `null` included, and a flow set
+    | to `null` turns both of its limits off. A malformed limit or an unknown
+    | key fails closed with an `InvalidArgumentException` naming the guard and
+    | the key. Counters are stored under digests keyed from `app.key`, so
+    | rotating it starts every window afresh. Prune ended windows with
+    | `model:prune`.
     |
     */
 
@@ -409,6 +419,16 @@ return [
         'identifier_change' => [
             'per_identifier' => ['max' => 5, 'decay_seconds' => 3600],
             'per_ip'         => ['max' => 50, 'decay_seconds' => 3600],
+        ],
+
+        'identifier_verification' => [
+            'per_identifier' => ['max' => 10, 'decay_seconds' => 900],
+            'per_ip'         => ['max' => 50, 'decay_seconds' => 900],
+        ],
+
+        'factor_code' => [
+            'per_identifier' => null,
+            'per_ip'         => ['max' => 50, 'decay_seconds' => 300],
         ],
     ],
 
@@ -648,21 +668,30 @@ return [
     | One-time codes
     |---------------------------------------------------------------------------
     |
-    | The `phone_code` and `email_code` sign-in methods, and verifying an
-    | identifier by code, send a code of `length` digits (6 to 10) that works
-    | once, for `ttl_seconds` (60 to 3600), and for at most `max_attempts`
-    | checks (1 to 20), after which it is locked until another is requested.
-    | Another code for the same identifier may be requested
-    | `resend_cooldown_seconds` (0 to `ttl_seconds`) after the last, and
-    | replaces it at once. Each number is an integer, or a digit string as
-    | `env()` returns one. Codes are stored in `table`, on the storage
-    | connection, as an HMAC keyed with `key` (at least 32 bytes), or with a key
-    | derived from `app.key` when `key` is not set; rotating either only
-    | invalidates the codes outstanding. Requests for codes are limited by the
-    | `code_request` rate limits. Delivery is a queued job (see `delivery`). The
-    | application binds its `OneTimeCodeSender`. A malformed value fails closed
-    | when a code is first issued, and `authentication:check` reports it. Prune
-    | expired codes with `model:prune`.
+    | The `phone_code` and `email_code` sign-in methods, verifying an
+    | identifier, password resets, identifier changes, and a factor package's
+    | further-factor (`mfa`) and enrolment (`enrollment`) codes each send a
+    | challenge: a code of `length` digits (6 to 10) that works once, for
+    | `ttl_seconds` (60 to 3600), and for at most `max_attempts` checks (1 to
+    | 20), after which it is locked until another is requested. Each challenge
+    | has an id the request answers and the check must name, and a factor's is
+    | bound to its session, factor and purpose as well. Another code for the
+    | same destination may be requested `resend_cooldown_seconds` (0 to
+    | `ttl_seconds`) after the last: a resend of the live challenge keeps its id
+    | and its attempts, and its new code replaces the previous one at once.
+    | Deliveries to one destination (for one owner, where the purpose has one)
+    | are capped at `max_deliveries` (1 to 10) in each delivery window of
+    | `max_lifetime_seconds` (`ttl_seconds` to 86400) from its first delivery,
+    | across every challenge the window holds, and no code outlives its window.
+    | Each number is an integer, or a digit string as `env()` returns one. Codes
+    | are stored in `table`, on the storage connection, as an HMAC keyed with
+    | `key` (at least 32 bytes), or with a key derived from `app.key` when `key`
+    | is not set; rotating either only invalidates the codes outstanding.
+    | Requests for codes are limited by the `code_request` rate limits. Delivery
+    | is a queued job (see `delivery`). The application binds its
+    | `OneTimeCodeSender`. A malformed value fails closed when a code is first
+    | issued, and `authentication:check` reports it. Prune expired codes whose
+    | delivery window has ended with `model:prune`.
     |
     */
 
@@ -672,6 +701,8 @@ return [
         'length'                  => env('AUTHENTICATION_CODES_LENGTH', 6),
         'ttl_seconds'             => env('AUTHENTICATION_CODES_TTL_SECONDS', 600),
         'max_attempts'            => env('AUTHENTICATION_CODES_MAX_ATTEMPTS', 5),
+        'max_deliveries'          => env('AUTHENTICATION_CODES_MAX_DELIVERIES', 3),
+        'max_lifetime_seconds'    => env('AUTHENTICATION_CODES_MAX_LIFETIME_SECONDS', 1800),
         'resend_cooldown_seconds' => env('AUTHENTICATION_CODES_RESEND_COOLDOWN_SECONDS', 60),
     ],
 

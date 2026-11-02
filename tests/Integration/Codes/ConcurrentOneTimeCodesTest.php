@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
+use SineMacula\Laravel\Authentication\Codes\DeliveryRefusal;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck;
 use SineMacula\Laravel\Authentication\Codes\IssuedCode;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
@@ -18,9 +19,9 @@ use Tests\TestCase;
  * Races one-time code operations on PostgreSQL and MySQL, each in a process
  * with a database connection of its own: one runs inside a transaction it holds
  * open, and the other, started meanwhile, waits on the code's row. Two checks
- * of the right code accept it once; a check racing a resend that drew the same
- * digits never accepts the code it read; two first issues for one binding
- * create one code.
+ * of the right code accept it once, locking ones included; a check racing a
+ * resend that drew the same digits never accepts the code it read; two resends
+ * deliver once; two first issues for one binding create one code.
  *
  * Skipped on SQLite, whose in-memory database each process would have to
  * itself, and where `pcntl` is not available.
@@ -111,11 +112,11 @@ final class ConcurrentOneTimeCodesTest extends TestCase
      */
     public function testTwoChecksOfTheRightCodeAcceptItOnce(): void
     {
-        $this->issue($this->now);
+        $challenge = $this->issue($this->now)->challengeId;
 
         [$first, $second] = $this->race(
-            fn (): string => self::codes()->check(self::binding(), self::CODE, $this->now)->value,
-            fn (): string => self::codes()->check(self::binding(), self::CODE, $this->now)->value,
+            fn (): string => self::codes()->check(self::binding(), $challenge, self::CODE, $this->now)->value,
+            fn (): string => self::codes()->check(self::binding(), $challenge, self::CODE, $this->now)->value,
             commitFirst: true,
         );
 
@@ -135,11 +136,11 @@ final class ConcurrentOneTimeCodesTest extends TestCase
      */
     public function testACheckWaitingOnOneThatRollsBackAcceptsTheCode(): void
     {
-        $this->issue($this->now);
+        $challenge = $this->issue($this->now)->challengeId;
 
         [$first, $second] = $this->race(
-            fn (): string => self::codes()->check(self::binding(), self::CODE, $this->now)->value,
-            fn (): string => self::codes()->check(self::binding(), self::CODE, $this->now)->value,
+            fn (): string => self::codes()->check(self::binding(), $challenge, self::CODE, $this->now)->value,
+            fn (): string => self::codes()->check(self::binding(), $challenge, self::CODE, $this->now)->value,
             commitFirst: false,
         );
 
@@ -152,8 +153,8 @@ final class ConcurrentOneTimeCodesTest extends TestCase
     /**
      * A check of a code that a resend replaces, with the same digits, while the
      * check waits never accepts: it read the old issuance, so it cannot count
-     * an attempt against it once the resend commits. The new issuance is
-     * untouched and accepts the code.
+     * an attempt against it once the resend commits. The new issuance, of the
+     * same challenge, is untouched and accepts the code.
      *
      * @return void
      *
@@ -161,13 +162,13 @@ final class ConcurrentOneTimeCodesTest extends TestCase
      */
     public function testACheckRacingAResendOfTheSameDigitsIsInvalid(): void
     {
-        $this->issue($this->now);
+        $challenge = $this->issue($this->now)->challengeId;
 
         $later = $this->now->addSeconds(60);
 
         [$first, $second] = $this->race(
             fn (): string => $this->issue($later)->issueId,
-            fn (): string => self::codes()->check(self::binding(), self::CODE, $later)->value,
+            fn (): string => self::codes()->check(self::binding(), $challenge, self::CODE, $later)->value,
             commitFirst: true,
         );
 
@@ -175,7 +176,59 @@ final class ConcurrentOneTimeCodesTest extends TestCase
         self::assertSame(CodeCheck::INVALID->value, $second['result']);
         self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
         self::assertSame(0, self::attempts());
-        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check(self::binding(), self::CODE, $later));
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check(self::binding(), $challenge, self::CODE, $later));
+    }
+
+    /**
+     * Of two locking checks of the right code, the second waits on the row the
+     * first locked until the first's transaction commits, then finds the code
+     * used and is invalid without counting: so a factor code's counters, asked
+     * and told inside that transaction, hear of the one attempt only.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALockingCheckWaitsForTheCheckHoldingTheChallenge(): void
+    {
+        $challenge = $this->issue($this->now)->challengeId;
+
+        [$first, $second] = $this->race(
+            fn (): string => self::codes()->check(self::binding(), $challenge, self::CODE, $this->now, true)->value,
+            fn (): string => self::codes()->check(self::binding(), $challenge, self::CODE, $this->now, true)->value,
+            commitFirst: true,
+        );
+
+        self::assertSame(CodeCheck::ACCEPTED->value, $first);
+        self::assertSame(CodeCheck::INVALID->value, $second['result']);
+        self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
+        self::assertSame(1, self::attempts());
+    }
+
+    /**
+     * Two resends of one challenge made at once deliver once: the one that
+     * waited on the other's write finds it replaced and is told to wait out the
+     * cooldown.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTwoResendsDeliverOnce(): void
+    {
+        $this->issue($this->now);
+
+        $later = $this->now->addSeconds(60);
+
+        [$first, $second] = $this->race(
+            fn (): string => $this->issue($later)->issueId,
+            fn (): int|string => self::outcomeOf(self::codes()->issue(self::binding(), $later)),
+            commitFirst: true,
+        );
+
+        self::assertSame($first, DB::table('one_time_codes')->value('issue_id'));
+        self::assertSame(60, $second['result']);
+        self::assertSame(2, DB::table('one_time_codes')->where('deliveries', 2)->count());
     }
 
     /**
@@ -295,12 +348,12 @@ final class ConcurrentOneTimeCodesTest extends TestCase
     /**
      * The issuance an issue created, or the seconds it was told to wait.
      *
-     * @param  int|\SineMacula\Laravel\Authentication\Codes\IssuedCode  $issued
+     * @param  \SineMacula\Laravel\Authentication\Codes\DeliveryRefusal|\SineMacula\Laravel\Authentication\Codes\IssuedCode  $issued
      * @return int|string
      */
-    private static function outcomeOf(int|IssuedCode $issued): int|string
+    private static function outcomeOf(DeliveryRefusal|IssuedCode $issued): int|string
     {
-        return $issued instanceof IssuedCode ? $issued->issueId : $issued;
+        return $issued instanceof IssuedCode ? $issued->issueId : $issued->retryAfter;
     }
 
     /**
@@ -327,7 +380,7 @@ final class ConcurrentOneTimeCodesTest extends TestCase
      */
     private static function codes(): OneTimeCodes
     {
-        return self::sequence(array_fill(0, 3, self::CODE));
+        return self::sequence(array_fill(0, 4, self::CODE));
     }
 
     /**

@@ -218,6 +218,18 @@ enum FailureReason: string
     // (one made with the factor replaced or removed never counts)
     case STEP_UP_REQUIRED = 'step_up_required';
 
+    // The destination's delivery window has had all the code deliveries it
+    // allows
+    case DELIVERIES_EXHAUSTED = 'deliveries_exhausted';
+
+    // The factor package has the factor, or the identity, locked against
+    // further factor codes
+    case FACTOR_CODE_LOCKED = 'factor_code_locked';
+
+    // The factor package refused to have a factor code sent or checked, or the
+    // outcome of an attempt at one
+    case FACTOR_CODE_REFUSED = 'factor_code_refused';
+
     /**
      * Whether a sign-in method may answer with this reason. Every other reason
      * is the session service's to decide, so a method that returns one is

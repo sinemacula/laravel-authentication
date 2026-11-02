@@ -10,7 +10,7 @@ use SineMacula\Laravel\Authentication\Secrets\Secret;
 /**
  * A one-time code, or a reset link's token, just issued: the secret in clear,
  * which exists only here and in the encrypted delivery job, the issuance it
- * belongs to, and when it expires.
+ * belongs to, the challenge it was delivered for, and when it expires.
  *
  * The secret is held as a private `Secret`, so no dump of the object, nor of a
  * trace that holds it, shows it. Unlike a `Secret` the issued code serialises,
@@ -34,6 +34,7 @@ final readonly class IssuedCode
      * @param  string  $code
      * @param  string  $issueId
      * @param  \Carbon\CarbonImmutable  $expiresAt
+     * @param  string  $challengeId
      *
      * @throws \InvalidArgumentException
      */
@@ -48,6 +49,9 @@ final readonly class IssuedCode
 
         /** When the code stops working. */
         public CarbonImmutable $expiresAt,
+
+        /** The challenge the code was delivered for, which a resend keeps and a new challenge replaces. */
+        public string $challengeId,
     ) {
         $this->code = new Secret($code);
     }
@@ -56,19 +60,19 @@ final readonly class IssuedCode
      * The fields the encrypted delivery job's payload carries, the code in
      * clear among them.
      *
-     * @return array{code: string, issue_id: string, expires_at: \Carbon\CarbonImmutable}
+     * @return array{code: string, issue_id: string, expires_at: \Carbon\CarbonImmutable, challenge_id: string}
      *
      * @SuppressWarnings("php:S100")
      */
     public function __serialize(): array
     {
-        return ['code' => $this->code->reveal(), 'issue_id' => $this->issueId, 'expires_at' => $this->expiresAt];
+        return ['code' => $this->code->reveal(), 'issue_id' => $this->issueId, 'expires_at' => $this->expiresAt, 'challenge_id' => $this->challengeId];
     }
 
     /**
      * Restore the issued code from the delivery job's payload.
      *
-     * @param  array{code: string, issue_id: string, expires_at: \Carbon\CarbonImmutable}  $data
+     * @param  array{code: string, issue_id: string, expires_at: \Carbon\CarbonImmutable, challenge_id: string}  $data
      * @return void
      *
      * @throws \InvalidArgumentException
@@ -77,19 +81,21 @@ final readonly class IssuedCode
      */
     public function __unserialize(array $data): void
     {
-        $this->code      = new Secret($data['code']);
-        $this->issueId   = $data['issue_id'];
-        $this->expiresAt = $data['expires_at'];
+        $this->code        = new Secret($data['code']);
+        $this->issueId     = $data['issue_id'];
+        $this->expiresAt   = $data['expires_at'];
+        $this->challengeId = $data['challenge_id'];
     }
 
     /**
-     * What a dump shows: the issuance and its expiry, never the code.
+     * What a dump shows: the issuance, its expiry and its challenge, never the
+     * code.
      *
-     * @return array{code: string, issueId: string, expiresAt: \Carbon\CarbonImmutable}
+     * @return array{code: string, issueId: string, expiresAt: \Carbon\CarbonImmutable, challengeId: string}
      */
     public function __debugInfo(): array
     {
-        return ['code' => Secret::REDACTED, 'issueId' => $this->issueId, 'expiresAt' => $this->expiresAt];
+        return ['code' => Secret::REDACTED, 'issueId' => $this->issueId, 'expiresAt' => $this->expiresAt, 'challengeId' => $this->challengeId];
     }
 
     /**

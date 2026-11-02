@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Codes\CodeKeys;
 use SineMacula\Laravel\Authentication\Codes\CodeSettings;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\HasChangeableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierChangeNotifier;
@@ -35,6 +36,9 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOu
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 use SineMacula\Laravel\Authentication\Models\IdentifierChange;
+use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
+use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
+use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 
@@ -187,11 +191,14 @@ final readonly class IdentifierChangeService
 
     /**
      * Confirm the identity's pending change of the type, requested through this
-     * guard, with the code sent to the new identifier, and make it, while the
-     * identity is active.
+     * guard, with the code sent to the new identifier for the challenge named,
+     * and make it, while the identity is active. A well-formed code and
+     * challenge id count against the identity's account and the IP address
+     * (`identifier_change`), given back once the change is made.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
+     * @param  string  $challengeId
      * @param  string  $code
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome
@@ -204,30 +211,55 @@ final readonly class IdentifierChangeService
      *
      * @phpstan-impure
      */
-    public function confirmByCode(Identity $identity, string $type, #[\SensitiveParameter] string $code, ?ClientContext $client = null): IdentifierChangeOutcome
-    {
+    public function confirmByCode(
+        Identity $identity,
+        string $type,
+        string $challengeId,
+        #[\SensitiveParameter] string $code,
+        ?ClientContext $client = null,
+    ): IdentifierChangeOutcome {
         $changeable = $this->changeable($identity, $type);
         $context    = $this->eventContext($changeable, $client);
         $codes      = $this->collaborator(OneTimeCodes::class);
 
-        if (!$codes->isWellFormed($code)) {
+        if (!$codes->isWellFormed($code) || !$codes->isWellFormedChallenge($challengeId)) {
             return $this->refuseConfirmation(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS, $context);
+        }
+
+        $limiter     = $this->collaborator(AttemptLimiter::class);
+        $reservation = $limiter->acquire(
+            new AttemptSubject($this->context->name(), AttemptFlow::IDENTIFIER_CHANGE, null, null, $context->client->ip, AccountAttempts::account($changeable)),
+        );
+
+        if ($reservation->retryAfter !== null) {
+            $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::IDENTIFIER_CHANGE, FailureReason::RATE_LIMITED, retryAfter: $reservation->retryAfter));
+
+            return IdentifierChangeOutcome::RATE_LIMITED;
         }
 
         // `#[\SensitiveParameter]` does not cover what a closure captures,
         // which a dump of the trace shows.
         $secret = new \SensitiveParameterValue($code);
 
-        return $this->confirm($changeable, $type, $context, function (IdentifierChange $change, CarbonImmutable $now) use ($changeable, $secret, $codes): ?ChangeRefused {
-            $check = $codes->check(PendingChanges::binding($change, $changeable), $secret->getValue(), $now);
+        $prove = static function (IdentifierChange $change, CarbonImmutable $now) use ($changeable, $challengeId, $secret, $codes): ?ChangeRefused {
+            $check = $codes->check(PendingChanges::binding($change, $changeable), $challengeId, $secret->getValue(), $now);
 
             return match ($check) {
                 CodeCheck::ACCEPTED  => null,
                 CodeCheck::EXPIRED   => new ChangeRefused(IdentifierChangeOutcome::EXPIRED, FailureReason::CODE_EXPIRED),
                 CodeCheck::EXHAUSTED => new ChangeRefused(IdentifierChangeOutcome::EXHAUSTED, FailureReason::CODE_EXHAUSTED),
-                CodeCheck::INVALID   => new ChangeRefused(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS),
+                CodeCheck::INVALID,
+                CodeCheck::WRONG => new ChangeRefused(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS),
             };
-        }, FailureReason::CODE_EXPIRED);
+        };
+
+        $outcome = $this->confirm($changeable, $type, $context, $prove, FailureReason::CODE_EXPIRED);
+
+        if ($outcome === IdentifierChangeOutcome::CHANGED) {
+            $limiter->release($reservation);
+        }
+
+        return $outcome;
     }
 
     /**

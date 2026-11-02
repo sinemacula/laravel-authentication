@@ -25,6 +25,9 @@ final class ResetInput
     /** @var string Input key of a reset code. */
     public const string CODE_KEY = 'code';
 
+    /** @var string Input key of a reset code's challenge id. */
+    public const string CHALLENGE_KEY = 'challenge';
+
     /** @var string Input key of the new password. */
     public const string PASSWORD_KEY = 'password';
 

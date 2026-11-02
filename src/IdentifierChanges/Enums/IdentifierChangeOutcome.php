@@ -29,4 +29,7 @@ enum IdentifierChangeOutcome: string
 
     // Another identity holds the new identifier; the proof was not used up
     case TAKEN = 'taken';
+
+    // The identity or the IP address has used up its confirmations for now
+    case RATE_LIMITED = 'rate_limited';
 }

@@ -1,0 +1,70 @@
+<?php
+
+declare(strict_types = 1);
+
+namespace SineMacula\Laravel\Authentication\Codes;
+
+use Carbon\CarbonImmutable;
+use SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeOutcome;
+use SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeRefusal;
+
+/**
+ * How checking a further factor's code, or an enrolment's, ended
+ * (`CodeService::verifyFactorCode()`): verified, at the time given, or why not,
+ * for the challenge it was checked against.
+ *
+ * A verified code is the factor package's to turn into a proof (its method, the
+ * channel, its factor reference and the binding) and hand to the session
+ * service's `satisfy()` or `stepUp()`, inside the same transaction when both
+ * are to commit together. `lockedUntil` carries a lock the factor package
+ * reported, whether the check found it or this attempt caused it.
+ *
+ * @api
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited
+ */
+final readonly class FactorCodeCheck
+{
+    /**
+     * Constructor.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeOutcome  $outcome
+     * @param  string  $challengeId
+     * @param  ?\Carbon\CarbonImmutable  $verifiedAt
+     * @param  ?\Carbon\CarbonImmutable  $lockedUntil
+     * @param  ?\SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeRefusal  $reason
+     * @param  ?int  $retryAfter
+     */
+    public function __construct(
+
+        /** How the check ended. */
+        public FactorCodeOutcome $outcome,
+
+        /** The challenge id the check was made against, as given. */
+        public string $challengeId,
+
+        /** When the code was verified, for `verified` only. */
+        public ?CarbonImmutable $verifiedAt = null,
+
+        /** Until when the factor package has the factor or the identity locked, when it said. */
+        public ?CarbonImmutable $lockedUntil = null,
+
+        /** Why the factor package refused, when it did. */
+        public ?FactorCodeRefusal $reason = null,
+
+        /** Seconds until the IP address may check another code, for `rate_limited` only. */
+        public ?int $retryAfter = null,
+    ) {}
+
+    /**
+     * Whether the code matched the live challenge and the factor package
+     * admitted the outcome.
+     *
+     * @return bool
+     */
+    public function isVerified(): bool
+    {
+        return $this->outcome === FactorCodeOutcome::VERIFIED;
+    }
+}

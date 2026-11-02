@@ -80,6 +80,9 @@ final class FailureReasonTest extends TestCase
             'proof_invalid',
             'proof_binding_mismatch',
             'step_up_required',
+            'deliveries_exhausted',
+            'factor_code_locked',
+            'factor_code_refused',
         ], array_map(static fn (FailureReason $reason): string => $reason->value, FailureReason::cases()));
     }
 
@@ -147,6 +150,7 @@ final class FailureReasonTest extends TestCase
             'identifier_change',
             'step_up',
             'reauthentication',
+            'factor_code',
         ], $flows);
     }
 

@@ -516,7 +516,7 @@ final class ConcurrentProofSpendingTest extends TestCase
         [$first, $second] = $this->race(
             'update',
             'one_time_codes',
-            fn (): string => $this->changes()->confirmByCode($identity, 'email', self::CODE)->value,
+            fn (): string => $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->value,
             fn (): string => $this->changes()->cancel(self::reloaded($identity), 'email') ? 'canceled' : 'none',
         );
 
@@ -546,7 +546,7 @@ final class ConcurrentProofSpendingTest extends TestCase
         [$first, $second] = $this->race(
             'update',
             'one_time_codes',
-            fn (): string => $this->changes()->confirmByCode($identity, 'email', self::CODE)->value,
+            fn (): string => $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->value,
             fn (): string => $this->changes()->requestByLink(self::reloaded($identity), 'email', 'ada@later.example.test', $proof, 'email.confirm')->status->value,
         );
 

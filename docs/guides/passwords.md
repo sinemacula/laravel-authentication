@@ -212,7 +212,7 @@ use SineMacula\Laravel\Authentication\Passwords\Enums\ResetStatus;
 Route::post('/password/forgot', function (Request $request) {
     $answer = Auth::passwords('api')->sendResetLink($request->only('email'));
 
-    return $answer->status === CodeRequestStatus::RATE_LIMITED
+    return in_array($answer->status, [CodeRequestStatus::RATE_LIMITED, CodeRequestStatus::DELIVERIES_EXHAUSTED], true)
         ? response()->json(['message' => 'Too many requests.'], 429)->header('Retry-After', (string) $answer->retryAfter)
         : response()->json(['message' => 'If the address is registered, a link is on its way.'], 202);
 });
@@ -236,15 +236,17 @@ have a registered normaliser (see [Identifiers](identity-models.md#identifiers))
 identifier, so the answer, the statements and the time are the same whether or not anyone holds it: the guard must allow
 the `password` method (`method_not_allowed` otherwise), the identifier must be one its type's normaliser accepts
 (`identifier_invalid`), the identifier, in normal form, and the IP address must have requests left under the
-`password_reset_request` limits (`rate_limited`, counted on every request and never given back), and no link or code may
-have been issued for it within the codes' `resend_cooldown_seconds` (`rate_limited` with the seconds left). Then a token
-or a code is issued for the identifier, whoever holds it, and its delivery queued (see
-[One-time codes](configuration.md#one-time-codes) for the delivery queue): the answer is a `CodeRequest`, `sent` with
-when it expires. A link request answers with the code requests' type as well (`CodeRequest` and
-`Codes\Enums\CodeRequestStatus`, as the route above imports): a reset link's token is issued and limited by the same
-engine as a code, and the answer has the same four statuses. A newer link or code replaces the one before, which stops
-working at once. No identity is looked up during the request. Refusals are reported by `AuthenticationFailed` with the
-flow `password_reset`.
+`password_reset_request` limits (`rate_limited`, counted on every request and never given back), no link or code may
+have been issued for it within the codes' `resend_cooldown_seconds` (`rate_limited` with the seconds left), and its
+delivery window must allow another delivery (`deliveries_exhausted`, with the wait until the window ends). Then a token
+or a code is issued for the identifier, whoever holds it, and its delivery queued (see [One-time
+codes](configuration.md#one-time-codes) for the delivery queue): the answer is a `CodeRequest`, `sent` with when it
+expires and, for a code, the challenge id its reset names (a resend of a live code keeps it). A link request answers
+with the code requests' type as well (`CodeRequest` and `Codes\Enums\CodeRequestStatus`, as the route above imports): a
+reset link's token is issued and limited by the same engine as a code, is its own challenge (its answer carries no
+challenge id), and the answer has the same statuses. A newer link or code replaces the one before, which stops working
+at once. No identity is looked up during the request. Refusals are reported by `AuthenticationFailed` with the flow
+`password_reset`.
 
 The queued job alone decides, later, who receives it: the identity the guard's provider finds by the identifier, read on
 the write connection, that is not a `MachineIdentity`, is active, holds exactly that identifier (its own, in normal
@@ -289,28 +291,28 @@ $this->app->singleton(PasswordResetLinkSender::class, ResetLinkMailer::class);
 ```
 
 `reset($input, ?ClientContext $client = null)` takes the identifier under the guard's password identifier, the `token`
-and the new `password`; `resetWithCode($type, $input)` the identifier under `$type`, the `code` and the `password`. The
-identifier as given and the IP address are counted under the `password_reset` limits before anything else, so a flood of
-guesses never reaches the hasher or your breached-password checker; a reset that succeeds gives its slots back. The rest
-runs inside the guard's credential timebox (see
-[Credential validation timing](configuration.md#credential-validation-timing)): a missing or malformed identifier,
-token, code or password is `invalid`; a password the policy rejects is `password_rejected` with its violations, and
-spends nothing; then the identity is looked up and, in one transaction, the token or code is checked whatever the
-identity, a code counting its attempt as a sign-in does. The transaction locks the identity's row before it touches the
-proof, as a password change does, so a reset and a change of the password or of an identifier racing on one identity
-wait for each other instead of failing, and decides again on the row as locked whether the identity may reset, so a
-deactivation committed since the lookup counts. A refused proof is `invalid` (an expired or exhausted one included) and
-its attempt stays counted; a proof accepted for no identity, or one the job would not have sent to, is `invalid` and
-stays unspent; a proof accepted for an eligible identity is spent with the new password in the same transaction, set as
-`set()` sets it with `PasswordFlow::RESET` (see [Setting a password](#setting-a-password)): every session of the
-identity ended, its cutoff moved, its pending identifier changes ended, every other reset link and code and
-every sign-in code for its identifiers invalidated, through every guard whose provider returns it (a provider whose
-configuration names no model is assumed to), and `PasswordSet` reported once that commits. Only a reset returns before
-the timebox ends. The result is a `ResetResult`: `reset` with how many sessions were `revoked`, `invalid`,
-`rate_limited` with `retryAfter`, or `password_rejected` with `violations`. `AuthenticationFailed` (flow
-`password_reset`) says why a reset failed: `rate_limited`, `invalid_credentials`, `code_expired`, `code_exhausted`,
-`link_expired`, `machine_identity`, `identity_inactive` or `identifier_unverified`; the result never does. A reset signs
-no one in and verifies no identifier.
+and the new `password`; `resetWithCode($type, $input)` the identifier under `$type`, the `code`, the `challenge` the
+code was sent for and the `password`. The identifier as given and the IP address are counted under the `password_reset`
+limits before anything else, so a flood of guesses never reaches the hasher or your breached-password checker; a reset
+that succeeds gives its slots back. The rest runs inside the guard's credential timebox (see [Credential validation
+timing](configuration.md#credential-validation-timing)): a missing or malformed identifier, token, code, challenge id or
+password is `invalid`, and a code naming another challenge than the live one spends no attempt; a password the policy
+rejects is `password_rejected` with its violations, and spends nothing; then the identity is looked up and, in one
+transaction, the token or code is checked whatever the identity, a code counting its attempt as a sign-in does. The
+transaction locks the identity's row before it touches the proof, as a password change does, so a reset and a change of
+the password or of an identifier racing on one identity wait for each other instead of failing, and decides again on the
+row as locked whether the identity may reset, so a deactivation committed since the lookup counts. A refused proof is
+`invalid` (an expired or exhausted one included) and its attempt stays counted; a proof accepted for no identity, or one
+the job would not have sent to, is `invalid` and stays unspent; a proof accepted for an eligible identity is spent with
+the new password in the same transaction, set as `set()` sets it with `PasswordFlow::RESET` (see [Setting a
+password](#setting-a-password)): every session of the identity ended, its cutoff moved, its pending identifier changes
+ended, every other reset link and code and every sign-in code for its identifiers invalidated, through every guard whose
+provider returns it (a provider whose configuration names no model is assumed to), and `PasswordSet` reported once that
+commits. Only a reset returns before the timebox ends. The result is a `ResetResult`: `reset` with how many sessions
+were `revoked`, `invalid`, `rate_limited` with `retryAfter`, or `password_rejected` with `violations`.
+`AuthenticationFailed` (flow `password_reset`) says why a reset failed: `rate_limited`, `invalid_credentials`,
+`code_expired`, `code_exhausted`, `link_expired`, `machine_identity`, `identity_inactive` or `identifier_unverified`;
+the result never does. A reset signs no one in and verifies no identifier.
 
 Spending the proof with the password and the revocation needs one transaction, so the identity must live on the session
 model's connection (which the codes' table shares): a guard whose provider's model is on another throws a

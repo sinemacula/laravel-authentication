@@ -209,7 +209,7 @@ final class ReboundFreshnessPolicyTest extends TestCase
 
         $policy = $this->bind(new ScriptedFreshness(null));
 
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE));
         self::assertSame(['requirement:web:identifier_change'], $policy->asked);
     }
 

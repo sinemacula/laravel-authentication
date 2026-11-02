@@ -427,7 +427,7 @@ final class OutdatedProofsTest extends TestCase
      */
     private static function check(CodeBinding $binding, string $code): CodeCheck
     {
-        return app(OneTimeCodes::class)->check($binding, $code, CarbonImmutable::now());
+        return app(OneTimeCodes::class)->check($binding, self::challenge($binding), $code, CarbonImmutable::now());
     }
 
     /**

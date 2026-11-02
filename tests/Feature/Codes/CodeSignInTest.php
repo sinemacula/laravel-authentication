@@ -356,7 +356,7 @@ final class CodeSignInTest extends TestCase
         $provider = \Mockery::mock(IdentityProvider::class);
         $provider->shouldReceive('retrieveByCredentials')->once()->andReturn(\Mockery::mock(Authenticatable::class));
 
-        $request = new SignInRequest('mobile', $provider, ['phone' => self::PHONE, 'code' => self::CODE], new ClientContext(null, null));
+        $request = new SignInRequest('mobile', $provider, ['phone' => self::PHONE, 'challenge' => self::challenge(), 'code' => self::CODE], new ClientContext(null, null));
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, app(SignInMethodManager::class)->method('phone_code')->authenticate($request));
     }
@@ -473,29 +473,35 @@ final class CodeSignInTest extends TestCase
     }
 
     /**
-     * Rows of input that cannot carry a code or a number.
+     * Rows of input that cannot carry a code, a number or a challenge id; the
+     * live challenge's id is added to every row that sets none, and a row that
+     * sets it to `null` has none.
      *
      * @return iterable<string, array{0: array<string, mixed>}>
      */
     public static function provideMalformedInput(): iterable
     {
         yield from [
-            'no code'                => [['phone' => self::PHONE]],
-            'a code too short'       => [['phone' => self::PHONE, 'code' => '13579']],
-            'a code too long'        => [['phone' => self::PHONE, 'code' => '1357900']],
-            'a code as a number'     => [['phone' => self::PHONE, 'code' => 135790]],
-            'a code in a list'       => [['phone' => self::PHONE, 'code' => [self::CODE]]],
-            'a code with a letter'   => [['phone' => self::PHONE, 'code' => '13579O']],
-            'no number'              => [['code' => self::CODE]],
-            'a number as an integer' => [['phone' => 447700900123, 'code' => self::CODE]],
-            'a number in a list'     => [['phone' => [self::PHONE], 'code' => self::CODE]],
-            'a number without plus'  => [['phone' => '447700900123', 'code' => self::CODE]],
+            'no code'                 => [['phone' => self::PHONE]],
+            'a code too short'        => [['phone' => self::PHONE, 'code' => '13579']],
+            'a code too long'         => [['phone' => self::PHONE, 'code' => '1357900']],
+            'a code as a number'      => [['phone' => self::PHONE, 'code' => 135790]],
+            'a code in a list'        => [['phone' => self::PHONE, 'code' => [self::CODE]]],
+            'a code with a letter'    => [['phone' => self::PHONE, 'code' => '13579O']],
+            'no number'               => [['code' => self::CODE]],
+            'a number as an integer'  => [['phone' => 447700900123, 'code' => self::CODE]],
+            'a number in a list'      => [['phone' => [self::PHONE], 'code' => self::CODE]],
+            'a number without plus'   => [['phone' => '447700900123', 'code' => self::CODE]],
+            'no challenge'            => [['phone' => self::PHONE, 'code' => self::CODE, 'challenge' => null]],
+            'a challenge in capitals' => [['phone' => self::PHONE, 'code' => self::CODE, 'challenge' => '0195F4A2-7B1C-4000-8000-00000000000A']],
+            'a challenge as a number' => [['phone' => self::PHONE, 'code' => self::CODE, 'challenge' => 42]],
+            'a challenge in a list'   => [['phone' => self::PHONE, 'code' => self::CODE, 'challenge' => [self::NO_CHALLENGE]]],
         ];
     }
 
     /**
-     * Input without a well-formed number and code is refused before any lookup
-     * or check: nothing is counted against the code.
+     * Input without a well-formed number, code and challenge id is refused
+     * before any lookup or check: nothing is counted against the code.
      *
      * @param  array<string, mixed>  $input
      * @return void
@@ -509,11 +515,44 @@ final class CodeSignInTest extends TestCase
 
         $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
 
+        $input  = array_filter([...['challenge' => self::challenge()], ...$input], static fn (mixed $value): bool => $value !== null);
         $result = $this->sessions('mobile')->signIn('phone_code', $input);
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $result->reason);
         self::assertSame(0, self::storedAttempts());
         self::assertNull(DB::table('one_time_codes')->value('consumed_at'));
+    }
+
+    /**
+     * The right code for another challenge than the live one (one sent before,
+     * or none at all) is refused, and spends no attempt on the live challenge,
+     * whose code still signs in.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACodeNamingAnotherChallengeSpendsNothing(): void
+    {
+        self::seedCodeIdentity();
+
+        $sessions = $this->sessions('mobile');
+        $first    = $this->codeService()->send('phone_code', ['phone' => self::PHONE])->challengeId;
+
+        self::assertIsString($first);
+
+        DB::table('one_time_codes')->update(['issued_at' => '2026-04-06 11:59:00', 'expires_at' => '2026-04-06 12:00:00']);
+
+        $live = $this->codeService()->send('phone_code', ['phone' => self::PHONE])->challengeId;
+
+        self::assertNotSame($first, $live);
+
+        foreach ([$first, self::NO_CHALLENGE] as $other) {
+            self::assertSame(FailureReason::INVALID_CREDENTIALS, $sessions->signIn('phone_code', ['phone' => self::PHONE, 'challenge' => $other, 'code' => '246802'])->reason);
+        }
+
+        self::assertSame(0, self::storedAttempts());
+        self::assertTrue($sessions->signIn('phone_code', ['phone' => self::PHONE, 'challenge' => $live, 'code' => '246802'])->isSignedIn());
     }
 
     /**
@@ -588,7 +627,10 @@ final class CodeSignInTest extends TestCase
         $this->codeService()->send('whatsapp_code', ['whatsapp' => self::PHONE]);
 
         self::assertSame('whatsapp', $manager->method('whatsapp_code')->identifierType('mobile'));
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions('mobile')->signIn('whatsapp_code', ['whatsapp' => self::PHONE, 'code' => '000000'])->reason);
+        self::assertSame(
+            FailureReason::INVALID_CREDENTIALS,
+            $this->sessions('mobile')->signIn('whatsapp_code', ['whatsapp' => self::PHONE, 'challenge' => self::challenge(), 'code' => '000000'])->reason,
+        );
         self::assertSame(1, self::storedAttempts());
     }
 
@@ -615,7 +657,7 @@ final class CodeSignInTest extends TestCase
         self::seedCodeIdentity()->forceFill(['whatsapp' => self::PHONE, 'whatsapp_verified_at' => '2026-01-01 00:00:00'])->save();
 
         self::assertTrue($this->codeService()->send('whatsapp_code', ['whatsapp' => ' ' . self::PHONE])->isSent());
-        self::assertTrue($this->sessions('mobile')->signIn('whatsapp_code', ['whatsapp' => self::PHONE, 'code' => self::CODE])->isSignedIn());
+        self::assertTrue($this->sessions('mobile')->signIn('whatsapp_code', ['whatsapp' => self::PHONE, 'challenge' => self::challenge(), 'code' => self::CODE])->isSignedIn());
 
         $proof = SessionProof::query()->sole();
 
@@ -665,7 +707,7 @@ final class CodeSignInTest extends TestCase
         self::seedCodeIdentity()->forceFill(['handle' => $handle, 'handle_verified_at' => '2026-01-01 00:00:00'])->save();
 
         self::assertTrue($this->codeService()->send('handle_code', ['handle' => $handle])->isSent());
-        self::assertTrue($this->sessions('mobile')->signIn('handle_code', ['handle' => $handle, 'code' => self::CODE])->isSignedIn());
+        self::assertTrue($this->sessions('mobile')->signIn('handle_code', ['handle' => $handle, 'challenge' => self::challenge(), 'code' => self::CODE])->isSignedIn());
         self::assertSame($recorded ? $handle : null, SessionProof::query()->sole()->channel_reference);
     }
 
@@ -698,7 +740,7 @@ final class CodeSignInTest extends TestCase
 
         self::assertTrue($this->codeService()->send('phone_code', ['phone' => self::PHONE])->isSent());
 
-        $result = $this->sessions('mobile')->reauthenticate($session->record, 'phone_code', ['phone' => ' ' . self::PHONE, 'code' => '246802']);
+        $result = $this->sessions('mobile')->reauthenticate($session->record, 'phone_code', ['phone' => ' ' . self::PHONE, 'challenge' => self::challenge(), 'code' => '246802']);
 
         self::assertTrue($result->isIssued());
 
@@ -723,15 +765,16 @@ final class CodeSignInTest extends TestCase
     public static function provideUnusableTypes(): iterable
     {
         yield from [
-            'the code key' => ['code', 'A code sign-in method cannot use the identifier type [code]: its input key holds the code.'],
-            'upper case'   => ['Phone', 'Identifier type [Phone] must be a lower-case letter followed by lower-case letters, digits and underscores.'],
-            'empty'        => ['', 'Identifier type [] must be a lower-case letter followed by lower-case letters, digits and underscores.'],
+            'the code key'      => ['code', 'A code sign-in method cannot use the identifier type [code]: its input key holds the code or its challenge.'],
+            'the challenge key' => ['challenge', 'A code sign-in method cannot use the identifier type [challenge]: its input key holds the code or its challenge.'],
+            'upper case'        => ['Phone', 'Identifier type [Phone] must be a lower-case letter followed by lower-case letters, digits and underscores.'],
+            'empty'             => ['', 'Identifier type [] must be a lower-case letter followed by lower-case letters, digits and underscores.'],
         ];
     }
 
     /**
      * A code method for a type that is not a valid identifier type, or whose
-     * input key would hold the code, is a misconfiguration.
+     * input key would hold the code or its challenge, is a misconfiguration.
      *
      * @param  string  $type
      * @param  string  $message
@@ -794,6 +837,6 @@ final class CodeSignInTest extends TestCase
      */
     private function signIn(string $code, string $phone = self::PHONE, string $guard = 'mobile'): SignInResult
     {
-        return $this->sessions($guard)->signIn('phone_code', ['phone' => $phone, 'code' => $code]);
+        return $this->sessions($guard)->signIn('phone_code', ['phone' => $phone, 'challenge' => self::challenge(), 'code' => $code]);
     }
 }

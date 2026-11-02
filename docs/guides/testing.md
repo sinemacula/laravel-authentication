@@ -89,11 +89,11 @@ use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 
 $sender = FakeOneTimeCodeSender::fake();
 
-$this->postJson('/codes', ['phone' => '+447700900123'])->assertAccepted();
+$challenge = $this->postJson('/codes', ['phone' => '+447700900123'])->assertAccepted()->json('challenge');
 
 $code = $sender->lastCodeFor('+447700900123');   // the number as delivered, in E.164
 
-$this->postJson('/sign-in/code', ['phone' => '+447700900123', 'code' => $code])->assertOk();
+$this->postJson('/sign-in/code', ['phone' => '+447700900123', 'challenge' => $challenge, 'code' => $code])->assertOk();
 ```
 
 The message arrives when the delivery job runs: on a `sync` queue connection once the response is sent (a test's HTTP

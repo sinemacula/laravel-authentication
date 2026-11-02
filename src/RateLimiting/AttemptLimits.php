@@ -12,9 +12,10 @@ use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
  * Each guard's limits on each flow: its `rate_limits` block over the package
  * defaults in `authentication.rate_limits`.
  *
- * Every flow has a `per_identifier` and a `per_ip` limit, each either
- * `['max' => int, 'decay_seconds' => int]` or `null` (off). A request for
- * passkey sign-in options names no identifier, so its `per_identifier` limit
+ * Every flow has a `per_identifier` and a `per_ip` limit, each either `['max'
+ * => int, 'decay_seconds' => int]` or `null` (off). A request for passkey
+ * sign-in options names no identifier, and the factor package counts a factor
+ * code check per factor and per identity, so the `per_identifier` limit of each
  * must be `null`: one that could never apply fails closed rather than seeming
  * to limit something. A guard's flow block that is present wins for the scopes
  * it sets, `null` included, and a flow block of `null` turns the flow's limits
@@ -103,6 +104,12 @@ final readonly class AttemptLimits
             $message = sprintf('Rate limit `%s.%s` for guard [%s] must be null: a request for passkey sign-in options', $flow->value, $scope, $guard);
 
             throw new \InvalidArgumentException($message . ' names no identifier, so only `per_ip` limits it.');
+        }
+
+        if ($scope === self::PER_IDENTIFIER && $flow === AttemptFlow::FACTOR_CODE) {
+            $message = sprintf('Rate limit `%s.%s` for guard [%s] must be null: the factor package counts factor code checks', $flow->value, $scope, $guard);
+
+            throw new \InvalidArgumentException($message . ' per factor and per identity, so only `per_ip` limits them here.');
         }
 
         return self::fromValue($guard, $flow, $scope, $source[$scope]);

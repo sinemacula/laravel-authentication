@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 use SineMacula\Laravel\Authentication\Models\OneTimeCode;
+use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
@@ -29,8 +30,14 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 
 /**
  * The one-time code service of a JWT guard (`Auth::codes($guard)`): sends
- * sign-in codes for the code sign-in methods, and sends and checks codes that
- * verify an identity's identifier.
+ * sign-in codes for the code sign-in methods, sends and checks codes that
+ * verify an identity's identifier, and sends and checks a factor package's
+ * further-factor and enrolment codes.
+ *
+ * Every code is a challenge: the request answers its id (`CodeRequest::
+ * $challengeId`), which the check must name, and a resend within the delivery
+ * window keeps it, with its attempts, while it is live (see
+ * `authentication.codes`).
  *
  * Sending a sign-in code does no work that depends on whether an identity has
  * the identifier: the guard must allow the method, the identifier must be one
@@ -38,15 +45,25 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * code requests left (`code_request` limits, counted on every request), and no
  * code may have been issued for the identifier within the resend cooldown;
  * then a code is issued and its delivery queued, once the code is committed.
- * The result, the statements run and the time taken are the same for an
- * identifier no one has, and the queued job alone decides, later, whether
- * anyone receives the code. The code signs in through
- * `Auth::sessions($guard)->signIn($method, ...)`.
+ * The result (a challenge id among it), the statements run and the time taken
+ * are the same for an identifier no one has, and the queued job alone decides,
+ * later, whether anyone receives the code. The code signs in through
+ * `Auth::sessions($guard)->signIn($method, ...)`, with its challenge id.
  *
  * Verifying by code is the code form of the verification helpers: a code bound
  * to the guard, the identity and its current identifier of the type, which,
  * checked with `verify()`, records the verification through
- * `IdentifierVerifier`. It never signs anyone in.
+ * `IdentifierVerifier`. It never signs anyone in. Checks count against the
+ * identity's account and the IP address (`identifier_verification`).
+ *
+ * A factor package's codes (`sendFactorCode()`, `verifyFactorCode()`) are bound
+ * to a `FactorCodeBinding`: the identity, this guard, the session, the factor
+ * and its purpose (`mfa` for a sign-in or a step-up, `enrollment` for the
+ * confirmation of a factor being enrolled, with its grant). The bound
+ * `FactorCodeCounters` is asked before each delivery and each check, inside one
+ * transaction on the storage connection, and told the outcome of every attempt
+ * counted, in the transaction that counts it; its default refuses every code.
+ * This service keeps the per-challenge counts and the per-IP limits.
  *
  * Failures are results, reported by `AuthenticationFailed`; exceptions are kept
  * for misconfiguration and server errors. The service keeps no state between
@@ -108,7 +125,7 @@ final readonly class CodeService
 
         return $binding === null
             ? $this->refuse(CodeRequest::identifierInvalid(), FailureReason::INVALID_CREDENTIALS, $context, $given)
-            : $this->issue($binding, $context, $given);
+            : $this->issue($binding, $context, $given, new AttemptSubject($guard, AttemptFlow::CODE_REQUEST, $binding->identifier, $binding->type, $context->client->ip));
     }
 
     /**
@@ -135,25 +152,34 @@ final readonly class CodeService
         $binding = $this->verificationBinding($identity, $type);
         $context = new EventContext($this->context->name(), $client ?? $this->context->client(), $identity);
 
-        return $binding === null
-            ? $this->refuse(CodeRequest::identifierInvalid(), FailureReason::INVALID_CREDENTIALS, $context, null)
-            : $this->issue($binding, $context, null, $identity);
+        if ($binding === null) {
+            return $this->refuse(CodeRequest::identifierInvalid(), FailureReason::INVALID_CREDENTIALS, $context, null);
+        }
+
+        $subject = new AttemptSubject($binding->guard, AttemptFlow::CODE_REQUEST, $binding->identifier, $binding->type, $context->client->ip);
+
+        return $this->issue($binding, $context, null, $subject, $identity);
     }
 
     /**
-     * Check a verification code for the identity's current identifier of the
-     * type, and record the identifier verified when it is accepted: `verified`
-     * or `already_verified`, as `IdentifierVerifier::verify()` answers it.
-     * Otherwise why not (`invalid`, `expired` or `exhausted`; not concealed,
-     * since the caller already holds the identity), reported by
-     * `AuthenticationFailed` as `invalid_credentials`, `code_expired` or
-     * `code_exhausted`. A code sent before the identifier changed is bound to
-     * the old one, so it verifies nothing; one whose identifier changed after
-     * the identity was loaded is used up and answers `mismatch`, with nothing
+     * Check a verification code, sent for the challenge named, for the
+     * identity's current identifier of the type, and record the identifier
+     * verified when it is accepted: `verified` or `already_verified`, as
+     * `IdentifierVerifier::verify()` answers it. Otherwise why not (`invalid`,
+     * `expired`, `exhausted` or `rate_limited`; not concealed, since the caller
+     * already holds the identity), reported by `AuthenticationFailed` as
+     * `invalid_credentials`, `code_expired`, `code_exhausted` or
+     * `rate_limited`. A check of a well-formed code and challenge id counts
+     * against the identity's account and the IP address
+     * (`identifier_verification`) and gives them back once the code is
+     * accepted. A code sent before the identifier changed is bound to the old
+     * one, so it verifies nothing; one whose identifier changed after the
+     * identity was loaded is used up and answers `mismatch`, with nothing
      * recorded or reported, as the verifier gives it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
+     * @param  string  $challengeId
      * @param  string  $code
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome
@@ -162,17 +188,30 @@ final readonly class CodeService
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public function verify(Identity $identity, string $type, #[\SensitiveParameter] string $code, ?ClientContext $client = null): VerificationOutcome
+    public function verify(Identity $identity, string $type, string $challengeId, #[\SensitiveParameter] string $code, ?ClientContext $client = null): VerificationOutcome
     {
         $binding = $this->verificationBinding($identity, $type);
         $context = new EventContext($this->context->name(), $client ?? $this->context->client(), $identity);
         $codes   = $this->collaborator(OneTimeCodes::class);
 
-        if ($binding === null || !$codes->isWellFormed($code)) {
+        if ($binding === null || !$codes->isWellFormed($code) || !$codes->isWellFormedChallenge($challengeId)) {
             return $this->refuseVerification($context, FailureReason::INVALID_CREDENTIALS);
         }
 
-        $failure = $codes->check($binding, $code, CarbonImmutable::now()->startOfSecond())->failure();
+        $limiter     = $this->collaborator(AttemptLimiter::class);
+        $reservation = $limiter->acquire(
+            new AttemptSubject($binding->guard, AttemptFlow::IDENTIFIER_VERIFICATION, null, null, $context->client->ip, AccountAttempts::account($identity)),
+        );
+
+        if ($reservation->retryAfter !== null) {
+            return $this->refuseVerification($context, FailureReason::RATE_LIMITED, $reservation->retryAfter);
+        }
+
+        $failure = $codes->check($binding, $challengeId, $code, CarbonImmutable::now()->startOfSecond())->failure();
+
+        if ($failure === null) {
+            $limiter->release($reservation);
+        }
 
         return $failure === null
             ? self::verifierOutcome($this->collaborator(IdentifierVerifier::class)->verify($this->context->name(), $identity, $type, $binding->identifier, $context->client))
@@ -180,14 +219,89 @@ final readonly class CodeService
     }
 
     /**
-     * Take a code request from the identifier's and the IP address's limits,
-     * issue the code and queue its delivery (see `QueuedDelivery`); malformed
-     * settings, the code key and the delivery queue among them, fail closed
-     * before anything is counted.
+     * Send a further factor's code, or an enrolment's, to the destination of
+     * the binding's channel, for the identity, the session and the factor it
+     * names. A binding for another application than this guard is a
+     * misconfiguration (`InvalidArgumentException`), as are malformed settings,
+     * refused before anything is counted.
+     *
+     * The request counts under `code_request` on the destination, the
+     * identity's account and the IP address; then, in one transaction on the
+     * storage connection (a savepoint of the caller's), the bound
+     * `FactorCodeCounters` is asked first (`locked` or `refused`, nothing
+     * written), and the code is issued: a resend of the live challenge for the
+     * same session, factor and purpose (or grant) keeps its id and its
+     * attempts, anything else is a new challenge, and the destination's
+     * cooldown and delivery cap hold whichever factor or grant the binding
+     * names. The delivery is queued once the transaction commits, through the
+     * application's `OneTimeCodeSender`, with the purpose `mfa` or `enrollment`
+     * and the channel's kind as the type. Every refusal is reported by
+     * `AuthenticationFailed` (flow `factor_code`).
+     *
+     * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding  $binding
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Codes\CodeRequest
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     * @throws \Throwable
+     */
+    public function sendFactorCode(FactorCodeBinding $binding, ?ClientContext $client = null): CodeRequest
+    {
+        return (new FactorCodes($this->context, $this->container))->send($binding, $this->validated(), $client);
+    }
+
+    /**
+     * Check a further factor's code, or an enrolment's, sent for the challenge
+     * named, against the binding: the same identity, guard, session, factor and
+     * purpose (or grant) the code was sent for, or it is `invalid`. A binding
+     * for another application than this guard is a misconfiguration
+     * (`InvalidArgumentException`).
+     *
+     * A malformed code or challenge id is `invalid`, with nothing counted and
+     * nothing reported to the factor package. A check counts per IP address
+     * (`factor_code`), then, in one transaction on the storage connection (a
+     * savepoint of the caller's): asks the bound `FactorCodeCounters` first
+     * (`locked` or `refused`, the challenge untouched, nothing reported); locks
+     * the challenge's row; answers a challenge that is not the live one, or
+     * whose transaction is another, as `invalid`, and an expired or exhausted
+     * one as such, without counting or reporting; otherwise counts the attempt,
+     * compares the code, uses the challenge up when it matches, and reports the
+     * attempt to the counters exactly once, whose answer stands: a matching
+     * code is `verified` only when they admit it, and `locked` or `refused`
+     * otherwise (the challenge stays used up); a wrong one is `invalid`,
+     * carrying any lock they reported. A verified code gives its IP slot back.
+     * Every refusal is reported by `AuthenticationFailed` (flow `factor_code`).
+     *
+     * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding  $binding
+     * @param  string  $challengeId
+     * @param  string  $code
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Codes\FactorCodeCheck
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \Throwable
+     */
+    public function verifyFactorCode(FactorCodeBinding $binding, string $challengeId, #[\SensitiveParameter] string $code, ?ClientContext $client = null): FactorCodeCheck
+    {
+        (new CodeKeys($this->collaborator(Repository::class)))->validate();
+
+        return (new FactorCodes($this->context, $this->container))->verify($binding, $challengeId, $code, $client);
+    }
+
+    /**
+     * Take a code request from the subject's limits, issue the code and queue
+     * its delivery (see `QueuedDelivery`); malformed settings, the code key and
+     * the delivery queue among them, fail closed before anything is counted.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
      * @param  ?string  $given
+     * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject  $subject
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return \SineMacula\Laravel\Authentication\Codes\CodeRequest
      *
@@ -196,7 +310,37 @@ final readonly class CodeService
      * @throws \Random\RandomException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    private function issue(CodeBinding $binding, EventContext $context, ?string $given, ?Identity $identity = null): CodeRequest
+    private function issue(CodeBinding $binding, EventContext $context, ?string $given, AttemptSubject $subject, ?Identity $identity = null): CodeRequest
+    {
+        $delivery    = $this->validated();
+        $reservation = $this->collaborator(AttemptLimiter::class)->acquire($subject);
+
+        if ($reservation->retryAfter !== null) {
+            return $this->refuse(CodeRequest::rateLimited($reservation->retryAfter), FailureReason::RATE_LIMITED, $context, $given, $reservation->retryAfter);
+        }
+
+        $issued = $this->collaborator(OneTimeCodes::class)->issue($binding, CarbonImmutable::now()->startOfSecond());
+
+        if ($issued instanceof DeliveryRefusal) {
+            return $this->refuse($issued->request(), $issued->reason(), $context, $given, $issued->retryAfter);
+        }
+
+        $delivery->dispatch(new SendOneTimeCode($binding, $issued, $identity), new OneTimeCode);
+
+        return CodeRequest::sent($issued->expiresAt, $issued->challengeId);
+    }
+
+    /**
+     * Validate every setting a code request reads (the codes, their key and the
+     * delivery queue), failing closed before anything is counted, and answer
+     * the delivery they configure.
+     *
+     * @return \SineMacula\Laravel\Authentication\Delivery\QueuedDelivery
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     */
+    private function validated(): QueuedDelivery
     {
         $config   = $this->collaborator(Repository::class);
         $delivery = new QueuedDelivery($this->container);
@@ -205,23 +349,7 @@ final readonly class CodeService
         (new CodeKeys($config))->validate();
         $delivery->settings();
 
-        $reservation = $this->collaborator(AttemptLimiter::class)->acquire(
-            new AttemptSubject($binding->guard, AttemptFlow::CODE_REQUEST, $binding->identifier, $binding->type, $context->client->ip),
-        );
-
-        if ($reservation->retryAfter !== null) {
-            return $this->refuse(CodeRequest::rateLimited($reservation->retryAfter), FailureReason::RATE_LIMITED, $context, $given, $reservation->retryAfter);
-        }
-
-        $issued = $this->collaborator(OneTimeCodes::class)->issue($binding, CarbonImmutable::now()->startOfSecond());
-
-        if (is_int($issued)) {
-            return $this->refuse(CodeRequest::rateLimited($issued), FailureReason::RATE_LIMITED, $context, $given, $issued);
-        }
-
-        $delivery->dispatch(new SendOneTimeCode($binding, $issued, $identity), new OneTimeCode);
-
-        return CodeRequest::sent($issued->expiresAt);
+        return $delivery;
     }
 
     /**
@@ -269,15 +397,17 @@ final readonly class CodeService
      *
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @param  ?int  $retryAfter
      * @return \SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome
      */
-    private function refuseVerification(EventContext $context, FailureReason $reason): VerificationOutcome
+    private function refuseVerification(EventContext $context, FailureReason $reason, ?int $retryAfter = null): VerificationOutcome
     {
-        $this->report($context, AuthenticationFlow::IDENTIFIER_VERIFICATION, $reason, null, null);
+        $this->report($context, AuthenticationFlow::IDENTIFIER_VERIFICATION, $reason, null, $retryAfter);
 
         return match ($reason) {
             FailureReason::CODE_EXPIRED   => VerificationOutcome::EXPIRED,
             FailureReason::CODE_EXHAUSTED => VerificationOutcome::EXHAUSTED,
+            FailureReason::RATE_LIMITED   => VerificationOutcome::RATE_LIMITED,
             default                       => VerificationOutcome::INVALID,
         };
     }

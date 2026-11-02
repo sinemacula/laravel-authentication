@@ -1037,7 +1037,7 @@ final class EventSequenceTest extends TestCase
         $this->recordSequence();
 
         self::assertTrue($this->changes('changes')->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity, 'changes'))->isSent());
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes('changes')->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes('changes')->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE));
         self::assertSame([
             'IdentifierChangeRequested changes i1/-/-',
             'IdentifierChanged changes i1/-/-',

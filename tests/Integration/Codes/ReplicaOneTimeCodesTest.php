@@ -118,10 +118,10 @@ final class ReplicaOneTimeCodesTest extends TestCase
     {
         $this->verifyOnThePrimary();
 
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $challenge = $this->codeService()->send('phone_code', ['phone' => self::PHONE])->challengeId;
 
         self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('one_time_codes')->count());
-        self::assertTrue($this->sessions('mobile')->signIn('phone_code', ['phone' => self::PHONE, 'code' => self::CODE])->isSignedIn());
+        self::assertTrue($this->sessions('mobile')->signIn('phone_code', ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => self::CODE])->isSignedIn());
     }
 
     /**
@@ -164,12 +164,12 @@ final class ReplicaOneTimeCodesTest extends TestCase
     {
         DB::connection(self::PRIMARY_CONNECTION)->table('code_identities')->update(['phone' => self::CHANGED_PHONE, 'phone_verified_at' => '2026-04-06 11:00:00']);
 
-        $this->codeService('querying')->send('phone_code', ['phone' => self::CHANGED_PHONE]);
+        $challenge = $this->codeService('querying')->send('phone_code', ['phone' => self::CHANGED_PHONE])->challengeId;
         $this->app?->terminate();
 
         self::assertSame(self::CODE, $this->sender->lastCodeFor(self::CHANGED_PHONE));
 
-        $result = $this->sessions('querying')->signIn('phone_code', ['phone' => self::CHANGED_PHONE, 'code' => self::CODE]);
+        $result = $this->sessions('querying')->signIn('phone_code', ['phone' => self::CHANGED_PHONE, 'challenge' => $challenge, 'code' => self::CODE]);
 
         self::assertTrue($result->isSignedIn());
         self::assertInstanceOf(QueryingCodeIdentity::class, $result->session?->identity);
@@ -191,7 +191,7 @@ final class ReplicaOneTimeCodesTest extends TestCase
 
         $identity = CodeIdentity::query()->useWritePdo()->findOrFail($this->identity->getKey());
 
-        $this->codeService()->sendVerification($identity, 'phone');
+        $challenge = (string) $this->codeService()->sendVerification($identity, 'phone')->challengeId;
 
         $binding = CodeBinding::verification('mobile', 'phone', self::CHANGED_PHONE, $identity);
         $issueId = DB::connection(self::PRIMARY_CONNECTION)->table('one_time_codes')->value('issue_id');
@@ -199,10 +199,10 @@ final class ReplicaOneTimeCodesTest extends TestCase
         self::assertIsString($issueId);
         self::assertTrue(app(OneTimeCodes::class)->isCurrent($binding, $issueId, CarbonImmutable::now()));
 
-        (new SendOneTimeCode($binding, new IssuedCode(self::CODE, $issueId, CarbonImmutable::now()->addSeconds(600)), $this->identity))->handle(app());
+        (new SendOneTimeCode($binding, new IssuedCode(self::CODE, $issueId, CarbonImmutable::now()->addSeconds(600), $challenge), $this->identity))->handle(app());
 
         self::assertSame(self::CODE, $this->sender->lastCodeFor(self::CHANGED_PHONE));
-        self::assertSame(VerificationOutcome::VERIFIED, $this->codeService()->verify($identity, 'phone', self::CODE));
+        self::assertSame(VerificationOutcome::VERIFIED, $this->codeService()->verify($identity, 'phone', $challenge, self::CODE));
     }
 
     /**

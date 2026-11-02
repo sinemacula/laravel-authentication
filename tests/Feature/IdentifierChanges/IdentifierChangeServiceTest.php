@@ -154,7 +154,7 @@ final class IdentifierChangeServiceTest extends TestCase
         $calls   = [
             static fn (): mixed => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof),
             static fn (): mixed => $changes->requestByLink($identity, 'email', self::NEW_EMAIL, $proof, 'email.confirm'),
-            static fn (): mixed => $changes->confirmByCode($identity, 'email', self::CODE),
+            static fn (): mixed => $changes->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE),
             static fn (): mixed => $changes->pending($identity, 'email'),
             static fn (): mixed => $changes->cancel($identity, 'email'),
         ];
@@ -244,7 +244,7 @@ final class IdentifierChangeServiceTest extends TestCase
 
         $this->expectException($exception);
 
-        $changes->confirmByCode($identity, $type, self::CODE);
+        $changes->confirmByCode($identity, $type, self::changeChallenge($identity, $type), self::CODE);
     }
 
     /**
@@ -380,7 +380,7 @@ final class IdentifierChangeServiceTest extends TestCase
         foreach (
             [
                 fn (): mixed => $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity)),
-                fn (): mixed => $this->changes()->confirmByCode($identity, 'email', self::CODE),
+                fn (): mixed => $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE),
             ] as $call
         ) {
             try {
@@ -500,7 +500,7 @@ final class IdentifierChangeServiceTest extends TestCase
         foreach (
             [
                 fn (): mixed => $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity)),
-                fn (): mixed => $this->changes()->confirmByCode($identity, 'email', self::CODE),
+                fn (): mixed => $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE),
             ] as $call
         ) {
             try {
@@ -513,9 +513,11 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * A confirmation locks the identity's row as its transaction starts, before
-     * it reads the pending change or touches a proof, the lock order a password
-     * write follows too, so the two wait for each other rather than deadlock.
+     * A confirmation counts its limits before its transaction, and none inside
+     * it (a confirmed change gives them back once it commits); the transaction
+     * locks the identity's row as it starts, before it reads the pending change
+     * or touches a proof, the lock order a password write follows too, so the
+     * two wait for each other rather than deadlock.
      *
      * @return void
      *
@@ -527,13 +529,22 @@ final class IdentifierChangeServiceTest extends TestCase
 
         $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity));
 
+        $challenge  = self::changeChallenge($identity, 'email');
         $statements = self::recordStatements();
         $lock       = $identity->newModelQuery()->whereKey($identity->getKey())->lockForUpdate()->limit(1)->toSql();
 
-        $this->changes()->confirmByCode($identity, 'email', self::CODE);
+        $this->changes()->confirmByCode($identity, 'email', $challenge, self::CODE);
 
-        self::assertSame(['begin', $lock], array_slice($statements(), 0, 2));
-        self::assertStringContainsString('identifier_changes', $statements()[2]);
+        $recorded = $statements();
+        $begin    = array_search('begin', $recorded, true);
+        $counted  = static fn (string $sql): bool => str_contains($sql, 'rate_limits') && !str_contains($sql, '"hits" - 1');
+
+        self::assertIsInt($begin);
+        self::assertSame([], array_filter(array_slice($recorded, 0, $begin), static fn (string $sql): bool => !$counted($sql)));
+        self::assertNotSame([], array_slice($recorded, 0, $begin));
+        self::assertSame($lock, $recorded[$begin + 1]);
+        self::assertStringContainsString('identifier_changes', $recorded[$begin + 2]);
+        self::assertSame([], array_filter(array_slice($recorded, $begin), $counted));
     }
 
     /**

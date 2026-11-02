@@ -7,10 +7,11 @@ namespace SineMacula\Laravel\Authentication\Codes;
 use Illuminate\Contracts\Config\Repository;
 
 /**
- * The keyed digests behind one-time codes: the binding digest a code's row is
- * stored under, and the hash of the code itself, each an HMAC-SHA256 with its
- * own key derived from `authentication.codes.key`, or from the application key
- * (`app.key`) when that is not set.
+ * The keyed digests behind one-time codes: the binding digest a challenge's row
+ * is stored under (its delivery key), the digest of the transaction a factor's
+ * challenge is bound to, and the hash of the code itself, each an HMAC-SHA256
+ * with its own key derived from `authentication.codes.key`, or from the
+ * application key (`app.key`) when that is not set.
  *
  * A code has a few million values at most, so a plain hash of it could be
  * reversed by anyone who reads the table, from a backup or a replica, say, by
@@ -31,6 +32,9 @@ final readonly class CodeKeys
 
     /** @var string What the binding key is derived for, so it is used for nothing else. */
     private const string BINDING_PURPOSE = 'sinemacula/laravel-authentication one-time code bindings';
+
+    /** @var string What the transaction key is derived for, so it is used for nothing else. */
+    private const string CONTEXT_PURPOSE = 'sinemacula/laravel-authentication one-time code contexts';
 
     /** @var string What the code key is derived for, so it is used for nothing else. */
     private const string CODE_PURPOSE = 'sinemacula/laravel-authentication one-time code hashes';
@@ -60,6 +64,24 @@ final readonly class CodeKeys
         $parts = ['binding', $binding->purpose->value, $binding->guard, $binding->type, $binding->identifier, $binding->identity];
 
         return hash_hmac('sha256', implode("\0", $parts), $this->derive(self::BINDING_PURPOSE));
+    }
+
+    /**
+     * The digest of the transaction the binding names besides its key, as 64
+     * hexadecimal characters, or `null` for a binding that names none.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
+     * @return ?string
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function context(CodeBinding $binding): ?string
+    {
+        if ($binding->transaction === '') {
+            return null;
+        }
+
+        return hash_hmac('sha256', implode("\0", ['context', $binding->purpose->value, $binding->transaction]), $this->derive(self::CONTEXT_PURPOSE));
     }
 
     /**
