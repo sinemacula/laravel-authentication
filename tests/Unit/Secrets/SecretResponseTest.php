@@ -27,7 +27,8 @@ final class SecretResponseTest extends TestCase
 {
     /**
      * Every secret in the data, at any depth of arrays, is revealed into the
-     * body, and every other value is kept as it is, keys and order included.
+     * body, and every other value is kept as it is, keys and order included;
+     * given no status, the response is `200 OK`.
      *
      * @return void
      */
@@ -48,6 +49,7 @@ final class SecretResponseTest extends TestCase
             'pending'       => ['credential' => 'pending-plaintext', 'requires' => ['mfa']],
             'keys'          => ['key-one', 'not-a-secret', ['key-two']],
         ], $response->getData(true));
+        self::assertSame(200, $response->getStatusCode());
     }
 
     /**
