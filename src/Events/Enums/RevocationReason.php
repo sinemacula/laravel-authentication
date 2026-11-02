@@ -55,4 +55,7 @@ enum RevocationReason: string
     // and the session no longer meets it: `tenantPolicyChanged()`, or a refresh
     // that finds it must be established through a connection it was not
     case TENANT_POLICY_CHANGED = 'tenant_policy_changed';
+
+    // The identity established its first password: `passwordEstablished()`
+    case PASSWORD_ESTABLISHED = 'password_established';
 }

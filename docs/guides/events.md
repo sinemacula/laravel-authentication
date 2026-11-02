@@ -173,22 +173,22 @@ dispatches `Attempting`, `Failed` and `AuthenticationFailed` (see [Refreshing](r
 
 `AuthenticationFailed` reports every failed sign-in, refresh, switch, sign-out by refresh credential, step-up,
 reauthentication, bearer token, API key, client credentials exchange, request for a one-time code, verification by code
-or link, password reset request or submission, identifier change request or confirmation, and factor code request or
-check, after Laravel's `Failed` where that fires, with the flow (`AuthenticationFlow`: `sign_in`, `refresh`, `bearer`,
-`switch`, `sign_out`, `step_up`, `reauthentication`, `api_key`, `client_credentials`, `code_request`,
-`identifier_verification`, `password_reset`, `identifier_change`, `factor_code`; see [Failure
-outcomes](#failure-outcomes) for what each answers), a `FailureReason`, the identifier a sign-in's input named (as
-given), and the wait for `rate_limited` and `account_rate_limited`. Its context carries the identity only once a sign-in
-method verified it, a refresh reloaded the session's owner or a token's subject was found (a wrong password or an
-unknown identifier carries none), the principal and tenant once resolved, and the session once found, else the `sid` a
-token named. A bearer token is checked in this order, so its reason is the first that applies: `token_invalid`, for a
-client credentials token `credential_invalid`, `credential_revoked` and `credential_expired`, then `identity_unknown`,
-`machine_identity`, `identity_inactive`, `principal_mismatch`, `principal_inactive`, `tenant_inactive`, then for a token
-that names no session `issued_before_cutoff`, and for one that names a session `session_unknown`,
-`session_guard_mismatch`, `session_revoked`, `session_pending`, `session_expired`, `session_tenant_mismatch`,
-`session_principal_mismatch`, `session_switched`, and `tenant_inactive` for the session's active tenant. It says why a
-sign-in failed even where the client is not told: a refusal by the account's own limit is `account_rate_limited` on the
-event, while the sign-in's result says `invalid_credentials`:
+or link, password reset request or submission, identifier change request or confirmation, factor code request or check,
+and change or establishment of a password, after Laravel's `Failed` where that fires, with the flow
+(`AuthenticationFlow`: `sign_in`, `refresh`, `bearer`, `switch`, `sign_out`, `step_up`, `reauthentication`, `api_key`,
+`client_credentials`, `code_request`, `identifier_verification`, `password_reset`, `identifier_change`, `factor_code`,
+`password_change`; see [Failure outcomes](#failure-outcomes) for what each answers), a `FailureReason`, the identifier a
+sign-in's input named (as given), and the wait for `rate_limited` and `account_rate_limited`. Its context carries the
+identity only once a sign-in method verified it, a refresh reloaded the session's owner or a token's subject was found
+(a wrong password or an unknown identifier carries none), the principal and tenant once resolved, and the session once
+found, else the `sid` a token named. A bearer token is checked in this order, so its reason is the first that applies:
+`token_invalid`, for a client credentials token `credential_invalid`, `credential_revoked` and `credential_expired`,
+then `identity_unknown`, `machine_identity`, `identity_inactive`, `principal_mismatch`, `principal_inactive`,
+`tenant_inactive`, then for a token that names no session `issued_before_cutoff`, and for one that names a session
+`session_unknown`, `session_guard_mismatch`, `session_revoked`, `session_pending`, `session_expired`,
+`session_tenant_mismatch`, `session_principal_mismatch`, `session_switched`, and `tenant_inactive` for the session's
+active tenant. It says why a sign-in failed even where the client is not told: a refusal by the account's own limit is
+`account_rate_limited` on the event, while the sign-in's result says `invalid_credentials`:
 
 | Reason                       | Meaning                                                                             |
 |------------------------------|-------------------------------------------------------------------------------------|
@@ -245,6 +245,8 @@ event, while the sign-in's result says `invalid_credentials`:
 | `deliveries_exhausted`       | The destination's delivery window has had all the code deliveries it allows         |
 | `factor_code_locked`         | The factor package has the factor or the identity locked against factor codes       |
 | `factor_code_refused`        | The factor package refused a factor code, or the outcome of an attempt at one       |
+| `password_not_set`           | A change of password for an identity that has none: establish one                   |
+| `password_already_set`       | A password to establish for an identity that has one: change it                     |
 
 A sign-in method may answer only `invalid_credentials`, `identifier_unverified` (once its input proved possession of the
 identifier), `code_expired`, `code_exhausted`, `passkey_challenge_invalid` and `passkey_counter_regressed`; every other
@@ -276,6 +278,7 @@ reasons its event can carry (each reason's meaning is in [Events](#events)):
 | `password_reset`          | `Auth::passwords()->sendResetLink()`, `sendResetCode()`, `reset()`, `resetWithCode()`                                                             | A request: a `CodeRequest` as for a code (`sent`, `rate_limited` or `deliveries_exhausted` with `retryAfter`, `method_not_allowed`, `identifier_invalid`), the same for an identifier no one holds. A reset: a `ResetResult` whose `status` is `reset`, `invalid`, `rate_limited` (with `retryAfter`) or `password_rejected` (with the `violations`, reported by no event) (see [Password reset](passwords.md#password-reset))              | A request: `method_not_allowed`, `invalid_credentials` (the result's `identifier_invalid`), `rate_limited`, `deliveries_exhausted`. A reset: `rate_limited`, `invalid_credentials`, `machine_identity`, `identity_inactive`, `identifier_unverified`; on the event only: `code_expired`, `code_exhausted`, `link_expired`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `identifier_change`       | `Auth::identifierChanges()->requestByCode()`, `requestByLink()`, `confirmByCode()`, `confirmByLink()`                                             | A request: an `IdentifierChangeRequest` whose `status` is `sent`, `rate_limited` (with `retryAfter`), `reauthentication_required`, `identifier_invalid` or `identifier_unchanged`. A confirmation: an `IdentifierChangeOutcome`, `changed`, `invalid`, `expired`, `exhausted`, `taken` or `rate_limited` (see [Changing identifiers](identifier-changes.md))                                                                                | `reauthentication_required`, `rate_limited`, `invalid_credentials` (an invalid or unchanged identifier, a wrong code or link, a change replaced or lost), `code_expired`, `link_expired`, `code_exhausted`, `identifier_taken`, `identity_inactive` (a confirmation for an identity that is not active), none of them concealed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `factor_code`             | `Auth::codes()->sendFactorCode()`, `verifyFactorCode()`                                                                                           | A send: a `CodeRequest` whose `status` is `sent` (with the `challengeId`), `rate_limited` or `deliveries_exhausted` (with `retryAfter`), `locked` (with `lockedUntil` when the factor package said) or `refused` (with the factor package's `refusal`). A check: a `FactorCodeCheck` whose `outcome` is `verified`, `invalid`, `expired`, `exhausted`, `locked`, `refused` or `rate_limited`, not concealed (see [Extending](extending.md)) | `rate_limited`, `deliveries_exhausted`, `factor_code_locked`, `factor_code_refused`, `invalid_credentials`, `code_expired`, `code_exhausted`; the factor package reports its own per-attempt events                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `password_change`         | `Auth::passwords()->change()`, `establish()`                                                                                                      | A `PasswordResult` whose `reason` says why it was refused, and for `rate_limited` its `retryAfter`; a password the policy rejects carries its `violations` and is reported by no event (see [Changing or establishing a password](passwords.md#changing-or-establishing-a-password))                                                                                                                                                        | `session_unknown`, `session_guard_mismatch`, `session_revoked`, `session_pending`, `session_expired`, `machine_identity`, `identity_unknown`, `password_not_set`, `rate_limited`, `invalid_credentials` (a wrong current password, or a password written meanwhile), `password_already_set`, `reauthentication_required`, none of them concealed                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 The concealed reasons (`FailureReason::isConcealed()`: `account_rate_limited`, `code_expired`, `code_exhausted`,
 `link_expired` and `passkey_counter_regressed`) reach only the event in a sign-in, a reauthentication and a password

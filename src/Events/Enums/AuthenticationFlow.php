@@ -61,4 +61,8 @@ enum AuthenticationFlow: string
     // A request for, or a check of, a further factor's code or an enrolment's:
     // the code service's sendFactorCode() and verifyFactorCode()
     case FACTOR_CODE = 'factor_code';
+
+    // A change or an establishment of the password from a signed-in session:
+    // the password service's change() and establish()
+    case PASSWORD_CHANGE = 'password_change';
 }

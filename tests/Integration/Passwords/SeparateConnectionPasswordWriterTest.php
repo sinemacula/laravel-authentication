@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Events\PasswordSet;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
+use SineMacula\Laravel\Authentication\Passwords\PasswordChanges;
 use SineMacula\Laravel\Authentication\Passwords\PasswordWriter;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Integration\Fixtures\SeparateConnectionCutoffIdentity;
@@ -36,6 +37,7 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(PasswordWriter::class)]
+#[CoversClass(PasswordChanges::class)]
 final class SeparateConnectionPasswordWriterTest extends TestCase
 {
     use InteractsWithSessionRecords;
@@ -153,6 +155,44 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
         self::assertNull($stored->getTokensValidAfter());
         self::assertSame(1, DB::connection(SeparateConnectionSession::CONNECTION)->table('authentication_sessions')->where('revoked_reason', 'password_reset')->count());
         self::assertSame(0, $set);
+    }
+
+    /**
+     * A change or an establishment of the password of an identity that does not
+     * live on the storage connection is refused before anything is counted or
+     * written: its password, its sessions' revocations and its cutoff could not
+     * commit as one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChangeOrAnEstablishmentRefusesAnIdentityOffTheStorageConnection(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->seedSession($identity);
+
+        $session = SeparateConnectionSession::query()->sole();
+        $calls   = [
+            static fn (): mixed => Auth::passwords('api')->change($session, self::OLD_PASSWORD, 'a brand new passphrase'),
+            static fn (): mixed => Auth::passwords('api')->establish($session, 'a brand new passphrase'),
+        ];
+
+        foreach ($calls as $call) {
+            try {
+                $call();
+                self::fail('An identity off the storage connection was changed.');
+            } catch (\LogicException $exception) {
+                self::assertStringContainsString('A change of password', $exception->getMessage());
+            }
+        }
+
+        $stored = DB::table('cutoff_identities')->value('password');
+
+        self::assertIsString($stored);
+        self::assertTrue(app(Hasher::class)->check(self::OLD_PASSWORD, $stored));
+        self::assertNull(DB::connection(SeparateConnectionSession::CONNECTION)->table('authentication_sessions')->value('revoked_at'));
     }
 
     /**

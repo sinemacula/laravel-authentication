@@ -230,6 +230,14 @@ enum FailureReason: string
     // outcome of an attempt at one
     case FACTOR_CODE_REFUSED = 'factor_code_refused';
 
+    // A change of password was asked of an identity that has none: it
+    // establishes one instead
+    case PASSWORD_NOT_SET = 'password_not_set';
+
+    // A password was to be established for an identity that already has one: it
+    // changes it instead
+    case PASSWORD_ALREADY_SET = 'password_already_set';
+
     /**
      * Whether a sign-in method may answer with this reason. Every other reason
      * is the session service's to decide, so a method that returns one is

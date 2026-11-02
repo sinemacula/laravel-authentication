@@ -76,6 +76,9 @@ final class PasswordServiceTest extends TestCase
     /** @var string The frozen time every write happens at. */
     private const string NOW = '2026-10-29 09:30:00';
 
+    /** @var list<\SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow> The flows `set()` takes: an establishment is `establish()`'s alone. */
+    private const array SET_FLOWS = [PasswordFlow::REGISTRATION, PasswordFlow::CHANGE, PasswordFlow::RESET];
+
     /**
      * Freeze the clock and create the tables.
      *
@@ -429,7 +432,7 @@ final class PasswordServiceTest extends TestCase
 
         $this->recordEvents([PasswordSet::class]);
 
-        foreach (PasswordFlow::cases() as $flow) {
+        foreach (self::SET_FLOWS as $flow) {
 
             $result = $this->passwords()->set($identity, "correct horse battery\0staple", $flow);
 
@@ -442,9 +445,9 @@ final class PasswordServiceTest extends TestCase
 
     /**
      * A breached password is rejected after the other rules pass, and with the
-     * checker down the default fails closed, in every flow: each is rejected
-     * with the violation, and the stored passwords, the sessions and the events
-     * stay as they were.
+     * checker down the default fails closed, in every flow `set()` takes: each
+     * is rejected with the violation, and the stored passwords, the sessions
+     * and the events stay as they were.
      *
      * @return void
      *
@@ -463,7 +466,7 @@ final class PasswordServiceTest extends TestCase
         $for = static fn (PasswordFlow $flow): PasswordIdentity => $flow === PasswordFlow::REGISTRATION ? $registered : $identity;
         $set = fn (PasswordFlow $flow, string $password): PasswordResult => $this->passwords()->set($for($flow), $password, $flow);
 
-        foreach (PasswordFlow::cases() as $flow) {
+        foreach (self::SET_FLOWS as $flow) {
 
             $result = $set($flow, self::NEW_PASSWORD);
 
@@ -472,7 +475,7 @@ final class PasswordServiceTest extends TestCase
 
         $checker->unavailable();
 
-        foreach (PasswordFlow::cases() as $flow) {
+        foreach (self::SET_FLOWS as $flow) {
 
             $result = $set($flow, 'another fine passphrase');
 

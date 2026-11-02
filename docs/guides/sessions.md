@@ -702,20 +702,21 @@ skips a session it should judge.
 Every revocation records one of these reasons in the session's `revoked_reason` and in `SessionRevoked::$reason`
 (`RevocationReason`); a bulk revocation reports it in `SignedOutEverywhere::$reason` as well:
 
-| Reason                  | Recorded when                                                                                                                 |
-|-------------------------|-------------------------------------------------------------------------------------------------------------------------------|
-| `signed_out`            | The session signed itself out: `logout()`, `Auth::sessions()->signOut()`, `signOutFromRequest()`, `signOutWith()`             |
-| `signed_out_everywhere` | `signOutEverywhere()` ended the identity's sessions                                                                           |
-| `revoked`               | The application revoked it: `revokeSession()`, `revokeSessions()`, `revokePrincipalSessions()`                                |
-| `rotation_reuse`        | A rotated refresh token was replayed, by a refresh, a switch, a sign-out or the caller of a refresh credential                |
-| `superseded`            | A sign-in that proved the client holds the session, with its current refresh token, replaced it with a new session            |
-| `password_changed`      | `passwordChanged()`: directly, through `Auth::passwords()->set()` with `CHANGE`, or through `RevokeSessionsOnPasswordChange`  |
-| `password_reset`        | `passwordReset()`: directly, through a reset or `set()` with `RESET`, or through `RevokeSessionsOnPasswordReset`              |
-| `factor_removed`        | `factorRemoved()`, directly or through `RevokeSessionsOnPasskeyRemoval`                                                       |
-| `identity_deactivated`  | `identityDeactivated()`, directly or through `RevokeSessionsOnDeactivation`                                                   |
-| `principal_deactivated` | `principalDeactivated()`, directly or through `RevokeSessionsOnDeactivation`                                                  |
-| `tenant_deactivated`    | `tenantDeactivated()`                                                                                                         |
-| `tenant_policy_changed` | `tenantPolicyChanged()`, or a refresh that finds the tenant now requires a connection the session was not established through |
+| Reason                  | Recorded when                                                                                                                              |
+|-------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
+| `signed_out`            | The session signed itself out: `logout()`, `Auth::sessions()->signOut()`, `signOutFromRequest()`, `signOutWith()`                          |
+| `signed_out_everywhere` | `signOutEverywhere()` ended the identity's sessions                                                                                        |
+| `revoked`               | The application revoked it: `revokeSession()`, `revokeSessions()`, `revokePrincipalSessions()`                                             |
+| `rotation_reuse`        | A rotated refresh token was replayed, by a refresh, a switch, a sign-out or the caller of a refresh credential                             |
+| `superseded`            | A sign-in that proved the client holds the session, with its current refresh token, replaced it with a new session                         |
+| `password_changed`      | `passwordChanged()`: directly, through `Auth::passwords()->change()` or `set()` with `CHANGE`, or through `RevokeSessionsOnPasswordChange` |
+| `password_reset`        | `passwordReset()`: directly, through a reset or `set()` with `RESET`, or through `RevokeSessionsOnPasswordReset`                           |
+| `password_established`  | `Auth::passwords()->establish()`: the identity's other sessions once it established its first password                                     |
+| `factor_removed`        | `factorRemoved()`, directly or through `RevokeSessionsOnPasskeyRemoval`                                                                    |
+| `identity_deactivated`  | `identityDeactivated()`, directly or through `RevokeSessionsOnDeactivation`                                                                |
+| `principal_deactivated` | `principalDeactivated()`, directly or through `RevokeSessionsOnDeactivation`                                                               |
+| `tenant_deactivated`    | `tenantDeactivated()`                                                                                                                      |
+| `tenant_policy_changed` | `tenantPolicyChanged()`, or a refresh that finds the tenant now requires a connection the session was not established through              |
 
 `revokeSession()`, `revokeSessions()` and `revokePrincipalSessions()` take the reason as an argument (`REVOKED` in the
 examples above); the others set their own.

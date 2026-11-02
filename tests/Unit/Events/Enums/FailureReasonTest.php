@@ -83,6 +83,8 @@ final class FailureReasonTest extends TestCase
             'deliveries_exhausted',
             'factor_code_locked',
             'factor_code_refused',
+            'password_not_set',
+            'password_already_set',
         ], array_map(static fn (FailureReason $reason): string => $reason->value, FailureReason::cases()));
     }
 
@@ -151,6 +153,7 @@ final class FailureReasonTest extends TestCase
             'step_up',
             'reauthentication',
             'factor_code',
+            'password_change',
         ], $flows);
     }
 
@@ -175,6 +178,7 @@ final class FailureReasonTest extends TestCase
             'principal_deactivated',
             'tenant_deactivated',
             'tenant_policy_changed',
+            'password_established',
         ], array_map(static fn (RevocationReason $reason): string => $reason->value, RevocationReason::cases()));
     }
 }

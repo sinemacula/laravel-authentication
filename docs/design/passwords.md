@@ -126,6 +126,27 @@ only duplicate them.
      the identity and, for a change, the session kept.
 4. `PasswordResult::set($revoked)`.
 
+## Changing and establishing (`change()`, `establish()`)
+
+- Both take the session the change is made from, read again by its key on the write connection: it must be the session
+  given (its generation), of this guard, not revoked, pending or ended, and a person's; the owner, reloaded through the
+  guard's provider, must be its owner and live on the storage connection (`SharedConnection::assert()`, a
+  `LogicException` before anything is counted), so the password, the revocations and the cutoff commit as one.
+- `change()` needs a password on the owner (`password_not_set`); the current one is checked inside the credential
+  timebox after a slot of the account's and the IP address's `sign_in` limits is taken, before any transaction, and a
+  right one gives the slot back. `establish()` needs no password (`password_already_set`, checked first and again under
+  the lock).
+- The policy judges the new password before the transaction. In it the identity's row is locked, then the session's
+  (the order identifier changes take); the session is judged again as locked; a change's hash must still be the one
+  the current password was checked against (`invalid_credentials`), an establishment's row must still have none and its
+  session a proof fresh enough for `password_establishment` (`reauthentication_required`). `PasswordWriter` writes it;
+  an establishment's `UPDATE` matches only a row whose password is `null` or empty, and one that matches none throws
+  `PasswordAlreadySet`, which rolls the transaction back and answers `password_already_set`, so of two establishments,
+  or an establishment and a reset, at most one writes. Every other session ends (`password_changed`,
+  `password_established`); `PasswordSet` follows the commit. Refusals are reported on the `password_change` flow.
+- Reset tokens and codes reach the API only in a request's body: `resetFromRequest()` and `resetWithCodeFromRequest()`
+  read `Http\RequestBody::fields()` (JSON or form, never the query string). There is no reset status lookup.
+
 ## Reset requests (`sendResetLink()`, `sendResetCode()`)
 
 1. The type: a link's is the guard's password identifier (`PasswordSignIn::identifierType()`); a code's is given and
@@ -216,6 +237,7 @@ code to `OneTimeCodeSender` with the purpose `password_reset`; anyone else gets 
 - `src/Passwords/PasswordPolicy.php`
 - `src/Passwords/PasswordSettings.php`
 - `src/Passwords/PasswordWriter.php`, `src/Passwords/OutdatedProofs.php`, `src/Config/JwtGuards.php`
+- `src/Passwords/PasswordChanges.php`, `src/Passwords/PasswordAlreadySet.php`
 - `src/Passwords/NoBreachedPasswordCheck.php`
 - `src/Contracts/BreachedPasswordChecker.php`
 - `src/Exceptions/BreachedPasswordCheckUnavailableException.php`

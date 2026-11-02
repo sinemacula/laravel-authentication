@@ -11,6 +11,7 @@ use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Events\Dispatcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -128,6 +129,40 @@ final class ResetSubmissionsTest extends TestCase
 
         self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, (string) PasswordIdentity::query()->sole()->password));
         self::assertSame('password_reset', DB::table('authentication_sessions')->value('revoked_reason'));
+    }
+
+    /**
+     * A reset read from the request reads the body only: a token or a code in
+     * the query string is never read, so the reset is `invalid` and the link or
+     * code still works from the body, a JSON body or a form one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAResetFromTheRequestReadsTheBodyOnly(): void
+    {
+        self::seedResettable();
+
+        Route::post('/password/reset/body', static fn (): array => self::answer(Auth::passwords('web')->resetFromRequest()));
+        Route::post('/password/reset/code/body', static fn (): array => self::answer(Auth::passwords('web')->resetWithCodeFromRequest('phone')));
+
+        $token = $this->requestLink();
+        $query = http_build_query(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]);
+
+        $this->postJson('/password/reset/body?' . $query)->assertExactJson(['status' => 'invalid', 'revoked' => 0, 'violations' => []]);
+        $this->postJson('/password/reset/body?token=' . $token, ['email' => self::EMAIL, 'password' => self::NEW_PASSWORD])->assertJsonPath('status', 'invalid');
+        $this->postJson('/password/reset/body', ['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->assertJsonPath('status', 'reset');
+
+        $challenge = Auth::passwords('web')->sendResetCode('phone', ['phone' => self::PHONE])->challengeId;
+
+        app()->terminate();
+
+        $code  = (string) $this->codes->lastCodeFor(self::PHONE, CodePurpose::PASSWORD_RESET);
+        $input = ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => $code, 'password' => 'yet another passphrase'];
+
+        $this->postJson('/password/reset/code/body?' . http_build_query($input))->assertJsonPath('status', 'invalid');
+        $this->post('/password/reset/code/body', $input)->assertJsonPath('status', 'reset');
     }
 
     /**

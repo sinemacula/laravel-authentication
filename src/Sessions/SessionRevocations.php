@@ -267,6 +267,24 @@ final readonly class SessionRevocations
     }
 
     /**
+     * The identity established its first password: end its sessions
+     * (`password_established`), except the given session.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
+     * @return int
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Throwable
+     */
+    public function passwordEstablished(Identity $identity, ?Session $except = null): int
+    {
+        return $this->revokeSessions($identity, RevocationReason::PASSWORD_ESTABLISHED, $except);
+    }
+
+    /**
      * The identity's password was reset: end every session it has
      * (`password_reset`).
      *
