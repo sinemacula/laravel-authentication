@@ -187,8 +187,6 @@ final class JwtGuardTest extends JwtGuardTestCase
      */
     public function testRefreshFromARequestWithoutATokenAttemptsNothing(): void
     {
-        $this->configureTransport();
-
         $this->events->shouldNotReceive('dispatch');
 
         self::assertNull(GuardSessions::of($this->makeGuard(Request::create('/auth/refresh', 'POST')))->refreshFromRequest());
@@ -206,8 +204,6 @@ final class JwtGuardTest extends JwtGuardTestCase
      */
     public function testATokenTheTransportRefusesIsAFailedRefresh(): void
     {
-        $this->configureTransport();
-
         $dispatched = $this->recordEvents();
         $server     = ['REMOTE_ADDR' => '203.0.113.9', 'HTTP_X_REFRESH_TOKEN' => 'a'];
         $request    = Request::create('/auth/refresh', 'POST', ['refresh_token' => 'a'], server: $server);
@@ -239,8 +235,6 @@ final class JwtGuardTest extends JwtGuardTestCase
      */
     public function testATokenTheExchangeRefusesFailsWithItsReason(): void
     {
-        $this->configureTransport();
-
         $dispatched = $this->recordEvents();
 
         $guard = $this->makeGuard(Request::create('/auth/refresh', 'POST', ['refresh_token' => 'not-a-jwt']));
@@ -260,8 +254,6 @@ final class JwtGuardTest extends JwtGuardTestCase
      */
     public function testARefreshFromTheRequestSaysWhereTheTokenWasRead(): void
     {
-        $this->configureTransport();
-
         $this->events->shouldReceive('dispatch');
 
         $header = Request::create('/auth/refresh', 'POST', server: ['HTTP_X_REFRESH_TOKEN' => $this->liveRefreshToken('first')]);
@@ -290,8 +282,6 @@ final class JwtGuardTest extends JwtGuardTestCase
      */
     public function testARefreshFromTheRequestBindsASignInAndReportsItOnceCommitted(): void
     {
-        $this->configureTransport();
-
         $dispatched = $this->recordEvents();
         $guard      = $this->makeGuard(Request::create('/auth/refresh', 'POST', ['refresh_token' => $this->liveRefreshToken('rotation')]));
         $before     = [];
@@ -382,8 +372,6 @@ final class JwtGuardTest extends JwtGuardTestCase
      */
     public function testTheTransportFollowsTheConfiguration(): void
     {
-        $this->configureTransport();
-
         $guard   = $this->makeGuard(Request::create('/'));
         $request = Request::create('/auth/refresh', 'POST', server: ['HTTP_X_TOKEN' => 'a']);
 
@@ -395,22 +383,6 @@ final class JwtGuardTest extends JwtGuardTestCase
 
         self::assertNull($before);
         self::assertInstanceOf(PresentedRefreshToken::class, $after);
-    }
-
-    /**
-     * Configure the guard and the package's refresh token defaults.
-     *
-     * @return void
-     */
-    private function configureTransport(): void
-    {
-        config()->set('auth.guards.' . self::GUARD_NAME, ['driver' => 'jwt', 'provider' => 'users']);
-        config()->set('authentication.refresh_token', [
-            'transport'  => 'body',
-            'body_field' => 'refresh_token',
-            'header'     => 'X-Refresh-Token',
-            'cookie'     => ['name' => null, 'path' => null, 'allowed_origins' => [], 'csrf_header' => 'X-Requested-With'],
-        ]);
     }
 
     /**
