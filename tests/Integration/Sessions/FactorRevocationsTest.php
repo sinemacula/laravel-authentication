@@ -99,13 +99,14 @@ final class FactorRevocationsTest extends TestCase
 
     /**
      * Rows of `[the trigger, the sessions it revokes, whether the current
-     * session returns to pending, the events it reports]`.
+     * session returns to pending, the events it reports, whether the guard
+     * bound to the current session forgets it]`.
      *
      * @formatter:off
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
-     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Contracts\Identity, \SineMacula\Laravel\Authentication\Contracts\Session): int, 1: int, 2: bool, 3: list<class-string>}>
+     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Contracts\Identity, \SineMacula\Laravel\Authentication\Contracts\Session): int, 1: int, 2: bool, 3: list<class-string>, 4: bool}>
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -118,6 +119,7 @@ final class FactorRevocationsTest extends TestCase
             1,
             true,
             [SessionRevoked::class, SignedOutEverywhere::class, SessionReturnedToPending::class],
+            true,
         ];
 
         yield 'the factors reset' => [
@@ -125,6 +127,7 @@ final class FactorRevocationsTest extends TestCase
             2,
             false,
             [SessionRevoked::class, SessionRevoked::class, SignedOutEverywhere::class],
+            true,
         ];
 
         yield 'a credential removed' => [
@@ -132,6 +135,7 @@ final class FactorRevocationsTest extends TestCase
             1,
             false,
             [SessionRevoked::class, SignedOutEverywhere::class],
+            false,
         ];
     }
 
@@ -148,6 +152,7 @@ final class FactorRevocationsTest extends TestCase
      * @param  int  $revoked
      * @param  bool  $returns
      * @param  list<class-string>  $events
+     * @param  bool  $forgets
      * @return void
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
@@ -157,9 +162,9 @@ final class FactorRevocationsTest extends TestCase
      * @throws \Throwable
      */
     #[DataProvider('provideTriggers')]
-    public function testATriggerRollsBackWithTheFactorPackagesTransaction(\Closure $trigger, int $revoked, bool $returns, array $events): void
+    public function testATriggerRollsBackWithTheFactorPackagesTransaction(\Closure $trigger, int $revoked, bool $returns, array $events, bool $forgets): void
     {
-        unset($returns, $events);
+        unset($returns, $events, $forgets);
 
         $this->seedIdentity();
 
@@ -187,7 +192,7 @@ final class FactorRevocationsTest extends TestCase
      * writes commit with the factor package's own, each event is reported once
      * after the commit and none before, and a current session taken back to
      * pending has its proofs with the factor voided and the guard bound to it
-     * forgotten.
+     * forgotten, as is the guard bound to an identity whose factors were reset.
      *
      * @formatter:off
      *
@@ -197,6 +202,7 @@ final class FactorRevocationsTest extends TestCase
      * @param  int  $revoked
      * @param  bool  $returns
      * @param  list<class-string>  $events
+     * @param  bool  $forgets
      * @return void
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
@@ -206,7 +212,7 @@ final class FactorRevocationsTest extends TestCase
      * @throws \Throwable
      */
     #[DataProvider('provideTriggers')]
-    public function testATriggerCommitsWithTheFactorPackagesTransaction(\Closure $trigger, int $revoked, bool $returns, array $events): void
+    public function testATriggerCommitsWithTheFactorPackagesTransaction(\Closure $trigger, int $revoked, bool $returns, array $events, bool $forgets): void
     {
         $this->seedIdentity();
 
@@ -229,7 +235,7 @@ final class FactorRevocationsTest extends TestCase
         self::assertSame($returns ? 'pending' : null, DB::table('authentication_sessions')->where('status', 'pending')->value('status'));
         self::assertSame($returns ? 1 : 0, DB::table('authentication_proofs')->whereNotNull('voided_at')->count());
         self::assertSame($events, $recorded->getArrayCopy());
-        self::assertSame($returns ? null : $current->record->getKey(), $guard->session()?->getSessionIdentifier());
+        self::assertSame($forgets ? null : $current->record->getKey(), $guard->session()?->getSessionIdentifier());
     }
 
     /**

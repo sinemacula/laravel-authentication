@@ -397,13 +397,14 @@ seam has a default that works alone.
   refused for the others), whose own proofs never count for its change. The answer, a `Factors\FactorChangeVerdict`,
   carries the fresh proof and `freshUntil` (when the session stops being fresh for it, for a grant that outlives the
   request), or the reason; it writes and reports nothing.
-- A factor removed, inside the same transaction and after the same locks:
-  `Auth::sessions()->factorRemoved($identity, $factor->reference(), Auth::session())` ends the identity's other
-  sessions, voids the current session's proofs made with that factor, and judges the current session again: it stays
-  active, returns to pending (its `Sessions\FactorRemoval` carries the pending session and credential for the client) or
-  is revoked. Every factor reset: `Auth::sessions()->factorReset($identity)` ends every session. Both are mandatory: no
-  setting turns them off, and they are called synchronously, never through a listener (see [Sign-in
-  factors](sessions.md#sign-in-factors)). The identity must live on the storage connection.
+- A factor removed, inside the same transaction and after the same locks: `Auth::sessions()->factorRemoved($identity,
+  $factor->reference(), Auth::session())` ends the identity's other sessions, voids the current session's proofs made
+  with that factor, and judges the current session again: it stays active, returns to pending (its
+  `Sessions\FactorRemoval` carries the pending session and credential for the client) or is revoked; a current session
+  already pending stays pending, judged without those proofs at its next action. Every factor reset:
+  `Auth::sessions()->factorReset($identity)` ends every session and, once committed, the request's authentication as the
+  identity. Both are mandatory: no setting turns them off, and they are called synchronously, never through a listener
+  (see [Sign-in factors](sessions.md#sign-in-factors)). The identity must live on the storage connection.
 - Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity, $binding, $credentialIds)` and
   `verifyFactor($identity, $binding, $challenge, $credential)`, which count and report nothing: the factor's outcome is
   the factor package's to limit and report. The ceremony is bound to the `ProofBinding`'s session and purpose and allows

@@ -644,7 +644,8 @@ transaction that makes its change and after its own locks, never through a liste
 
 ```php
 DB::transaction(function () use ($user, $factor) {
-    $factor->lockForUpdate()->delete();
+    $factor->newQuery()->whereKey($factor->getKey())->lockForUpdate()->first();
+    $factor->delete();
 
     $removal = Auth::sessions()->factorRemoved($user, $factor->reference(), Auth::session());
 
@@ -665,14 +666,16 @@ again, and then:
 - it is revoked (`factor_removed`) when it is no longer admitted as a refresh admits it (its identity, principal or
   tenant inactive or ineligible) or its tenant now requires a connection: nothing it could do in place would meet it.
 
-A current session that was meanwhile revoked, ended or returned to pending is left as it is. When the request's guard is
-bound to the current session and it returned to pending or was revoked, the guard forgets it once the transaction
-commits, so the rest of the request is no longer authenticated as it. `FactorRemoval::$revoked` counts the sessions
-revoked, the current one included when it was (`$currentRevoked`). `$current`, when given, must be a session of this
-guard the identity owns, and the identity must live on the storage connection, so its cutoff moves and its sessions end
-in the factor package's transaction: otherwise nothing is written and an `InvalidArgumentException` or a
-`LogicException` is thrown. Everything runs in one transaction on the storage connection, a savepoint in the factor
-package's, and is reported once that commits.
+A current session that is pending has its proofs made with the factor voided too and stays pending: its next action
+(`satisfy()`, `choose()`) is judged without them. One that was meanwhile revoked or ended is left as it is. When the
+request's guard is bound to the current session and it returned to pending or was revoked, the guard forgets it once the
+transaction commits, so the rest of the request is no longer authenticated as it. `factorReset()` does the same for a
+guard bound to the identity: every session it has ends, so the rest of the request is not authenticated as any of them.
+`FactorRemoval::$revoked` counts the sessions revoked, the current one included when it was (`$currentRevoked`).
+`$current`, when given, must be a session of this guard the identity owns, and the identity must live on the storage
+connection, so its cutoff moves and its sessions end in the factor package's transaction: otherwise nothing is written
+and an `InvalidArgumentException` or a `LogicException` is thrown. Everything runs in one transaction on the storage
+connection, a savepoint in the factor package's, and is reported once that commits.
 
 A passkey the factor package associated as a factor is removed through `PasskeyService::remove()`, which asks the factor
 package first, and the factor package then calls `factorRemoved()`. `RevokeSessionsOnPasskeyRemoval` still ends every
@@ -700,10 +703,12 @@ every guard and identity, pending ones included; one already past a deadline is 
 `connection_disabled` or `connection_deleted`; `linkRemoved()` revokes only the identity's, as `link_removed`. Each
 returns how many it revoked. They are found through the provenance's connection index (a link's through the identity's
 sessions) 500 at a time, each chunk locked in key order, in one transaction on the storage connection, a savepoint
-inside yours; `SessionRevoked` reports each once that commits. No cutoff moves and no `SignedOutEverywhere` is
-reported: the scope is how the sessions began, not the identity, whose other sessions stay. Each is on by default and
-turned off by its `authentication.revocation.*` setting (see [Revocation by
-connection](configuration.md#revocation-by-connection)); a connection id may not be empty.
+inside yours; `SessionRevoked` reports each once that commits. No cutoff moves and no `SignedOutEverywhere` is reported:
+the scope is how the sessions began, not the identity, whose other sessions stay. Each is on by default and turned off
+by its `authentication.revocation.*` setting (see [Revocation by
+connection](configuration.md#revocation-by-connection)); a connection id may not be empty. The connection is matched
+byte for byte, so revoking one never ends the sessions of another whose id differs from it only in case, accents or a
+trailing space.
 
 ### Access tokens without a session
 

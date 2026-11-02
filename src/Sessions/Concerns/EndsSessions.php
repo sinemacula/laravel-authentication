@@ -325,9 +325,11 @@ trait EndsSessions
      * while it falls short of a further factor only, its tokens stopping at
      * once, and is revoked (`factor_removed`) when it is no longer admitted as
      * a refresh admits it or its tenant now requires a connection. A current
-     * session that was meanwhile revoked, ended or returned to pending is left
-     * as it is. When this guard is bound to it and it is returned to pending or
-     * revoked, the binding is forgotten once the removal commits.
+     * session that is pending has its proofs made with the factor voided too
+     * and stays pending, its next action judged without them; one that was
+     * meanwhile revoked or ended is left as it is. When this guard is bound to
+     * it and it is returned to pending or revoked, the binding is forgotten
+     * once the removal commits.
      *
      * Mandatory: the factor package calls it inside the transaction that
      * removes the factor, after taking its own locks, so both commit or roll
@@ -352,9 +354,10 @@ trait EndsSessions
 
     /**
      * The factor package reset the identity's further factors: end every
-     * session it has, the current one included (`factor_reset`). Mandatory, as
-     * `factorRemoved()` is, and called the same way; the identity must live on
-     * the storage connection.
+     * session it has, the current one included (`factor_reset`), and, when this
+     * guard is bound to the identity, forget the binding once the reset
+     * commits. Mandatory, as `factorRemoved()` is, and called the same way; the
+     * identity must live on the storage connection.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return int

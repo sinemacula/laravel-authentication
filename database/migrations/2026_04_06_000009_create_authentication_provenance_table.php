@@ -41,7 +41,12 @@ return new class extends Migration {
             // type: one provenance per session.
             self::exact($schema, $blueprint, 'session_id')->primary();
 
-            $blueprint->string('connection_id');
+            // The connection that established the session, compared exactly, so
+            // revoking one connection's sessions never ends those of another
+            // whose id differs from it only in case, accents or a trailing
+            // space.
+            self::exact($schema, $blueprint, 'connection_id');
+
             $blueprint->string('tenant_id')->nullable();
             $blueprint->dateTime('provider_authenticated_at', 0)->nullable();
 
@@ -93,10 +98,11 @@ return new class extends Migration {
      * pads (`'abc'` equals `'abc '`), while the binary collation that does not
      * pad has a different name on each. Two session keys that differ only in
      * those would otherwise match, so one session would clear or prune
-     * another's provenance, or could not record its own. PostgreSQL and SQLite
-     * already compare bytes. A binary column's length is in bytes, so it is
-     * given the four a `utf8mb4` character may take for each of the 255
-     * characters the column holds elsewhere.
+     * another's provenance, or could not record its own, and one connection's
+     * revocation would end another's sessions. PostgreSQL and SQLite already
+     * compare bytes. A binary column's length is in bytes, so it is given the
+     * four a `utf8mb4` character may take for each of the 255 characters the
+     * column holds elsewhere.
      *
      * @param  \Illuminate\Database\Schema\Builder  $schema
      * @param  \Illuminate\Database\Schema\Blueprint  $blueprint

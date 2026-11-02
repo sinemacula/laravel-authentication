@@ -180,9 +180,9 @@ final class ProofTablesSchemaTest extends TestCase
     /**
      * The string columns are as long as what they hold: a channel reference of
      * 255 characters, a kind, a purpose and a key protection, the `amr` list's
-     * JSON, and a policy version of 64. The session key, owner, guard and
-     * factor reference hold 255 characters, which on MySQL and MariaDB, where
-     * they are binary, is 1020 bytes.
+     * JSON, and a policy version of 64. The session key, owner, guard, factor
+     * reference and connection hold 255 characters, which on MySQL and MariaDB,
+     * where they are binary, is 1020 bytes.
      *
      * @return void
      */
@@ -203,6 +203,7 @@ final class ProofTablesSchemaTest extends TestCase
         }
 
         self::assertStringContainsString($binding, $provenance['session_id']);
+        self::assertStringContainsString($binding, $provenance['connection_id']);
 
         self::assertStringContainsString('(40)', $proofs['kind']);
         self::assertStringContainsString('(32)', $proofs['purpose']);
@@ -211,7 +212,6 @@ final class ProofTablesSchemaTest extends TestCase
         self::assertStringContainsString('(16)', $proofs['key_protection']);
         self::assertStringContainsString('(1024)', $proofs['methods']);
         self::assertStringContainsString('(64)', $provenance['policy_version']);
-        self::assertStringContainsString('(255)', $provenance['connection_id']);
     }
 
     /**
@@ -231,12 +231,12 @@ final class ProofTablesSchemaTest extends TestCase
     }
 
     /**
-     * The session key, the guard, the owner, the factor reference and the `amr`
-     * values compare byte for byte on every engine, MySQL's default
-     * case-insensitive collations and its padding `utf8mb4_bin` included: a
-     * lookup of one finds no value that differs from it only in case or by a
-     * trailing space, a group keeps such values apart, and provenances whose
-     * session keys differ only in those are all kept.
+     * The session key, the guard, the owner, the factor reference, the `amr`
+     * values and the connection compare byte for byte on every engine, MySQL's
+     * default case-insensitive collations and its padding `utf8mb4_bin`
+     * included: a lookup of one finds no value that differs from it only in
+     * case or by a trailing space, a group keeps such values apart, and
+     * provenances whose session keys differ only in those are all kept.
      *
      * @return void
      */
@@ -281,12 +281,13 @@ final class ProofTablesSchemaTest extends TestCase
         self::assertCount(3, DB::table(self::PROOFS)->select('methods')->groupBy('methods')->get());
 
         DB::table(self::PROVENANCE)->insert([
-            ['session_id' => 'abc', 'connection_id' => 'c-1'],
-            ['session_id' => 'ABC', 'connection_id' => 'c-2'],
-            ['session_id' => 'abc ', 'connection_id' => 'c-3'],
+            ['session_id' => 'abc', 'connection_id' => 'conn'],
+            ['session_id' => 'ABC', 'connection_id' => 'CONN'],
+            ['session_id' => 'abc ', 'connection_id' => 'conn '],
         ]);
 
-        self::assertSame('c-1', DB::table(self::PROVENANCE)->where('session_id', 'abc')->value('connection_id'));
+        self::assertSame('conn', DB::table(self::PROVENANCE)->where('session_id', 'abc')->value('connection_id'));
+        self::assertSame('abc', DB::table(self::PROVENANCE)->where('connection_id', 'conn')->sole()->session_id);
         self::assertSame(3, DB::table(self::PROVENANCE)->count());
     }
 

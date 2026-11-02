@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Sessions\ConnectionRevocations;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithFoldingCollations;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\CutoffIdentity;
 use Tests\TestCase;
@@ -38,7 +39,7 @@ use Tests\TestCase;
 #[CoversClass(ConnectionRevocations::class)]
 final class ConnectionRevocationsTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithFoldingCollations, InteractsWithSessions;
 
     /** @var string The frozen time every revocation happens at. */
     private const string NOW = '2027-01-15 10:00:00';
@@ -135,6 +136,64 @@ final class ConnectionRevocationsTest extends TestCase
         self::assertSame(2, DB::table('authentication_sessions')->where('revoked_reason', 'link_removed')->count());
         self::assertSame(ConnectionRevocations::CHUNK + 4, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
         self::assertNull(DB::table('cutoff_identities')->where('id', $ada->getKey())->value('tokens_valid_after'));
+    }
+
+    /**
+     * With the provenance's connection column under a collation that counts
+     * distinct ids as equal, a disabled connection still ends only its own
+     * sessions, never those of a connection whose id differs from its own only
+     * in case or accent.
+     *
+     * @param  string  $folded
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideFoldedKeys')]
+    public function testAConnectionTheCollationCountsAsEqualKeepsItsSessions(string $folded): void
+    {
+        self::foldColumns('authentication_provenance', ['connection_id']);
+
+        $ada = $this->seedCutoffIdentity('ada@example.test');
+
+        $this->insertSessions($ada, 'alice', 1);
+
+        self::assertColumnFolds('authentication_provenance', 'connection_id', $folded);
+
+        $this->insertSessions($ada, $folded, 2);
+
+        self::assertSame(1, Auth::sessions('api')->connectionDisabled('alice'));
+        self::assertSame(2, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
+        self::assertSame(2, Auth::sessions('api')->connectionDeleted($folded));
+        self::assertSame(0, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
+    }
+
+    /**
+     * With the provenance's connection column under a collation that counts
+     * distinct ids as equal, a removed link still ends only the identity's
+     * sessions through that very connection.
+     *
+     * @param  string  $folded
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideFoldedKeys')]
+    public function testALinkTheCollationCountsAsEqualKeepsItsSessions(string $folded): void
+    {
+        self::foldColumns('authentication_provenance', ['connection_id']);
+
+        $ada = $this->seedCutoffIdentity('ada@example.test');
+
+        $this->insertSessions($ada, 'alice', 1);
+
+        self::assertColumnFolds('authentication_provenance', 'connection_id', $folded);
+
+        $this->insertSessions($ada, $folded, 2);
+
+        self::assertSame(1, Auth::sessions('api')->linkRemoved($ada, 'alice'));
+        self::assertSame(2, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
+        self::assertSame(2, Auth::sessions('api')->linkRemoved($ada, $folded));
     }
 
     /**

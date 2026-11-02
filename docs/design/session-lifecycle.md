@@ -96,6 +96,8 @@ revoked, and when a session that ended is deleted. Starting a session is in
   in one transaction on the session connection, with one `SignedOutEverywhere` each. `factorRemoved()` and
   `factorReset()` are mandatory: no setting turns them off, and the factor package calls them synchronously inside the
   transaction that makes its change (a savepoint here, reported after the outermost commit), never through a listener;
+  each forgets the request's binding once it commits when the binding is to a session it ended or took back to pending
+  (`factorRemoved()`) or to the identity (`factorReset()`, through `GuardBinding::forgetIdentity()`).
   `credentialRemoved()` stays per event, the optional listener's or the application's.
 - `connectionDisabled()`, `connectionDeleted()` and `linkRemoved()` (`Sessions\ConnectionRevocations`, through
   `Concerns\EndsConnectionSessions`) revoke the live sessions, pending ones included, of every guard that a connection

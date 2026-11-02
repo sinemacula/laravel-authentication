@@ -125,4 +125,15 @@ interface GuardBinding
      * @return void
      */
     public function forgetSession(Session $session): void;
+
+    /**
+     * Forget the binding as `forgetUser()` does when it is bound to the
+     * identity, whichever session it acts in, without resolving the request: a
+     * flow that ends every session of the identity calls it, so the request
+     * stops acting as it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return void
+     */
+    public function forgetIdentity(Identity $identity): void;
 }

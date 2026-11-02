@@ -7,6 +7,7 @@ namespace Tests\Feature\Sessions;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -49,6 +50,8 @@ use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
+use Tests\Integration\Fixtures\ChoosingMember;
+use Tests\Integration\Fixtures\ChoosingMembership;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
@@ -71,6 +74,9 @@ use Tests\TestCase;
 final class FactorRevocationsTest extends TestCase
 {
     use InteractsWithSessions;
+
+    /** @var string Guard over `ChoosingMember`, whose members choose between their memberships. */
+    private const string CHOOSERS = 'choosers';
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -342,8 +348,8 @@ final class FactorRevocationsTest extends TestCase
             Session::query()->whereKey($current->record->getKey())->update(['idle_expires_at' => CarbonImmutable::now()->subSecond()]);
         }];
 
-        yield 'returned to pending' => [static function (SignedInSession $current): void {
-            Session::query()->whereKey($current->record->getKey())->update(['status' => 'pending']);
+        yield 'pending and past its idle deadline' => [static function (SignedInSession $current): void {
+            Session::query()->whereKey($current->record->getKey())->update(['status' => 'pending', 'idle_expires_at' => CarbonImmutable::now()->subSecond()]);
         }];
 
         yield 'deleted' => [static function (SignedInSession $current): void {
@@ -356,8 +362,8 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * A current session that has meanwhile ended, gone back to pending or been
-     * replaced is left as it is: neither voided, judged nor counted.
+     * A current session that has meanwhile been revoked, ended (pending or not)
+     * or been replaced is left as it is: neither voided, judged nor counted.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SignedInSession): void  $meanwhile
      * @return void
@@ -385,6 +391,84 @@ final class FactorRevocationsTest extends TestCase
         self::assertFalse($removal->returnedToPending());
         self::assertSame($during, $this->columnsOf($current->record->getKey()));
         self::assertSame(['factor-a' => null], $this->voidedOn($current->record->getKey()));
+    }
+
+    /**
+     * A current session that is pending, live and still the session given has
+     * its proofs made with the removed factor voided, another factor's kept,
+     * and stays pending as it was: nothing else of it is written, judged or
+     * counted.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingCurrentSessionHasTheFactorsProofsVoidedAndStaysPending(): void
+    {
+        $current = $this->signedIn();
+
+        $this->stepUp($current, 'factor-a');
+        $this->stepUp($current, 'factor-b');
+
+        Session::query()->whereKey($current->record->getKey())->update(['status' => 'pending']);
+
+        $during = $this->columnsOf($current->record->getKey());
+
+        $this->recordEvents([SessionRevoked::class, SessionReturnedToPending::class]);
+
+        $removal = Auth::sessions('api')->factorRemoved($current->identity, 'factor-a', $current->record);
+
+        self::assertSame(0, $removal->revoked);
+        self::assertFalse($removal->currentRevoked);
+        self::assertFalse($removal->returnedToPending());
+        self::assertSame($during, $this->columnsOf($current->record->getKey()));
+        self::assertSame(['factor-a' => $this->now->toDateTimeString(), 'factor-b' => null], $this->voidedOn($current->record->getKey()));
+        self::assertSame([], $this->recordedClasses());
+    }
+
+    /**
+     * A pending session waiting only on the principal choice, having met its
+     * further factor with the factor removed, no longer meets it: the choice it
+     * makes next leaves it pending on a further factor, not active.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChoiceMadeAfterTheRemovalStaysPendingOnAFurtherFactor(): void
+    {
+        $this->requireAFurtherFactor();
+
+        $member      = ChoosingMember::query()->create(['email' => 'chooser@example.test', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
+        $memberships = [];
+
+        foreach (['First', 'Second'] as $name) {
+            $tenant        = ActivatableTenant::query()->create(['name' => $name, 'is_active' => true]);
+            $memberships[] = ChoosingMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
+        }
+
+        $signIn = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'));
+
+        self::assertNotNull($signIn->pending);
+        self::assertNotNull($signIn->credential);
+        self::assertSame([PendingRequirement::MFA, PendingRequirement::PRINCIPAL], $signIn->pending->requires);
+
+        $moved = $this->sessions(self::CHOOSERS)->satisfy($signIn->credential, $this->proof($member, $signIn->pending->id, 'factor-a', Purpose::SIGN_IN, self::CHOOSERS));
+
+        self::assertSame([PendingRequirement::PRINCIPAL], $moved->pending?->requires);
+
+        $record  = Session::query()->whereKey($signIn->pending->id)->firstOrFail();
+        $removal = Auth::sessions(self::CHOOSERS)->factorRemoved($member, 'factor-a', $record);
+
+        self::assertFalse($removal->returnedToPending());
+        self::assertSame(['factor-a' => $this->now->toDateTimeString()], $this->voidedOn($record->getKey()));
+
+        $chosen = $this->sessions(self::CHOOSERS)->choose($signIn->credential, $memberships[0]);
+
+        self::assertTrue($chosen->isPending());
+        self::assertNull($chosen->session);
+        self::assertSame([PendingRequirement::MFA], $chosen->pending?->requires);
+        self::assertSame('pending', $this->rowOf($record->getKey())->status);
     }
 
     /**
@@ -596,6 +680,50 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
+     * A reset forgets the binding of a guard bound to the identity once it
+     * commits, not before and not when it rolls back, so the rest of the
+     * request is not authenticated as a session it ended; a guard bound to
+     * another identity stays bound.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAResetForgetsTheGuardBoundToTheIdentityOnceItCommits(): void
+    {
+        $current = $this->signedIn();
+        $guard   = $this->boundGuard($current);
+
+        try {
+            DB::transaction(static function () use ($current): void {
+
+                Auth::sessions('api')->factorReset($current->identity);
+
+                throw new \RuntimeException('rolled back');
+            });
+        } catch (\RuntimeException) {
+            self::assertTrue($guard->check());
+        }
+
+        DB::transaction(static function () use ($current, $guard): void {
+
+            self::assertSame(1, Auth::sessions('api')->factorReset($current->identity));
+            self::assertTrue($guard->check());
+        });
+
+        self::assertFalse($guard->check());
+        self::assertNull($guard->session());
+        self::assertFalse(Auth::guard('api')->check());
+
+        $other = $this->signedIn('api', 'grace@example.test');
+        $kept  = $this->boundGuard($other);
+
+        Auth::sessions('api')->factorReset($current->identity);
+
+        self::assertSame($other->record->getKey(), $kept->session()?->getSessionIdentifier());
+    }
+
+    /**
      * A removed first-factor credential ends the identity's other sessions,
      * keeps the current one and voids no proof.
      *
@@ -663,7 +791,12 @@ final class FactorRevocationsTest extends TestCase
 
         assert($app instanceof Application);
 
-        self::configureSessionGuards($app->make(ConfigRepository::class));
+        $config = $app->make(ConfigRepository::class);
+
+        self::configureSessionGuards($config);
+
+        $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
+        $config->set('auth.guards.' . self::CHOOSERS, ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password']]]);
     }
 
     /**

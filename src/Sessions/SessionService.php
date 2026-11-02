@@ -189,7 +189,6 @@ final readonly class SessionService
             $binding,
             $this->revocations,
             $sessions,
-            $this->evaluation,
             $this->transitions,
             $this->afterCommit,
             $container,

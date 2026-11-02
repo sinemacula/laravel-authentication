@@ -31,9 +31,12 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * and a link's through the identity's own sessions, 500 at a time; each chunk
  * is locked in key order and revoked by the conditional revocation write, all
  * in one transaction on the session model's connection, a savepoint inside the
- * caller's. `SessionRevoked` reports each session revoked once that commits. No
- * cutoff moves: the scope is how the sessions began, not the identity. Each
- * trigger can be turned off (`RevocationSettings`), and then writes nothing.
+ * caller's. A connection is matched byte for byte, whatever the provenance
+ * column's collation, so one connection's revocation never ends the sessions of
+ * another whose id differs from it only in case, accents or a trailing space.
+ * `SessionRevoked` reports each session revoked once that commits. No cutoff
+ * moves: the scope is how the sessions began, not the identity. Each trigger
+ * can be turned off (`RevocationSettings`), and then writes nothing.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -93,10 +96,10 @@ final readonly class ConnectionRevocations
             $after   = null;
 
             do {
-                $keys = self::established($connectionId, $after);
-                $revoked += $this->revoke($model, $keys, null, $reason, $now);
-                $after = $keys === [] ? null : $keys[count($keys) - 1];
-            } while (count($keys) === self::CHUNK);
+                $rows = self::established($connectionId, $after);
+                $revoked += $this->revoke($model, self::exactly($rows, $connectionId), null, $reason, $now);
+                $after = $rows === [] ? null : $rows[count($rows) - 1][0];
+            } while (count($rows) === self::CHUNK);
 
             return $revoked;
         });
@@ -160,13 +163,15 @@ final readonly class ConnectionRevocations
     }
 
     /**
-     * The next chunk of the keys of the sessions the connection established,
-     * after the key given, in order, read from the provenance's connection
-     * index on the write connection.
+     * The next chunk of the provenance rows of the connection, after the key
+     * given, in key order, as `[session key, connection id]`, read from the
+     * provenance's connection index on the write connection. The index finds
+     * them under the column's collation; `exactly()` keeps those that name the
+     * connection byte for byte.
      *
      * @param  string  $connectionId
      * @param  ?string  $after
-     * @return list<string>
+     * @return list<array{0: string, 1: mixed}>
      */
     private static function established(string $connectionId, ?string $after): array
     {
@@ -176,7 +181,7 @@ final readonly class ConnectionRevocations
             ->orderBy('session_id')
             ->limit(self::CHUNK);
 
-        return self::strings(WriteConnection::during(new SessionProvenance, static fn (): array => $query->pluck('session_id')->all()));
+        return self::provenance($query);
     }
 
     /**
@@ -218,7 +223,59 @@ final readonly class ConnectionRevocations
 
         $query = WriteConnection::query(SessionProvenance::query())->whereKey($keys)->where('connection_id', $connectionId);
 
-        return self::strings(WriteConnection::during(new SessionProvenance, static fn (): array => $query->pluck('session_id')->all()));
+        return self::exactly(self::provenance($query), $connectionId);
+    }
+
+    /**
+     * The provenance rows the query finds, as `[session key, connection id]`,
+     * read on the write connection.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<\SineMacula\Laravel\Authentication\Models\SessionProvenance>  $query
+     * @return list<array{0: string, 1: mixed}>
+     */
+    private static function provenance(Builder $query): array
+    {
+        /** @var array<int, \stdClass> $rows */
+        $rows  = WriteConnection::during(new SessionProvenance, static fn (): array => $query->toBase()->get(['session_id', 'connection_id'])->all());
+        $pairs = [];
+
+        foreach ($rows as $row) {
+
+            $key = IdentifierCoercion::stringify($row->session_id);
+
+            if ($key === null) {
+                continue;
+            }
+
+            $pairs[] = [$key, $row->connection_id];
+        }
+
+        return $pairs;
+    }
+
+    /**
+     * The session keys of the provenance rows that name the connection byte for
+     * byte, so a column whose collation counts another connection's id as equal
+     * (another case or accent, a trailing space) never ends that connection's
+     * sessions.
+     *
+     * @param  list<array{0: string, 1: mixed}>  $rows
+     * @param  string  $connectionId
+     * @return list<string>
+     */
+    private static function exactly(array $rows, string $connectionId): array
+    {
+        $keys = [];
+
+        foreach ($rows as [$key, $recorded]) {
+            if ($recorded !== $connectionId) {
+                continue;
+            }
+
+            $keys[] = $key;
+        }
+
+        return $keys;
     }
 
     /**
