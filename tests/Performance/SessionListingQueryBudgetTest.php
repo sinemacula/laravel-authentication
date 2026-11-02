@@ -10,11 +10,14 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Sessions\ActiveSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Sessions\SessionSummary;
 use Tests\Concerns\InteractsWithSessions;
 
 /**
  * Query-budget contracts for the session list: a page is one count and one
- * select, however many sessions it holds, and nothing is written.
+ * select, however many sessions it holds, and nothing is written; and for the
+ * lookup of one session: one select, or none for an identifier that cannot be a
+ * key.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -90,6 +93,50 @@ final class SessionListingQueryBudgetTest extends PerformanceContractTestCase
         $sessions = $this->sessions();
 
         self::assertSame(0, $this->assertQueryBudget(1, 0, static fn (): LengthAwarePaginator => $sessions->sessions($identity))->total());
+    }
+
+    /**
+     * Finding one session, on a guard already bound to one of five, reads once
+     * and writes nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testOneSessionIsOneSelect(): void
+    {
+        $identity = $this->seedIdentity();
+
+        for ($index = 0; $index < 4; $index++) {
+            $this->sessions()->signIn('password', self::credentials());
+        }
+
+        $sessions = $this->sessions();
+        $bound    = $sessions->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($bound);
+
+        $id    = $bound->record->getSessionIdentifier();
+        $found = $this->assertQueryBudget(1, 0, static fn (): ?SessionSummary => $sessions->session($identity, $id));
+
+        self::assertTrue($found?->current);
+    }
+
+    /**
+     * An identifier that cannot be a session key costs nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentifierThatCannotBeAKeyCostsNothing(): void
+    {
+        $identity = $this->seedIdentity();
+        $sessions = $this->sessions();
+
+        $sessions->signIn('password', self::credentials());
+
+        self::assertNull($this->assertQueryBudget(0, 0, static fn (): ?SessionSummary => $sessions->session($identity, 'not-a-uuid')));
     }
 
     /**

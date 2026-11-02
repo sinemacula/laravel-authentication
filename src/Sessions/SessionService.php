@@ -35,6 +35,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\LooksUpSessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\ProvesSessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\RefreshesSessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\SwitchesSessions;
@@ -83,10 +84,11 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * reauthenticates it through `SessionStepUp` and `SessionReauthentication`
  * (`ProvesSessions`), each of which issues a new access token only, lets a
  * session switch the principal it acts as or its active tenant through
- * `SessionSwitch` (`SwitchesSessions`), lists sessions, and signs out, revokes
- * sessions and ends sessions on security changes through `SessionRevocations`
- * (`EndsSessions`), which the guard's `logout()` and password changes use too,
- * and signs out by refresh credential through `SessionSignOut`.
+ * `SessionSwitch` (`SwitchesSessions`), lists sessions, looks one of them up
+ * (`LooksUpSessions`), and signs out, revokes sessions and ends sessions on
+ * security changes through `SessionRevocations` (`EndsSessions`), which the
+ * guard's `logout()` and password changes use too, and signs out by refresh
+ * credential through `SessionSignOut`.
  *
  * Failures are results, not exceptions: Laravel's `Failed` and the package's
  * `AuthenticationFailed` report them. Exceptions are kept for misconfiguration
@@ -103,7 +105,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  */
 final readonly class SessionService
 {
-    use EndsSessions, ProvesSessions, RefreshesSessions, SwitchesSessions;
+    use EndsSessions, LooksUpSessions, ProvesSessions, RefreshesSessions, SwitchesSessions;
 
     /** @var \SineMacula\Laravel\Authentication\Sessions\SessionEstablishment Takes an admitted sign-in to its session, active or pending, never binding. */
     private SessionEstablishment $establishment;

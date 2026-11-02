@@ -15,18 +15,20 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\SessionRecords\IdentitySessions;
+use SineMacula\Laravel\Authentication\SessionRecords\SessionKeyShape;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * Which sessions are live, and the listing of an identity's live sessions.
+ * Which sessions are live, the listing of an identity's live sessions, and the
+ * lookup of one of them.
  *
  * A session is active while it is not pending, not revoked, and its idle
  * deadline, and its absolute deadline when it has one, are still ahead: a
  * deadline has passed from the second it names, as on every other path. The
- * listing reads the identity's `sessions()` relation on the write connection,
- * so it never shows a session a replica has not yet seen revoked, and
- * summarises each session without its digests.
+ * listing and the lookup read the identity's `sessions()` relation on the write
+ * connection, so neither shows a session a replica has not yet seen revoked,
+ * and summarise each session without its digests.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -110,6 +112,43 @@ final class ActiveSessions
         });
 
         return $sessions->through(static fn (EloquentSession&Model $session): SessionSummary => SessionSummary::of($session, self::isCurrent($session, $current)));
+    }
+
+    /**
+     * One of the identity's active sessions, of any guard, by its key,
+     * summarised as the listing summarises it and marked when it is the current
+     * session; `null` when it is not the identity's, not active, or not found.
+     * A key that cannot be one of the session model's is not queried.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  mixed  $id
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $current
+     * @return ?\SineMacula\Laravel\Authentication\Sessions\SessionSummary
+     *
+     * @throws \LogicException
+     */
+    public static function find(Identity $identity, mixed $id, ?Session $current): ?SessionSummary
+    {
+        if (!$identity instanceof HasSessions) {
+            throw new \LogicException(sprintf('Only identities that implement %s have sessions to list; %s does not.', HasSessions::class, $identity::class));
+        }
+
+        [$query, $session] = IdentitySessions::query($identity);
+
+        if (!SessionKeyShape::matches($session, $id)) {
+            return null;
+        }
+
+        $now = CarbonImmutable::now();
+
+        $found = WriteConnection::during($identity, static function () use ($query, $session, $id, $now): mixed {
+
+            self::constrain($query, $session, $now);
+
+            return $query->where($session->getQualifiedKeyName(), $id)->first();
+        });
+
+        return $found instanceof $session ? SessionSummary::of($found, self::isCurrent($found, $current)) : null;
     }
 
     /**

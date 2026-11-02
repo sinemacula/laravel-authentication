@@ -7,7 +7,9 @@ namespace Tests\Feature\Sessions;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -32,7 +34,9 @@ use Tests\TestCase;
  * `auth:api`, driven over HTTP: `Auth::sessions('api')->sessions()` lists the
  * signed-in identity's active sessions of every guard, marks the one the
  * request is authenticated with, pages them, and never exposes a digest,
- * revocation column, owner or principal.
+ * revocation column, owner or principal; and of the lookup of one of them,
+ * `session()`, which finds exactly the sessions the list holds, as the list
+ * shows them.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -316,6 +320,148 @@ final class ActiveSessionsTest extends TestCase
         $this->expectExceptionMessage('The sessions() relation of ' . ForeignModelSessionsIdentity::class . ' must query a model that implements ' . EloquentSession::class . '.');
 
         $this->sessions()->sessions(new ForeignModelSessionsIdentity);
+    }
+
+    /**
+     * Every session the list holds, across all its pages, is found by its
+     * identifier with the very summary the list gives, the current one marked;
+     * a session the list leaves out (revoked, pending, past a deadline, or
+     * another identity's) is not found.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testFindsEverySessionTheListHoldsAsItHoldsItAndNoOther(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->seedIdentity('grace@example.test');
+
+        foreach (['One', 'Two', 'Three', 'Four'] as $client) {
+            $this->signIn('api', $client);
+        }
+
+        $bound    = $this->signIn('admin', 'Console');
+        $revoked  = $this->signIn('api', 'Revoked');
+        $idle     = $this->signIn('api', 'Idle');
+        $absolute = $this->signIn('api', 'Absolute');
+        $pending  = $this->signIn('api', 'Pending');
+        $other    = $this->signIn('api', 'Other', 'grace@example.test');
+
+        Session::query()->whereKey($revoked->record->getKey())->update(['revoked_at' => now(), 'revoked_reason' => 'revoked']);
+        Session::query()->whereKey($idle->record->getKey())->update(['idle_expires_at' => now()]);
+        Session::query()->whereKey($absolute->record->getKey())->update(['absolute_expires_at' => now()]);
+        Session::query()->whereKey($pending->record->getKey())->update(['status' => 'pending', 'requires' => '["mfa"]']);
+
+        $guard = $this->freshGuard();
+
+        $guard->authenticateAs($bound->identity, $bound->principal, $bound->record);
+
+        $sessions = self::sessionsOf($guard);
+        $found    = [];
+        $page     = 0;
+
+        do {
+            $listed = $sessions->sessions($identity, 2, ++$page);
+
+            foreach ($listed->items() as $summary) {
+                self::assertSame($summary->toArray(), $sessions->session($identity, $summary->id)?->toArray());
+
+                $found[$summary->id] = $summary->current;
+            }
+        } while ($page < $listed->lastPage());
+
+        self::assertCount(5, $found);
+        self::assertSame([self::idOf($bound)], array_keys(array_filter($found)));
+
+        foreach ([$revoked, $idle, $absolute, $pending, $other] as $session) {
+            self::assertNull($sessions->session($identity, self::idOf($session)));
+        }
+
+        self::assertNull($sessions->session($identity, (string) Str::uuid()));
+    }
+
+    /**
+     * Rows of an identifier that cannot be a key of the shipped session model,
+     * whose keys are UUIDs.
+     *
+     * @return iterable<string, array{0: mixed}>
+     */
+    public static function provideIdentifiersThatCannotBeAKey(): iterable
+    {
+        yield 'not a UUID' => ['not-a-uuid'];
+        yield 'an integer' => [42];
+        yield 'an empty string' => [''];
+        yield 'null' => [null];
+        yield 'an array' => [['id']];
+    }
+
+    /**
+     * An identifier that cannot be a key of the session model finds nothing
+     * without a query.
+     *
+     * @param  mixed  $id
+     * @return void
+     */
+    #[DataProvider('provideIdentifiersThatCannotBeAKey')]
+    public function testAnIdentifierThatCannotBeAKeyIsNotQueried(mixed $id): void
+    {
+        $identity = $this->seedIdentity();
+        $sessions = $this->sessions();
+        $queries  = 0;
+
+        DB::listen(static function () use (&$queries): void {
+            $queries++;
+        });
+
+        self::assertNull($sessions->session($identity, $id));
+        self::assertSame(0, $queries);
+    }
+
+    /**
+     * The session found is the current one only when the session bound to the
+     * guard is of its class as well as its identifier.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFoundSessionIsCurrentOnlyForABoundSessionOfItsClass(): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->signIn('api', 'Phone');
+        $guard    = $this->freshGuard();
+
+        $guard->authenticateAs($session->identity, $session->principal, $session->record);
+
+        self::assertTrue(self::sessionsOf($guard)->session($identity, self::idOf($session))?->current);
+
+        $other = new class extends Session {};
+        $other->setRawAttributes($session->record->getAttributes(), true);
+        $other->exists = true;
+
+        $guard->authenticateAs($session->identity, $session->principal, $other);
+
+        $found = self::sessionsOf($guard)->session($identity, self::idOf($session));
+
+        self::assertNotNull($found);
+        self::assertSame(self::idOf($session), $found->id);
+        self::assertFalse($found->current);
+    }
+
+    /**
+     * An identity that holds no sessions has none to find: a misconfiguration,
+     * refused before anything is read.
+     *
+     * @return void
+     */
+    public function testRefusesToFindASessionOfAnIdentityWithoutSessions(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('Only identities that implement ' . HasSessions::class . ' have sessions to list; ' . AccessOnlyIdentity::class . ' does not.');
+
+        $this->sessions()->session(new AccessOnlyIdentity, (string) Str::uuid());
     }
 
     /**

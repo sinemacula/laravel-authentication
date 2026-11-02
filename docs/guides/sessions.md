@@ -421,6 +421,21 @@ identity's `sessions()` relation, in two queries (a count and a select), so a se
 shown. An identity that does not implement `HasSessions`, or whose `sessions()` relation queries a model that is not an
 `EloquentSession`, is a `LogicException`.
 
+`session()` gets one of them by its id, for a detail screen or before a "sign out" button revokes it:
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+Route::middleware('auth:api')->get('/sessions/{session}', fn (string $session) => Auth::sessions('api')->session(Auth::identity(), $session) ?? abort(404));
+```
+
+It answers the very `SessionSummary` the list gives for that session, `current` marked the same way, or `null` when the
+session is not the identity's, is not active (pending, revoked or past a deadline) or does not exist, without saying
+which. It reads the identity's `sessions()` relation on the write connection with the list's rule, in one query, and an
+id that cannot be a key of the session model (not a UUID, for the shipped model) is answered `null` without one, so
+every session the list shows on any of its pages is found as it shows it, and no other. The identity must implement
+`HasSessions`, as for the list.
+
 The same rule is a query scope on any model that uses `ActsAsSession`, for your own queries:
 
 ```php
