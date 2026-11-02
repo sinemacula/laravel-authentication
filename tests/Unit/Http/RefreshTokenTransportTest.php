@@ -545,7 +545,7 @@ final class RefreshTokenTransportTest extends TestCase
 
     /**
      * The clearing cookie has the same name and path, no domain and no value,
-     * and has already expired.
+     * is URL-encoded as the cookie it clears is, and has already expired.
      *
      * @return void
      */
@@ -561,6 +561,7 @@ final class RefreshTokenTransportTest extends TestCase
         self::assertLessThan(time(), $cookie->getExpiresTime());
         self::assertTrue($cookie->isHttpOnly());
         self::assertTrue($cookie->isSecure());
+        self::assertFalse($cookie->isRaw());
         self::assertSame(Cookie::SAMESITE_STRICT, $cookie->getSameSite());
     }
 
