@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyService;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
@@ -32,6 +33,7 @@ use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\Enums\ResetStatus;
 use SineMacula\Laravel\Authentication\Passwords\PasswordService;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\SwitchesSessions;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
@@ -79,6 +81,7 @@ use Tests\TestCase;
 #[CoversClass(PasswordService::class)]
 #[CoversClass(IdentifierChangeService::class)]
 #[CoversClass(ClientCredentialsExchange::class)]
+#[CoversTrait(SwitchesSessions::class)]
 final class EventSequenceTest extends TestCase
 {
     use ChangesIdentifiers, InteractsWithMachineClients, InteractsWithPasswords, InteractsWithProofs, RecordsEventSequences;

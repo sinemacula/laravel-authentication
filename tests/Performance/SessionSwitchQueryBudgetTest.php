@@ -9,10 +9,12 @@ use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\SwitchesSessions;
 use SineMacula\Laravel\Authentication\Sessions\PendingSession;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SessionSwitch;
@@ -43,6 +45,7 @@ use Tests\Integration\Fixtures\ChoosingMembership;
  */
 #[CoversClass(SessionService::class)]
 #[CoversClass(SessionSwitch::class)]
+#[CoversTrait(SwitchesSessions::class)]
 final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
 {
     use InteractsWithSessions;

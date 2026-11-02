@@ -69,18 +69,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
 
         $this->createSessionTables();
 
-        Route::post('/auth/{guard}/refresh', static function (string $guard): JsonResponse {
-            $result = Auth::sessions($guard)->refreshFromRequest();
-
-            $tokens = $result?->session?->tokens;
-
-            return match (true) {
-                $result === null => new JsonResponse(['reason' => null], 400),
-                $tokens !== null => $tokens->refreshCookie?->attachTo(new JsonResponse(['source' => $result->source?->value]))
-                    ?? SecretResponse::json(['source' => $result->source?->value, 'refresh_token' => $tokens->refreshToken]),
-                default => new JsonResponse(['reason' => $result->reason?->value], 401),
-            };
-        });
+        Route::post('/auth/{guard}/refresh', static fn (string $guard): JsonResponse => self::refreshRoute($guard));
     }
 
     /**
@@ -463,5 +452,35 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
         $cookies = $cookie === null ? [] : [self::COOKIES[$guard] => $cookie];
 
         return $this->call('POST', '/auth/' . $guard . '/refresh' . $query, $body, $cookies, [], $this->transformHeadersToServerVars($headers));
+    }
+
+    /**
+     * Refresh the guard's session with the token the request carries, and
+     * answer with where it was read from and the rotated token, in the cookie
+     * or the body as the application's transport says, or with the refusal's
+     * reason; a request without a token is a bad request.
+     *
+     * @param  string  $guard
+     * @return \Illuminate\Http\JsonResponse
+     *
+     * @throws \Throwable
+     */
+    private static function refreshRoute(string $guard): JsonResponse
+    {
+        $result = Auth::sessions($guard)->refreshFromRequest();
+
+        if ($result === null) {
+            return new JsonResponse(['reason' => null], 400);
+        }
+
+        $tokens = $result->session?->tokens;
+
+        if ($tokens === null) {
+            return new JsonResponse(['reason' => $result->reason?->value], 401);
+        }
+
+        $source = ['source' => $result->source?->value];
+
+        return $tokens->refreshCookie?->attachTo(new JsonResponse($source)) ?? SecretResponse::json([...$source, 'refresh_token' => $tokens->refreshToken]);
     }
 }

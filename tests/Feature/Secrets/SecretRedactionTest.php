@@ -12,6 +12,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
@@ -19,9 +20,11 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\SwitchesSessions;
 use SineMacula\Laravel\Authentication\Sessions\PendingSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionRefresh;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Sessions\SessionSignOut;
 use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
@@ -64,6 +67,8 @@ use Tests\TestCase;
 #[CoversClass(SessionWriter::class)]
 #[CoversClass(PendingSessions::class)]
 #[CoversClass(SignInRequest::class)]
+#[CoversClass(SessionSignOut::class)]
+#[CoversTrait(SwitchesSessions::class)]
 final class SecretRedactionTest extends TestCase
 {
     use InspectsTraces, InteractsWithProofs, InteractsWithSessions;
@@ -263,6 +268,32 @@ final class SecretRedactionTest extends TestCase
         $exception = self::withArgumentsInTraces(\RuntimeException::class, static fn (): mixed => $sessions->signOut());
 
         self::assertSame('a bug in a sign-out listener', $exception->getMessage());
+        self::assertFalse(self::dumpsInTrace($exception, self::anyJwt()));
+    }
+
+    /**
+     * A listener on `SessionRevoked` that throws while a refresh token signs
+     * its session out leaves neither that token nor any other in the trace.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAThrowingListenerDuringASignOutByRefreshTokenLeavesNoTokenInTheTrace(): void
+    {
+        $this->seedIdentity();
+
+        $presented = (string) $this->signedIn()->refreshToken?->reveal();
+        $sessions  = $this->sessions();
+
+        Event::listen(SessionRevoked::class, static function (): never {
+            throw new \RuntimeException('a bug in a sign-out listener');
+        });
+
+        $exception = self::withArgumentsInTraces(\RuntimeException::class, static fn (): mixed => $sessions->signOutWith($presented));
+
+        self::assertSame('a bug in a sign-out listener', $exception->getMessage());
+        self::assertFalse(self::dumpsInTrace($exception, $presented));
         self::assertFalse(self::dumpsInTrace($exception, self::anyJwt()));
     }
 

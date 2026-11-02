@@ -13,6 +13,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
@@ -23,11 +24,14 @@ use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\SwitchesSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionRefresh;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Sessions\SessionSignOut;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
@@ -53,6 +57,8 @@ use Tests\TestCase;
 #[CoversClass(SessionService::class)]
 #[CoversClass(SessionRefresh::class)]
 #[CoversClass(RefreshTokenTransport::class)]
+#[CoversClass(SessionSignOut::class)]
+#[CoversTrait(SwitchesSessions::class)]
 final class CookieTransportTest extends TestCase
 {
     use InteractsWithProofs, InteractsWithSessions;
@@ -268,9 +274,9 @@ final class CookieTransportTest extends TestCase
 
     /**
      * A cookie application refuses a refresh token its own code read and handed
-     * in, to refresh or to switch, before anything is attempted: its token is
-     * read only from its cookie, with the cookie's cross-site checks. A body
-     * application takes one.
+     * in, to refresh, to switch or to sign out, before anything is attempted:
+     * its token is read only from its cookie, with the cookie's cross-site
+     * checks. A body application takes one.
      *
      * @return void
      *
@@ -288,6 +294,7 @@ final class CookieTransportTest extends TestCase
         $calls = [
             fn (): mixed => $this->sessions(self::BROWSER)->refresh($token),
             fn (): mixed => $this->sessions(self::BROWSER)->switchTo($token, SwitchTarget::principal($other)),
+            fn (): mixed => $this->sessions(self::BROWSER)->signOutWith($token),
         ];
 
         foreach ($calls as $call) {
@@ -306,6 +313,74 @@ final class CookieTransportTest extends TestCase
 
         self::assertNotNull($body);
         self::assertTrue($this->sessions(self::BODY)->refresh($body->reveal())->isRefreshed());
+    }
+
+    /**
+     * A cookie application's sign-out reads the token from its cookie and
+     * revokes the session it proves, and its result carries the expired cookie,
+     * under the application's name and path, whatever happened: when the cookie
+     * signed the session out, when the request sent no cookie, when a script
+     * without the custom header sent it (`cross_site_request`, the session left
+     * live), and when a live access token signed its session out.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACookieApplicationsSignOutAlwaysClearsTheCookie(): void
+    {
+        $this->seedIdentity();
+
+        $byCookie = $this->sessions(self::BROWSER)->signIn('password', self::credentials())->session;
+        $byBearer = $this->sessions(self::BROWSER)->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($byCookie);
+        self::assertNotNull($byBearer);
+
+        $value = self::cookieValue($byCookie->tokens);
+
+        app()->instance('request', Request::create('/auth/logout', 'POST', [], [self::COOKIES[self::BROWSER][0] => $value], [], [
+            'REMOTE_ADDR'     => self::CLIENT_IP,
+            'HTTP_USER_AGENT' => self::CLIENT_AGENT,
+            'HTTP_ORIGIN'     => 'http://localhost',
+        ]));
+
+        Auth::forgetGuards();
+
+        $crossSite = Auth::sessions(self::BROWSER)->signOutFromRequest();
+
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $crossSite->reason);
+        self::assertNull(Session::query()->whereKey($byCookie->record->getKey())->value('revoked_at'));
+
+        app()->instance('request', Request::create('/auth/logout', 'POST', server: [
+            'REMOTE_ADDR'        => self::CLIENT_IP,
+            'HTTP_AUTHORIZATION' => 'Bearer ' . $byBearer->tokens->accessToken->reveal(),
+        ]));
+
+        Auth::forgetGuards();
+
+        $bearer  = Auth::sessions(self::BROWSER)->signOutFromRequest();
+        $signed  = $this->fromCookie(self::BROWSER, $value)->signOutFromRequest();
+        $nothing = $this->request(self::BROWSER)->signOutFromRequest();
+
+        self::assertTrue($signed->isSignedOut());
+        self::assertSame(RefreshTokenSource::COOKIE, $signed->source);
+        self::assertTrue($bearer->isSignedOut());
+        self::assertNull($bearer->source);
+        self::assertFalse($nothing->isSignedOut());
+        self::assertFalse($nothing->isFailed());
+        self::assertSame('signed_out', Session::query()->whereKey($byCookie->record->getKey())->value('revoked_reason'));
+        self::assertSame('signed_out', Session::query()->whereKey($byBearer->record->getKey())->value('revoked_reason'));
+
+        foreach ([$crossSite, $bearer, $signed, $nothing] as $result) {
+
+            $cookie = $result->forgetCookie;
+
+            self::assertNotNull($cookie);
+            self::assertTrue($cookie->isCleared());
+            self::assertSame(self::COOKIES[self::BROWSER], [$cookie->getName(), $cookie->getPath()]);
+            self::assertSame([$cookie], $result->attachTo(new Response)->headers->getCookies());
+        }
     }
 
     /**

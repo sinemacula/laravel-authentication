@@ -26,11 +26,14 @@ use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\SwitchesSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Sessions\SessionSignOut;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use Symfony\Component\HttpFoundation\Cookie;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
@@ -41,8 +44,10 @@ use Tests\TestCase;
  * End-to-end tests for a browser whose refresh token lives in the HttpOnly
  * cookie, through the rest of its session: a switch of principal proven by the
  * cookie, held to the cookie's cross-site checks and answered with the rotated
- * cookie, and a sign-out from a route outside the cookie's path that revokes
- * the session and clears the cookie, as the documented routes do.
+ * cookie; a sign-out from a route outside the cookie's path that revokes the
+ * session and clears the cookie; and a sign-out under the cookie's path by
+ * whichever credential the browser holds, which still signs out once the access
+ * token has expired, as the documented routes do.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -53,7 +58,9 @@ use Tests\TestCase;
 #[CoversClass(JwtGuard::class)]
 #[CoversClass(SessionRevocations::class)]
 #[CoversClass(SessionService::class)]
+#[CoversClass(SessionSignOut::class)]
 #[CoversTrait(EndsSessions::class)]
+#[CoversTrait(SwitchesSessions::class)]
 final class RefreshCookieSessionLifecycleTest extends TestCase
 {
     use InteractsWithSessions;
@@ -69,8 +76,8 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
 
     /**
      * Freeze the clocks, create the tables, and add the browser routes:
-     * sign-in, refresh and switch under the cookie's `/auth` path, and logout
-     * and a protected route outside it.
+     * sign-in, refresh, switch and a sign-out by either credential under the
+     * cookie's `/auth` path, and logout and a protected route outside it.
      *
      * @return void
      */
@@ -91,6 +98,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
         Route::post('/auth/sign-in', static fn (Request $request): JsonResponse => self::signInRoute($request));
         Route::post('/auth/refresh', static fn (): JsonResponse => self::refreshRoute());
         Route::post('/auth/switch', static fn (Request $request): JsonResponse => self::switchRoute($request));
+        Route::post('/auth/logout', static fn (): Response => Auth::sessions(self::GUARD)->signOutFromRequest()->attachTo(new Response(status: 204)));
         Route::post('/logout', static fn (): JsonResponse => self::logoutRoute());
         Route::middleware('auth:' . self::GUARD)->get('/me', static fn (): array => ['principal' => Auth::principal()?->getPrincipalIdentifier()]);
     }
@@ -308,6 +316,59 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
 
         $this->browser('POST', '/auth/refresh', $cookie)->assertUnauthorized()->assertJson(['reason' => 'session_revoked']);
         $this->browser('GET', '/me', bearer: $access)->assertUnauthorized();
+    }
+
+    /**
+     * A browser whose access token has expired signs out under the cookie's
+     * path with the cookie alone: the session is revoked as `signed_out`, the
+     * cookie is cleared, and the cookie it held no longer refreshes.
+     *
+     * @return void
+     */
+    public function testSigningOutAfterTheAccessTokenExpiredRevokesByTheCookie(): void
+    {
+        $this->seedMemberships();
+
+        $signIn = $this->browser('POST', '/auth/sign-in')->assertOk();
+        $cookie = self::refreshCookie($signIn);
+        $access = $signIn->json('access_token');
+
+        self::assertIsString($access);
+
+        $later = CarbonImmutable::now()->addMinutes(20);
+
+        Carbon::setTestNow($later);
+        CarbonImmutable::setTestNow($later);
+
+        JWT::$timestamp = $later->getTimestamp();
+
+        $cleared = self::refreshCookie($this->browser('POST', '/auth/logout', $cookie, bearer: $access)->assertNoContent());
+
+        self::assertTrue($cleared->isCleared());
+        self::assertSame('/auth', $cleared->getPath());
+        self::assertSame('signed_out', DB::table('authentication_sessions')->value('revoked_reason'));
+
+        $this->browser('POST', '/auth/refresh', $cookie)->assertUnauthorized()->assertJson(['reason' => 'session_revoked']);
+    }
+
+    /**
+     * A sign-out posted from another site clears the cookie but revokes
+     * nothing: the cookie's cross-site checks refuse it, so a cross-site form
+     * cannot end the browser's session, and the cookie it held still refreshes.
+     *
+     * @return void
+     */
+    public function testASignOutFromAnotherSiteRevokesNothing(): void
+    {
+        $this->seedMemberships();
+
+        $cookie  = self::refreshCookie($this->browser('POST', '/auth/sign-in')->assertOk());
+        $cleared = self::refreshCookie($this->browser('POST', '/auth/logout', $cookie, headers: ['Origin' => 'https://evil.example'])->assertNoContent());
+
+        self::assertTrue($cleared->isCleared());
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
+
+        $this->browser('POST', '/auth/refresh', $cookie)->assertOk();
     }
 
     /**

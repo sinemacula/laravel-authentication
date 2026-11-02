@@ -32,6 +32,7 @@ use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\ProvenSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -150,11 +151,11 @@ final class SessionServiceTest extends TestCase
 
         $first = $this->signIn(clientName: 'Laptop', platform: 'macOS');
 
-        $rotated = self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken?->reveal())->session?->tokens;
+        $rotated = self::sessionsOf($this->freshGuard())->refresh(self::revealed($first->tokens->refreshToken))->session?->tokens;
 
         self::assertNotNull($rotated);
 
-        $current = self::sessionsOf($this->freshGuard())->refresh($rotated->refreshToken?->reveal())->session?->tokens;
+        $current = self::sessionsOf($this->freshGuard())->refresh(self::revealed($rotated->refreshToken))->session?->tokens;
 
         self::assertNotNull($current);
 
@@ -162,7 +163,7 @@ final class SessionServiceTest extends TestCase
 
         $this->recordEvents([SessionRevoked::class, SessionCreated::class, SignedIn::class]);
 
-        $again = $this->signIn(refreshToken: $current->refreshToken?->reveal(), clientName: 'Renamed laptop', method: 'sso');
+        $again = $this->signIn(refreshToken: self::revealed($current->refreshToken), clientName: 'Renamed laptop', method: 'sso');
 
         self::assertNotSame($first->record->getKey(), $again->record->getKey());
         self::assertSame([SessionRevoked::class, SessionCreated::class, SignedIn::class], $this->recordedClasses());
@@ -180,7 +181,7 @@ final class SessionServiceTest extends TestCase
         self::assertSame('password', $previous->getSignInMethod());
 
         $record = Session::query()->whereKey($again->record->getKey())->firstOrFail();
-        $claims = Auth::manager()->jwt('api')->parse($again->tokens->refreshToken?->reveal());
+        $claims = Auth::manager()->jwt('api')->parse(self::revealed($again->tokens->refreshToken));
 
         self::assertIsString($claims['jti'] ?? null);
         self::assertTrue(RefreshTokenHasher::verify($claims['jti'], (string) $record->getRefreshKey()));
@@ -200,7 +201,7 @@ final class SessionServiceTest extends TestCase
 
         $this->bearer($again->tokens->accessToken->reveal())->assertOk()->assertJson(['session' => $record->getKey()]);
 
-        $refused = self::sessionsOf($this->freshGuard())->refresh($current->refreshToken?->reveal());
+        $refused = self::sessionsOf($this->freshGuard())->refresh(self::revealed($current->refreshToken));
 
         self::assertSame(FailureReason::SESSION_REVOKED, $refused->reason);
         self::assertNull(Session::query()->whereKey($record->getKey())->firstOrFail()->getRevokedAt());
@@ -833,5 +834,18 @@ final class SessionServiceTest extends TestCase
     private function bearer(#[\SensitiveParameter] string $token): TestResponse
     {
         return $this->withHeaders(['Authorization' => 'Bearer ' . $token])->getJson('/me');
+    }
+
+    /**
+     * The secret in clear, which must be there.
+     *
+     * @param  ?\SineMacula\Laravel\Authentication\Secrets\Secret  $secret
+     * @return string
+     */
+    private static function revealed(?Secret $secret): string
+    {
+        self::assertNotNull($secret);
+
+        return $secret->reveal();
     }
 }

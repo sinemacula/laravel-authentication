@@ -12,6 +12,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Codes\CodeService;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
@@ -21,7 +22,9 @@ use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\SwitchesSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
@@ -52,6 +55,7 @@ use Tests\TestCase;
 #[CoversClass(CodeService::class)]
 #[CoversClass(JwtTokenServiceFactory::class)]
 #[CoversClass(SignInMethodManager::class)]
+#[CoversTrait(SwitchesSessions::class)]
 final class ManagerServicesRequestsTest extends TestCase
 {
     use InteractsWithCodeIdentities, ServesRequestsThroughOctane;
@@ -293,7 +297,7 @@ final class ManagerServicesRequestsTest extends TestCase
 
             return [
                 'principal' => $session?->principal->getPrincipalIdentifier(),
-                'refresh'   => $session?->tokens->refreshToken?->reveal(),
+                'refresh'   => self::refreshTokenOf($session),
             ];
         });
 
@@ -302,7 +306,7 @@ final class ManagerServicesRequestsTest extends TestCase
             $this->recordInThisRequest(self::LIFECYCLE);
             $session = $sessions->refresh(request()->string('refresh')->value())->session;
 
-            return ['refresh' => $session?->tokens->refreshToken?->reveal()];
+            return ['refresh' => self::refreshTokenOf($session)];
         });
 
         Route::post('/members/switch', function (): array {
@@ -364,5 +368,16 @@ final class ManagerServicesRequestsTest extends TestCase
 
             return ['signed_in' => $sessions->signIn('phone_code', request()->only('phone', 'code'))->isSignedIn()];
         });
+    }
+
+    /**
+     * The refresh token the signed-in session hands back, in clear, if any.
+     *
+     * @param  ?\SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
+     * @return ?string
+     */
+    private static function refreshTokenOf(?SignedInSession $session): ?string
+    {
+        return $session?->tokens->refreshToken?->reveal();
     }
 }

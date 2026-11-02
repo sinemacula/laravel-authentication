@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
@@ -51,6 +52,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\SwitchesSessions;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SessionSwitch;
@@ -97,6 +99,7 @@ use Tests\TestCase;
 #[CoversClass(SwitchedPrincipal::class)]
 #[CoversClass(SwitchResult::class)]
 #[CoversClass(PrincipalSwitched::class)]
+#[CoversTrait(SwitchesSessions::class)]
 final class SessionSwitchTest extends TestCase
 {
     use InteractsWithProofs, InteractsWithSessions;

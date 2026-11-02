@@ -13,18 +13,21 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Sessions\ActiveSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
+use SineMacula\Laravel\Authentication\Sessions\SessionSignOut;
+use SineMacula\Laravel\Authentication\Sessions\SignOutResult;
 use SineMacula\Laravel\Authentication\Sessions\TenantPolicyChanges;
 
 /**
  * The session service's session list, and its sign-out, revocation and
  * security-change methods, which `SessionRevocations` carries out: signing out
  * and signing out everywhere for the binding the service is given, the rest for
- * whatever identity, principal or tenant they are given; and the application of
- * a tenant's changed authentication policy, which `TenantPolicyChanges` carries
+ * whatever identity, principal or tenant they are given; signing out by refresh
+ * credential, which `SessionSignOut` carries out; and the application of a
+ * tenant's changed authentication policy, which `TenantPolicyChanges` carries
  * out.
  *
- * They are delegations with no state of their own but those two; they sit in a
- * trait only so the service stays within the number of methods one class may
+ * They are delegations with no state of their own but those three; they sit in
+ * a trait only so the service stays within the number of methods one class may
  * declare.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -39,6 +42,9 @@ trait EndsSessions
 
     /** @var \SineMacula\Laravel\Authentication\Sessions\TenantPolicyChanges Applies a tenant's changed authentication policy to its sessions. */
     private readonly TenantPolicyChanges $policyChanges;
+
+    /** @var \SineMacula\Laravel\Authentication\Sessions\SessionSignOut Signs sessions out by their refresh credential. */
+    private readonly SessionSignOut $signOuts;
 
     /**
      * One page of the identity's active sessions, of every guard, for a session
@@ -69,8 +75,9 @@ trait EndsSessions
      * this call revoked a session.
      *
      * An access-only token, which names no stored session, has nothing to
-     * revoke and is only forgotten; a guest request does nothing. The browser's
-     * refresh cookie, if any, is the application's to clear.
+     * revoke and is only forgotten; a guest request does nothing. To sign out a
+     * client whose access token has expired, and to clear a cookie
+     * application's refresh cookie, use `signOutFromRequest()`.
      *
      * @return bool
      *
@@ -82,6 +89,67 @@ trait EndsSessions
     public function signOut(): bool
     {
         return $this->revocations->signOut($this->binding);
+    }
+
+    /**
+     * Sign the request out by whichever credential it carries, so a client
+     * whose access token has expired can still sign out.
+     *
+     * A request whose access token is bound to a stored session is signed out
+     * as `signOut()` signs it out, and its refresh credential is not read.
+     * Otherwise any binding is forgotten first (an access-only token's, with
+     * Laravel's `Logout`, the guard staying signed out for the rest of the
+     * request), and the refresh credential is read through the application's
+     * transport (the cookie of a cookie application, with its cross-site
+     * checks; the body field or header of a body application): none signs
+     * nothing out; one the transport refuses fails with its reason
+     * (`refresh_token_conflict`, `refresh_transport_mismatch`,
+     * `cross_site_request`, `token_invalid`); one the session it names refuses
+     * (as a refresh would refuse it, short of rotating it, a replay revoking
+     * the session as `rotation_reuse`) fails with that reason; and the session
+     * it proves is revoked (`signed_out`, reported by `SessionRevoked` once
+     * committed), Laravel's `Logout` firing for its owner when the guard's
+     * provider still returns it and none fired already. A refusal is reported
+     * by `AuthenticationFailed` with the flow `sign_out`, and by no `Failed`. A
+     * cookie application's result always carries the expired cookie that clears
+     * the browser's (`SignOutResult::attachTo()`), whatever happened.
+     *
+     * @return \SineMacula\Laravel\Authentication\Sessions\SignOutResult
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     *
+     * @imperative
+     */
+    public function signOutFromRequest(): SignOutResult
+    {
+        return $this->signOuts->fromRequest();
+    }
+
+    /**
+     * Sign out the session a body application's refresh token, read by your own
+     * code, proves, as `signOutFromRequest()` signs out a session its refresh
+     * credential proves; a binding of the guard to that session is forgotten. A
+     * cookie application's token is read only from its cookie, with the
+     * cookie's cross-site checks, so on a cookie application this throws a
+     * `LogicException`: use `signOutFromRequest()`.
+     *
+     * @param  string  $refreshToken
+     * @return \SineMacula\Laravel\Authentication\Sessions\SignOutResult
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     *
+     * @imperative
+     */
+    public function signOutWith(#[\SensitiveParameter] string $refreshToken): SignOutResult
+    {
+        return $this->signOuts->with($refreshToken);
     }
 
     /**
