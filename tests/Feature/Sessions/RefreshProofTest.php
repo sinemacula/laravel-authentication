@@ -298,11 +298,12 @@ final class RefreshProofTest extends TestCase
         self::assertSame(RotationMatch::CURRENT, $proven->match);
     }
 
-    /** * The token names its principal by identifier alone, so a token naming a
-     * principal of another class with the recorded principal's identifier (as *
-     * a token from before a switch between two such principals is, inside the *
-     * grace window) proves the session: a sign-out may revoke it, since the * same
-     * token revokes it as a replay once the window closes, and a caller
+    /**
+     * The token names its principal by identifier alone, so a token naming a
+     * principal of another class with the recorded principal's identifier (as a
+     * token from before a switch between two such principals is, inside the
+     * grace window) proves the session: a sign-out may revoke it, since the
+     * same token revokes it as a replay once the window closes, and a caller
      * that acts as the principal checks its type itself.
      *
      * @return void
