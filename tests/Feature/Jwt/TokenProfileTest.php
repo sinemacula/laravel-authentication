@@ -109,10 +109,10 @@ final class TokenProfileTest extends TestCase
         $identity = $this->seedIdentity();
         $session  = $this->signedIn();
         $access   = $this->claims($session->tokens->accessToken->reveal(), TokenType::ACCESS);
-        $refresh  = $this->claims($session->tokens->refreshToken->reveal(), TokenType::REFRESH);
+        $refresh  = $this->claims($session->tokens->refreshToken?->reveal(), TokenType::REFRESH);
 
         self::assertSame('at+jwt', $this->jwtHeader($session->tokens->accessToken->reveal())['typ'] ?? null);
-        self::assertSame('refresh+jwt', $this->jwtHeader($session->tokens->refreshToken->reveal())['typ'] ?? null);
+        self::assertSame('refresh+jwt', $this->jwtHeader($session->tokens->refreshToken?->reveal())['typ'] ?? null);
 
         self::assertSame([self::JWT_ISSUER, self::JWT_AUDIENCE, 'api'], [$access['iss'], $access['aud'], $access['client_id']]);
         $key = IdentifierCoercion::stringify($identity->getKey());
@@ -263,18 +263,18 @@ final class TokenProfileTest extends TestCase
 
         $this->clockAt(CarbonImmutable::now()->addMinute());
 
-        $refreshed = $this->sessions('members')->refresh($session->tokens->refreshToken->reveal())->session;
+        $refreshed = $this->sessions('members')->refresh($session->tokens->refreshToken?->reveal())->session;
 
         self::assertNotNull($refreshed);
 
         $this->clockAt(CarbonImmutable::now()->addSeconds(5));
 
-        $retried = $this->sessions('members')->refresh($session->tokens->refreshToken->reveal())->session;
+        $retried = $this->sessions('members')->refresh($session->tokens->refreshToken?->reveal())->session;
 
         self::assertNotNull($retried);
 
-        $current = $this->claims($refreshed->tokens->refreshToken->reveal(), TokenType::REFRESH, 'members');
-        $handed  = $this->claims($retried->tokens->refreshToken->reveal(), TokenType::REFRESH, 'members');
+        $current = $this->claims($refreshed->tokens->refreshToken?->reveal(), TokenType::REFRESH, 'members');
+        $handed  = $this->claims($retried->tokens->refreshToken?->reveal(), TokenType::REFRESH, 'members');
 
         self::assertSame($current['jti'] ?? null, $handed['jti'] ?? null);
         self::assertSame(
@@ -374,13 +374,13 @@ final class TokenProfileTest extends TestCase
 
         foreach ([[[], 'at+jwt'], [['iss' => 'https://elsewhere.example.test'], 'refresh+jwt']] as [$merge, $typ]) {
 
-            $proof = $this->resigned($first->tokens->refreshToken->reveal(), [...$expired, ...$merge], [], $typ);
+            $proof = $this->resigned($first->tokens->refreshToken?->reveal(), [...$expired, ...$merge], [], $typ);
 
             self::assertNotNull($this->signInWithProof($proof));
             self::assertNull($this->stored($first)->revoked_at);
         }
 
-        self::assertNotNull($this->signInWithProof($this->resigned($first->tokens->refreshToken->reveal(), $expired, [], 'refresh+jwt')));
+        self::assertNotNull($this->signInWithProof($this->resigned($first->tokens->refreshToken?->reveal(), $expired, [], 'refresh+jwt')));
         self::assertSame('superseded', $this->stored($first)->revoked_reason);
     }
 

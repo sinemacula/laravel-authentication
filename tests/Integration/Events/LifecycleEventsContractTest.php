@@ -140,7 +140,7 @@ final class LifecycleEventsContractTest extends TestCase
         )->session;
 
         self::assertNotNull($session);
-        self::assertTrue($this->sessions('members')->switchTo($session->tokens->refreshToken->reveal(), SwitchTarget::principal($second))->isSwitched());
+        self::assertTrue($this->sessions('members')->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->isSwitched());
 
         $guard = $this->freshGuard('members');
 

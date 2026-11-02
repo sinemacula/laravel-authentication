@@ -162,7 +162,7 @@ final class SecretRedactionTest extends TestCase
     {
         $this->seedIdentity();
 
-        $presented = $this->signedIn()->refreshToken->reveal();
+        $presented = $this->signedIn()->refreshToken?->reveal();
 
         Event::listen(Refreshed::class, static function (): never {
             throw new \RuntimeException('a bug in a refresh listener');
@@ -194,7 +194,7 @@ final class SecretRedactionTest extends TestCase
 
         self::assertNotNull($session);
 
-        $presented = $session->tokens->refreshToken->reveal();
+        $presented = $session->tokens->refreshToken?->reveal();
 
         Event::listen(PrincipalSwitched::class, static function (): never {
             throw new \RuntimeException('a bug in a switch listener');
@@ -292,16 +292,16 @@ final class SecretRedactionTest extends TestCase
 
         self::assertNotNull($active);
 
-        $refreshed = $this->sessions()->refresh($active->tokens->refreshToken->reveal())->session;
+        $refreshed = $this->sessions()->refresh($active->tokens->refreshToken?->reveal())->session;
 
         self::assertNotNull($refreshed);
 
         $sessions = $this->sessions();
 
-        self::assertTrue($sessions->refresh($refreshed->tokens->refreshToken->reveal())->isRefreshed());
+        self::assertTrue($sessions->refresh($refreshed->tokens->refreshToken?->reveal())->isRefreshed());
         self::assertTrue($sessions->signOut());
 
-        $secrets = [$credential, self::PASSWORD, $active->tokens->accessToken->reveal(), $refreshed->tokens->refreshToken->reveal()];
+        $secrets = [$credential, self::PASSWORD, $active->tokens->accessToken->reveal(), $refreshed->tokens->refreshToken?->reveal()];
 
         self::assertGreaterThan(10, $events->count());
 

@@ -214,7 +214,7 @@ final class EmptyApplicationIntegrationTest extends TestCase
     {
         Auth::forgetGuards();
 
-        return $this->postJson('/refresh', ['refresh_token' => $session->tokens->refreshToken->reveal()]);
+        return $this->postJson('/refresh', ['refresh_token' => $session->tokens->refreshToken?->reveal()]);
     }
 
     /**

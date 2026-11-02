@@ -130,7 +130,7 @@ final class ReplicaProvenSessionsTest extends TestCase
 
         $this->revokeOnThePrimary($first);
 
-        $again = $this->signedIn($this->signIn($first->tokens->refreshToken->reveal()));
+        $again = $this->signedIn($this->signIn($first->tokens->refreshToken?->reveal()));
 
         self::assertNotSame($first->record->getSessionIdentifier(), $again->record->getSessionIdentifier());
 
@@ -169,7 +169,7 @@ final class ReplicaProvenSessionsTest extends TestCase
             }
         });
 
-        $waiting = $this->signIn($first->tokens->refreshToken->reveal());
+        $waiting = $this->signIn($first->tokens->refreshToken?->reveal());
         $pending = $waiting->pending;
 
         self::assertNotNull($pending);

@@ -40,7 +40,8 @@ are caught on the server.
 
 - **JWT guard** with guard-bound, kid-rotated HMAC tokens in a private profile that borrows RFC 9068's claims
   (`client_id`, `auth_time`, `amr`, an `at+jwt` header type) and OpenID Connect's `sid`, refresh rotation with replay
-  detection, and a browser refresh cookie with CSRF checks.
+  detection, and a refresh transport per application: the body, or for a browser application a host-only `HttpOnly`
+  cookie named after it, with CSRF checks, whose results never hand its code the plain refresh token.
 - **Sign-in methods**: password, one-time code to a phone or email, and passkeys, behind one contract that SSO and
   custom methods plug into.
 - **Pending sessions**: a sign-in that still owes a further factor or a choice of principal waits as a pending session,

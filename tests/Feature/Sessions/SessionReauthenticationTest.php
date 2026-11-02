@@ -149,7 +149,7 @@ final class SessionReauthenticationTest extends TestCase
         self::assertNull($answer['reason']);
         self::assertIsString($answer['access_token']);
         self::assertSame($before, self::refreshState());
-        self::assertTrue($this->sessions()->refresh($signedIn->tokens->refreshToken->reveal())->isRefreshed());
+        self::assertTrue($this->sessions()->refresh($signedIn->tokens->refreshToken?->reveal())->isRefreshed());
     }
 
     /**

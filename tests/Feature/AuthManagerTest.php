@@ -203,7 +203,7 @@ final class AuthManagerTest extends TestCase
         $this->configureJwtGuard();
 
         config()->set('auth.defaults.guard', 'test_jwt');
-        config()->set('auth.guards.test_jwt.refresh_token', ['sources' => ['header'], 'header' => 'X-Token']);
+        config()->set('auth.guards.test_jwt.refresh_token', ['header' => 'X-Token']);
 
         /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
         $manager = app('auth');

@@ -185,7 +185,7 @@ final class EventSequenceTest extends TestCase
     public function testARefreshRolledBackIsNeverReported(): void
     {
         $session = $this->signedIn();
-        $refresh = $session->tokens->refreshToken->reveal();
+        $refresh = $session->tokens->refreshToken?->reveal();
         $guard   = $this->freshGuard();
 
         $this->nameSessions($session->record);

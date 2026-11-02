@@ -170,7 +170,7 @@ final class SessionModelOverrideTest extends TestCase
 
         self::assertInstanceOf(TokenPair::class, $result);
         self::assertNotSame('', $result->accessToken->reveal());
-        self::assertNotSame('', $result->refreshToken->reveal());
+        self::assertNotSame('', $result->refreshToken?->reveal());
         self::assertInstanceOf($this->customModel, $guard->session());
     }
 

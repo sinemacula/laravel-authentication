@@ -142,7 +142,7 @@ final class ActiveSessionsTest extends TestCase
         self::assertSame(self::CLIENT_AGENT, $console['created_user_agent']);
         $json = (string) json_encode($rows);
 
-        self::assertStringNotContainsString($laptop->tokens->refreshToken->reveal(), $json);
+        self::assertStringNotContainsString($laptop->tokens->refreshToken?->reveal(), $json);
         self::assertStringNotContainsString((string) $laptop->record->getRefreshKey(), $json);
     }
 

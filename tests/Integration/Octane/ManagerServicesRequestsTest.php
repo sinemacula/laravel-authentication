@@ -293,7 +293,7 @@ final class ManagerServicesRequestsTest extends TestCase
 
             return [
                 'principal' => $session?->principal->getPrincipalIdentifier(),
-                'refresh'   => $session?->tokens->refreshToken->reveal(),
+                'refresh'   => $session?->tokens->refreshToken?->reveal(),
             ];
         });
 
@@ -302,7 +302,7 @@ final class ManagerServicesRequestsTest extends TestCase
             $this->recordInThisRequest(self::LIFECYCLE);
             $session = $sessions->refresh(request()->string('refresh')->value())->session;
 
-            return ['refresh' => $session?->tokens->refreshToken->reveal()];
+            return ['refresh' => $session?->tokens->refreshToken?->reveal()];
         });
 
         Route::post('/members/switch', function (): array {

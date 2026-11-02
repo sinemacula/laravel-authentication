@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
+use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -61,7 +62,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     private const string GUARD = 'members';
 
     /** @var string The refresh cookie's name. */
-    private const string COOKIE = '__Secure-refresh_token';
+    private const string COOKIE = '__Secure-members_refresh_token';
 
     /** @var array<string, string> The headers a same-origin browser script sends. */
     private const array SAME_ORIGIN = ['Origin' => 'http://localhost', 'X-Requested-With' => 'XMLHttpRequest'];
@@ -310,8 +311,8 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
-     * Configure the guards, the `members` guard reading the refresh token only
-     * from the cookie under `/auth`.
+     * Configure the guards, the `members` guard's refresh token travelling by
+     * cookie under `/auth`.
      *
      * @param  mixed  $app
      * @return void
@@ -329,7 +330,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
 
         self::configureSessionGuards($config);
 
-        $config->set('auth.guards.members.refresh_token', ['sources' => ['cookie'], 'cookie' => ['path' => '/auth']]);
+        $config->set('auth.guards.members.refresh_token', ['transport' => 'cookie', 'cookie' => ['path' => '/auth']]);
     }
 
     /**
@@ -357,12 +358,11 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
         $presented = $transport->read($request);
         $proven    = $presented instanceof PresentedRefreshToken ? $presented->token : null;
         $context   = SignInContext::fromRequest($request, principal: $member->resolveDefaultPrincipal(), refreshToken: $proven);
-        $session   = Auth::sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'), $context)->session;
+        $tokens    = Auth::sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'), $context)->session?->tokens;
 
-        assert($session !== null);
+        assert($tokens?->refreshCookie !== null);
 
-        return (new JsonResponse(['access_token' => $session->tokens->accessToken->reveal()]))
-            ->withCookie($transport->cookie($session->tokens->refreshToken->reveal(), $session->record));
+        return $tokens->refreshCookie->attachTo(SecretResponse::json(['access_token' => $tokens->accessToken]));
     }
 
     /**
@@ -388,14 +388,15 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
 
         $tokens = $result->session->tokens;
 
-        return (new JsonResponse(['access_token' => $tokens->accessToken->reveal(), 'source' => $result->source?->value]))
-            ->withCookie(Auth::refreshTransport(self::GUARD)->cookie($tokens->refreshToken->reveal(), $result->session->record));
+        assert($tokens->refreshCookie !== null);
+
+        return $tokens->refreshCookie->attachTo(SecretResponse::json(['access_token' => $tokens->accessToken, 'source' => $result->source?->value]));
     }
 
     /**
-     * Switch the session proven by the refresh token the guard's transport
-     * reads from the request to the membership named, answering a switch read
-     * from the cookie with the rotated cookie, a rate-limited one with a 429
+     * Switch the session proven by the refresh token the application's
+     * transport reads from the request to the membership named, answering the
+     * switch with the cookie its pair carries, a rate-limited one with a 429
      * carrying `Retry-After`, or another refusal with its reason.
      *
      * @param  \Illuminate\Http\Request  $request
@@ -416,11 +417,12 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
             return new JsonResponse(['reason' => $result?->reason?->value], 401);
         }
 
-        $response = new JsonResponse(['access_token' => $result->session->tokens->accessToken->reveal(), 'principal' => $result->session->principal->getPrincipalIdentifier()]);
+        $tokens   = $result->session->tokens;
+        $response = SecretResponse::json(['access_token' => $tokens->accessToken, 'principal' => $result->session->principal->getPrincipalIdentifier()]);
 
-        return $result->source === RefreshTokenSource::COOKIE
-            ? $response->withCookie(Auth::refreshTransport(self::GUARD)->cookie($result->session->tokens->refreshToken->reveal(), $result->session->record))
-            : $response;
+        assert($result->source === RefreshTokenSource::COOKIE && $tokens->refreshCookie !== null);
+
+        return $tokens->refreshCookie->attachTo($response);
     }
 
     /**

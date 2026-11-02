@@ -211,7 +211,7 @@ final class SessionEstablishmentTest extends TestCase
             self::selected($identity),
             'password',
             'email',
-            $this->context($first->tokens->refreshToken->reveal()),
+            $this->context($first->tokens->refreshToken?->reveal()),
             SignInProof::unattested('password', CarbonImmutable::now()),
         ))->session;
 
@@ -273,7 +273,7 @@ final class SessionEstablishmentTest extends TestCase
             self::selected($identity),
             'password',
             'email',
-            $this->context($first->tokens->refreshToken->reveal()),
+            $this->context($first->tokens->refreshToken?->reveal()),
             SignInProof::unattested('password', CarbonImmutable::now()),
         ))->isSignedIn());
 
@@ -320,7 +320,7 @@ final class SessionEstablishmentTest extends TestCase
                 self::selected($identity),
                 'password',
                 'email',
-                $this->context($first->tokens->refreshToken->reveal()),
+                $this->context($first->tokens->refreshToken?->reveal()),
                 SignInProof::unattested('password', CarbonImmutable::now()),
             ));
             self::fail('Expected the cancelled replacement to be refused.');
@@ -404,7 +404,7 @@ final class SessionEstablishmentTest extends TestCase
             self::selected($identity),
             'password',
             'email',
-            $this->context($first->tokens->refreshToken->reveal()),
+            $this->context($first->tokens->refreshToken?->reveal()),
             SignInProof::unattested('password', CarbonImmutable::now()),
         ))->session;
 
@@ -451,7 +451,7 @@ final class SessionEstablishmentTest extends TestCase
                 self::selected($identity),
                 'password',
                 'email',
-                $this->context($first->tokens->refreshToken->reveal()),
+                $this->context($first->tokens->refreshToken?->reveal()),
                 SignInProof::unattested('password', CarbonImmutable::now()),
             ));
             self::fail('Expected the revocation listener to throw.');
@@ -673,7 +673,7 @@ final class SessionEstablishmentTest extends TestCase
 
         $elsewhere = ActivatableTenant::query()->create(['name' => 'Elsewhere', 'is_active' => true]);
         $asked     = count($policy->asked);
-        $context   = SignInContext::fromRequest(app('request'), refreshToken: $first->tokens->refreshToken->reveal(), tenant: TenantSelection::of($elsewhere->getKey()));
+        $context   = SignInContext::fromRequest(app('request'), refreshToken: $first->tokens->refreshToken?->reveal(), tenant: TenantSelection::of($elsewhere->getKey()));
 
         $this->recordEvents([SessionRevoked::class, SessionPending::class, SessionCreated::class, SignedIn::class]);
 

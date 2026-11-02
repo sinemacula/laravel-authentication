@@ -274,7 +274,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
         self::assertSame($later->getTimestamp() + 3600, $stored->getIdleExpiresAt()?->getTimestamp());
         self::assertSame($this->signedInAt->getTimestamp() + 36000, $stored->getAbsoluteExpiresAt()?->getTimestamp());
-        self::assertSame($later->getTimestamp() + 3600, $this->claims($pair->refreshToken->reveal(), TokenType::REFRESH)[Claims::EXPIRES_AT->value]);
+        self::assertSame($later->getTimestamp() + 3600, $this->claims($pair->refreshToken?->reveal(), TokenType::REFRESH)[Claims::EXPIRES_AT->value]);
         self::assertSame($later->getTimestamp() + 300, $this->claims($pair->accessToken->reveal(), TokenType::ACCESS)[Claims::EXPIRES_AT->value]);
     }
 
@@ -380,7 +380,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
             self::assertNotNull($pair);
 
-            $token = $pair->refreshToken->reveal();
+            $token = $pair->refreshToken?->reveal();
         }
 
         $nearTheEnd = $absolute->copy()->subMinutes(2);
@@ -392,12 +392,12 @@ final class SessionLifetimeIntegrationTest extends TestCase
         self::assertNotNull($pair);
         self::assertSame($absolute->getTimestamp(), $this->stored($session)->getIdleExpiresAt()?->getTimestamp());
         self::assertSame($absolute->getTimestamp(), $this->stored($session)->getAbsoluteExpiresAt()?->getTimestamp());
-        self::assertSame($absolute->getTimestamp(), $this->claims($pair->refreshToken->reveal(), TokenType::REFRESH)[Claims::EXPIRES_AT->value]);
+        self::assertSame($absolute->getTimestamp(), $this->claims($pair->refreshToken?->reveal(), TokenType::REFRESH)[Claims::EXPIRES_AT->value]);
         self::assertSame($absolute->getTimestamp(), $this->claims($pair->accessToken->reveal(), TokenType::ACCESS)[Claims::EXPIRES_AT->value]);
 
         $this->moveClockTo($absolute);
 
-        self::assertSame(FailureReason::SESSION_EXPIRED, $this->refreshFailure($pair->refreshToken->reveal()));
+        self::assertSame(FailureReason::SESSION_EXPIRED, $this->refreshFailure($pair->refreshToken?->reveal()));
     }
 
     /**
@@ -554,7 +554,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
         self::assertNotNull($pair);
         self::assertSame($shortened->getTimestamp(), $this->stored($session)->getAbsoluteExpiresAt()?->getTimestamp());
-        self::assertSame($this->signedInAt->getTimestamp() + 3600, $this->claims($pair->refreshToken->reveal(), TokenType::REFRESH)[Claims::EXPIRES_AT->value]);
+        self::assertSame($this->signedInAt->getTimestamp() + 3600, $this->claims($pair->refreshToken?->reveal(), TokenType::REFRESH)[Claims::EXPIRES_AT->value]);
     }
 
     /**

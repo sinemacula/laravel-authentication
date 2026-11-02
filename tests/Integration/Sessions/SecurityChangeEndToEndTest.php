@@ -308,7 +308,7 @@ final class SecurityChangeEndToEndTest extends TestCase
     {
         $this->bearer($session->tokens->accessToken->reveal())->assertUnauthorized();
 
-        $this->postJson('/refresh', ['refresh_token' => $session->tokens->refreshToken->reveal()])->assertOk()->assertExactJson(['refreshed' => false]);
+        $this->postJson('/refresh', ['refresh_token' => $session->tokens->refreshToken?->reveal()])->assertOk()->assertExactJson(['refreshed' => false]);
     }
 
     /**

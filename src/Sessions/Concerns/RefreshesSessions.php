@@ -54,9 +54,10 @@ trait RefreshesSessions
      * presented token inside the grace window gets the current credential;
      * after the window it is treated as a replay and revokes the session.
      *
-     * For a token the caller read itself; never pass it one read from the
-     * refresh cookie, whose cross-site checks only `refreshFromRequest()`
-     * makes.
+     * For a body application's token the caller read itself. A cookie
+     * application's token is read only from its cookie, whose cross-site checks
+     * only `refreshFromRequest()` makes, so on a cookie application this throws
+     * a `LogicException`.
      *
      * @param  string  $refreshToken
      * @return \SineMacula\Laravel\Authentication\Sessions\RefreshResult
@@ -70,15 +71,17 @@ trait RefreshesSessions
 
     /**
      * Refresh with the refresh token the request carries, read through the
-     * guard's refresh token transport, so it comes from the one source the
-     * guard allows and a cookie passes its cross-site checks.
+     * application's refresh token transport, so it comes by the application's
+     * own transport and a cookie passes its cross-site checks.
      *
      * Returns `null`, dispatching nothing, when the request carries no token
      * (nothing was attempted). A token the transport refuses fails with its
-     * reason (`refresh_token_conflict`, `cross_site_request`, `token_invalid`)
-     * after `Attempting`, `Failed` and `AuthenticationFailed`, touching no
-     * session; otherwise it is `refresh()`. The result says where the token was
-     * read from, so a cookie refresh can be answered with a cookie.
+     * reason (`refresh_token_conflict`, `refresh_transport_mismatch`,
+     * `cross_site_request`, `token_invalid`) after `Attempting`, `Failed` and
+     * `AuthenticationFailed`, touching no session; otherwise it is refreshed as
+     * `refresh()` refreshes. The result says where the token was read from; a
+     * cookie application's refreshed pair carries the cookie that sets the new
+     * refresh token, never the token itself.
      *
      * @return ?\SineMacula\Laravel\Authentication\Sessions\RefreshResult
      *

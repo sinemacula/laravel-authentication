@@ -13,17 +13,22 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Http\Enums\Transport;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenSettings;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
+use SineMacula\Laravel\Authentication\Jwt\TokenPair;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use Symfony\Component\HttpFoundation\Cookie;
 use Tests\Unit\Stubs\PlainSessionFixture;
 
 /**
- * Unit tests for reading a refresh token through the one source a guard allows:
- * the sources it does not list are never read, a token carried twice is a
- * conflict, and a cookie must pass the cross-site checks; and for the cookies
- * that carry the token to a browser and clear it.
+ * Unit tests for an application's refresh token transport: every carrier is
+ * inspected whatever the transport, a token carried twice is a conflict, one
+ * carried by another transport than the application's is a mismatch, and a
+ * cookie must pass the cross-site checks; and for delivering a cookie
+ * application's pair with its refresh token in the cookie, and the cookie that
+ * clears it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -37,24 +42,28 @@ final class RefreshTokenTransportTest extends TestCase
     /** @var string A refresh token, as opaque to the transport as any other value. */
     private const string TOKEN = 'header.payload.signature';
 
-    /** @var string The cookie the guard reads. */
+    /** @var string The application's refresh cookie. */
     private const string COOKIE = '__Secure-refresh_token';
 
-    /** @var string An origin the guard allows besides the request's own. */
+    /** @var string An origin the application allows besides the request's own. */
     private const string ALLOWED_ORIGIN = 'https://app.example.test';
 
     /**
-     * A request that carries no token in any allowed source presents nothing.
+     * A request that carries no token in any carrier presents nothing, by
+     * either transport.
      *
      * @return void
      */
     public function testARequestWithoutATokenPresentsNothing(): void
     {
         self::assertNull(self::transport()->read(Request::create('/auth/refresh', 'POST')));
+        self::assertNull(self::transport(Transport::COOKIE)->read(Request::create('/auth/refresh', 'POST')));
     }
 
     /**
-     * Rows of `[the request, the source it carries the token in]`.
+     * Rows of `[the request, the source it carries the token in]`: the body
+     * field and the header of a body application, the cookie of a cookie
+     * application.
      *
      * @return iterable<string, array{0: \Closure(): \Illuminate\Http\Request, 1: \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource}>
      */
@@ -68,25 +77,27 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A token in one allowed source is presented with that source.
+     * A token in the one carrier of the application's transport is presented,
+     * as a secret, with where it was carried.
      *
      * @param  \Closure(): \Illuminate\Http\Request  $request
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
      * @return void
      */
     #[DataProvider('provideCarriedTokens')]
-    public function testATokenInOneAllowedSourceIsPresentedWithIt(\Closure $request, RefreshTokenSource $source): void
+    public function testATokenByTheApplicationsTransportIsPresentedWithIt(\Closure $request, RefreshTokenSource $source): void
     {
-        $presented = self::transport(['cookie', 'body', 'header'])->read($request());
+        $presented = self::transport($source === RefreshTokenSource::COOKIE ? Transport::COOKIE : Transport::BODY)->read($request());
 
         self::assertInstanceOf(PresentedRefreshToken::class, $presented);
+        self::assertInstanceOf(Secret::class, $presented->token);
         self::assertSame(self::TOKEN, $presented->token->reveal());
         self::assertSame($source, $presented->source);
     }
 
     /**
-     * Rows of `[the request]` that carry a token only where the guard does not
-     * read one.
+     * Rows of `[the request]` that carry the token only where no application
+     * reads one.
      *
      * @return iterable<string, array{0: \Closure(): \Illuminate\Http\Request}>
      */
@@ -96,47 +107,119 @@ final class RefreshTokenTransportTest extends TestCase
         yield 'the query string of a GET' => [static fn (): Request => Request::create('/auth/refresh', 'GET', ['refresh_token' => self::TOKEN])];
         yield 'the form body of a GET' => [static fn (): Request => self::formBody('GET')];
         yield 'the form body of a HEAD' => [static fn (): Request => self::formBody('HEAD')];
-        yield 'the cookie, not a source' => [static fn (): Request => self::cookie(self::TOKEN, 'http://localhost', 'XMLHttpRequest')];
         yield 'another body field' => [static fn (): Request => self::json(['token' => self::TOKEN])];
+        yield 'another application\'s cookie' => [static fn (): Request => Request::create('/auth/refresh', 'POST', [], ['__Secure-other_refresh_token' => self::TOKEN])];
     }
 
     /**
-     * A token anywhere the guard does not read one is not presented: never the
-     * query string, and no source the guard does not list.
+     * A token where no application reads one is not presented, by either
+     * transport: never the query string, another field or another application's
+     * cookie.
      *
      * @param  \Closure(): \Illuminate\Http\Request  $request
      * @return void
      */
     #[DataProvider('provideUnreadPlaces')]
-    public function testATokenWhereTheGuardDoesNotReadIsNotPresented(\Closure $request): void
+    public function testATokenWhereNoApplicationReadsIsNotPresented(\Closure $request): void
     {
         self::assertNull(self::transport()->read($request()));
+        self::assertNull(self::transport(Transport::COOKIE)->read($request()));
     }
 
     /**
-     * Rows of `[the request]` that carry a token in two allowed sources.
+     * A body application without a header reads the body field only: a token in
+     * a header is not seen, beside the body or alone.
      *
-     * @return iterable<string, array{0: \Closure(): \Illuminate\Http\Request}>
+     * @return void
+     */
+    public function testABodyApplicationWithoutAHeaderReadsTheBodyFieldOnly(): void
+    {
+        $transport = self::transport(Transport::BODY, null);
+
+        self::assertNull($transport->read(self::withHeaders(['X-Refresh-Token' => self::TOKEN])));
+        self::assertSame(RefreshTokenSource::BODY, self::presented($transport->read(self::json(['refresh_token' => self::TOKEN], ['X-Refresh-Token' => self::TOKEN])))->source);
+    }
+
+    /**
+     * Rows of `[the request, the transport]` that carry a token in more than
+     * one carrier.
+     *
+     * @return iterable<string, array{0: \Closure(): \Illuminate\Http\Request, 1: \SineMacula\Laravel\Authentication\Http\Enums\Transport}>
      */
     public static function provideConflicts(): iterable
     {
-        yield 'the same token in the body and a header' => [static fn (): Request => self::json(['refresh_token' => self::TOKEN], ['X-Refresh-Token' => self::TOKEN])];
-        yield 'different tokens in the body and a header' => [static fn (): Request => self::json(['refresh_token' => self::TOKEN], ['X-Refresh-Token' => 'other'])];
-        yield 'the cookie and the body' => [static fn (): Request => self::cookie(self::TOKEN, 'http://localhost', 'XMLHttpRequest', ['refresh_token' => self::TOKEN])];
-        yield 'an empty header beside the body' => [static fn (): Request => self::json(['refresh_token' => self::TOKEN], ['X-Refresh-Token' => ''])];
+        yield 'the same token in the body and a header' => [
+            static fn (): Request => self::json(['refresh_token' => self::TOKEN], ['X-Refresh-Token' => self::TOKEN]),
+            Transport::BODY,
+        ];
+        yield 'different tokens in the body and a header' => [
+            static fn (): Request => self::json(['refresh_token' => self::TOKEN], ['X-Refresh-Token' => 'other']),
+            Transport::BODY,
+        ];
+        yield 'an empty header beside the body' => [static fn (): Request => self::json(['refresh_token' => self::TOKEN], ['X-Refresh-Token' => '']), Transport::BODY];
+        yield 'the cookie and the body, to a body application' => [
+            static fn (): Request => self::cookie(self::TOKEN, 'http://localhost', 'XMLHttpRequest', ['refresh_token' => self::TOKEN]),
+            Transport::BODY,
+        ];
+        yield 'the cookie and the body, to a cookie application' => [
+            static fn (): Request => self::cookie(self::TOKEN, 'http://localhost', 'XMLHttpRequest', ['refresh_token' => self::TOKEN]),
+            Transport::COOKIE,
+        ];
+        yield 'the cookie and a header, to a cookie application' => [static function (): Request {
+            $request = self::cookie(self::TOKEN, 'http://localhost', 'XMLHttpRequest');
+            $request->headers->set('X-Refresh-Token', self::TOKEN);
+
+            return $request;
+        }, Transport::COOKIE];
+        yield 'the cookie and the body, sent cross-site' => [static fn (): Request => self::cookie(self::TOKEN, null, null, ['refresh_token' => self::TOKEN]), Transport::COOKIE];
     }
 
     /**
-     * A token in more than one allowed source is a conflict, whether or not the
-     * tokens are equal, so the server never picks one.
+     * A token in more than one carrier is a conflict, whether or not the tokens
+     * are equal and whatever the transport, before the cross-site checks: a
+     * cookie arriving with a body credential is never read, and the server
+     * never picks one.
      *
      * @param  \Closure(): \Illuminate\Http\Request  $request
+     * @param  \SineMacula\Laravel\Authentication\Http\Enums\Transport  $transport
      * @return void
      */
     #[DataProvider('provideConflicts')]
-    public function testATokenInMoreThanOneSourceIsAConflict(\Closure $request): void
+    public function testATokenInMoreThanOneCarrierIsAConflict(\Closure $request, Transport $transport): void
     {
-        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, self::transport(['cookie', 'body', 'header'])->read($request()));
+        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, self::transport($transport)->read($request()));
+    }
+
+    /**
+     * Rows of `[the request, the transport]` that carry one token by a carrier
+     * that is not the application's transport.
+     *
+     * @return iterable<string, array{0: \Closure(): \Illuminate\Http\Request, 1: \SineMacula\Laravel\Authentication\Http\Enums\Transport}>
+     */
+    public static function provideMismatches(): iterable
+    {
+        yield 'the cookie, to a body application' => [static fn (): Request => self::cookie(self::TOKEN, 'http://localhost', 'XMLHttpRequest'), Transport::BODY];
+        yield 'the cookie sent cross-site, to a body application' => [static fn (): Request => self::cookie(self::TOKEN, null, null), Transport::BODY];
+        yield 'an empty cookie, to a body application' => [static fn (): Request => self::cookie('', 'http://localhost', 'XMLHttpRequest'), Transport::BODY];
+        yield 'the body, to a cookie application' => [static fn (): Request => self::json(['refresh_token' => self::TOKEN]), Transport::COOKIE];
+        yield 'a header, to a cookie application' => [static fn (): Request => self::withHeaders(['X-Refresh-Token' => self::TOKEN]), Transport::COOKIE];
+        yield 'an empty body field, to a cookie application' => [static fn (): Request => self::json(['refresh_token' => '']), Transport::COOKIE];
+    }
+
+    /**
+     * A token carried only by a carrier that is not the application's transport
+     * is a mismatch, before its value or the cross-site checks are looked at: a
+     * body application never reads its cookie, and a cookie application never
+     * reads a token its scripts could see.
+     *
+     * @param  \Closure(): \Illuminate\Http\Request  $request
+     * @param  \SineMacula\Laravel\Authentication\Http\Enums\Transport  $transport
+     * @return void
+     */
+    #[DataProvider('provideMismatches')]
+    public function testATokenByAnotherTransportIsAMismatch(\Closure $request, Transport $transport): void
+    {
+        self::assertSame(FailureReason::REFRESH_TRANSPORT_MISMATCH, self::transport($transport)->read($request()));
     }
 
     /**
@@ -164,7 +247,9 @@ final class RefreshTokenTransportTest extends TestCase
     /**
      * A request that carries the refresh cookie twice is a conflict, as PHP
      * keeps only the first of them and a browser sends a cookie another host of
-     * the site planted before the API's own: the server never picks one.
+     * the site planted before the API's own: the server never picks one,
+     * whatever the application's transport and whether or not the request is
+     * same-site.
      *
      * @param  list<string>  $headers
      * @return void
@@ -175,8 +260,9 @@ final class RefreshTokenTransportTest extends TestCase
         $request = self::cookie('planted', 'http://localhost', 'XMLHttpRequest');
         $request->headers->set('Cookie', $headers);
 
-        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, self::transport(['cookie'])->read($request));
-        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, self::transport(['cookie'])->read(self::crossSite($request)));
+        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, self::transport(Transport::COOKIE)->read($request));
+        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, self::transport(Transport::COOKIE)->read(self::crossSite($request)));
+        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, self::transport()->read($request));
     }
 
     /**
@@ -201,7 +287,7 @@ final class RefreshTokenTransportTest extends TestCase
 
     /**
      * A request that carries the refresh cookie once, whatever other cookies it
-     * carries, presents it.
+     * carries, presents it to a cookie application.
      *
      * @param  string  $header
      * @return void
@@ -212,57 +298,44 @@ final class RefreshTokenTransportTest extends TestCase
         $request = self::cookie(self::TOKEN, 'http://localhost', 'XMLHttpRequest');
         $request->headers->set('Cookie', $header);
 
-        self::assertSame(self::TOKEN, self::presented(self::transport(['cookie'])->read($request))->token->reveal());
+        self::assertSame(self::TOKEN, self::presented(self::transport(Transport::COOKIE)->read($request))->token->reveal());
     }
 
     /**
-     * A guard that does not read the cookie reads its own source whatever
-     * cookies of the refresh cookie's name the request carries.
+     * Rows of `[the request, the transport]` that carry something other than
+     * one non-empty string by the application's transport.
      *
-     * @return void
-     */
-    public function testACookieSentTwiceIsNoConcernOfAGuardThatDoesNotReadIt(): void
-    {
-        $request = self::cookie('planted', 'http://localhost', 'XMLHttpRequest', ['refresh_token' => self::TOKEN]);
-        $request->headers->set('Cookie', '__Secure-refresh_token=planted; __Secure-refresh_token=own');
-
-        self::assertSame(RefreshTokenSource::BODY, self::presented(self::transport(['body'])->read($request))->source);
-    }
-
-    /**
-     * Rows of `[the request]` that carry something other than one non-empty
-     * string where the token goes.
-     *
-     * @return iterable<string, array{0: \Closure(): \Illuminate\Http\Request}>
+     * @return iterable<string, array{0: \Closure(): \Illuminate\Http\Request, 1: \SineMacula\Laravel\Authentication\Http\Enums\Transport}>
      */
     public static function provideInvalidValues(): iterable
     {
-        yield 'an empty body field' => [static fn (): Request => self::json(['refresh_token' => ''])];
-        yield 'a null body field' => [static fn (): Request => self::json(['refresh_token' => null])];
-        yield 'an array body field' => [static fn (): Request => self::json(['refresh_token' => [self::TOKEN]])];
-        yield 'a number body field' => [static fn (): Request => self::json(['refresh_token' => 42])];
-        yield 'an empty header' => [static fn (): Request => self::withHeaders(['X-Refresh-Token' => ''])];
+        yield 'an empty body field' => [static fn (): Request => self::json(['refresh_token' => '']), Transport::BODY];
+        yield 'a null body field' => [static fn (): Request => self::json(['refresh_token' => null]), Transport::BODY];
+        yield 'an array body field' => [static fn (): Request => self::json(['refresh_token' => [self::TOKEN]]), Transport::BODY];
+        yield 'a number body field' => [static fn (): Request => self::json(['refresh_token' => 42]), Transport::BODY];
+        yield 'an empty header' => [static fn (): Request => self::withHeaders(['X-Refresh-Token' => '']), Transport::BODY];
         yield 'a header sent twice' => [static function (): Request {
             $request = Request::create('/auth/refresh', 'POST');
             $request->headers->set('X-Refresh-Token', [self::TOKEN, self::TOKEN]);
 
             return $request;
-        }];
-        yield 'an empty cookie' => [static fn (): Request => self::cookie('', 'http://localhost', 'XMLHttpRequest')];
-        yield 'a cookie that could not be decrypted' => [static fn (): Request => self::cookie(null, 'http://localhost', 'XMLHttpRequest')];
-        yield 'an array cookie' => [static fn (): Request => self::cookie([self::TOKEN], 'http://localhost', 'XMLHttpRequest')];
+        }, Transport::BODY];
+        yield 'an empty cookie' => [static fn (): Request => self::cookie('', 'http://localhost', 'XMLHttpRequest'), Transport::COOKIE];
+        yield 'a cookie that could not be decrypted' => [static fn (): Request => self::cookie(null, 'http://localhost', 'XMLHttpRequest'), Transport::COOKIE];
+        yield 'an array cookie' => [static fn (): Request => self::cookie([self::TOKEN], 'http://localhost', 'XMLHttpRequest'), Transport::COOKIE];
     }
 
     /**
      * A value that is not one non-empty string is an invalid token.
      *
      * @param  \Closure(): \Illuminate\Http\Request  $request
+     * @param  \SineMacula\Laravel\Authentication\Http\Enums\Transport  $transport
      * @return void
      */
     #[DataProvider('provideInvalidValues')]
-    public function testAValueThatIsNotOneNonEmptyStringIsInvalid(\Closure $request): void
+    public function testAValueThatIsNotOneNonEmptyStringIsInvalid(\Closure $request, Transport $transport): void
     {
-        self::assertSame(FailureReason::TOKEN_INVALID, self::transport(['cookie', 'body', 'header'])->read($request()));
+        self::assertSame(FailureReason::TOKEN_INVALID, self::transport($transport)->read($request()));
     }
 
     /**
@@ -282,9 +355,9 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A cookie refresh without the request's own or an allowed origin, or
-     * without the custom header, is refused as cross-site before its value is
-     * looked at.
+     * A cookie refresh to a cookie application without the request's own or an
+     * allowed origin, or without the custom header, is refused as cross-site
+     * before its value is looked at.
      *
      * @param  ?string  $origin
      * @param  ?string  $csrf
@@ -293,7 +366,7 @@ final class RefreshTokenTransportTest extends TestCase
     #[DataProvider('provideCrossSiteRequests')]
     public function testACookieRefreshMustBeSameSite(?string $origin, ?string $csrf): void
     {
-        self::assertSame(FailureReason::CROSS_SITE_REQUEST, self::transport(['cookie'])->read(self::cookie('', $origin, $csrf)));
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, self::transport(Transport::COOKIE)->read(self::cookie('', $origin, $csrf)));
     }
 
     /**
@@ -309,7 +382,7 @@ final class RefreshTokenTransportTest extends TestCase
     #[DataProvider('provideCrossSiteRequests')]
     public function testOnlyARequestFromTheOwnSiteWithTheHeaderIsSameSite(?string $origin, ?string $csrf): void
     {
-        $transport = self::transport(['cookie']);
+        $transport = self::transport(Transport::COOKIE);
 
         self::assertFalse($transport->isSameSiteRequest(self::cookie(null, $origin, $csrf)));
         self::assertFalse($transport->isSameSiteRequest(self::signIn($origin, $csrf)));
@@ -318,30 +391,23 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * The guard's own body field, header and CSRF header names are the ones
-     * read.
+     * The application's own body field, header, cookie and CSRF header names
+     * are the ones read.
      *
      * @return void
      */
     public function testTheConfiguredNamesAreRead(): void
     {
-        $transport = new RefreshTokenTransport(new RefreshTokenSettings(
-            [RefreshTokenSource::BODY, RefreshTokenSource::HEADER, RefreshTokenSource::COOKIE],
-            'token',
-            'X-Token',
-            'refresh',
-            '/auth',
-            null,
-            [],
-            'X-CSRF',
-        ));
+        $body   = new RefreshTokenTransport(new RefreshTokenSettings(Transport::BODY, 'token', 'X-Token', 'refresh', null, [], 'X-CSRF'));
+        $cookie = new RefreshTokenTransport(new RefreshTokenSettings(Transport::COOKIE, 'token', 'X-Token', 'refresh', '/auth', [], 'X-CSRF'));
+        $sent   = Request::create('/auth/refresh', 'POST', [], ['refresh' => self::TOKEN], [], ['HTTP_ORIGIN' => 'http://localhost', 'HTTP_X_CSRF' => '1']);
 
-        $cookie = Request::create('/auth/refresh', 'POST', [], ['refresh' => self::TOKEN], [], ['HTTP_ORIGIN' => 'http://localhost', 'HTTP_X_CSRF' => '1']);
-
-        self::assertSame(RefreshTokenSource::BODY, self::presented($transport->read(self::json(['token' => self::TOKEN])))->source);
-        self::assertSame(RefreshTokenSource::HEADER, self::presented($transport->read(self::withHeaders(['X-Token' => self::TOKEN])))->source);
-        self::assertSame(RefreshTokenSource::COOKIE, self::presented($transport->read($cookie))->source);
-        self::assertNull($transport->read(self::json(['refresh_token' => self::TOKEN])));
+        self::assertSame(RefreshTokenSource::BODY, self::presented($body->read(self::json(['token' => self::TOKEN])))->source);
+        self::assertSame(RefreshTokenSource::HEADER, self::presented($body->read(self::withHeaders(['X-Token' => self::TOKEN])))->source);
+        self::assertSame(RefreshTokenSource::COOKIE, self::presented($cookie->read($sent))->source);
+        self::assertSame(FailureReason::REFRESH_TRANSPORT_MISMATCH, $body->read($sent));
+        self::assertNull($body->read(self::json(['refresh_token' => self::TOKEN])));
+        self::assertNull($cookie->read(self::cookie(self::TOKEN, 'http://localhost', 'XMLHttpRequest')));
     }
 
     /**
@@ -354,29 +420,35 @@ final class RefreshTokenTransportTest extends TestCase
         $request = self::cookie(self::TOKEN, 'http://localhost', 'XMLHttpRequest');
         $before  = [$request->cookies->all(), $request->headers->all(), $request->request->all()];
 
-        self::transport(['cookie'])->read($request);
+        self::transport(Transport::COOKIE)->read($request);
 
         self::assertSame($before, [$request->cookies->all(), $request->headers->all(), $request->request->all()]);
     }
 
     /**
-     * The transport of a guard is built from the configuration.
+     * The transport of a guard is built from the configuration, and says
+     * whether it travels by cookie.
      *
      * @return void
      */
     public function testTheTransportOfAGuardIsBuiltFromTheConfiguration(): void
     {
         $config = new ConfigRepository([
-            'auth'           => ['guards' => ['api' => ['driver' => 'jwt', 'refresh_token' => ['sources' => ['header'], 'header' => 'X-Token']]]],
-            'authentication' => ['refresh_token' => ['sources' => ['body'], 'body_field' => 'refresh_token', 'header' => 'X-Refresh-Token', 'cookie' => [
-                'name' => 'refresh', 'path' => null, 'domain' => null, 'allowed_origins' => [], 'csrf_header' => 'X-Requested-With',
+            'auth' => ['guards' => [
+                'api'     => ['driver' => 'jwt', 'refresh_token' => ['header' => 'X-Token']],
+                'browser' => ['driver' => 'jwt', 'refresh_token' => ['transport' => 'cookie', 'cookie' => ['path' => '/auth']]],
+            ]],
+            'authentication' => ['refresh_token' => ['transport' => 'body', 'body_field' => 'refresh_token', 'header' => 'X-Refresh-Token', 'cookie' => [
+                'name' => null, 'path' => null, 'allowed_origins' => [], 'csrf_header' => 'X-Requested-With',
             ]]],
         ]);
 
         $transport = RefreshTokenTransport::forGuard('api', $config);
 
+        self::assertFalse($transport->usesCookie());
+        self::assertTrue(RefreshTokenTransport::forGuard('browser', $config)->usesCookie());
         self::assertSame(RefreshTokenSource::HEADER, self::presented($transport->read(self::withHeaders(['X-Token' => self::TOKEN])))->source);
-        self::assertNull($transport->read(self::json(['refresh_token' => self::TOKEN])));
+        self::assertNull($transport->read(self::withHeaders(['X-Refresh-Token' => self::TOKEN])));
     }
 
     /**
@@ -394,32 +466,44 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * The refresh cookie carries the token `HttpOnly`, `Secure` and
-     * `SameSite=Strict`, with the guard's name, path and domain, and expires
-     * when the session ends.
+     * A cookie application's pair is delivered with its refresh token moved
+     * into the cookie, which carries it `HttpOnly`, `Secure`,
+     * `SameSite=Strict`, host-only, with the application's name and path, and
+     * expires when the session ends; the access token is kept as it was.
      *
      * @param  int  $idle
      * @param  ?int  $absolute
      * @return void
      */
     #[DataProvider('provideDeadlines')]
-    public function testTheCookieCarriesTheTokenUntilTheSessionEnds(int $idle, ?int $absolute): void
+    public function testACookieApplicationsPairCarriesTheCookieUntilTheSessionEnds(int $idle, ?int $absolute): void
     {
-        $now = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
+        $now    = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
+        $access = new Secret('access-token');
 
         Carbon::setTestNow($now);
 
         try {
-            $session = new PlainSessionFixture('session-1', $now->addSeconds($idle), $absolute === null ? null : $now->addSeconds($absolute));
-            $cookie  = self::cookieTransport('.example.test')->cookie(self::TOKEN, $session);
+            $session   = new PlainSessionFixture('session-1', $now->addSeconds($idle), $absolute === null ? null : $now->addSeconds($absolute));
+            $delivered = self::transport(Transport::COOKIE)->deliver(new TokenPair($access, new Secret(self::TOKEN)), $session);
         } finally {
             Carbon::setTestNow();
         }
 
+        self::assertSame($access, $delivered->accessToken);
+        self::assertNull($delivered->refreshToken);
+        self::assertNotNull($delivered->refreshCookie);
+        self::assertSame(
+            [self::COOKIE, '/auth', $now->getTimestamp() + 3600],
+            [$delivered->refreshCookie->name, $delivered->refreshCookie->path, $delivered->refreshCookie->expiresAt->getTimestamp()],
+        );
+
+        $cookie = $delivered->refreshCookie->cookie();
+
         self::assertSame(self::COOKIE, $cookie->getName());
         self::assertSame(self::TOKEN, $cookie->getValue());
         self::assertSame('/auth', $cookie->getPath());
-        self::assertSame('.example.test', $cookie->getDomain());
+        self::assertNull($cookie->getDomain());
         self::assertSame($now->getTimestamp() + 3600, $cookie->getExpiresTime());
         self::assertTrue($cookie->isHttpOnly());
         self::assertTrue($cookie->isSecure());
@@ -428,7 +512,26 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A session that has ended, or that has no idle deadline, gets no cookie.
+     * A body application's pair is delivered as it is, and so is a pair already
+     * delivered.
+     *
+     * @return void
+     */
+    public function testABodyApplicationsPairAndADeliveredOneAreKept(): void
+    {
+        $session = new PlainSessionFixture('session-1', Carbon::now()->addHour());
+        $pair    = new TokenPair(new Secret('access-token'), new Secret(self::TOKEN));
+
+        self::assertSame($pair, self::transport()->deliver($pair, $session));
+
+        $delivered = self::transport(Transport::COOKIE)->deliver($pair, $session);
+
+        self::assertSame($delivered, self::transport(Transport::COOKIE)->deliver($delivered, $session));
+    }
+
+    /**
+     * A session that has ended, or that has no idle deadline, is delivered no
+     * cookie.
      *
      * @return void
      */
@@ -437,18 +540,18 @@ final class RefreshTokenTransportTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Cannot set a refresh cookie for a session that has ended or that has no idle deadline.');
 
-        self::cookieTransport()->cookie(self::TOKEN, new PlainSessionFixture('session-1'));
+        self::transport(Transport::COOKIE)->deliver(new TokenPair(new Secret('access-token'), new Secret(self::TOKEN)), new PlainSessionFixture('session-1'));
     }
 
     /**
-     * The clearing cookie has the same name, path and domain, no value, and has
-     * already expired.
+     * The clearing cookie has the same name and path, no domain and no value,
+     * and has already expired.
      *
      * @return void
      */
     public function testTheClearingCookieMatchesTheCookieAndHasExpired(): void
     {
-        $cookie = self::cookieTransport(null)->forgetCookie();
+        $cookie = self::transport(Transport::COOKIE)->forgetCookie();
 
         self::assertSame(self::COOKIE, $cookie->getName());
         self::assertNull($cookie->getValue());
@@ -462,66 +565,30 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * Rows of `[setting or clearing the cookie]`.
+     * A body application has no cookie to clear, even with a path configured: a
+     * cookie it never reads must not be set.
      *
-     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Http\RefreshTokenTransport): \Symfony\Component\HttpFoundation\Cookie}>
-     */
-    public static function provideCookieCalls(): iterable
-    {
-        $session = new PlainSessionFixture('session-1', Carbon::now()->addHour(), Carbon::now()->addHours(2));
-
-        yield 'setting it' => [static fn (RefreshTokenTransport $transport): Cookie => $transport->cookie(self::TOKEN, $session)];
-        yield 'clearing it' => [static fn (RefreshTokenTransport $transport): Cookie => $transport->forgetCookie()];
-    }
-
-    /**
-     * A guard that does not read the cookie neither sets nor clears one, even
-     * with a path configured: a cookie it never reads must not be set.
-     *
-     * @param  \Closure(\SineMacula\Laravel\Authentication\Http\RefreshTokenTransport): \Symfony\Component\HttpFoundation\Cookie  $call
      * @return void
      */
-    #[DataProvider('provideCookieCalls')]
-    public function testAGuardThatDoesNotReadTheCookieSetsNone(\Closure $call): void
+    public function testABodyApplicationClearsNoCookie(): void
     {
         $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage('does not read its refresh token from the cookie: add `cookie` to its `refresh_token.sources` and set `refresh_token.cookie.path`.');
+        $this->expectExceptionMessage('This application\'s refresh token travels in the body: set its `refresh_token.transport` to `cookie`');
 
-        $call(self::transport());
+        self::transport()->forgetCookie();
     }
 
     /**
-     * A transport that reads only the cookie, scoped to `/auth` and the domain.
+     * A transport of the given kind with the default names, the cookie scoped
+     * to `/auth` and one allowed origin besides the request's own.
      *
-     * @param  ?string  $domain
+     * @param  \SineMacula\Laravel\Authentication\Http\Enums\Transport  $transport
+     * @param  ?string  $header
      * @return \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport
      */
-    private static function cookieTransport(?string $domain = null): RefreshTokenTransport
+    private static function transport(Transport $transport = Transport::BODY, ?string $header = 'X-Refresh-Token'): RefreshTokenTransport
     {
-        $settings = new RefreshTokenSettings([RefreshTokenSource::COOKIE], 'refresh_token', 'X-Refresh-Token', self::COOKIE, '/auth', $domain, [], 'X-Requested-With');
-
-        return new RefreshTokenTransport($settings);
-    }
-
-    /**
-     * A transport reading the given sources with the default names, the cookie
-     * scoped to `/auth` and one allowed origin besides the request's own.
-     *
-     * @param  list<string>  $sources
-     * @return \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport
-     */
-    private static function transport(array $sources = ['body', 'header']): RefreshTokenTransport
-    {
-        return new RefreshTokenTransport(new RefreshTokenSettings(
-            array_map(RefreshTokenSource::from(...), $sources),
-            'refresh_token',
-            'X-Refresh-Token',
-            self::COOKIE,
-            '/auth',
-            null,
-            [self::ALLOWED_ORIGIN],
-            'X-Requested-With',
-        ));
+        return new RefreshTokenTransport(new RefreshTokenSettings($transport, 'refresh_token', $header, self::COOKIE, '/auth', [self::ALLOWED_ORIGIN], 'X-Requested-With'));
     }
 
     /**

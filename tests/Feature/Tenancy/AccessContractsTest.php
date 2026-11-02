@@ -135,14 +135,14 @@ final class AccessContractsTest extends TestCase
 
         app()->instance(ApplicationAccess::class, new RefusingApplicationAccess(static fn (): bool => true));
 
-        $refused = self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken->reveal());
+        $refused = self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken?->reveal());
 
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $refused->reason);
         self::assertNull(Session::query()->sole()->getRevokedAt());
 
         app()->instance(ApplicationAccess::class, new RefusingApplicationAccess(static fn (): bool => false));
 
-        self::assertTrue(self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken->reveal())->isRefreshed());
+        self::assertTrue(self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken?->reveal())->isRefreshed());
     }
 
     /**

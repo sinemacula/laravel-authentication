@@ -66,11 +66,11 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     /** @var string Guard name for standard refresh tests. */
     private const string GUARD = 'api';
 
-    /** @var string Guard that reads its refresh token from the cookie. */
+    /** @var string Guard whose refresh token travels in the cookie. */
     private const string COOKIE_GUARD = 'browser';
 
-    /** @var string The refresh cookie's name. */
-    private const string COOKIE_NAME = '__Secure-refresh_token';
+    /** @var string The refresh cookie's name, derived from the guard. */
+    private const string COOKIE_NAME = '__Secure-browser_refresh_token';
 
     /** @var int Runs of each path in the timing comparison. */
     private const int TIMED_RUNS = 5;
@@ -210,7 +210,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
     /**
      * Reading the token from the refresh cookie, with its same-site checks and
-     * its count of the request's cookies, adds no query either.
+     * its count of the request's cookies, and delivering the new refresh token
+     * in the cookie, add no query either.
      *
      * @return void
      *
@@ -237,7 +238,11 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $guard = $this->freshJwtGuard(self::COOKIE_GUARD);
 
-        self::assertTrue($this->assertQueryBudget(4, 1, static fn () => GuardSessions::of($guard)->refreshFromRequest())?->isRefreshed());
+        $result = $this->assertQueryBudget(4, 1, static fn () => GuardSessions::of($guard)->refreshFromRequest());
+
+        self::assertTrue($result?->isRefreshed());
+        self::assertNull($result->session?->tokens->refreshToken);
+        self::assertSame(self::COOKIE_NAME, $result->session?->tokens->refreshCookie?->name);
     }
 
     /**
@@ -839,7 +844,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
             'driver'        => 'jwt',
             'provider'      => 'identities',
             'application'   => ['methods' => ['password']],
-            'refresh_token' => ['sources' => ['cookie'], 'cookie' => ['path' => '/auth']],
+            'refresh_token' => ['transport' => 'cookie', 'cookie' => ['path' => '/auth']],
         ]);
 
         $config->set('auth.guards.' . self::TENANT_AWARE_GUARD, [

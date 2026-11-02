@@ -100,14 +100,14 @@ final class ProvenSessionsTest extends TestCase
      */
     public function testTheCurrentRefreshTokenProvesItsSession(): void
     {
-        $proven = $this->prove($this->session->tokens->refreshToken->reveal());
+        $proven = $this->prove($this->session->tokens->refreshToken?->reveal());
 
         self::assertInstanceOf(Session::class, $proven);
         self::assertSame($this->session->record->getKey(), $proven->getKey());
 
         JWT::$timestamp = Carbon::now()->addYears(2)->getTimestamp();
 
-        self::assertSame($this->session->record->getKey(), $this->prove($this->session->tokens->refreshToken->reveal())?->getSessionIdentifier());
+        self::assertSame($this->session->record->getKey(), $this->prove($this->session->tokens->refreshToken?->reveal())?->getSessionIdentifier());
     }
 
     /**
@@ -118,7 +118,7 @@ final class ProvenSessionsTest extends TestCase
      */
     public function testTheSessionMustBeLiveAndHoldTheRotationId(): void
     {
-        $token = $this->session->tokens->refreshToken->reveal();
+        $token = $this->session->tokens->refreshToken?->reveal();
 
         $this->updateSession(['refresh_key' => hash('sha256', 'another-rotation-id')]);
         self::assertNull($this->prove($token));
@@ -144,7 +144,7 @@ final class ProvenSessionsTest extends TestCase
      */
     public function testASessionReturnedToPendingProvesNothing(): void
     {
-        $token = $this->session->tokens->refreshToken->reveal();
+        $token = $this->session->tokens->refreshToken?->reveal();
 
         $this->updateSession(['status' => 'pending', 'requires' => '["mfa"]']);
         self::assertNull($this->prove($token));
@@ -161,7 +161,7 @@ final class ProvenSessionsTest extends TestCase
      */
     public function testTheSessionMustBeTheIdentitysForTheGuardAndPrincipal(): void
     {
-        $token = $this->session->tokens->refreshToken->reveal();
+        $token = $this->session->tokens->refreshToken?->reveal();
         $other = $this->seedIdentity('bea@example.test');
 
         self::assertNull($this->prove($token, $other));
@@ -188,7 +188,7 @@ final class ProvenSessionsTest extends TestCase
      */
     public function testAProofWithoutAPrincipalIgnoresTheRecordedPrincipal(): void
     {
-        $token = $this->session->tokens->refreshToken->reveal();
+        $token = $this->session->tokens->refreshToken?->reveal();
         $proof = new ProvenSessions(Auth::manager()->jwt('api'));
 
         $this->updateSession(['principal_id' => '999']);
@@ -215,7 +215,7 @@ final class ProvenSessionsTest extends TestCase
         $admin = Auth::manager()->jwt('admin');
         $api   = Auth::manager()->jwt('api');
 
-        $claims = $this->claims($this->session->tokens->refreshToken->reveal());
+        $claims = $this->claims($this->session->tokens->refreshToken?->reveal());
 
         self::assertNull($this->prove('not-a-jwt'));
         self::assertNull($this->prove($this->session->tokens->accessToken->reveal()));
@@ -234,7 +234,7 @@ final class ProvenSessionsTest extends TestCase
      */
     public function testARotationIdThatIsNotAStringProvesNothing(): void
     {
-        $claims = $this->claims($this->session->tokens->refreshToken->reveal());
+        $claims = $this->claims($this->session->tokens->refreshToken?->reveal());
 
         $claims[Claims::JWT_ID->value] = 12345;
 

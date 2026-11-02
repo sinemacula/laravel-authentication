@@ -5,8 +5,8 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Http\Enums;
 
 /**
- * Where a request carried its refresh token, as a guard's `refresh_token`
- * `sources` name it.
+ * Where a request carried its refresh token: the cookie of a cookie
+ * application, or the body field or header of a body application.
  *
  * @api
  *

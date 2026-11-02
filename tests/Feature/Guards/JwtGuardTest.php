@@ -271,7 +271,7 @@ final class JwtGuardTest extends JwtGuardTestCase
         self::assertTrue($read?->isRefreshed());
         self::assertSame(RefreshTokenSource::HEADER, $read->source);
         self::assertNotSame('', $read->session?->tokens->accessToken->reveal());
-        self::assertIsArray($this->tokens->parse((string) $read->session?->tokens->refreshToken->reveal(), TokenType::REFRESH));
+        self::assertIsArray($this->tokens->parse((string) $read->session?->tokens->refreshToken?->reveal(), TokenType::REFRESH));
         self::assertTrue($passed->isRefreshed());
         self::assertNull($passed->source);
     }
@@ -406,10 +406,10 @@ final class JwtGuardTest extends JwtGuardTestCase
     {
         config()->set('auth.guards.' . self::GUARD_NAME, ['driver' => 'jwt', 'provider' => 'users']);
         config()->set('authentication.refresh_token', [
-            'sources'    => ['body', 'header'],
+            'transport'  => 'body',
             'body_field' => 'refresh_token',
             'header'     => 'X-Refresh-Token',
-            'cookie'     => ['name' => '__Secure-refresh_token', 'path' => null, 'domain' => null, 'allowed_origins' => [], 'csrf_header' => 'X-Requested-With'],
+            'cookie'     => ['name' => null, 'path' => null, 'allowed_origins' => [], 'csrf_header' => 'X-Requested-With'],
         ]);
     }
 

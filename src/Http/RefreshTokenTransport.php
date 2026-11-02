@@ -12,26 +12,37 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Http\Enums\Transport;
+use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionDeadlines;
 use Symfony\Component\HttpFoundation\Cookie;
 
 /**
- * Reads a refresh token from a request through the one source a guard allows.
+ * An application's refresh token transport: reads the refresh token a request
+ * carries, and hands a cookie application's tokens to the browser in the
+ * cookie.
  *
- * A guard's `refresh_token` settings list the sources it reads: the cookie, a
- * body field (the JSON or form body, never the query string) and a header. Only
- * those are read, and a request that carries a token in more than one of them,
- * or two cookies of the refresh cookie's name, is refused, equal or not, so a
- * request cannot pass the cookie's cross-site checks by also sending the token
- * another way, nor leave the server to choose which one counts. A token read
- * from the cookie, which a browser attaches by itself, must come with an
- * `Origin` that is the request's own or an allowed one, and with the custom
- * header, which a cross-site form cannot send.
+ * An application's `refresh_token.transport` is `body` (the `body_field` of the
+ * JSON or form body, never the query string, or the `header` when one is set)
+ * or `cookie` (its `HttpOnly` refresh cookie). Every request is read in all
+ * three carriers, whatever the transport: one that carries a token in more than
+ * one of them, or the cookie twice, is refused as `refresh_token_conflict`,
+ * equal or not, so a request cannot pass the cookie's cross-site checks by also
+ * sending the token another way, nor leave the server to choose which one
+ * counts; one that carries it only in a carrier that is not the application's
+ * transport is refused as `refresh_transport_mismatch`. A token read from the
+ * cookie, which a browser attaches by itself, must come with an `Origin` that
+ * is the request's own or an allowed one, and with the custom header, which a
+ * cross-site form cannot send.
  *
- * It also makes the cookie that carries a browser's refresh token, and the one
- * that clears it, for the application to attach to its own responses: the token
- * lives only in the browser, so the API stays stateless.
+ * For a cookie application, `deliver()` puts the refresh token of every pair a
+ * sign-in, refresh, switch or activation issues into a `RefreshCookie`, so the
+ * plain token never reaches the application's code; `forgetCookie()` makes the
+ * cookie that clears it. The cookie is host-only, on the application's path,
+ * and its name is the application's own, so two browser applications on one
+ * host never overwrite each other's. The token lives only in the browser, so
+ * the API stays stateless.
  *
  * @api
  *
@@ -40,9 +51,9 @@ use Symfony\Component\HttpFoundation\Cookie;
  */
 final readonly class RefreshTokenTransport
 {
-    /** @var string Why a guard that does not read the cookie neither sets nor clears it. */
-    private const string NOT_A_COOKIE_GUARD = 'This guard does not read its refresh token from the cookie:'
-        . ' add `cookie` to its `refresh_token.sources` and set `refresh_token.cookie.path`.';
+    /** @var string Why a body application neither sets nor clears the cookie. */
+    private const string NOT_A_COOKIE_APPLICATION = 'This application\'s refresh token travels in the body:'
+        . ' set its `refresh_token.transport` to `cookie`, and `refresh_token.cookie.path`, to use the cookie.';
 
     /**
      * Constructor.
@@ -51,7 +62,7 @@ final readonly class RefreshTokenTransport
      */
     public function __construct(
 
-        /** The guard's transport settings. */
+        /** The application's transport settings. */
         private RefreshTokenSettings $settings,
     ) {}
 
@@ -70,19 +81,30 @@ final readonly class RefreshTokenTransport
     }
 
     /**
-     * Read the refresh token the request carries: `null` when no allowed source
-     * carries one, `refresh_token_conflict` when more than one does or the
-     * request carries the cookie twice, `cross_site_request` when it is in the
-     * cookie without an allowed origin and the custom header, and
-     * `token_invalid` when the value is not a non-empty string. Reading has no
-     * side effects.
+     * Whether the application's refresh token travels in its cookie.
+     *
+     * @return bool
+     */
+    public function usesCookie(): bool
+    {
+        return $this->settings->transport === Transport::COOKIE;
+    }
+
+    /**
+     * Read the refresh token the request carries: `null` when no carrier
+     * carries one; `refresh_token_conflict` when more than one does or the
+     * request carries the cookie twice; `refresh_transport_mismatch` when the
+     * one that does is not the application's transport; `cross_site_request`
+     * when it is in the cookie without an allowed origin and the custom header;
+     * and `token_invalid` when the value is not a non-empty string. Reading has
+     * no side effects.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null
      */
     public function read(Request $request): FailureReason|PresentedRefreshToken|null
     {
-        $present = array_values(array_filter($this->settings->sources, fn (RefreshTokenSource $source): bool => $this->carries($request, $source)));
+        $present = array_values(array_filter(RefreshTokenSource::cases(), fn (RefreshTokenSource $source): bool => $this->carries($request, $source)));
 
         if (in_array(RefreshTokenSource::COOKIE, $present, true) && $this->cookiesNamed($request) > 1) {
             return FailureReason::REFRESH_TOKEN_CONFLICT;
@@ -94,34 +116,43 @@ final readonly class RefreshTokenTransport
 
         [$source] = $present;
 
-        return $source === RefreshTokenSource::COOKIE && !$this->isSameSiteRequest($request)
-            ? FailureReason::CROSS_SITE_REQUEST
-            : $this->presented($request, $source);
+        return match (true) {
+            ($source === RefreshTokenSource::COOKIE) !== $this->usesCookie()              => FailureReason::REFRESH_TRANSPORT_MISMATCH,
+            $source === RefreshTokenSource::COOKIE && !$this->isSameSiteRequest($request) => FailureReason::CROSS_SITE_REQUEST,
+            default                                                                       => $this->presented($request, $source),
+        };
     }
 
     /**
-     * The cookie that carries the refresh token to the browser: `HttpOnly`, so
-     * scripts cannot read it, `Secure`, `SameSite=Strict`, with the guard's
-     * name, path and domain, and expiring when the session ends (the earlier of
-     * its deadlines, as the token itself does).
+     * The pair as the application's transport hands it out: a body
+     * application's as it is; a cookie application's with its refresh token
+     * moved into the cookie that carries it, expiring when the session ends
+     * (the earlier of its deadlines, read on the write connection, as the
+     * token's own `exp` is). Only the session service delivers a pair.
      *
-     * @param  string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Jwt\TokenPair  $pair
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
-     * @return \Symfony\Component\HttpFoundation\Cookie
+     * @return \SineMacula\Laravel\Authentication\Jwt\TokenPair
      *
      * @throws \InvalidArgumentException
-     * @throws \LogicException
+     *
+     * @internal
      */
-    public function cookie(#[\SensitiveParameter] string $refreshToken, Session $session): Cookie
+    public function deliver(TokenPair $pair, Session $session): TokenPair
     {
-        return $this->makeCookie($refreshToken, self::sessionEnd($session));
+        if (!$this->usesCookie() || $pair->refreshToken === null) {
+            return $pair;
+        }
+
+        return new TokenPair($pair->accessToken, null, new RefreshCookie($pair->refreshToken, $this->settings->cookieName, $this->cookiePath(), self::sessionEnd($session)));
     }
 
     /**
-     * The cookie that clears the refresh cookie: the same name, path and
-     * domain, already expired. Any response may carry it, a logout route
-     * outside the cookie's path included, since a path limits where a browser
-     * sends a cookie, not which response may set it.
+     * The cookie that clears the refresh cookie: the same name and path,
+     * already expired. Any response may carry it, a logout route outside the
+     * cookie's path included, since a path limits where a browser sends a
+     * cookie, not which response may set it. A body application has no cookie
+     * to clear (`LogicException`).
      *
      * @return \Symfony\Component\HttpFoundation\Cookie
      *
@@ -129,7 +160,7 @@ final readonly class RefreshTokenTransport
      */
     public function forgetCookie(): Cookie
     {
-        return $this->makeCookie(null, Carbon::now()->subYear());
+        return new Cookie($this->settings->cookieName, null, Carbon::now()->subYear(), $this->cookiePath(), null, true, true, false, Cookie::SAMESITE_STRICT);
     }
 
     /**
@@ -173,22 +204,16 @@ final readonly class RefreshTokenTransport
     }
 
     /**
-     * A refresh cookie with the guard's name, path and domain and the browser
-     * protections, or a `LogicException` when the guard does not read the
-     * cookie: a cookie it would never read must not be set.
+     * The cookie's path, or a `LogicException` for a body application: a cookie
+     * it would never read must not be set.
      *
-     * @param  ?string  $value
-     * @param  \DateTimeInterface  $expires
-     * @return \Symfony\Component\HttpFoundation\Cookie
+     * @return string
      *
      * @throws \LogicException
      */
-    private function makeCookie(#[\SensitiveParameter] ?string $value, \DateTimeInterface $expires): Cookie
+    private function cookiePath(): string
     {
-        $path = (in_array(RefreshTokenSource::COOKIE, $this->settings->sources, true) ? $this->settings->cookiePath : null)
-            ?? throw new \LogicException(self::NOT_A_COOKIE_GUARD);
-
-        return new Cookie($this->settings->cookieName, $value, $expires, $path, $this->settings->cookieDomain, true, true, false, Cookie::SAMESITE_STRICT);
+        return ($this->usesCookie() ? $this->settings->cookiePath : null) ?? throw new \LogicException(self::NOT_A_COOKIE_APPLICATION);
     }
 
     /**
@@ -202,7 +227,7 @@ final readonly class RefreshTokenTransport
     {
         return match ($source) {
             RefreshTokenSource::COOKIE => $request->cookies->has($this->settings->cookieName),
-            RefreshTokenSource::HEADER => $request->headers->has($this->settings->header),
+            RefreshTokenSource::HEADER => $this->settings->header !== null && $request->headers->has($this->settings->header),
             RefreshTokenSource::BODY   => array_key_exists($this->settings->bodyField, self::body($request)),
         };
     }
@@ -244,7 +269,7 @@ final readonly class RefreshTokenTransport
     {
         $values = match ($source) {
             RefreshTokenSource::COOKIE => [$request->cookies->all()[$this->settings->cookieName]],
-            RefreshTokenSource::HEADER => $request->headers->all($this->settings->header),
+            RefreshTokenSource::HEADER => $request->headers->all((string) $this->settings->header),
             RefreshTokenSource::BODY   => [self::body($request)[$this->settings->bodyField]],
         };
 

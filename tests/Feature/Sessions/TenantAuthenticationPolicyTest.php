@@ -277,7 +277,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
 
         $this->recordEvents([SessionReturnedToPending::class, SessionActivated::class, AuthenticationFailed::class]);
 
-        $returned = $this->sessions('members')->refresh($session->tokens->refreshToken->reveal());
+        $returned = $this->sessions('members')->refresh($session->tokens->refreshToken?->reveal());
 
         self::assertTrue($returned->isPending());
         self::assertNull($returned->session);
@@ -295,7 +295,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
 
         $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken->reveal()])->getJson('/me')->assertUnauthorized();
 
-        self::assertSame(FailureReason::SESSION_PENDING, $this->sessions('members')->refresh($session->tokens->refreshToken->reveal())->reason);
+        self::assertSame(FailureReason::SESSION_PENDING, $this->sessions('members')->refresh($session->tokens->refreshToken?->reveal())->reason);
         self::assertNull(Session::query()->sole()->getRevokedAt());
 
         $this->clockAt($this->now->addSeconds(5));
@@ -345,10 +345,10 @@ final class TenantAuthenticationPolicyTest extends TestCase
 
         $this->policy->requirement = new TenantRequirement('v2', new Requirement(new RequirementPart));
 
-        self::assertTrue($service->refresh($other->tokens->refreshToken->reveal())->isPending());
+        self::assertTrue($service->refresh($other->tokens->refreshToken?->reveal())->isPending());
         self::assertSame($kept->record, $guard->session());
 
-        self::assertTrue($service->refresh($kept->tokens->refreshToken->reveal())->isPending());
+        self::assertTrue($service->refresh($kept->tokens->refreshToken?->reveal())->isPending());
         self::assertFalse($guard->hasUser());
         self::assertNull($guard->user());
         self::assertNull($guard->principal());
@@ -375,7 +375,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
 
         $this->recordEvents([SessionRevoked::class]);
 
-        $refused = $this->sessions('members')->refresh($session->tokens->refreshToken->reveal());
+        $refused = $this->sessions('members')->refresh($session->tokens->refreshToken?->reveal());
 
         self::assertSame(FailureReason::SSO_REQUIRED, $refused->reason);
         self::assertSame(RevocationReason::TENANT_POLICY_CHANGED, $this->recordedEvent(SessionRevoked::class)->reason);
@@ -400,7 +400,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
 
         $this->policy->requirement = new TenantRequirement('v3');
 
-        self::assertTrue($this->sessions('members')->refresh($session->tokens->refreshToken->reveal())->isRefreshed());
+        self::assertTrue($this->sessions('members')->refresh($session->tokens->refreshToken?->reveal())->isRefreshed());
         self::assertSame('v3', Session::query()->sole()->getTenantPolicyVersion());
     }
 

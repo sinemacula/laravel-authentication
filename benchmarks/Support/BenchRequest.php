@@ -5,7 +5,7 @@ declare(strict_types = 1);
 namespace Benchmarks\Support;
 
 use Illuminate\Http\Request;
-use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Http\Enums\Transport;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenSettings;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 
@@ -38,18 +38,18 @@ final class BenchRequest
     }
 
     /**
-     * The package's default refresh token transport: the body and the header.
+     * The package's default refresh token transport: the body field or the
+     * header, for an application named `api`.
      *
      * @return \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport
      */
     public static function refreshTransport(): RefreshTokenTransport
     {
         return new RefreshTokenTransport(new RefreshTokenSettings(
-            [RefreshTokenSource::BODY, RefreshTokenSource::HEADER],
+            Transport::BODY,
             'refresh_token',
             'X-Refresh-Token',
-            '__Secure-refresh_token',
-            null,
+            '__Secure-api_refresh_token',
             null,
             [],
             'X-Requested-With',

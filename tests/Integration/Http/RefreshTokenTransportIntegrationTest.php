@@ -22,15 +22,18 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
+use Symfony\Component\HttpFoundation\Cookie;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
  * End-to-end tests for refreshing with the token a request carries, through a
- * route on a real database: each guard reads its token from the sources it
- * lists and no other, a token carried twice or a cookie sent cross-site is
- * refused without touching the session, and the result says where the token
- * came from.
+ * route on a real database: each application reads its token by its own
+ * transport, a token carried twice, carried by another transport or in a cookie
+ * sent cross-site is refused without touching the session, a cookie
+ * application's refresh answers with the cookie and never the token, and the
+ * result says where the token came from.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -43,8 +46,8 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
 {
     use InteractsWithSessions;
 
-    /** @var string The cookie the `admin` guard reads its refresh token from. */
-    private const string COOKIE = '__Secure-refresh_token';
+    /** @var array<string, string> The cookie name each application derives from its guard. */
+    private const array COOKIES = ['api' => '__Secure-api_refresh_token', 'admin' => '__Secure-admin_refresh_token'];
 
     /**
      * Freeze the clocks, create the tables, and add a refresh route for each
@@ -69,10 +72,13 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
         Route::post('/auth/{guard}/refresh', static function (string $guard): JsonResponse {
             $result = Auth::sessions($guard)->refreshFromRequest();
 
+            $tokens = $result?->session?->tokens;
+
             return match (true) {
-                $result === null          => new JsonResponse(['reason' => null], 400),
-                $result->session !== null => new JsonResponse(['source' => $result->source?->value, 'refresh_token' => $result->session->tokens->refreshToken->reveal()]),
-                default                   => new JsonResponse(['reason' => $result->reason?->value], 401),
+                $result === null => new JsonResponse(['reason' => null], 400),
+                $tokens !== null => $tokens->refreshCookie?->attachTo(new JsonResponse(['source' => $result->source?->value]))
+                    ?? SecretResponse::json(['source' => $result->source?->value, 'refresh_token' => $tokens->refreshToken]),
+                default => new JsonResponse(['reason' => $result->reason?->value], 401),
             };
         });
     }
@@ -115,46 +121,43 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     }
 
     /**
-     * Rows of `[the guard, the request's query string, body, headers and
-     * cookie]` that carry the token only where the guard does not read one.
+     * Rows of `[the guard, the request's query string, and the guard whose
+     * cookie it carries]` that carry the token only where no application reads
+     * it: the query string, or another application's cookie.
      *
-     * @return iterable<string, array{0: string, 1: bool, 2: bool, 3: bool, 4: bool}>
+     * @return iterable<string, array{0: string, 1: bool, 2: ?string}>
      */
     public static function provideUnreadPlaces(): iterable
     {
-        yield 'the query string' => ['api', true, false, false, false];
-        yield 'the cookie, for a guard that does not read it' => ['api', false, false, false, true];
-        yield 'the body, for a guard that reads only the cookie' => ['admin', false, true, false, false];
-        yield 'a header, for a guard that reads only the cookie' => ['admin', false, false, true, false];
+        yield 'the query string' => ['api', true, null];
+        yield 'the query string, for a cookie application' => ['admin', true, null];
+        yield 'another application\'s cookie' => ['admin', false, 'api'];
     }
 
     /**
-     * A token where the guard does not read one is not seen: nothing is
-     * attempted and nothing is dispatched.
+     * A token where no application reads one is not seen: nothing is attempted
+     * and nothing is dispatched.
      *
      * @param  string  $guard
      * @param  bool  $query
-     * @param  bool  $body
-     * @param  bool  $header
-     * @param  bool  $cookie
+     * @param  ?string  $cookieOf
      * @return void
      *
      * @throws \Throwable
      */
     #[DataProvider('provideUnreadPlaces')]
-    public function testATokenWhereTheGuardDoesNotReadIsNotSeen(string $guard, bool $query, bool $body, bool $header, bool $cookie): void
+    public function testATokenWhereNoApplicationReadsIsNotSeen(string $guard, bool $query, ?string $cookieOf): void
     {
         $token = $this->signIn($guard);
 
         $this->recordEvents([AuthenticationFailed::class, Refreshed::class]);
 
-        $this->refresh(
-            $guard,
-            $query ? '?refresh_token=' . $token : '',
-            $body ? ['refresh_token' => $token] : [],
-            [...($header ? ['X-Refresh-Token' => $token] : []), 'Origin' => 'http://localhost', 'X-Requested-With' => 'XMLHttpRequest'],
-            $cookie ? $token : null,
-        )->assertStatus(400);
+        Auth::forgetGuards();
+
+        $cookies = $cookieOf === null ? [] : [self::COOKIES[$cookieOf] => $token];
+        $headers = $this->transformHeadersToServerVars(['Origin' => 'http://localhost', 'X-Requested-With' => 'XMLHttpRequest']);
+
+        $this->call('POST', '/auth/' . $guard . '/refresh' . ($query ? '?refresh_token=' . $token : ''), [], $cookies, [], $headers)->assertStatus(400);
 
         self::assertSame([], $this->recordedClasses());
     }
@@ -168,6 +171,17 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     public static function provideRefusals(): iterable
     {
         yield 'the token in the body and a header' => ['api', true, ['X-Refresh-Token' => 'token'], false, FailureReason::REFRESH_TOKEN_CONFLICT];
+        yield 'the cookie with the token in the body, to a cookie application' => [
+            'admin',
+            true,
+            ['Origin' => 'http://localhost', 'X-Requested-With' => '1'],
+            true,
+            FailureReason::REFRESH_TOKEN_CONFLICT,
+        ];
+        yield 'the cookie with the token in the body, to a body application' => ['api', true, [], true, FailureReason::REFRESH_TOKEN_CONFLICT];
+        yield 'the cookie, to a body application' => ['api', false, ['Origin' => 'http://localhost', 'X-Requested-With' => '1'], true, FailureReason::REFRESH_TRANSPORT_MISMATCH];
+        yield 'the body, to a cookie application' => ['admin', true, [], false, FailureReason::REFRESH_TRANSPORT_MISMATCH];
+        yield 'a header, to a cookie application' => ['admin', false, ['X-Refresh-Token' => 'token'], false, FailureReason::REFRESH_TRANSPORT_MISMATCH];
         yield 'the cookie without the custom header' => ['admin', false, ['Origin' => 'http://localhost'], true, FailureReason::CROSS_SITE_REQUEST];
         yield 'the cookie from another origin' => ['admin', false, ['Origin' => 'https://evil.test', 'X-Requested-With' => '1'], true, FailureReason::CROSS_SITE_REQUEST];
         yield 'the cookie without an origin' => ['admin', false, ['X-Requested-With' => 'XMLHttpRequest'], true, FailureReason::CROSS_SITE_REQUEST];
@@ -223,9 +237,9 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
      */
     public static function providePlantedCookies(): iterable
     {
-        yield 'the same name' => ['__Secure-refresh_token'];
-        yield 'a name with a dot' => ['__Secure-refresh.token'];
-        yield 'a name with an unclosed bracket' => ['__Secure-refresh[token'];
+        yield 'the same name' => ['__Secure-admin_refresh_token'];
+        yield 'a name with a dot' => ['__Secure-admin_refresh.token'];
+        yield 'a name with an unclosed bracket' => ['__Secure-admin_refresh[token'];
     }
 
     /**
@@ -247,7 +261,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class, Refreshed::class]);
 
-        $headers = ['Origin' => 'http://localhost', 'X-Requested-With' => 'XMLHttpRequest', 'Cookie' => $planted . '=planted; ' . self::COOKIE . '=' . $token];
+        $headers = ['Origin' => 'http://localhost', 'X-Requested-With' => 'XMLHttpRequest', 'Cookie' => $planted . '=planted; ' . self::COOKIES['admin'] . '=' . $token];
 
         $this->refresh('admin', '', [], $headers, 'planted')
             ->assertUnauthorized()
@@ -256,47 +270,77 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
         self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
         self::assertSame($before, Session::query()->sole()->getAttributes());
 
-        $this->refresh('admin', '', [], ['Origin' => 'http://localhost', 'X-Requested-With' => 'XMLHttpRequest', 'Cookie' => self::COOKIE . '=' . $token], $token)
+        $this->refresh('admin', '', [], ['Origin' => 'http://localhost', 'X-Requested-With' => 'XMLHttpRequest', 'Cookie' => self::COOKIES['admin'] . '=' . $token], $token)
             ->assertOk()
             ->assertJson(['source' => 'cookie']);
     }
 
     /**
-     * A package-wide `__Host-` cookie name binds only the guard that reads the
-     * cookie: that guard refreshes from it on the root path, and a guard that
-     * reads the body or a header refreshes as before.
+     * A package-wide `__Host-` cookie name binds only the application whose
+     * transport is the cookie: it refreshes from it on the root path, and a
+     * body application refreshes as before.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAHostCookieNameLeavesTheGuardsThatDoNotReadTheCookieAlone(): void
+    public function testAHostCookieNameLeavesTheBodyApplicationsAlone(): void
     {
         config()->set([
             'authentication.refresh_token.cookie.name' => '__Host-refresh_token',
-            'auth.guards.admin.refresh_token'          => ['sources' => ['cookie'], 'cookie' => ['path' => '/']],
+            'auth.guards.admin.refresh_token'          => ['transport' => 'cookie', 'cookie' => ['path' => '/']],
         ]);
 
         $api = $this->signIn('api');
 
         $this->refresh('api', '', ['refresh_token' => $api])->assertOk()->assertJson(['source' => 'body']);
 
-        $admin = $this->sessions('admin')->signIn('password', self::credentials())->session;
+        $admin = $this->sessions('admin')->signIn('password', self::credentials())->session?->tokens->refreshCookie;
 
         self::assertNotNull($admin);
+        self::assertSame('__Host-refresh_token', $admin->name);
 
         Auth::forgetGuards();
 
         $headers = $this->transformHeadersToServerVars(['Origin' => 'http://localhost', 'X-Requested-With' => 'XMLHttpRequest']);
 
-        $this->call('POST', '/auth/admin/refresh', [], ['__Host-refresh_token' => $admin->tokens->refreshToken->reveal()], [], $headers)
+        $this->call('POST', '/auth/admin/refresh', [], ['__Host-refresh_token' => $admin->cookie()->getValue()], [], $headers)
             ->assertOk()
             ->assertJson(['source' => 'cookie']);
     }
 
     /**
+     * A cookie application on the root path derives a `__Host-` name of its
+     * own, host-only, and refreshes from it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACookieApplicationOnTheRootPathDerivesAHostName(): void
+    {
+        config()->set('auth.guards.admin.refresh_token', ['transport' => 'cookie', 'cookie' => ['path' => '/']]);
+
+        $this->seedIdentity();
+
+        $cookie = $this->sessions('admin')->signIn('password', self::credentials())->session?->tokens->refreshCookie?->cookie();
+
+        self::assertNotNull($cookie);
+        self::assertSame(['__Host-admin_refresh_token', '/', null], [$cookie->getName(), $cookie->getPath(), $cookie->getDomain()]);
+
+        Auth::forgetGuards();
+
+        $headers  = $this->transformHeadersToServerVars(['Origin' => 'http://localhost', 'X-Requested-With' => 'XMLHttpRequest']);
+        $response = $this->call('POST', '/auth/admin/refresh', [], [$cookie->getName() => $cookie->getValue()], [], $headers)->assertOk();
+
+        self::assertSame(['__Host-admin_refresh_token'], array_map(static fn (Cookie $set): string => $set->getName(), $response->headers->getCookies()));
+    }
+
+    /**
      * A cookie refresh from the request's own origin with the custom header is
-     * exchanged and the result says it came from the cookie.
+     * exchanged and the result says it came from the cookie; the response
+     * carries the rotated token only in the application's cookie, never in the
+     * body, and is not stored.
      *
      * @return void
      *
@@ -306,9 +350,18 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     {
         $token = $this->signIn('admin');
 
-        $this->refresh('admin', '', [], ['Origin' => 'http://localhost', 'X-Requested-With' => 'XMLHttpRequest'], $token)
+        $response = $this->refresh('admin', '', [], ['Origin' => 'http://localhost', 'X-Requested-With' => 'XMLHttpRequest'], $token)
             ->assertOk()
-            ->assertJson(['source' => 'cookie']);
+            ->assertExactJson(['source' => 'cookie']);
+
+        $set = $response->headers->getCookies();
+
+        self::assertCount(1, $set);
+        self::assertSame(self::COOKIES['admin'], $set[0]->getName());
+        self::assertNotSame($token, $set[0]->getValue());
+        self::assertSame('/auth', $set[0]->getPath());
+        self::assertTrue($response->headers->hasCacheControlDirective('no-store'));
+        self::assertStringNotContainsString((string) $set[0]->getValue(), (string) $response->baseResponse->getContent());
     }
 
     /**
@@ -344,8 +397,8 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     }
 
     /**
-     * Configure the guards: `api` reads the defaults (body and header), and
-     * `admin` reads only the cookie, scoped to `/auth`.
+     * Configure the guards: `api` keeps the default transport (the body field
+     * or the header), and `admin` travels by cookie, scoped to `/auth`.
      *
      * @param  mixed  $app
      * @return void
@@ -363,11 +416,13 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
 
         self::configureSessionGuards($config);
 
-        $config->set('auth.guards.admin.refresh_token', ['sources' => ['cookie'], 'cookie' => ['path' => '/auth']]);
+        $config->set('auth.guards.admin.refresh_token', ['transport' => 'cookie', 'cookie' => ['path' => '/auth']]);
     }
 
     /**
-     * Sign the seeded identity in on the guard and return the refresh token.
+     * Sign the seeded identity in on the guard and return the refresh token:
+     * the body application's from its pair, the cookie application's from the
+     * cookie its pair carries.
      *
      * @param  string  $guard
      * @return string
@@ -378,11 +433,15 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     {
         $this->seedIdentity();
 
-        $session = $this->sessions($guard)->signIn('password', self::credentials())->session;
+        $tokens = $this->sessions($guard)->signIn('password', self::credentials())->session?->tokens;
 
-        self::assertNotNull($session);
+        self::assertNotNull($tokens);
 
-        return $session->tokens->refreshToken->reveal();
+        $token = $tokens->refreshToken?->reveal() ?? $tokens->refreshCookie?->cookie()->getValue();
+
+        self::assertIsString($token);
+
+        return $token;
     }
 
     /**
@@ -401,7 +460,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     {
         Auth::forgetGuards();
 
-        $cookies = $cookie === null ? [] : [self::COOKIE => $cookie];
+        $cookies = $cookie === null ? [] : [self::COOKIES[$guard] => $cookie];
 
         return $this->call('POST', '/auth/' . $guard . '/refresh' . $query, $body, $cookies, [], $this->transformHeadersToServerVars($headers));
     }

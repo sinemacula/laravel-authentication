@@ -62,6 +62,7 @@ final class FailureReasonTest extends TestCase
             'rotation_conflict',
             'refresh_key_missing',
             'refresh_token_conflict',
+            'refresh_transport_mismatch',
             'cross_site_request',
             'code_expired',
             'code_exhausted',

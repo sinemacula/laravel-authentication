@@ -8,9 +8,9 @@ use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
- * A refresh token a request carried, with where it carried it, so a refresh
- * read from the cookie can be answered with a cookie and one read from the body
- * or a header in the body.
+ * A refresh token a request carried, held as a secret, with where it carried
+ * it: the cookie of a cookie application, or the body field or header of a body
+ * application.
  *
  * @api
  *

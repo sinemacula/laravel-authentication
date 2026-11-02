@@ -300,7 +300,7 @@ final class PasskeyRoutesTest extends TestCase
 
         return [
             'access_token'  => $result->session?->tokens->accessToken->reveal(),
-            'refresh_token' => $result->session?->tokens->refreshToken->reveal(),
+            'refresh_token' => $result->session?->tokens->refreshToken?->reveal(),
         ];
     }
 

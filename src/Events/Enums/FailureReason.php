@@ -138,8 +138,14 @@ enum FailureReason: string
     // apart; not revoked
     case REFRESH_KEY_MISSING = 'refresh_key_missing';
 
-    // More than one source the guard reads a refresh token from carries one
+    // More than one carrier of a refresh token (the cookie, the body field, the
+    // header) carries one, or the cookie comes twice
     case REFRESH_TOKEN_CONFLICT = 'refresh_token_conflict';
+
+    // The refresh token came by a carrier that is not the application's
+    // transport: the cookie to a body application, the body or header to a
+    // cookie application
+    case REFRESH_TRANSPORT_MISMATCH = 'refresh_transport_mismatch';
 
     // A refresh token in the cookie came without an allowed origin or the
     // custom header

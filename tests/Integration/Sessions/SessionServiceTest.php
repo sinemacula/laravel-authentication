@@ -125,7 +125,7 @@ final class SessionServiceTest extends TestCase
             ->assertOk()
             ->assertJson(['identity' => $identity->getKey(), 'session' => $session->record->getKey()]);
 
-        $refreshed = self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken->reveal())->session?->tokens;
+        $refreshed = self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken?->reveal())->session?->tokens;
 
         self::assertNotNull($refreshed);
         $this->bearer($refreshed->accessToken->reveal())->assertOk();
@@ -150,11 +150,11 @@ final class SessionServiceTest extends TestCase
 
         $first = $this->signIn(clientName: 'Laptop', platform: 'macOS');
 
-        $rotated = self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken->reveal())->session?->tokens;
+        $rotated = self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken?->reveal())->session?->tokens;
 
         self::assertNotNull($rotated);
 
-        $current = self::sessionsOf($this->freshGuard())->refresh($rotated->refreshToken->reveal())->session?->tokens;
+        $current = self::sessionsOf($this->freshGuard())->refresh($rotated->refreshToken?->reveal())->session?->tokens;
 
         self::assertNotNull($current);
 
@@ -162,7 +162,7 @@ final class SessionServiceTest extends TestCase
 
         $this->recordEvents([SessionRevoked::class, SessionCreated::class, SignedIn::class]);
 
-        $again = $this->signIn(refreshToken: $current->refreshToken->reveal(), clientName: 'Renamed laptop', method: 'sso');
+        $again = $this->signIn(refreshToken: $current->refreshToken?->reveal(), clientName: 'Renamed laptop', method: 'sso');
 
         self::assertNotSame($first->record->getKey(), $again->record->getKey());
         self::assertSame([SessionRevoked::class, SessionCreated::class, SignedIn::class], $this->recordedClasses());
@@ -180,7 +180,7 @@ final class SessionServiceTest extends TestCase
         self::assertSame('password', $previous->getSignInMethod());
 
         $record = Session::query()->whereKey($again->record->getKey())->firstOrFail();
-        $claims = Auth::manager()->jwt('api')->parse($again->tokens->refreshToken->reveal());
+        $claims = Auth::manager()->jwt('api')->parse($again->tokens->refreshToken?->reveal());
 
         self::assertIsString($claims['jti'] ?? null);
         self::assertTrue(RefreshTokenHasher::verify($claims['jti'], (string) $record->getRefreshKey()));
@@ -200,7 +200,7 @@ final class SessionServiceTest extends TestCase
 
         $this->bearer($again->tokens->accessToken->reveal())->assertOk()->assertJson(['session' => $record->getKey()]);
 
-        $refused = self::sessionsOf($this->freshGuard())->refresh($current->refreshToken->reveal());
+        $refused = self::sessionsOf($this->freshGuard())->refresh($current->refreshToken?->reveal());
 
         self::assertSame(FailureReason::SESSION_REVOKED, $refused->reason);
         self::assertNull(Session::query()->whereKey($record->getKey())->firstOrFail()->getRevokedAt());
@@ -225,17 +225,17 @@ final class SessionServiceTest extends TestCase
 
         $this->bearer($first->tokens->accessToken->reveal())->assertOk()->assertJson(['session' => $first->record->getKey()]);
 
-        $again = $this->signIn(refreshToken: $first->tokens->refreshToken->reveal());
+        $again = $this->signIn(refreshToken: $first->tokens->refreshToken?->reveal());
 
         $this->bearer($first->tokens->accessToken->reveal())->assertUnauthorized();
         $this->bearer($again->tokens->accessToken->reveal())->assertOk()->assertJson(['session' => $again->record->getKey()]);
 
-        self::assertSame(FailureReason::SESSION_REVOKED, self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken->reveal())->reason);
+        self::assertSame(FailureReason::SESSION_REVOKED, self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken?->reveal())->reason);
         $listed = Auth::sessions('api')->sessions($identity)->items();
 
         self::assertSame([IdentifierCoercion::stringify($again->record->getKey())], array_map(static fn (SessionSummary $summary): string => $summary->id, $listed));
 
-        $refreshed = self::sessionsOf($this->freshGuard())->refresh($again->tokens->refreshToken->reveal())->session;
+        $refreshed = self::sessionsOf($this->freshGuard())->refresh($again->tokens->refreshToken?->reveal())->session;
 
         self::assertSame($again->record->getKey(), $refreshed?->record->getKey());
     }
@@ -283,9 +283,9 @@ final class SessionServiceTest extends TestCase
 
         $this->advance(200 * 86400);
 
-        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken->reveal())->session);
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken?->reveal())->session);
 
-        $again = $this->signIn(refreshToken: $first->tokens->refreshToken->reveal());
+        $again = $this->signIn(refreshToken: $first->tokens->refreshToken?->reveal());
 
         self::assertNotSame($first->record->getKey(), $again->record->getKey());
         self::assertSame('superseded', Session::query()->whereKey($first->record->getKey())->firstOrFail()->getRevokedReason());
@@ -306,17 +306,17 @@ final class SessionServiceTest extends TestCase
         $this->seedIdentity();
 
         $first     = $this->signIn();
-        $refreshed = self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken->reveal())->session?->tokens;
+        $refreshed = self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken?->reveal())->session?->tokens;
 
         self::assertNotNull($refreshed);
 
-        $previous = $this->signIn(refreshToken: $first->tokens->refreshToken->reveal());
+        $previous = $this->signIn(refreshToken: $first->tokens->refreshToken?->reveal());
 
         $this->advance(3600);
 
-        self::sessionsOf($this->freshGuard())->refresh($refreshed->refreshToken->reveal());
+        self::sessionsOf($this->freshGuard())->refresh($refreshed->refreshToken?->reveal());
 
-        $older = $this->signIn(refreshToken: $first->tokens->refreshToken->reveal());
+        $older = $this->signIn(refreshToken: $first->tokens->refreshToken?->reveal());
 
         self::assertNotSame($first->record->getKey(), $previous->record->getKey());
         self::assertNotSame($first->record->getKey(), $older->record->getKey());
@@ -341,7 +341,7 @@ final class SessionServiceTest extends TestCase
 
         $before = (array) DB::table('authentication_sessions')->where('id', $first->record->getKey())->first();
 
-        self::assertNotSame($first->record->getKey(), $this->signIn(refreshToken: $first->tokens->refreshToken->reveal())->record->getKey());
+        self::assertNotSame($first->record->getKey(), $this->signIn(refreshToken: $first->tokens->refreshToken?->reveal())->record->getKey());
         self::assertSame($before, (array) DB::table('authentication_sessions')->where('id', $first->record->getKey())->first());
     }
 
@@ -364,15 +364,15 @@ final class SessionServiceTest extends TestCase
         $ada = $this->signIn();
         $row = (array) DB::table('authentication_sessions')->where('id', $ada->record->getKey())->first();
 
-        self::assertNotSame($ada->record->getKey(), $this->signIn('bea@example.test', refreshToken: $ada->tokens->refreshToken->reveal())->record->getKey());
-        self::assertNotSame($ada->record->getKey(), $this->signIn(guard: 'admin', refreshToken: $ada->tokens->refreshToken->reveal())->record->getKey());
+        self::assertNotSame($ada->record->getKey(), $this->signIn('bea@example.test', refreshToken: $ada->tokens->refreshToken?->reveal())->record->getKey());
+        self::assertNotSame($ada->record->getKey(), $this->signIn(guard: 'admin', refreshToken: $ada->tokens->refreshToken?->reveal())->record->getKey());
         self::assertSame($row, (array) DB::table('authentication_sessions')->where('id', $ada->record->getKey())->first());
 
         $admin = $this->signIn(guard: 'admin');
 
         Session::query()->whereKey($admin->record->getKey())->update(['guard' => 'api']);
 
-        $this->signIn(guard: 'admin', refreshToken: $admin->tokens->refreshToken->reveal());
+        $this->signIn(guard: 'admin', refreshToken: $admin->tokens->refreshToken?->reveal());
 
         self::assertNull(Session::query()->whereKey($admin->record->getKey())->firstOrFail()->getRevokedAt());
 
@@ -380,12 +380,12 @@ final class SessionServiceTest extends TestCase
 
         $second  = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
         $session = $this->signIn('member@example.test', guard: 'members', principal: $first);
-        $other   = $this->signIn('member@example.test', guard: 'members', refreshToken: $session->tokens->refreshToken->reveal(), principal: $second);
+        $other   = $this->signIn('member@example.test', guard: 'members', refreshToken: $session->tokens->refreshToken?->reveal(), principal: $second);
 
         self::assertNotSame($session->record->getKey(), $other->record->getKey());
         self::assertNull(Session::query()->whereKey($session->record->getKey())->firstOrFail()->getRevokedAt());
 
-        $same = $this->signIn('member@example.test', guard: 'members', refreshToken: $session->tokens->refreshToken->reveal(), principal: $first);
+        $same = $this->signIn('member@example.test', guard: 'members', refreshToken: $session->tokens->refreshToken?->reveal(), principal: $first);
 
         self::assertNotSame($session->record->getKey(), $same->record->getKey());
         self::assertSame('superseded', Session::query()->whereKey($session->record->getKey())->firstOrFail()->getRevokedReason());
@@ -444,7 +444,7 @@ final class SessionServiceTest extends TestCase
 
         app()->instance(AdditionalFactorPolicy::class, $factors);
 
-        $again = $this->signIn(refreshToken: $first->tokens->refreshToken->reveal());
+        $again = $this->signIn(refreshToken: $first->tokens->refreshToken?->reveal());
 
         self::assertSame([$first->record->getKey(), null], $proven);
         self::assertNotSame($first->record->getKey(), $again->record->getKey());
@@ -543,7 +543,7 @@ final class SessionServiceTest extends TestCase
         });
 
         try {
-            $this->signIn(refreshToken: $first->tokens->refreshToken->reveal());
+            $this->signIn(refreshToken: $first->tokens->refreshToken?->reveal());
             self::fail('Expected the sign-in to fail after the swap.');
         } catch (\RuntimeException $exception) {
             self::assertSame('failed after the swap', $exception->getMessage());
@@ -555,7 +555,7 @@ final class SessionServiceTest extends TestCase
         self::assertSame($key, $record->getRefreshKey());
         self::assertNull($record->getRevokedAt());
         self::assertSame(1, Session::query()->count());
-        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken->reveal())->session);
+        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken?->reveal())->session);
         self::assertNull(Session::query()->whereKey($first->record->getKey())->firstOrFail()->getRevokedAt());
     }
 
@@ -642,7 +642,7 @@ final class SessionServiceTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertSame('listener failed', $this->failedRefresh($session->tokens->refreshToken->reveal()));
+        self::assertSame('listener failed', $this->failedRefresh($session->tokens->refreshToken?->reveal()));
         self::assertSame([], $this->recordedClasses());
 
         DB::rollBack();
@@ -652,7 +652,7 @@ final class SessionServiceTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertSame('listener failed', $this->failedRefresh($session->tokens->refreshToken->reveal()));
+        self::assertSame('listener failed', $this->failedRefresh($session->tokens->refreshToken?->reveal()));
 
         DB::commit();
 

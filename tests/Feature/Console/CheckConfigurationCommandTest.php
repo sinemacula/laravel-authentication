@@ -154,9 +154,28 @@ final class CheckConfigurationCommandTest extends TestCase
             ['auth.guards.api.sign_in' => ['password_identifier' => 'Email']],
             '[api] auth.guards.api.sign_in.password_identifier must name the identifier column',
         ];
-        yield 'a malformed refresh token transport' => [
-            ['auth.guards.api.refresh_token' => ['sources' => ['cookie']]],
+        yield 'a cookie application without a path' => [
+            ['auth.guards.api.refresh_token' => ['transport' => 'cookie']],
             '[api] Refresh token transport for guard [api]: `refresh_token.cookie.path` must be the path of the refresh route',
+        ];
+        yield 'an unknown refresh token transport' => [
+            ['auth.guards.api.refresh_token' => ['transport' => 'browser']],
+            '[api] Refresh token transport for guard [api]: `refresh_token.transport` must be `body` or `cookie`.',
+        ];
+        yield 'a refresh token block that still lists sources' => [
+            ['auth.guards.api.refresh_token' => ['sources' => ['cookie']]],
+            '[api] Refresh token transport for guard [api]: the guard\'s `refresh_token` has an unknown key `sources`.',
+        ];
+        yield 'a refresh cookie that still names a domain' => [
+            ['auth.guards.api.refresh_token' => ['cookie' => ['domain' => 'example.com']]],
+            '[api] Refresh token transport for guard [api]: the guard\'s `refresh_token.cookie` has an unknown key `domain`.',
+        ];
+        yield 'two cookie applications sharing a cookie name' => [
+            [
+                'auth.guards.api.refresh_token'   => ['transport' => 'cookie', 'cookie' => ['name' => '__Secure-shared', 'path' => '/auth']],
+                'auth.guards.admin.refresh_token' => ['transport' => 'cookie', 'cookie' => ['name' => '__Secure-shared', 'path' => '/admin']],
+            ],
+            '[api] Refresh token transport for guard [api]: its refresh cookie `__Secure-shared` is also guard [admin]\'s; give one of them another `refresh_token.cookie.name`.',
         ];
         yield 'a refresh cookie name PHP renames' => [
             ['authentication.refresh_token.cookie.name' => 'app.refresh'],
@@ -167,7 +186,7 @@ final class CheckConfigurationCommandTest extends TestCase
             '[api] Refresh token transport for guard [api]: `refresh_token.body_field` must be a field name without `.`, spaces or brackets.',
         ];
         yield 'a refresh cookie path with a trailing newline' => [
-            ['auth.guards.api.refresh_token' => ['sources' => ['cookie'], 'cookie' => ['path' => "/auth\n"]]],
+            ['auth.guards.api.refresh_token' => ['transport' => 'cookie', 'cookie' => ['path' => "/auth\n"]]],
             '[api] Refresh token transport for guard [api]: `refresh_token.cookie.path` must be the path of the refresh route',
         ];
         yield 'a CSRF header a browser sends on its own' => [
@@ -1008,9 +1027,9 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
-     * A package-wide `__Host-` cookie name, on the root path for the guard that
-     * reads the cookie, passes for that guard and for the guards that read the
-     * body or a header and never set the cookie.
+     * A package-wide `__Host-` cookie name, on the root path for the guard
+     * whose transport is the cookie, passes for that guard and for the guards
+     * whose transport is the body and never set the cookie.
      *
      * @return void
      */
@@ -1018,7 +1037,7 @@ final class CheckConfigurationCommandTest extends TestCase
     {
         config()->set([
             'authentication.refresh_token.cookie.name' => '__Host-refresh_token',
-            'auth.guards.admin.refresh_token'          => ['sources' => ['cookie'], 'cookie' => ['path' => '/']],
+            'auth.guards.admin.refresh_token'          => ['transport' => 'cookie', 'cookie' => ['path' => '/']],
         ]);
 
         $passing = $this->check();

@@ -131,8 +131,8 @@ final class RefreshReplayIntegrationTest extends TestCase
 
         self::assertInstanceOf(TokenPair::class, $winner);
         self::assertInstanceOf(TokenPair::class, $loser);
-        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->claims($winner->refreshToken->reveal())[Claims::JWT_ID->value]);
-        self::assertSame($this->claims($winner->refreshToken->reveal())[Claims::JWT_ID->value], $this->claims($loser->refreshToken->reveal())[Claims::JWT_ID->value]);
+        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->claims($winner->refreshToken?->reveal())[Claims::JWT_ID->value]);
+        self::assertSame($this->claims($winner->refreshToken?->reveal())[Claims::JWT_ID->value], $this->claims($loser->refreshToken?->reveal())[Claims::JWT_ID->value]);
         self::assertNull($this->stored($session)->getRevokedAt());
         self::assertSame(RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)), $this->stored($session)->getRefreshKey());
     }
@@ -207,7 +207,7 @@ final class RefreshReplayIntegrationTest extends TestCase
 
         $this->bearer($pair->accessToken->reveal())->assertUnauthorized();
 
-        self::assertNull(GuardSessions::of($this->guard())->refresh($pair->refreshToken->reveal())->session);
+        self::assertNull(GuardSessions::of($this->guard())->refresh($pair->refreshToken?->reveal())->session);
         self::assertSame([
             [AuthenticationFlow::REFRESH, FailureReason::ROTATION_REUSE],
             [AuthenticationFlow::BEARER, FailureReason::SESSION_REVOKED],
@@ -295,7 +295,7 @@ final class RefreshReplayIntegrationTest extends TestCase
         $retry = GuardSessions::of($this->guard())->refresh($token)->session?->tokens;
 
         self::assertNotNull($retry);
-        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->claims($retry->refreshToken->reveal())[Claims::JWT_ID->value]);
+        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->claims($retry->refreshToken?->reveal())[Claims::JWT_ID->value]);
 
         $this->moveClockTo($this->now->copy()->addSeconds(30));
 
@@ -399,7 +399,7 @@ final class RefreshReplayIntegrationTest extends TestCase
 
         self::assertSame('mysql', $driver);
         self::assertNotNull($result);
-        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->claims($result->refreshToken->reveal())[Claims::JWT_ID->value]);
+        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->claims($result->refreshToken?->reveal())[Claims::JWT_ID->value]);
     }
 
     /**

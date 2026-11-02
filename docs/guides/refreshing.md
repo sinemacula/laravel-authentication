@@ -43,16 +43,20 @@ a further factor the session lacks returns it to pending instead: `isPending()`,
 `session`, until the factor is satisfied (see [Tenant authentication
 policies](sessions.md#tenant-authentication-policies)).
 
-The guard reads the token only from the sources its `refresh_token` settings list: `body` and `header` by default, the
-`refresh_token` field of the JSON or form body (never the query string) and the `X-Refresh-Token` header, or the
-`cookie` (see [Refresh token cookie](#refresh-token-cookie)). A request that carries a token in more than one of them,
-equal or not, is refused as `refresh_token_conflict`: the server never chooses between two tokens, and a request cannot
-get past the cookie's cross-site checks by also sending the token another way. A value that is not one non-empty string
-is `token_invalid`. A refusal by the transport dispatches `Attempting`, `Failed` and `AuthenticationFailed` (flow
-`refresh`) like any failed refresh, without touching a session or counting against a limit; a token the exchange refuses
-fails with the exchange's reason, `rate_limited` included. The result's `source` (`RefreshTokenSource::COOKIE`, `BODY`
-or `HEADER`) says where the token came from, so a refresh read from the cookie can be answered with a cookie.
-`Auth::refreshTransport('api')->read($request)` reads a request the same way without refreshing.
+Each application's refresh token travels one way, its `refresh_token.transport`: `body` (the default) reads it from
+the `refresh_token` field of the JSON or form body (never the query string) or the `X-Refresh-Token` header (`header`
+set to `null` reads the body field only), and hands it back in the pair; `cookie` reads it only from the application's
+`HttpOnly` cookie and hands back the cookie instead (see [Refresh token cookie](#refresh-token-cookie)). Every request
+is read in all three carriers, whatever the transport. A request that carries a token in more than one of them, or the
+cookie twice, equal or not, is refused as `refresh_token_conflict`: the server never chooses between two tokens, and a
+request cannot get past the cookie's cross-site checks by also sending the token another way. A request that carries
+it only in a carrier that is not the application's transport (the cookie to a body application, the body or a header
+to a cookie application) is refused as `refresh_transport_mismatch`. A value that is not one non-empty string is
+`token_invalid`. A refusal by the transport dispatches `Attempting`, `Failed` and `AuthenticationFailed` (flow
+`refresh`) like any failed refresh, without touching a session or counting against a limit; a token the exchange
+refuses fails with the exchange's reason, `rate_limited` included. The result's `source` (`RefreshTokenSource::COOKIE`,
+`BODY` or `HEADER`) says where the token came from. `Auth::refreshTransport('api')->read($request)` reads a request the
+same way without refreshing.
 
 The package defaults are `authentication.refresh_token`; a guard overrides any of them in a `refresh_token` block on its
 `config/auth.php` entry, where a key it sets wins, inside `cookie` too:
@@ -62,14 +66,16 @@ The package defaults are `authentication.refresh_token`; a guard overrides any o
     'driver'        => 'jwt',
     'provider'      => 'users',
     'application'   => ['methods' => ['password']],
-    'refresh_token' => ['sources' => ['header'], 'header' => 'X-App-Refresh'],
+    'refresh_token' => ['header' => 'X-App-Refresh'],
 ],
 ```
 
 A malformed value or an unknown key fails closed with an `InvalidArgumentException` naming the guard and the key, read
-when the guard reads a token. `Auth::sessions('api')->refresh($refreshToken)` refreshes with a token your code reads
-itself and answers the same `RefreshResult`, without a `source`; never pass it a token read from the refresh cookie,
-which only `refreshFromRequest()` reads with the cookie's cross-site checks.
+when a sign-in, refresh or switch reads the transport, and `authentication:check` reports it.
+`Auth::sessions('api')->refresh($refreshToken)` refreshes a body application with a token your code reads itself and
+answers the same `RefreshResult`, without a `source`. A cookie application's token is read only from its cookie, with
+the cookie's cross-site checks, so on a cookie application `refresh($refreshToken)` (and `switchTo()`) throws a
+`LogicException`: use `refreshFromRequest()`.
 
 A refresh is held to the guard as well as the token. A session the row records for another guard (or for none) fails
 with `session_guard_mismatch` and is left alone, even for a token that would be a replay, and a bearer token naming it
@@ -133,7 +139,7 @@ example above does.
 
 A browser application can keep its refresh token where its scripts cannot read it, in an `HttpOnly` cookie the API
 sets on its own responses. The token lives only in the browser; nothing is stored on the server, so the API stays
-stateless. List the cookie as the guard's source and give it the path its routes live under:
+stateless. Give the application the `cookie` transport and the path its routes live under:
 
 ```php
 'browser' => [
@@ -141,23 +147,31 @@ stateless. List the cookie as the guard's source and give it the path its routes
     'provider'      => 'users',
     'application'   => ['methods' => ['password']],
     'refresh_token' => [
-        'sources' => ['cookie'],
-        'cookie'  => ['path' => '/auth'],
+        'transport' => 'cookie',
+        'cookie'    => ['path' => '/auth'],
     ],
 ],
 ```
 
+A cookie application never hands its code the plain refresh token: the pair of every sign-in, `start()`, activation
+(`satisfy()`, `choose()`), refresh and switch carries `refreshToken` as `null` and `refreshCookie`, a
+`Http\RefreshCookie` that holds the token as a `Secret` with the cookie's name, path and expiry. Attach it to the
+response with `attachTo()`, which also marks the response `Cache-Control: no-store`; `cookie()` makes the Symfony
+`Cookie` itself, revealing the token into it, for a response you build some other way. A body application's pair
+carries the token and no cookie. The pending credential of a pending sign-in is never a cookie: it travels in the body
+for every application.
+
 Put the routes that read the cookie under that path (refresh, a switch, see
 [Switching principal or tenant](sessions.md#switching-principal-or-tenant), and sign-in for a browser that proves its
-session), and set the cookie with the guard's transport whenever the API hands out a pair:
+session), and attach the cookie whenever the API hands out a pair:
 
 ```php
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
+use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 
 Route::post('/auth/sign-in', function (Request $request) {
@@ -168,12 +182,11 @@ Route::post('/auth/sign-in', function (Request $request) {
     // A browser that still holds a refresh cookie proves its session, which the sign-in then replaces.
     $presented = $transport->read($request);
     $context   = SignInContext::fromRequest($request, refreshToken: $presented instanceof PresentedRefreshToken ? $presented->token : null);
-    $session   = Auth::sessions('browser')->signIn('password', $request->only('email', 'password'), $context)->session;
+    $tokens    = Auth::sessions('browser')->signIn('password', $request->only('email', 'password'), $context)->session?->tokens;
 
-    abort_if($session === null, 401);
+    abort_if($tokens === null, 401);
 
-    return response()->json(['access_token' => $session->tokens->accessToken])
-        ->withCookie($transport->cookie($session->tokens->refreshToken, $session->record));
+    return $tokens->refreshCookie->attachTo(SecretResponse::json(['access_token' => $tokens->accessToken]));
 });
 
 Route::post('/auth/refresh', function () {
@@ -183,30 +196,34 @@ Route::post('/auth/refresh', function () {
         throw new ThrottleRequestsException(__('Too Many Attempts.'), null, ['Retry-After' => $result->retryAfter]);
     }
 
-    abort_unless($result?->session !== null && $result->source === RefreshTokenSource::COOKIE, 401);
+    abort_if($result?->session === null, 401);
 
-    $session = $result->session;
+    $tokens = $result->session->tokens;
 
-    return response()->json(['access_token' => $session->tokens->accessToken])
-        ->withCookie(Auth::refreshTransport('browser')->cookie($session->tokens->refreshToken, $session->record));
-});
-
-Route::post('/logout', function () {
-    Auth::guard('browser')->logout();
-
-    return response()->noContent()->withCookie(Auth::refreshTransport('browser')->forgetCookie());
+    return $tokens->refreshCookie->attachTo(SecretResponse::json(['access_token' => $tokens->accessToken]));
 });
 ```
 
-The cookie is `HttpOnly`, `Secure` and `SameSite=Strict`, named `__Secure-refresh_token` by default, scoped to the
-configured `path` and `domain` (`null`, the default, keeps it to the API's host), and expires when the session
-does, as the refresh token in it does. `forgetCookie()` returns the same cookie already expired; any route may send it,
-a logout route outside the cookie's path included, since a path limits where the browser sends a cookie, not which
-response may set it. On a guard that reads the cookie, a `__Host-` name is accepted only with the path `/` and no
-domain, as browsers require; a guard that reads only the body or a header never sets the cookie, so a package-wide
-`__Host-` name does not bind it. Setting or clearing the cookie on a guard that does not list `cookie` throws a
-`LogicException`. Names PHP renames when it parses a request are refused, as the token would never be found under
-them: a `.` in the cookie or a header name, and a `.`, a space or a bracket in `body_field`.
+Signing out clears the cookie (see [Signing out and revoking sessions](sessions.md#signing-out-and-revoking-sessions)).
+
+The cookie is `HttpOnly`, `Secure` and `SameSite=Strict`, host-only (it never names a `Domain`), scoped to the
+configured `path`, and expires when the session does, as the refresh token in it does. Its name is the application's
+own unless `cookie.name` sets one: `__Host-<guard>_refresh_token` for a cookie application whose path is `/`,
+otherwise `__Secure-<guard>_refresh_token` (`__Secure-browser_refresh_token` above), so two browser applications on one
+host never overwrite each other's cookie, whatever their paths. A guard name that makes no cookie name (one with a
+space or a separator, say) fails closed until `cookie.name` is set, and two cookie applications with the same name fail
+closed, naming both guards. `forgetCookie()` returns the same cookie already expired; any route may send it, a logout
+route outside the cookie's path included, since a path limits where the browser sends a cookie, not which response
+may set it. A `__Host-` name set for a cookie application is accepted only with the path `/`, as browsers require; a
+body application never sets the cookie, so a package-wide `__Host-` name does not bind it. Clearing the cookie of a
+body application throws a `LogicException`. Names PHP renames when it parses a request are refused, as the token would
+never be found under them: a `.` in the cookie or a header name, and a `.`, a space or a bracket in `body_field`.
+
+"The cookie, the application and the session agree" holds on every refresh and switch: the cookie read is the
+application's own name, unique among cookie applications; it is the application's transport
+(`refresh_transport_mismatch` otherwise); the token's `client_id` is the application (`token_invalid` otherwise, so a
+token another application issued fails even in this one's cookie); the session it names is the application's
+(`session_guard_mismatch`, without touching that session); and the cookie a result sets is that application's.
 
 A browser attaches the cookie by itself, to any request for its path, so a refresh read from it is held to two checks a
 cross-site page cannot pass: its `Origin` must be the API's own (the request's scheme and host) or one of
@@ -217,8 +234,10 @@ its own (`Content-Type`, `Origin`, any `Sec-` header and the like, also when spe
 checks, the sign-in above all: a cross-site page can auto-submit a form to it with an attacker's credentials, and a
 browser keeps a `SameSite=Strict` cookie set by the response to such a top-level navigation, so without the check the
 victim's browser would hold the attacker's refresh cookie and its own scripts would then pass the refresh checks inside
-the attacker's account. `Auth::refreshTransport('browser')->isSameSiteRequest($request)` is that check, as the sign-in
-route above uses it. A script refreshes with:
+the attacker's account. The package cannot make that check for you, since the callback of an external provider's sign-in
+(`start()`) arrives as just such a cross-site navigation;
+`Auth::refreshTransport('browser')->isSameSiteRequest($request)` is the check, as the sign-in route above uses it. A
+script refreshes with:
 
 ```js
 await fetch('/auth/refresh', {method: 'POST', credentials: 'include', headers: {'X-Requested-With': 'fetch'}});
@@ -229,11 +248,12 @@ a cookie of the same name: a `__Secure-` cookie may name the parent `Domain`, an
 `Path` before the API's own. PHP keeps only the first cookie of a name, so a request that carries the refresh cookie
 twice (counted under the name PHP files each one under) is refused as `refresh_token_conflict`, and the server never
 refreshes with the planted one. The planted cookie still fails every refresh until it expires, though, and the API
-cannot clear it, since `forgetCookie()` names the guard's own domain and path, not the planter's; and a browser that
-holds no refresh cookie of its own would send the planted one alone. If you do not trust every host of the site, name
-the cookie `__Host-refresh_token` with the path `/`: a browser keeps a `__Host-` cookie only from the API's own host,
-with no `Domain`, so no other host can plant one. The cost is that the cookie then rides on every request to the API's
-host, not only the routes that read it.
+cannot clear it, since `forgetCookie()` names the API's own host and path, not the planter's; and a browser that holds
+no refresh cookie of its own would send the planted one alone. If you do not trust every host of the site, give the
+application the path `/`, so its name is `__Host-<guard>_refresh_token`: a browser keeps a `__Host-` cookie only from
+the API's own host, with no `Domain`, so no other host can plant one. The cost is that the cookie then rides on every
+request to the API's host, not only the routes that read it; no other application on the host reads it, since its
+name is not theirs.
 
 `SameSite=Strict` keeps the cookie from being sent from another site at all, so `allowed_origins` serves origins of
 the same site, such as an application on `app.example.com` calling an API on `api.example.com`. For such an origin,
@@ -247,7 +267,7 @@ it out:
 
 ```php
 ->withMiddleware(function (Middleware $middleware) {
-    $middleware->encryptCookies(except: ['__Secure-refresh_token']);
+    $middleware->encryptCookies(except: ['__Secure-browser_refresh_token']);
 })
 ```
 

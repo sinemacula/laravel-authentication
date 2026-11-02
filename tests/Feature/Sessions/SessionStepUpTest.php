@@ -156,7 +156,7 @@ final class SessionStepUpTest extends TestCase
         $this->bearer($answer['access_token'])->assertOk()->assertExactJson(['session' => $key]);
         $this->bearer($signedIn->tokens->accessToken->reveal())->assertOk()->assertExactJson(['session' => $key]);
 
-        self::assertTrue($this->sessions()->refresh($signedIn->tokens->refreshToken->reveal())->isRefreshed());
+        self::assertTrue($this->sessions()->refresh($signedIn->tokens->refreshToken?->reveal())->isRefreshed());
     }
 
     /**
@@ -282,11 +282,11 @@ final class SessionStepUpTest extends TestCase
 
         $this->clockAt($issuedAt);
 
-        $refreshed = $this->sessions('members')->refresh($signedIn->tokens->refreshToken->reveal())->session;
+        $refreshed = $this->sessions('members')->refresh($signedIn->tokens->refreshToken?->reveal())->session;
 
         self::assertNotNull($refreshed);
 
-        $switched = $this->sessions('members')->switchTo($refreshed->tokens->refreshToken->reveal(), SwitchTarget::principal($second))->session;
+        $switched = $this->sessions('members')->switchTo($refreshed->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->session;
 
         self::assertNotNull($switched);
 

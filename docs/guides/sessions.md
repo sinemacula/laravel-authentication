@@ -185,7 +185,6 @@ active tenant the same way. A `SwitchTarget` says where the session goes:
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
@@ -215,10 +214,9 @@ if ($result->isPending()) {
 
 $tokens = $result->session->tokens;
 
-return $result->source === RefreshTokenSource::COOKIE
-    ? SecretResponse::json(['access_token' => $tokens->accessToken])
-        ->withCookie(Auth::refreshTransport('api')->cookie($tokens->refreshToken->reveal(), $result->session->record))
-    : SecretResponse::json(['access_token' => $tokens->accessToken, 'refresh_token' => $tokens->refreshToken]);
+// A cookie application's pair carries the cookie that sets the new refresh token; a body application's, the token.
+return $tokens->refreshCookie?->attachTo(SecretResponse::json(['access_token' => $tokens->accessToken]))
+    ?? SecretResponse::json(['access_token' => $tokens->accessToken, 'refresh_token' => $tokens->refreshToken]);
 ```
 
 `SwitchTarget::principal($principal)` switches to another principal of the identity in its default tenant (its own),
@@ -229,13 +227,14 @@ that belongs to no tenant may by default).
 
 The refresh token proves the session, never an access token: a stolen access token lives minutes and must not mint a
 refresh credential. `switchFromRequest()` reads it as the session service's `refreshFromRequest()` does (see
-[Refreshing](refreshing.md)), through the guard's refresh token transport, so it comes from the one source the guard
-allows and a token from the refresh cookie gets the cookie's cross-site checks; put the switch route under the cookie's
-path. It returns `null` when the request carries no token, and a token the transport refuses fails with its reason
-(`refresh_token_conflict`, `cross_site_request`, `token_invalid`, reported as an `AuthenticationFailed` of flow
-`switch`) without the session being touched. The result's `source` says where the token came from, so a switch read from
-the cookie answers with the new refresh token in the cookie, as a refresh does. `switchTo($refreshToken, $target)`
-remains for a token your code reads itself; never pass it one read from the refresh cookie.
+[Refreshing](refreshing.md)), through the application's refresh token transport, so it comes by the application's own
+transport and a token from the refresh cookie gets the cookie's cross-site checks; put the switch route under the
+cookie's path. It returns `null` when the request carries no token, and a token the transport refuses fails with its
+reason (`refresh_token_conflict`, `refresh_transport_mismatch`, `cross_site_request`, `token_invalid`, reported as an
+`AuthenticationFailed` of flow `switch`) without the session being touched. The result's `source` says where the token
+came from, and a cookie application's switched pair carries the cookie that sets the new refresh token, never the
+token, as a refresh does. `switchTo($refreshToken, $target)` remains for a body application's token your code reads
+itself; on a cookie application it throws a `LogicException`.
 
 A switch is judged as a refresh is: counted against the same refresh limits (`rate_limited`, with the wait in the
 result's `retryAfter`: a switch returns its refusal, as a refresh does, so answer it with `Retry-After` as above), the

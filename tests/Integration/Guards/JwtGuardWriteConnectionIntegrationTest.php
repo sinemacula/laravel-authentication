@@ -245,7 +245,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $pair = GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST')))->refresh($refreshToken)->session?->tokens;
 
         self::assertNotNull($pair);
-        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->authManager()->jwt('api')->parse($pair->refreshToken->reveal())['jti'] ?? null);
+        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->authManager()->jwt('api')->parse($pair->refreshToken?->reveal())['jti'] ?? null);
         self::assertSame([], $updates->getArrayCopy());
     }
 
@@ -441,7 +441,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         self::assertNotNull($pair);
         self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->accessToken->reveal())['exp'] ?? null);
-        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->refreshToken->reveal())['exp'] ?? null);
+        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->refreshToken?->reveal())['exp'] ?? null);
         self::assertSame(RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)), $stored);
     }
 
@@ -473,8 +473,8 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         self::assertNotNull($pair);
         self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->accessToken->reveal())['exp'] ?? null);
-        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->refreshToken->reveal())['exp'] ?? null);
-        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $tokens->parse($pair->refreshToken->reveal())['jti'] ?? null);
+        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->refreshToken?->reveal())['exp'] ?? null);
+        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $tokens->parse($pair->refreshToken?->reveal())['jti'] ?? null);
     }
 
     /**

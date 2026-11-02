@@ -113,7 +113,7 @@ final class StorageConnectionSessionsTest extends TestCase
 
         $digest = $this->records()->value('refresh_key');
 
-        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken->reveal())->session);
+        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken?->reveal())->session);
         self::assertNotSame($digest, $this->records()->value('refresh_key'));
     }
 

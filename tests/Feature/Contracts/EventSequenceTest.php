@@ -443,7 +443,7 @@ final class EventSequenceTest extends TestCase
 
         $first    = $this->signedIn();
         $sessions = $this->sessions();
-        $context  = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken->reveal());
+        $context  = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken?->reveal());
 
         $this->nameKeys($identity, $identity, $first->record);
         $this->recordSequence();
@@ -692,7 +692,7 @@ final class EventSequenceTest extends TestCase
         $identity = $this->seedIdentity();
 
         $session = $this->signedIn();
-        $refresh = $session->tokens->refreshToken->reveal();
+        $refresh = $session->tokens->refreshToken?->reveal();
         $guard   = $this->freshGuard();
 
         $this->nameKeys($identity, $identity, $session->record);
@@ -725,7 +725,7 @@ final class EventSequenceTest extends TestCase
         $identity = $this->seedIdentity();
 
         $session = $this->signedIn();
-        $refresh = $session->tokens->refreshToken->reveal();
+        $refresh = $session->tokens->refreshToken?->reveal();
 
         $this->nameKeys($identity, $identity, $session->record);
         $this->recordSequence();
@@ -765,7 +765,7 @@ final class EventSequenceTest extends TestCase
 
         $session = $this->signedIn();
         $record  = $session->record;
-        $refresh = $session->tokens->refreshToken->reveal();
+        $refresh = $session->tokens->refreshToken?->reveal();
 
         self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($refresh)->session);
 
@@ -835,7 +835,7 @@ final class EventSequenceTest extends TestCase
         $this->namePrincipals($second);
         $this->recordSequence();
 
-        self::assertTrue($sessions->switchTo($session->tokens->refreshToken->reveal(), SwitchTarget::principal($second))->isSwitched());
+        self::assertTrue($sessions->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->isSwitched());
         self::assertSame([
             'PrincipalSwitched members from:p1 i1/p2/s1',
             'Authenticated members i1',

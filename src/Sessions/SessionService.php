@@ -451,6 +451,13 @@ final readonly class SessionService
      * the session as it was, unless the token proved a replay, which revokes
      * the session.
      *
+     * For a body application only: a cookie application's refresh token is read
+     * from its cookie, with the cookie's cross-site checks, by
+     * `switchFromRequest()` alone, so a token handed in here is a
+     * misconfiguration (`LogicException`). A switched session's new pair is
+     * delivered as the application's transport says: a cookie application's
+     * refresh token only in its cookie.
+     *
      * @param  string  $refreshToken
      * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchTarget  $target
      * @return \SineMacula\Laravel\Authentication\Sessions\SwitchResult
@@ -458,6 +465,68 @@ final readonly class SessionService
      * @throws \Throwable
      */
     public function switchTo(#[\SensitiveParameter] string $refreshToken, SwitchTarget $target): SwitchResult
+    {
+        $transport = $this->transport();
+
+        if ($transport->usesCookie()) {
+            throw new \LogicException(SessionRefresh::COOKIE_ONLY);
+        }
+
+        return $this->switchWith($refreshToken, $target, $transport);
+    }
+
+    /**
+     * Switch the session to the target with the refresh token the request
+     * carries, read through the application's refresh token transport, so it
+     * comes by the application's own transport and a cookie passes its
+     * cross-site checks, as `refreshFromRequest()` reads one.
+     *
+     * Returns `null`, dispatching nothing, when the request carries no token. A
+     * token the transport refuses fails with its reason
+     * (`refresh_token_conflict`, `refresh_transport_mismatch`,
+     * `cross_site_request`, `token_invalid`) after `AuthenticationFailed` (flow
+     * `switch`), touching no session; otherwise it is switched as `switchTo()`
+     * switches. The result says where the token was read from.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchTarget  $target
+     * @return ?\SineMacula\Laravel\Authentication\Sessions\SwitchResult
+     *
+     * @throws \Throwable
+     */
+    public function switchFromRequest(SwitchTarget $target): ?SwitchResult
+    {
+        $request   = $this->context->request();
+        $transport = $this->transport();
+        $presented = $transport->read($request);
+
+        if ($presented instanceof PresentedRefreshToken) {
+            return $this->switchWith($presented->token->reveal(), $target, $transport)->withSource($presented->source);
+        }
+
+        if ($presented !== null) {
+
+            $context = new EventContext($this->context->name(), ClientContext::fromRequest($request));
+
+            $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::SWITCH, $presented));
+
+            return SwitchResult::failed($presented);
+        }
+
+        return null;
+    }
+
+    /**
+     * Switch the session the refresh token proves to the target, and deliver
+     * the switched session's pair through the transport.
+     *
+     * @param  string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchTarget  $target
+     * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
+     * @return \SineMacula\Laravel\Authentication\Sessions\SwitchResult
+     *
+     * @throws \Throwable
+     */
+    private function switchWith(#[\SensitiveParameter] string $refreshToken, SwitchTarget $target, RefreshTokenTransport $transport): SwitchResult
     {
         $client = $this->context->client();
         $revoke = function (EloquentSession&Model $record, CarbonImmutable $now) use ($client): bool {
@@ -487,46 +556,7 @@ final readonly class SessionService
             return SwitchResult::pending($outcome->pending, $outcome->credential);
         }
 
-        return $this->switched($outcome, $client);
-    }
-
-    /**
-     * Switch the session to the target with the refresh token the request
-     * carries, read through the guard's refresh token transport, so it comes
-     * from the one source the guard allows and a cookie passes its cross-site
-     * checks, as `refreshFromRequest()` reads one.
-     *
-     * Returns `null`, dispatching nothing, when the request carries no token. A
-     * token the transport refuses fails with its reason
-     * (`refresh_token_conflict`, `cross_site_request`, `token_invalid`) after
-     * `AuthenticationFailed` (flow `switch`), touching no session; otherwise it
-     * is `switchTo()`. The result says where the token was read from, so a
-     * switch read from the cookie can be answered with one.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchTarget  $target
-     * @return ?\SineMacula\Laravel\Authentication\Sessions\SwitchResult
-     *
-     * @throws \Throwable
-     */
-    public function switchFromRequest(SwitchTarget $target): ?SwitchResult
-    {
-        $request   = $this->context->request();
-        $presented = RefreshTokenTransport::forGuard($this->context->name(), $this->container->make(ConfigRepository::class))->read($request);
-
-        if ($presented instanceof PresentedRefreshToken) {
-            return $this->switchTo($presented->token->reveal(), $target)->withSource($presented->source);
-        }
-
-        if ($presented !== null) {
-
-            $context = new EventContext($this->context->name(), ClientContext::fromRequest($request));
-
-            $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::SWITCH, $presented));
-
-            return SwitchResult::failed($presented);
-        }
-
-        return null;
+        return $this->switched($outcome, $client, $transport);
     }
 
     /**
@@ -611,9 +641,15 @@ final readonly class SessionService
             $driver->rehash($this->context->provider(), $identity, $input);
         }
 
-        $outcome = $this->bound($this->establishment->proceed($identity, $selection, $method, $identifierType, $context, $proof, $attempt->windows()));
+        $outcome = $this->establishment->proceed($identity, $selection, $method, $identifierType, $context, $proof, $attempt->windows());
 
-        if ($outcome instanceof SignInResult && $outcome->isSignedIn()) {
+        if ($outcome instanceof Refused) {
+            return $outcome;
+        }
+
+        $outcome = $this->bound($outcome);
+
+        if ($outcome->isSignedIn()) {
             $attempt->release();
         }
 
@@ -701,7 +737,9 @@ final readonly class SessionService
 
         $selection = $this->admitIdentity($reloaded, null) ?? $this->establishment->select($reloaded, $principal, $context);
 
-        return $selection instanceof Refused ? $selection : $this->bound($this->establishment->proceed($reloaded, $selection, $method, null, $context, $proof));
+        $outcome = $selection instanceof Refused ? $selection : $this->establishment->proceed($reloaded, $selection, $method, null, $context, $proof);
+
+        return $outcome instanceof Refused ? $outcome : $this->bound($outcome);
     }
 
     /**
@@ -745,23 +783,43 @@ final readonly class SessionService
     /**
      * Bind the guard to the session a sign-in started, once establishment has
      * scheduled what reports it (`Validated`, `Login`, `Authenticated`,
-     * `PrincipalAssigned` and `SessionAuthenticated`), and answer the result; a
-     * result without a session, and a refusal, bind nothing.
+     * `PrincipalAssigned` and `SessionAuthenticated`), and answer the result
+     * with the session's pair delivered as the application's transport says (a
+     * cookie application's refresh token only in its cookie); a result without
+     * a session binds nothing and is answered as it is.
      *
-     * @template TResult of \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInResult  $result
+     * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
-     * @param  TResult  $result
-     * @return TResult
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
      */
-    private function bound(Refused|SignInResult $result): Refused|SignInResult
+    private function bound(SignInResult $result): SignInResult
     {
-        $session = $result instanceof SignInResult ? $result->session : null;
+        $session = $result->session;
 
-        if ($session !== null) {
-            $this->binding->login($session->identity, $session->principal, $session->record);
+        if ($session === null) {
+            return $result;
         }
 
-        return $result;
+        $tokens = $this->transport()->deliver($session->tokens, $session->record);
+
+        $this->binding->login($session->identity, $session->principal, $session->record);
+
+        return SignInResult::signedIn(new SignedInSession($session->identity, $session->principal, $session->record, $tokens, $session->method));
+    }
+
+    /**
+     * The application's refresh token transport, from the configuration.
+     *
+     * @return \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     */
+    private function transport(): RefreshTokenTransport
+    {
+        return RefreshTokenTransport::forGuard($this->context->name(), $this->container->make(ConfigRepository::class));
     }
 
     /**
@@ -800,11 +858,12 @@ final readonly class SessionService
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal  $switched
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
      * @return \SineMacula\Laravel\Authentication\Sessions\SwitchResult
      *
      * @throws \Throwable
      */
-    private function switched(SwitchedPrincipal $switched, ClientContext $client): SwitchResult
+    private function switched(SwitchedPrincipal $switched, ClientContext $client, RefreshTokenTransport $transport): SwitchResult
     {
         $session = $switched->session;
 
@@ -823,9 +882,11 @@ final readonly class SessionService
             $this->afterCommit->run($session->record, fn () => $this->context->dispatch($event));
         }
 
+        $tokens = $transport->deliver($session->tokens, $session->record);
+
         $this->binding->authenticateAs($session->identity, $session->principal, $session->record, null, $session->tenant);
 
-        return SwitchResult::switched(new SignedInSession($session->identity, $session->principal, $session->record, $session->tokens, (string) $session->method));
+        return SwitchResult::switched(new SignedInSession($session->identity, $session->principal, $session->record, $tokens, (string) $session->method));
     }
 
     /**

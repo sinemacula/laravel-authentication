@@ -489,7 +489,7 @@ final class SignInProofsTest extends TestCase
 
         $this->clockAt($this->now->addHour());
 
-        $context = SignInContext::fromRequest(app('request'), refreshToken: $first->tokens->refreshToken->reveal());
+        $context = SignInContext::fromRequest(app('request'), refreshToken: $first->tokens->refreshToken?->reveal());
         $second  = $this->sessions()->signIn('password', self::credentials(), $context)->session;
 
         self::assertNotNull($second);

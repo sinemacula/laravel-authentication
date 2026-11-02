@@ -159,7 +159,7 @@ final class SignInEventSerializationTest extends TestCase
 
         $this->recordEvents([SessionRevoked::class]);
 
-        $context = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken->reveal());
+        $context = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken?->reveal());
 
         self::assertTrue($this->sessions('members')->start($this->member, $this->membership, 'sso', $context)->isSignedIn());
 
@@ -258,7 +258,7 @@ final class SignInEventSerializationTest extends TestCase
         self::assertNotNull($digest);
         self::assertStringContainsString('ModelIdentifier', $queued);
         self::assertStringNotContainsString($session->tokens->accessToken->reveal(), $queued);
-        self::assertStringNotContainsString($session->tokens->refreshToken->reveal(), $queued);
+        self::assertStringNotContainsString($session->tokens->refreshToken?->reveal(), $queued);
         self::assertStringNotContainsString($digest, $queued);
         self::assertStringNotContainsString($hash, $queued);
     }

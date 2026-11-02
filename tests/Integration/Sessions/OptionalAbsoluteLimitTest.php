@@ -119,11 +119,11 @@ final class OptionalAbsoluteLimitTest extends TestCase
 
         self::assertNull($this->stored($session)->getAbsoluteExpiresAt());
         self::assertSame($idle->getTimestamp(), $this->stored($session)->getIdleExpiresAt()?->getTimestamp());
-        self::assertSame($idle->getTimestamp(), $this->expiryOf($session->tokens->refreshToken->reveal()));
+        self::assertSame($idle->getTimestamp(), $this->expiryOf($session->tokens->refreshToken?->reveal()));
 
         $this->moveClocksTo($this->now->addDays(29));
 
-        $refreshed = $this->sessions(self::UNLIMITED)->refresh($session->tokens->refreshToken->reveal())->session;
+        $refreshed = $this->sessions(self::UNLIMITED)->refresh($session->tokens->refreshToken?->reveal())->session;
 
         self::assertNotNull($refreshed);
         self::assertNull($this->stored($session)->getAbsoluteExpiresAt());
@@ -192,7 +192,7 @@ final class OptionalAbsoluteLimitTest extends TestCase
 
         $this->moveClocksTo($this->now->addHour());
 
-        self::assertNotNull($this->sessions(self::UNLIMITED)->refresh($unlimited->tokens->refreshToken->reveal())->session);
+        self::assertNotNull($this->sessions(self::UNLIMITED)->refresh($unlimited->tokens->refreshToken?->reveal())->session);
         self::assertSame($deadline->getTimestamp(), $this->stored($unlimited)->getAbsoluteExpiresAt()?->getTimestamp());
         self::assertSame($deadline->getTimestamp(), $this->stored($unlimited)->getIdleExpiresAt()?->getTimestamp());
 
@@ -200,7 +200,7 @@ final class OptionalAbsoluteLimitTest extends TestCase
 
         Event::fake([AuthenticationFailed::class]);
 
-        self::assertNull($this->sessions(self::LIMITED)->refresh($limited->tokens->refreshToken->reveal())->session);
+        self::assertNull($this->sessions(self::LIMITED)->refresh($limited->tokens->refreshToken?->reveal())->session);
 
         Event::assertDispatched(AuthenticationFailed::class, static fn (AuthenticationFailed $event): bool => $event->reason === FailureReason::SESSION_EXPIRED);
     }

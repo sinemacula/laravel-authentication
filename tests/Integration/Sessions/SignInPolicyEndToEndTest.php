@@ -127,7 +127,7 @@ final class SignInPolicyEndToEndTest extends TestCase
 
             abort_if($result->session === null, 401);
 
-            return ['refresh_token' => $result->session->tokens->refreshToken->reveal()];
+            return ['refresh_token' => $result->session->tokens->refreshToken?->reveal()];
         });
 
         Route::get('/verify', static fn (Request $request): array => ['outcome' => app(VerificationLinks::class)->consume($request)->value])->name('verify');
@@ -595,7 +595,7 @@ final class SignInPolicyEndToEndTest extends TestCase
 
             $session = $this->signedIn($this->sessions('members')->signIn('password', $this->seedMember($email, $type)));
             $access  = $tokens->parse($session->tokens->accessToken->reveal(), TokenType::ACCESS);
-            $refresh = $tokens->parse($session->tokens->refreshToken->reveal(), TokenType::REFRESH);
+            $refresh = $tokens->parse($session->tokens->refreshToken?->reveal(), TokenType::REFRESH);
 
             self::assertNotNull($access);
             self::assertNotNull($refresh);
@@ -634,7 +634,7 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertNull(self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken->reveal())->session);
+        self::assertNull(self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken?->reveal())->session);
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertNull(self::stored($session)->getRevokedAt());
     }
@@ -699,7 +699,7 @@ final class SignInPolicyEndToEndTest extends TestCase
             $this->refresh($token)->assertUnauthorized();
         }
 
-        $this->refresh($session->tokens->refreshToken->reveal())
+        $this->refresh($session->tokens->refreshToken?->reveal())
             ->assertStatus(429)
             ->assertHeader('Retry-After', '40');
 
@@ -712,7 +712,7 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         JWT::$timestamp = $later->getTimestamp();
 
-        $this->refresh($session->tokens->refreshToken->reveal())->assertOk();
+        $this->refresh($session->tokens->refreshToken?->reveal())->assertOk();
     }
 
     /**
