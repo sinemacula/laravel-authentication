@@ -31,8 +31,10 @@ use SineMacula\Laravel\Authentication\Sessions\ProvenRefresh;
 use SineMacula\Laravel\Authentication\Sessions\RefreshProof;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
+use Tests\Unit\Stubs\PlainPrincipalFixture;
 
 /**
  * Feature tests of proving, from a refresh token, the session a client holds
@@ -293,6 +295,35 @@ final class RefreshProofTest extends TestCase
 
         self::assertInstanceOf(ProvenRefresh::class, $proven);
         self::assertNull($proven->principalHint);
+        self::assertSame(RotationMatch::CURRENT, $proven->match);
+    }
+
+    /** * The token names its principal by identifier alone, so a token naming a
+     * principal of another class with the recorded principal's identifier (as *
+     * a token from before a switch between two such principals is, inside the *
+     * grace window) proves the session: a sign-out may revoke it, since the * same
+     * token revokes it as a replay once the window closes, and a caller
+     * that acts as the principal checks its type itself.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATokenNamingAnotherClassWithTheRecordedIdentifierProvesTheSession(): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->signedIn();
+
+        Session::query()->whereKey($session->record->getKey())->update(['refresh_key' => RefreshTokenHasher::hash(self::KNOWN_ROTATION)]);
+
+        $named  = new PlainPrincipalFixture($identity->getKey());
+        $token  = Auth::jwt('api')->issueRefreshToken($session->record, self::KNOWN_ROTATION, $named);
+        $proven = $this->proof()->prove($token, AuthenticationFlow::SIGN_OUT, CarbonImmutable::now());
+
+        self::assertTrue(PrincipalReference::isRecordedOn($session->record, $session->principal));
+        self::assertFalse(PrincipalReference::isRecordedOn($session->record, $named));
+        self::assertInstanceOf(ProvenRefresh::class, $proven);
+        self::assertTrue(IdentifierCoercion::matches($identity->getKey(), $proven->principalHint));
         self::assertSame(RotationMatch::CURRENT, $proven->match);
     }
 

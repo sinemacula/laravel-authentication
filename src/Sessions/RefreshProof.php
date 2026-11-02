@@ -39,8 +39,14 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * holds the token's rotation id as its current one or, inside the grace window,
  * as the one the current one replaced (`session_revoked`, `session_pending`,
  * `session_expired`, `refresh_key_missing`, `rotation_reuse`), and whose
- * recorded principal is the one the token names (`session_principal_mismatch`).
- * A replay revokes the session (`rotation_reuse`, reported by `SessionRevoked`
+ * recorded principal identifier is the one the token names
+ * (`session_principal_mismatch`). The token names its principal by identifier
+ * alone, and resolving it would need the owner the caller admits, so the type
+ * is the caller's to check when it acts as that principal, as a refresh does: a
+ * token from before a switch to a principal of another class with the same
+ * identifier proves the session inside the grace window, which only a sign-out
+ * takes, and the same token revokes it as a replay once the window closes. A
+ * replay revokes the session (`rotation_reuse`, reported by `SessionRevoked`
  * once committed), as a refresh does, so reuse detection holds on every path
  * that accepts a refresh token. Nothing is rotated, no attempt is counted, and
  * neither the owner's admission nor the tenant's policy is asked: the caller

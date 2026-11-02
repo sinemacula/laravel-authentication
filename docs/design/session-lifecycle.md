@@ -37,23 +37,27 @@ revoked, and when a session that ended is deleted. Starting a session is in
   `Logout` when an identity was bound, then `forgetUser()`. A session that is not an Eloquent `EloquentSession` is only
   forgotten.
 - `signOutFromRequest()` (`Sessions\SessionSignOut`) signs out by whichever credential the request carries, so a client
-  whose access token has expired, or that holds none, can still sign out. A guard bound to a stored session through
-  its access token is `signOut()`, and the refresh credential is not read. Otherwise any binding is forgotten first (an
-  access-only token's, with `Logout`), and the refresh credential is read through the application's transport and
-  proven by `RefreshProof::prove()`: the exchange's checks with its reasons (`token_invalid`, `session_unknown`,
+  whose access token has expired, or that holds none, can still sign out. A guard bound to a stored session through its
+  access token is `signOut()`, and the refresh credential is not read. Otherwise any binding is forgotten first (an
+  access-only token's, with `Logout`), and the refresh credential is read through the application's transport and proven
+  by `RefreshProof::prove()`: the exchange's checks with its reasons (`token_invalid`, `session_unknown`,
   `session_guard_mismatch`, `session_revoked`, `session_pending`, `session_expired`, `refresh_key_missing`,
   `session_principal_mismatch`), short of rotating, counting attempts, admitting the owner or asking the tenant policy.
-  A replay revokes its session as `rotation_reuse`, as the exchange does, so reuse detection covers every path that
-  accepts a refresh token. The proven session is revoked as `signed_out` (`SessionRevoked` once committed), `Logout`
-  fires for its owner when the guard's provider still returns it and none fired already, and a binding to it is
-  forgotten. A refusal is reported by `AuthenticationFailed` with the flow `sign_out`, never by `Failed`; no attempt
-  limit applies (nothing is issued, a token cannot be guessed, revoking is the safe direction). A cookie application's
-  `SignOutResult` carries the expired cookie when the access token signed its session out, and otherwise only for a
-  request that passes the cookie's same-site checks and was not refused as `refresh_token_conflict`: a cross-site page
-  that auto-submits a form to the logout route (sending no `SameSite=Strict` cookie, but able to have the response's
-  cookie kept) clears nothing, and a refused request leaves the cookie with the session it still proves.
-  `signOutWith($token)` is the same for a token a body application's code read; a cookie application throws a
-  `LogicException`.
+  The token names its principal by identifier alone, and only the owner's admission resolves its type, so the proof
+  compares the identifier with the recorded one: a token from before a switch to a principal of another class with the
+  same identifier still signs its session out inside the grace window (the same token revokes it as a replay once the
+  window closes), while a refresh, a switch and the `me` binding's refresh credential refuse it, since they admit the
+  owner and compare the type too. A replay revokes its session as `rotation_reuse`, as the exchange does, so reuse
+  detection covers every path that accepts a refresh token. The proven session is revoked as `signed_out`
+  (`SessionRevoked` once committed), `Logout` fires for its owner when the guard's provider still returns it and none
+  fired already, and a binding to it is forgotten. A refusal is reported by `AuthenticationFailed` with the flow
+  `sign_out`, never by `Failed`; no attempt limit applies (nothing is issued, a token cannot be guessed, revoking is the
+  safe direction). A cookie application's `SignOutResult` carries the expired cookie when the access token signed its
+  session out, and otherwise only for a request that passes the cookie's same-site checks and was not refused as
+  `refresh_token_conflict`: a cross-site page that auto-submits a form to the logout route (sending no `SameSite=Strict`
+  cookie, but able to have the response's cookie kept) clears nothing, and a refused request leaves the cookie with the
+  session it still proves. `signOutWith($token)` is the same for a token a body application's code read; a cookie
+  application throws a `LogicException`.
 - A sign-out by refresh credential races a rotation without a lock, as the exchange does: a token rotated in between is
   the previous one inside the grace window and still proves the session, and the conditional revocation means two
   sign-outs, or a sign-out and a replay, revoke and report once.
