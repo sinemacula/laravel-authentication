@@ -25,6 +25,10 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   identifier type the session records lists the same way, so it lists nothing for a session the application policy would
   no longer let switch. `TenantAccess` is not asked when listing: the tenant a listed principal acts in is known only
   once a selection names it, at the sign-in or the choice.
+- `SessionService::principal($identity, $id, $identifierType)` (`PendingEvaluation::principal()`) gets one of them by
+  its principal identifier for a switch screen or a destination: the same candidates and the same admission, the one
+  whose identifier matches (two matches are `null`), never the resolver's hinted lookup, so it is found exactly when
+  `principals()` holds it (`me-route-binding.md`).
 - Each principal read with the others is checked on a stored copy (`WriteConnection::stored()`): Eloquent strict mode
   prevents lazy loading on models read together, and the activity check (and any application policy that reads it) reads
   its tenant. The list holds the principals as read.
@@ -142,10 +146,13 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
 
 ## Implementation Anchors
 
-- `src/Sessions/SessionService.php`: `principals()`, `pending()`, `choose()`, `switchTo()`, `switchFromRequest()`,
-  `switched()`, `previousPrincipal()`; a chosen session is activated by `src/Sessions/PendingSessions.php`
-  (`choose()`) over `src/Sessions/SessionActivation.php` and then bound by the service.
-- `src/Sessions/PendingEvaluation.php`: `principals()`, `selection()`, `named()`, `destination()`, `owesFactor()`.
+- `src/Sessions/SessionService.php`: `principals()`, `pending()`, `choose()`;
+  `src/Sessions/Concerns/SwitchesSessions.php`: `switchTo()`, `switchFromRequest()`, `switched()`,
+  `previousPrincipal()`; `src/Sessions/Concerns/LooksUpSessions.php`: `principal()`; a chosen session is activated by
+  `src/Sessions/PendingSessions.php` (`choose()`) over `src/Sessions/SessionActivation.php` and then bound by the
+  service.
+- `src/Sessions/PendingEvaluation.php`: `principals()`, `principal()`, `selection()`, `named()`, `destination()`,
+  `owesFactor()`.
 - `src/Sessions/SessionSwitch.php`: one switch, built per call; `switch()` (the limiter), `switchOn()`, `admit()`,
   `admitAsDestination()`, `isDestination()`, `switchCurrent()`, `underPolicy()`, `toPending()`, `rotateTo()`, `retry()`,
   `afterLostSwitch()`, `deadlines()`; `src/Sessions/SwitchTarget.php` and `src/Sessions/SwitchedPrincipal.php`.

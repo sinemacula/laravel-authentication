@@ -74,8 +74,9 @@ A malformed value or an unknown key fails closed with an `InvalidArgumentExcepti
 when a sign-in, refresh or switch reads the transport, and `authentication:check` reports it.
 `Auth::sessions('api')->refresh($refreshToken)` refreshes a body application with a token your code reads itself and
 answers the same `RefreshResult`, without a `source`. A cookie application's token is read only from its cookie, with
-the cookie's cross-site checks, so on a cookie application `refresh($refreshToken)` (and `switchTo()`) throws a
-`LogicException`: use `refreshFromRequest()`.
+the cookie's cross-site checks, so on a cookie application `refresh($refreshToken)` (and `switchTo()` and
+`signOutWith()`) throws a `LogicException`: use `refreshFromRequest()`. The `me` route binding reads a route's refresh
+credential through the same transport (see [The `me` route binding](sessions.md#the-me-route-binding)).
 
 A refresh is held to the guard as well as the token. A session the row records for another guard (or for none) fails
 with `session_guard_mismatch` and is left alone, even for a token that would be a replay, and a bearer token naming it

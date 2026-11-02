@@ -730,6 +730,9 @@ choice. A request without a caller finds nothing.
 A route reads the access credential of its guard (the one `auth:<guard>` makes the default) unless it declares another:
 
 ```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
+
 Route::middleware('auth:api')->group(function (): void {
     Route::get('/members/{member}', fn (Member $member) => $member);
     Route::get('/sessions/{session}', fn (Session $session) => Auth::sessions('api')->session(Auth::identity(), $session->getKey()));
@@ -737,11 +740,18 @@ Route::middleware('auth:api')->group(function (): void {
 });
 
 // The session the refresh credential proves, read by cookie or by body as the guard's transport reads it.
-Route::middleware('authentication.refresh:api')->get('/refresh/sessions/{session}', fn (Session $session) => $session);
+Route::middleware('authentication.refresh:api')->post('/refresh/sessions/{session}', fn (Session $session) => $session);
 
 // Only while the pending session allows choosing; the credential is read from the `pending_credential` body field.
 Route::middleware('authentication.pending:choose_principal,api')->post('/sign-in/principals/{membership}', function (Membership $membership) {
-    return Auth::sessions('api')->choose(request()->input('pending_credential'), $membership);
+    $result = Auth::sessions('api')->choose(request()->input('pending_credential'), $membership);
+
+    abort_if($result->isFailed(), 401);
+
+    // Answered as a sign-in is (see Signing in): its tokens and credential are secrets, sent with SecretResponse.
+    return $result->isPending()
+        ? SecretResponse::json(['pending_credential' => $result->credential, 'actions' => $result->pending->actions()])
+        : SecretResponse::json(['access_token' => $result->session->tokens->accessToken, 'refresh_token' => $result->session->tokens->refreshToken]);
 });
 ```
 
@@ -754,8 +764,11 @@ an adapter's action after `pending()`) makes its own checks. An action that is n
 `InvalidArgumentException`. Each makes a guard it names the default for the request, as `auth:<guard>` does, and records
 the declaration, nothing else: the credential is never inferred from what a request carries, so a refresh cookie that
 rides on every request does not turn a read route into one a refresh token authenticates. The package orders both
-before `SubstituteBindings` in the HTTP kernel's middleware priority; an application that replaces that list keeps
-`SubstituteBindings` in it.
+before `SubstituteBindings` in the HTTP kernel's middleware priority once the kernel is resolved, so they run before
+the bindings however a route lists them, also when the application sets the whole list with `withMiddleware()`'s
+`priority()`, as long as that list holds `SubstituteBindings`; one that replaces the list later must put
+`SineMacula\Laravel\Authentication\Http\Middleware\UseRefreshCredential` and `UsePendingCredential` before
+`SubstituteBindings` itself.
 
 The caller is read only when a parameter asks for it, and once per request for a guard and a credential, so two bound
 parameters prove a refresh credential once. A refresh or pending credential the request carries and that is refused is

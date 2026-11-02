@@ -3,8 +3,8 @@
 ## Purpose
 
 This note records what happens to a session after it starts: which sessions count as active and how an
-identity's sessions are listed, how sessions are signed out and revoked, and when a session that ended is
-deleted. Starting a session is in
+identity's sessions are listed, how sessions are signed out (by the access token or the refresh credential) and
+revoked, and when a session that ended is deleted. Starting a session is in
 `session-service.md`; refresh rotation and replay are in `refresh-rotation-and-replay.md`.
 
 ## Invariants
@@ -23,6 +23,8 @@ deleted. Starting a session is in
   the key, newest first. Pages are therefore stable.
 - A `SessionSummary` never holds a digest, the rotation time, a revocation column, the owner or the principal; `current`
   compares the listed session with the guard's bound session by class and identifier.
+- `session($identity, $id)` (`LooksUpSessions`, `ActiveSessions::find()`) gets one session as the list shows it, or
+  `null`: one query under the list's rule on the writer, none for an id that cannot be a key (`me-route-binding.md`).
 - Revoking marks the session (`revoked_at`, `revoked_reason`, both digests cleared) with one conditional `UPDATE ...
   WHERE pk AND revoked_at IS NULL` on the session's own connection (`RefreshRotationStore::revoke()`), mirrored in
   memory only when it changed the row. It is idempotent, the first revocation's time and reason are kept, and only the
@@ -34,6 +36,23 @@ deleted. Starting a session is in
 - `signOut()` (and `JwtGuard::logout()`) revokes the guard's bound persisted session as `signed_out`, then dispatches
   `Logout` when an identity was bound, then `forgetUser()`. A session that is not an Eloquent `EloquentSession` is only
   forgotten.
+- `signOutFromRequest()` (`Sessions\SessionSignOut`) signs out by whichever credential the request carries, so a client
+  whose access token has expired, or that holds none, can still sign out. A guard bound to a stored session through
+  its access token is `signOut()`, and the refresh credential is not read. Otherwise any binding is forgotten first (an
+  access-only token's, with `Logout`), and the refresh credential is read through the application's transport and
+  proven by `RefreshProof::prove()`: the exchange's checks with its reasons (`token_invalid`, `session_unknown`,
+  `session_guard_mismatch`, `session_revoked`, `session_pending`, `session_expired`, `refresh_key_missing`,
+  `session_principal_mismatch`), short of rotating, counting attempts, admitting the owner or asking the tenant policy.
+  A replay revokes its session as `rotation_reuse`, as the exchange does, so reuse detection covers every path that
+  accepts a refresh token. The proven session is revoked as `signed_out` (`SessionRevoked` once committed), `Logout`
+  fires for its owner when the guard's provider still returns it and none fired already, and a binding to it is
+  forgotten. A refusal is reported by `AuthenticationFailed` with the flow `sign_out`, never by `Failed`; no attempt
+  limit applies (nothing is issued, a token cannot be guessed, revoking is the safe direction). A cookie application's
+  `SignOutResult` always carries the expired cookie. `signOutWith($token)` is the same for a token a body
+  application's code read; a cookie application throws a `LogicException`.
+- A sign-out by refresh credential races a rotation without a lock, as the exchange does: a token rotated in between is
+  the previous one inside the grace window and still proves the session, and the conditional revocation means two
+  sign-outs, or a sign-out and a replay, revoke and report once.
 - `revokeSession()` reads the session through the owner's `sessions()` relation on the writer
   (`IdentitySessions::find()`), with the key-shape check first, so another identity's session is "not found" (`false`)
   and never revealed.
@@ -168,6 +187,8 @@ deleted. Starting a session is in
 - `src/Sessions/SessionRevocations.php` (the security changes), `src/Listeners/RevokeSessionsOn*.php`,
   `src/Listeners/Concerns/RevokesOnceCommitted.php`, `src/Sessions/Methods/Rehashing.php`,
   `src/Listeners/TrackCredentialAttempts.php`
+- `src/Sessions/SessionSignOut.php`, `src/Sessions/RefreshProof.php`, `src/Sessions/SignOutResult.php`,
+  `src/Sessions/Concerns/LooksUpSessions.php`
 - `src/Sessions/SessionRevocations.php`, `src/Sessions/RevocationWriter.php`, `src/Sessions/RevocationScope.php`,
   `src/SessionRecords/IdentitySessions.php`, `src/Jwt/RefreshRotationStore.php` (`revoke()`), `src/Guards/JwtGuard.php`
   (`logout()`), `src/Contracts/GuardBinding.php`, `src/Guards/AbstractGuard.php` (`forgetUser()`)
@@ -184,6 +205,10 @@ deleted. Starting a session is in
   given, the dispatcher a deferred report reaches, and `logout()` through them alone
 - `tests/Integration/Http/RefreshCookieSessionLifecycleTest.php`: logout from outside the refresh cookie's path revokes
   the session and clears the cookie
+- `tests/Feature/Sessions/SessionSignOutTest.php`, `tests/Feature/Sessions/RefreshProofTest.php`,
+  `tests/Unit/Sessions/SignOutResultTest.php`, `tests/Integration/Sessions/SessionSignOutTest.php`,
+  `tests/Performance/SessionSignOutQueryBudgetTest.php`: sign-out by refresh credential
+- `tests/Feature/Sessions/LooksUpSessionsTest.php`: one session, as the list shows it
 - `tests/Integration/Sessions/ConcurrentSwitchAndRevocationTest.php`: two revocations in two processes on PostgreSQL
   and MySQL report each session once, after a commit and after a rollback
 - `tests/Integration/Sessions/SecurityChangeEndToEndTest.php`: each security-change listener's revocation refused at
@@ -212,4 +237,5 @@ Update this note when any of the following change:
 - what a revocation writes, which sessions a scope covers, what a bulk revocation ends besides sessions, or when and in
   which order it reports
 - what a session summary holds, the listing's order, page bounds or connection
+- what a sign-out by refresh credential checks, revokes or reports
 - what pruning selects, how retention is counted or configured, or how a custom model opts in

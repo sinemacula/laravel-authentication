@@ -49,10 +49,11 @@ a cookie application's results hand back the cookie instead of the token.
 - `forgetCookie()` makes the same cookie, empty and expired; a path limits where a browser sends a cookie, not which
   response may set it, so any route may clear it. It throws a `LogicException` for a body application, and `deliver()`
   an `InvalidArgumentException` for a session that has ended.
-- A cookie application's token is read only from its cookie, through the transport: `refresh(string)` and
-  `switchTo(string, SwitchTarget)` throw a `LogicException` on a cookie application; `refreshFromRequest()` and
-  `switchFromRequest()` take a private path. A body application's `refresh(string)` is for a token the caller reads
-  itself.
+- A cookie application's token is read only from its cookie, through the transport: `refresh(string)`,
+  `switchTo(string, SwitchTarget)` and `signOutWith(string)` throw a `LogicException` on a cookie application
+  (`SessionRefresh::refuseHandedIn()`, the one place it is thrown); `refreshFromRequest()`, `switchFromRequest()`,
+  `signOutFromRequest()` and `refreshCredentialFromRequest()` (the `me` route binding's read) take a private path. A
+  body application's `refresh(string)` is for a token the caller reads itself.
 - The cookie, the application and the session agree on every refresh and switch: the cookie read is the application's
   own and unique; the carrier is its transport; the token's `client_id` is the application (`token_invalid`); the
   session it names is the application's (`session_guard_mismatch`); and the cookie a result sets is that
@@ -97,9 +98,11 @@ a cookie application's results hand back the cookie instead of the token.
 
 - `src/Http/RefreshTokenTransport.php`: `read()`, `usesCookie()`, `deliver()`, `isSameSiteRequest()`,
   `forgetCookie()`; `src/Http/RefreshCookie.php`; `src/Http/Enums/Transport.php`; `src/Jwt/TokenPair.php`.
-- `src/Sessions/SessionService.php`: `switchTo()`, `switchFromRequest()`, `bound()`, `switched()`, and
-  `src/Sessions/SessionRefresh.php`: `refresh()`, `refreshFromRequest()`, which build the application's transport from
-  the configuration (`RefreshTokenTransport::forGuard()`), as the guard's own factory does.
+- `src/Sessions/SessionService.php`: `bound()`; `src/Sessions/Concerns/SwitchesSessions.php`: `switchTo()`,
+  `switchFromRequest()`, `switched()`; `src/Sessions/SessionRefresh.php`: `refresh()`, `refreshFromRequest()`,
+  `credentialFromRequest()`, `refuseHandedIn()`; and `src/Sessions/SessionSignOut.php`: `fromRequest()`, `with()`;
+  which build the application's transport from the configuration (`RefreshTokenTransport::forGuard()`), as the guard's
+  own factory does.
 - `src/Http/RefreshTokenSettings.php`: `forGuard()`.
 - `src/Guards/JwtGuard.php`: `refreshTransport()`.
 - `src/AuthManager.php`: `refreshTransport()`.

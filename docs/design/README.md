@@ -25,8 +25,12 @@ The current note set is:
   result, throttling as an outcome, and the named exceptions.
 - `refresh-rotation-and-replay.md`: why refresh is stateful, how per-session rotation works, the grace window for the
   previous rotation id, and when a replayed refresh token revokes the session (`rotation_reuse`).
-- `refresh-token-transport.md`: where a guard reads the refresh token from, why a request may carry it in only one
-  place, the cookie's cross-site checks, and the cookie that carries a browser's refresh token.
+- `refresh-token-transport.md`: the refresh transport each application uses (the body or its cookie), why a request
+  may carry the token in only one place and only by that transport, the cookie's cross-site checks and name, and how a
+  cookie application's results hand back the cookie instead of the token.
+- `secrets-and-no-store.md`: which values the package hands out as a `Secret`, what a secret refuses (a string cast,
+  JSON, serialising) and shows to a dump, why no object the package builds holds a secret in a plain property, and how
+  `SecretResponse` and the `authentication.no-store` middleware keep a response from being stored.
 - `token-profile.md`: the claims each token carries, the header type that tells access and refresh tokens apart, the
   subject type that tells a person's token from a machine's, what every parse checks, and what the bearer path does not
   read.
@@ -41,9 +45,13 @@ The current note set is:
 - `session-record.md`: what the package calls the record it keeps per sign-in and why, the Laravel names it meets, the
   `sid` claim it keeps, what proves a previous session for replacement, the `superseded` reason, and the sessions
   table's index names.
-- `session-lifecycle.md`: which sessions are active, how an identity's sessions are listed, how a session signs out and
-  sessions are revoked (one, every session of an identity or a principal, and on security changes, by method or optional
-  listener), and when ended sessions are pruned.
+- `session-lifecycle.md`: which sessions are active, how an identity's sessions are listed, how a session signs out (by
+  its access token, or by its refresh credential once the access token has expired) and sessions are revoked (one,
+  every session of an identity or a principal, and on security changes, by method or optional listener), and when ended
+  sessions are pruned.
+- `me-route-binding.md`: how a route parameter binds `me` to the caller's own session, identity or principal and holds
+  every other id to the caller, the credential a route declares, and the one-session and one-principal lookups it shares
+  its rules with.
 - `pending-sessions.md`: how a session waits for the further factor or the choice of principal its sign-in still owes,
   the credential that acts on it and the actions it allows, how it activates, and how an active session returns to
   pending.
