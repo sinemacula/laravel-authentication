@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Concerns;
 
+use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Routing\MeBinding;
 
@@ -91,7 +92,8 @@ trait ResolvesMeRouteBinding
     public function resolveChildRouteBinding(mixed $childType, mixed $value, mixed $field): ?Model
     {
         return MeBinding::current()->resolveChild(
-            $this->{$this->childRouteBindingRelationshipName($childType)}(),
+            $this,
+            fn (): Builder => $this->{$this->childRouteBindingRelationshipName($childType)}(),
             $value,
             fn (): mixed => parent::resolveChildRouteBinding($childType, $value, $field),
         );
@@ -117,7 +119,8 @@ trait ResolvesMeRouteBinding
     public function resolveSoftDeletableChildRouteBinding(mixed $childType, mixed $value, mixed $field): ?Model
     {
         return MeBinding::current()->resolveChild(
-            $this->{$this->childRouteBindingRelationshipName($childType)}(),
+            $this,
+            fn (): Builder => $this->{$this->childRouteBindingRelationshipName($childType)}(),
             $value,
             fn (): mixed => parent::resolveSoftDeletableChildRouteBinding($childType, $value, $field),
         );

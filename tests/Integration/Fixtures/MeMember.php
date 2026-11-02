@@ -19,8 +19,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  * 3D identity fixture for the `me` route binding: UUID-keyed, so its sessions'
  * owner column compares as text on every database, with its memberships and
  * sessions as Eloquent relations, so scoped child bindings reach them, a
- * relation that holds only some of its sessions, and no default membership, so
- * a member of two chooses one.
+ * relation that holds only some of its sessions, one that reads its sessions
+ * while it is built, and no default membership, so a member of two chooses one.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -94,5 +94,20 @@ final class MeMember extends Model implements HasPrincipals, HasSessions, Identi
     public function oldSessions(): MorphMany
     {
         return $this->morphMany(MeSession::class, 'authenticatable')->where('client_name', self::OLD_CLIENT);
+    }
+
+    /**
+     * The member's sessions by the keys read while the relationship is built: a
+     * relationship whose constraints come from a query.
+     *
+     * @formatter:off
+     *
+     * @return \Illuminate\Database\Eloquent\Relations\MorphMany<\Tests\Integration\Fixtures\MeSession, $this>
+     *
+     * @formatter:on
+     */
+    public function listedSessions(): MorphMany
+    {
+        return $this->morphMany(MeSession::class, 'authenticatable')->whereKey($this->sessions()->pluck('id')->all());
     }
 }

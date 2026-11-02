@@ -54,9 +54,9 @@ covers the two lookups the binding shares its rules with: one session (`SessionS
     identifier type the session's sign-in used; on a guard without sessions, an API key guard, only the current
     principal); or, with a pending credential, the one the pending session records or one it offers for the choice.
 - A child binding of a parent with the trait: when the child's model uses the trait too, it resolves as a top-level
-  binding through the parent's relationship, and a `me` child must also be within that relationship (an `exists` on the
-  writer); otherwise the parent's own method runs unchanged. A child of a parent without the trait never reaches the
-  package (Laravel asks the parent).
+  binding through the parent's relationship, and a `me` child must also be within that relationship (built, and an
+  `exists` run, on the writer, as a relationship may read while it is built); otherwise the parent's own method runs
+  unchanged. A child of a parent without the trait never reaches the package (Laravel asks the parent).
 - `session($identity, $id)` (`Sessions\Concerns\LooksUpSessions`, `ActiveSessions::find()`) answers the very
   `SessionSummary` the list gives for that session, `current` marked the same way, or `null` when it is not the
   identity's, not active (pending, revoked, past a deadline) or not found; one query through the identity's `sessions()`

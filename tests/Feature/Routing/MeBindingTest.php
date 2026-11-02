@@ -7,6 +7,7 @@ namespace Tests\Feature\Routing;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
@@ -552,8 +553,8 @@ final class MeBindingTest extends TestCase
         $found   = new IntegrationIdentity;
         $binding = MeBinding::current();
 
-        self::assertSame($found, $binding->resolveChild(IntegrationIdentity::query(), 'me', static fn (): IntegrationIdentity => $found));
-        self::assertNull($binding->resolveChild(IntegrationIdentity::query(), 'me', static fn (): string => 'not a model'));
+        self::assertSame($found, $binding->resolveChild($found, static fn (): Builder => IntegrationIdentity::query(), 'me', static fn (): IntegrationIdentity => $found));
+        self::assertNull($binding->resolveChild($found, static fn (): Builder => IntegrationIdentity::query(), 'me', static fn (): string => 'not a model'));
         self::assertSame([], $this->failures());
     }
 

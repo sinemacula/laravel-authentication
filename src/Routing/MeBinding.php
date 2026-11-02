@@ -7,7 +7,6 @@ namespace SineMacula\Laravel\Authentication\Routing;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository;
-use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -130,9 +129,13 @@ final readonly class MeBinding
     /**
      * Bind the route value to a child through the parent's relationship: as a
      * top-level binding, within the relationship, when the child's model uses
-     * the trait; otherwise the parent's own child lookup, unchanged.
+     * the trait; otherwise the parent's own child lookup, unchanged. The
+     * relationship is built with every read on the write connection, since one
+     * that reads while it is built (the ids it allows) decides which child `me`
+     * may bind.
      *
-     * @param  \Illuminate\Contracts\Database\Eloquent\Builder  $relationship
+     * @param  \Illuminate\Database\Eloquent\Model  $parent
+     * @param  \Closure(): \Illuminate\Contracts\Database\Eloquent\Builder  $relationship
      * @param  mixed  $value
      * @param  \Closure(): mixed  $lookup
      * @return ?\Illuminate\Database\Eloquent\Model
@@ -141,8 +144,10 @@ final readonly class MeBinding
      * @throws \LogicException
      * @throws \Throwable
      */
-    public function resolveChild(Builder $relationship, mixed $value, \Closure $lookup): ?Model
+    public function resolveChild(Model $parent, \Closure $relationship, mixed $value, \Closure $lookup): ?Model
     {
+        $relationship = WriteConnection::during($parent, $relationship);
+
         $child = $relationship instanceof Relation ? $relationship->getRelated() : $relationship->getModel();
 
         if (!in_array(ResolvesMeRouteBinding::class, class_uses_recursive($child), true)) {

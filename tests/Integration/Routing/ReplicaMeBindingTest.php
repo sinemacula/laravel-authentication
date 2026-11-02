@@ -23,9 +23,10 @@ use Tests\TestCase;
 /**
  * Proves the `me` route binding reads the write connection: an id binds a
  * session and a membership the primary holds and the replica lacks, a scoped
- * child is found through the parent's relationship on the primary, and a
- * session the primary has soft-deleted is a miss though the replica still holds
- * it live.
+ * child, `me` included, is found through the parent's relationship on the
+ * primary, also when the relationship reads while it is built, and a session
+ * the primary has soft-deleted is a miss though the replica still holds it
+ * live.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -55,6 +56,8 @@ final class ReplicaMeBindingTest extends TestCase
             Route::get('/sessions/{session}', static fn (MeSession $session): array => ['id' => $session->getKey()]);
             Route::get('/memberships/{membership}', static fn (MeMembership $membership): array => ['id' => $membership->getKey()]);
             Route::get('/members/{member}/sessions/{session}', static fn (MeMember $member, MeSession $session): array => ['id' => $session->getKey()])->scopeBindings();
+            Route::get('/members/{member}/listed/{listedSession}', static fn (MeMember $member, MeSession $listedSession): array => ['id' => $listedSession->getKey()])
+                ->scopeBindings();
         });
     }
 
@@ -120,6 +123,29 @@ final class ReplicaMeBindingTest extends TestCase
         self::assertTrue(DB::connection(self::REPLICA_CONNECTION)->table(self::SESSIONS)->where('id', $id)->whereNull('deleted_at')->exists());
 
         $this->bearer('/sessions/' . $id, $current->tokens->accessToken->reveal())->assertNotFound();
+    }
+
+    /**
+     * A `me` child is within the parent's relationship as the primary holds it:
+     * the replica holds no session, and a relationship that reads the member's
+     * sessions while it is built reads them on the primary too.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAMeChildIsWithinTheRelationshipThePrimaryHolds(): void
+    {
+        $this->seedMember('ada@example.test');
+
+        $session = $this->signedIn('ada@example.test');
+        $token   = $session->tokens->accessToken->reveal();
+        $id      = (string) IdentifierCoercion::stringify($session->record->getKey());
+
+        self::assertFalse(DB::connection(self::REPLICA_CONNECTION)->table(self::SESSIONS)->exists());
+
+        $this->bearer('/members/me/sessions/me', $token)->assertOk()->assertExactJson(['id' => $id]);
+        $this->bearer('/members/me/listed/me', $token)->assertOk()->assertExactJson(['id' => $id]);
     }
 
     /**
