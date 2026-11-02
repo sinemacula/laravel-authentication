@@ -37,7 +37,9 @@ use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use SineMacula\Laravel\Authentication\Proofs\ProofResult;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
+use SineMacula\Laravel\Authentication\Requirements\RequirementSubject;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
@@ -218,6 +220,80 @@ final class FactorRevocationsTest extends TestCase
 
         self::assertTrue($again->isSignedIn());
         self::assertSame('active', $this->rowOf($current->record->getKey())->status);
+    }
+
+    /**
+     * Rows of `[what is written to the current session's row while the removal
+     * judges it, whether the removal's own revocation ends it]`.
+     *
+     * @return iterable<string, array{0: array<string, ?string>, 1: bool}>
+     */
+    public static function provideWritesDuringTheJudgement(): iterable
+    {
+        yield 'its refresh token rotated' => [['refresh_key' => str_repeat('0', 64)], true];
+        yield 'revoked' => [['revoked_at' => '2026-04-06 12:00:00', 'revoked_reason' => 'signed_out', 'refresh_key' => null], false];
+    }
+
+    /**
+     * A current session whose row is written while the removal judges it short
+     * of a further factor (here by a check that writes it inside the removal's
+     * transaction) is never left active: the return to pending misses its
+     * compare-and-swap, so the removal revokes it as `factor_removed`, and
+     * counts it only when that revocation was its own.
+     *
+     * @param  array<string, ?string>  $write
+     * @param  bool  $ownRevocation
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideWritesDuringTheJudgement')]
+    public function testACurrentSessionWrittenDuringItsJudgementIsRevoked(array $write, bool $ownRevocation): void
+    {
+        $this->requireAFurtherFactor();
+
+        $current = $this->satisfied('factor-a');
+        $key     = $current->record->getKey();
+
+        app()->instance(RequirementCheck::class, new readonly class ($key, $write) implements RequirementCheck {
+            /**
+             * Constructor.
+             *
+             * @param  mixed  $key
+             * @param  array<string, ?string>  $write
+             */
+            public function __construct(
+
+                /** The key of the session whose row is written. */
+                private mixed $key,
+
+                /** The columns written. */
+                private array $write,
+            ) {}
+
+            /**
+             * Write the session's row, then find the requirement unmet.
+             *
+             * @param  \SineMacula\Laravel\Authentication\Requirements\RequirementSubject  $subject
+             * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
+             * @return \SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation
+             */
+            #[\Override]
+            public function evaluate(RequirementSubject $subject, Requirement $requirement): RequirementEvaluation
+            {
+                DB::table('authentication_sessions')->where('id', $this->key)->update($this->write);
+
+                return new RequirementEvaluation($requirement->kinds());
+            }
+        });
+
+        $removal = Auth::sessions('api')->factorRemoved($current->identity, 'factor-a', $current->record);
+
+        self::assertFalse($removal->isPending());
+        self::assertSame($ownRevocation, $removal->currentRevoked);
+        self::assertSame($ownRevocation ? 1 : 0, $removal->revoked);
+        self::assertSame($ownRevocation ? RevocationReason::FACTOR_REMOVED->value : 'signed_out', $this->rowOf($key)->revoked_reason);
+        self::assertSame('active', $this->rowOf($key)->status);
     }
 
     /**
