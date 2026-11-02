@@ -20,8 +20,7 @@ use Symfony\Component\HttpFoundation\Response;
  * reveal), since a `Cookie` shows its value to every dump and serialises it.
  * The cookie is `HttpOnly`, so no script reads it, `Secure`, `SameSite=Strict`,
  * host-only (no `Domain`), on the application's path, and expires when the
- * session ends. `attachTo()` adds it to a response and marks the response not
- * to be stored.
+ * session ends.
  *
  * The refresh token transport builds it; an application only attaches it.
  *

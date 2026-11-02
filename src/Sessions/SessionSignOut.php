@@ -44,13 +44,10 @@ use Symfony\Component\HttpFoundation\Cookie;
  * authenticate. No attempt limit applies: nothing is issued, a refresh token
  * cannot be guessed, and revoking is the safe direction.
  *
- * A cookie application's result carries the expired cookie when the access
- * token signed its session out, which a cross-site page cannot send, or when
- * the request passes the cookie's same-site checks and the transport did not
- * refuse it as a conflict. A cross-site page that auto-submits a form to the
- * logout route therefore clears nothing (a browser keeps a cookie the response
- * to such a navigation sets), and a request that fails the checks leaves the
- * cookie with the session it still proves.
+ * A cookie application's result carries the expired cookie only for a request a
+ * cross-site page cannot have sent, since a browser keeps a cookie the response
+ * to a cross-site navigation sets: a cross-site form must not sign the browser
+ * out.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
