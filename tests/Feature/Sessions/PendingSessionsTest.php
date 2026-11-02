@@ -284,6 +284,28 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
+     * A pending session whose first-factor proof was removed from under it is
+     * not described with no first factor: looking it up fails loudly.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testLookingUpAPendingSessionWithoutItsFirstFactorFailsLoudly(): void
+    {
+        $this->seedIdentity();
+
+        [$credential] = $this->pendingSignIn();
+
+        SessionProof::query()->delete();
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('A session the package wrote always records the proof of its first factor.');
+
+        $this->sessions()->pending($credential);
+    }
+
+    /**
      * Rows of `[credential]` that cannot name a pending session, so are
      * rejected before any query: none, no secret, no key, or a key no session
      * can have.

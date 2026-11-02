@@ -689,6 +689,7 @@ final class PendingEvaluationTest extends TestCase
         SessionProof::query()->delete();
 
         $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('A session the package wrote always records the proof of its first factor.');
 
         PendingEvaluation::firstFactorOf($session);
     }
