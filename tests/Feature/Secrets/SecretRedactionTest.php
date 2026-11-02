@@ -7,9 +7,13 @@ namespace Tests\Feature\Secrets;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Validated;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Connection;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
@@ -17,10 +21,17 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
+use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
+use SineMacula\Laravel\Authentication\Guards\Concerns\SignsInWithCredentials;
+use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Runtime\CredentialTimebox;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\SwitchesSessions;
+use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
+use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\PendingSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionRefresh;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -44,13 +55,15 @@ use Tests\TestCase;
 /**
  * Feature tests that no secret the package hands out, nor the password a
  * sign-in is given, reaches a trace, a dump of a frame's objects or an event:
- * an exception thrown from a sign-in method, or from a listener while a
- * sign-in, a refresh, a switch, an activation or a sign-out runs, records every
- * frame's arguments (with `zend.exception_ignore_args` off) and the captures of
- * its closures, and VarDumper shows the whole object graph of each argument as
- * a reporter would; none of them carries a token, a pending credential or the
- * password in clear. Every event those flows dispatch is serialised and dumped
- * as a queued listener would receive it, and carries none either.
+ * an exception thrown from a sign-in method, from a listener while a sign-in, a
+ * refresh, a switch, an activation, a sign-out or a guard's credential check
+ * runs, or from a write while a password is rehashed or a pending session is
+ * written or acted on, records every frame's arguments (with
+ * `zend.exception_ignore_args` off) and the captures of its closures, and
+ * VarDumper shows the whole object graph of each argument as a reporter would;
+ * none of them carries a token, a pending credential or the password in clear.
+ * Every event those flows dispatch is serialised and dumped as a queued
+ * listener would receive it, and carries none either.
  *
  * Each call is made directly rather than through a request, so the trace holds
  * only what the package built: a request's own input is the application's to
@@ -62,6 +75,8 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(Secret::class)]
+#[CoversClass(AbstractGuard::class)]
+#[CoversClass(PasswordSignIn::class)]
 #[CoversClass(SessionService::class)]
 #[CoversClass(SessionRefresh::class)]
 #[CoversClass(SessionWriter::class)]
@@ -69,6 +84,7 @@ use Tests\TestCase;
 #[CoversClass(SignInRequest::class)]
 #[CoversClass(SessionSignOut::class)]
 #[CoversTrait(SwitchesSessions::class)]
+#[CoversTrait(SignsInWithCredentials::class)]
 final class SecretRedactionTest extends TestCase
 {
     use InspectsTraces, InteractsWithProofs, InteractsWithSessions;
@@ -298,6 +314,159 @@ final class SecretRedactionTest extends TestCase
     }
 
     /**
+     * A listener on `Validated` that throws while a guard checks credentials,
+     * by `validate()` and by `attempt()`, runs inside the credential timebox's
+     * closure: the password is in no frame, capture or dumped object.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAThrowingValidatedListenerLeavesNoPasswordInTheTrace(): void
+    {
+        $this->seedIdentity();
+
+        Event::listen(Validated::class, static function (): never {
+            throw new \RuntimeException('a bug in a validated listener');
+        });
+
+        $validate = $this->freshGuard();
+        $attempt  = $this->freshGuard();
+
+        $exceptions = [
+            'validate' => self::withArgumentsInTraces(\RuntimeException::class, static fn (): bool => $validate->validate(self::credentials())),
+            'attempt'  => self::withArgumentsInTraces(\RuntimeException::class, static fn (): bool => $attempt->attempt(self::credentials())),
+        ];
+
+        foreach ($exceptions as $check => $exception) {
+            self::assertSame('a bug in a validated listener', $exception->getMessage(), $check);
+            self::assertTrue(self::runsClosure($exception, CredentialTimebox::class, 'run'), $check);
+            self::assertFalse(self::dumpsInTrace($exception, self::PASSWORD), $check);
+        }
+    }
+
+    /**
+     * A provider that fails while it rehashes an outdated password, after the
+     * sign-in is admitted, fails inside the rehash's closure: the password is
+     * in no frame, capture or dumped object.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailedRehashLeavesNoPasswordInTheTrace(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $identity->forceFill(['password' => password_hash(self::PASSWORD, PASSWORD_BCRYPT, ['cost' => 5])])->save();
+
+        DB::listen(static function (QueryExecuted $query): void {
+            if (str_starts_with($query->sql, 'update') && str_contains($query->sql, 'integration_identities')) {
+                throw new \RuntimeException('the rehash failed');
+            }
+        });
+
+        $exception = self::withArgumentsInTraces(\RuntimeException::class, fn (): mixed => $this->sessions()->signIn('password', self::credentials()));
+
+        self::assertSame('the rehash failed', $exception->getMessage());
+        self::assertTrue(self::runsClosure($exception, Rehashing::class, 'during'));
+        self::assertFalse(self::dumpsInTrace($exception, self::PASSWORD));
+    }
+
+    /**
+     * A write that fails inside the transaction that acts on a pending session,
+     * satisfying its factor, making its choice or discarding it, leaves the
+     * pending credential out of the trace.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailedWriteWhileActingOnAPendingSessionLeavesNoCredentialInTheTrace(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$member, $first] = $this->seedMember();
+
+        $other = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
+
+        ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $other->getKey()]);
+
+        $choosing = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->credential?->reveal();
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        $satisfying = $this->sessions()->signIn('password', self::credentials());
+        $discarding = $this->sessions()->signIn('password', self::credentials())->credential?->reveal();
+
+        self::assertIsString($choosing);
+        self::assertIsString($discarding);
+        self::assertNotNull($satisfying->pending);
+        self::assertNotNull($satisfying->credential);
+
+        $satisfied = $satisfying->credential->reveal();
+        $proof     = self::adapterProof($identity, 'api', $satisfying->pending->id, Purpose::SIGN_IN);
+
+        DB::listen(static function (QueryExecuted $query): void {
+            if (str_starts_with($query->sql, 'update') && str_contains($query->sql, 'authentication_sessions')) {
+                throw new \RuntimeException('the pending session was not written');
+            }
+        });
+
+        $actions = [
+            'satisfy' => [$satisfied, PendingSessions::class, 'atomically', fn (): mixed => $this->sessions()->satisfy($satisfied, $proof)],
+            'choose'  => [$choosing, PendingSessions::class, 'atomically', fn (): mixed => $this->sessions('members')->choose($choosing, $first)],
+            'discard' => [$discarding, Connection::class, 'transaction', fn (): mixed => $this->sessions()->discard($discarding)],
+        ];
+
+        foreach ($actions as $action => [$credential, $class, $function, $act]) {
+
+            $exception = self::withArgumentsInTraces(\RuntimeException::class, $act);
+
+            self::assertSame('the pending session was not written', $exception->getMessage(), $action);
+            self::assertTrue(self::runsClosure($exception, $class, $function), $action);
+            self::assertFalse(self::dumpsInTrace($exception, $credential), $action);
+        }
+    }
+
+    /**
+     * A pending session whose insert fails, inside the transaction that writes
+     * it, leaves the secret of its pending credential out of the trace: no
+     * value in a frame, a capture or a dumped object is the secret its stored
+     * digest was made from.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailedPendingInsertLeavesNoCredentialSecretInTheTrace(): void
+    {
+        $this->seedIdentity();
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        /** @var \ArrayObject<string, string> $digest */
+        $digest = new \ArrayObject;
+
+        Event::listen('eloquent.creating: ' . Session::class, static function (Session $session) use ($digest): never {
+
+            $digest['pending'] = (string) $session->pending_key;
+
+            throw new \RuntimeException('the pending session was not written');
+        });
+
+        $exception = self::withArgumentsInTraces(\RuntimeException::class, fn (): mixed => $this->sessions()->signIn('password', self::credentials()));
+        $secret    = static fn (string $value): bool => preg_match_all('/(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/', $value, $found) > 0
+            && array_filter($found[0], static fn (string $candidate): bool => RefreshTokenHasher::verify($candidate, $digest['pending'])) !== [];
+
+        self::assertSame('the pending session was not written', $exception->getMessage());
+        self::assertNotSame('', $digest['pending']);
+        self::assertTrue(self::runsClosure($exception, Connection::class, 'transaction'));
+        self::assertFalse(self::dumpsInTrace($exception, $secret));
+        self::assertFalse(self::dumpsInTrace($exception, self::PASSWORD));
+    }
+
+    /**
      * Every event a sign-in, an activation, two refreshes and a sign-out
      * dispatch, serialised as a queued listener receives it and dumped as a
      * reporter shows it, carries no token, pending credential or password.
@@ -407,6 +576,29 @@ final class SecretRedactionTest extends TestCase
         foreach ($secrets as $secret) {
             self::assertStringNotContainsString($secret, $shown, $event::class);
         }
+    }
+
+    /**
+     * Whether a frame of the class's method was running a closure it was
+     * handed, so the exception was thrown while that closure ran.
+     *
+     * @param  \Throwable  $exception
+     * @param  class-string  $class
+     * @param  string  $function
+     * @return bool
+     */
+    private static function runsClosure(\Throwable $exception, string $class, string $function): bool
+    {
+        foreach ($exception->getTrace() as $frame) {
+
+            $closures = array_filter($frame['args'] ?? [], static fn (mixed $argument): bool => $argument instanceof \Closure);
+
+            if ($frame['function'] === $function && is_a($frame['class'] ?? '', $class, true) && $closures !== []) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
