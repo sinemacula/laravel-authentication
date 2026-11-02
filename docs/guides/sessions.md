@@ -209,7 +209,7 @@ if ($result->isFailed()) {
 
 if ($result->isPending()) {
     // The destination's tenant asks for a further factor the session lacks.
-    return SecretResponse::json(['pending' => $result->credential, 'actions' => $result->pending->actions()]);
+    return SecretResponse::json(['pending_credential' => $result->credential, 'actions' => $result->pending->actions()]);
 }
 
 $tokens = $result->session->tokens;
