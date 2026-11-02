@@ -28,7 +28,7 @@ final readonly class FactorRemoval
      * @param  int  $revoked
      * @param  bool  $currentRevoked
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\PendingSession  $pending
-     * @param  ?\SineMacula\Laravel\Authentication\Secrets\Secret  $pendingCredential
+     * @param  ?\SineMacula\Laravel\Authentication\Secrets\Secret  $credential
      */
     public function __construct(
 
@@ -42,7 +42,7 @@ final readonly class FactorRemoval
         public ?PendingSession $pending = null,
 
         /** The pending credential the current session holds once it returned to pending. */
-        public ?Secret $pendingCredential = null,
+        public ?Secret $credential = null,
     ) {}
 
     /**
@@ -50,7 +50,7 @@ final readonly class FactorRemoval
      *
      * @return bool
      */
-    public function returnedToPending(): bool
+    public function isPending(): bool
     {
         return $this->pending !== null;
     }

@@ -46,8 +46,8 @@ final class FactorRemovalTest extends TestCase
         self::assertSame(3, $removal->revoked);
         self::assertFalse($removal->currentRevoked);
         self::assertNull($removal->pending);
-        self::assertNull($removal->pendingCredential);
-        self::assertFalse($removal->returnedToPending());
+        self::assertNull($removal->credential);
+        self::assertFalse($removal->isPending());
     }
 
     /**
@@ -61,7 +61,7 @@ final class FactorRemovalTest extends TestCase
 
         self::assertSame(2, $removal->revoked);
         self::assertTrue($removal->currentRevoked);
-        self::assertFalse($removal->returnedToPending());
+        self::assertFalse($removal->isPending());
     }
 
     /**
@@ -92,7 +92,7 @@ final class FactorRemovalTest extends TestCase
         self::assertSame(1, $removal->revoked);
         self::assertFalse($removal->currentRevoked);
         self::assertSame($pending, $removal->pending);
-        self::assertSame($credential, $removal->pendingCredential);
-        self::assertTrue($removal->returnedToPending());
+        self::assertSame($credential, $removal->credential);
+        self::assertTrue($removal->isPending());
     }
 }

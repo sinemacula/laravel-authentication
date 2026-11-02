@@ -649,8 +649,8 @@ DB::transaction(function () use ($user, $factor) {
 
     $removal = Auth::sessions()->factorRemoved($user, $factor->reference(), Auth::session());
 
-    if ($removal->returnedToPending()) {
-        // Hand $removal->pendingCredential to the client in the response body.
+    if ($removal->isPending()) {
+        // Hand $removal->credential to the client in the response body.
     }
 });
 ```
@@ -662,7 +662,7 @@ again, and then:
 - it stays active while it still meets the identity's factor policy and its tenant's policy, with another factor say;
 - it returns to pending, waiting on a further factor (`SessionReturnedToPending`, flow `factor_change`), while that is
   all it falls short of: its access and refresh tokens stop at once, and `FactorRemoval::$pending` and
-  `$pendingCredential` carry what a client needs to satisfy it again;
+  `$credential` carry what a client needs to satisfy it again;
 - it is revoked (`factor_removed`) when it is no longer admitted as a refresh admits it (its identity, principal or
   tenant inactive or ineligible) or its tenant now requires a connection: nothing it could do in place would meet it.
 

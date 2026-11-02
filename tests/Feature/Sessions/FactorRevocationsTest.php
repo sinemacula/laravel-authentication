@@ -139,9 +139,9 @@ final class FactorRevocationsTest extends TestCase
 
         self::assertSame(1, $removal->revoked);
         self::assertFalse($removal->currentRevoked);
-        self::assertFalse($removal->returnedToPending());
+        self::assertFalse($removal->isPending());
         self::assertNull($removal->pending);
-        self::assertNull($removal->pendingCredential);
+        self::assertNull($removal->credential);
         self::assertSame(RevocationReason::FACTOR_REMOVED->value, $this->rowOf($other->record->getKey())->revoked_reason);
         self::assertSame('active', $this->rowOf($current->record->getKey())->status);
         self::assertSame(['factor-a' => $this->now->toDateTimeString(), 'factor-b' => null], $this->voidedOn($current->record->getKey()));
@@ -194,15 +194,15 @@ final class FactorRevocationsTest extends TestCase
 
         $removal = Auth::sessions('api')->factorRemoved($current->identity, 'factor-a', $current->record);
 
-        self::assertTrue($removal->returnedToPending());
+        self::assertTrue($removal->isPending());
         self::assertSame(0, $removal->revoked);
         self::assertFalse($removal->currentRevoked);
         self::assertNotNull($removal->pending);
         self::assertSame([PendingRequirement::MFA], $removal->pending->requires);
         self::assertFalse($removal->pending->requirement->isEmpty());
         self::assertSame($current->record->getKey(), $removal->pending->id);
-        self::assertInstanceOf(Secret::class, $removal->pendingCredential);
-        self::assertStringStartsWith(IdentifierCoercion::stringify($current->record->getKey()) . '.', $removal->pendingCredential->reveal());
+        self::assertInstanceOf(Secret::class, $removal->credential);
+        self::assertStringStartsWith(IdentifierCoercion::stringify($current->record->getKey()) . '.', $removal->credential->reveal());
         self::assertSame('pending', $this->rowOf($current->record->getKey())->status);
         self::assertSame([SessionReturnedToPending::class], $this->recordedClasses());
         self::assertSame(AuthenticationFlow::FACTOR_CHANGE, $this->recordedEvent(SessionReturnedToPending::class)->flow);
@@ -213,7 +213,7 @@ final class FactorRevocationsTest extends TestCase
 
         self::assertFalse($refresh->isRefreshed());
 
-        $again = $this->sessions()->satisfy($removal->pendingCredential, $this->proof($current->identity, $current->record->getKey(), 'factor-b', Purpose::SIGN_IN));
+        $again = $this->sessions()->satisfy($removal->credential, $this->proof($current->identity, $current->record->getKey(), 'factor-b', Purpose::SIGN_IN));
 
         self::assertTrue($again->isSignedIn());
         self::assertSame('active', $this->rowOf($current->record->getKey())->status);
@@ -237,7 +237,7 @@ final class FactorRevocationsTest extends TestCase
 
         $removal = Auth::sessions('api')->factorRemoved($current->identity, 'factor-a', $current->record);
 
-        self::assertFalse($removal->returnedToPending());
+        self::assertFalse($removal->isPending());
         self::assertSame('active', $this->rowOf($current->record->getKey())->status);
         self::assertTrue($this->authenticates($current->tokens->accessToken));
     }
@@ -266,7 +266,7 @@ final class FactorRevocationsTest extends TestCase
 
         $removal = Auth::sessions('members')->factorRemoved($current->identity, 'factor-a', $current->record);
 
-        self::assertTrue($removal->returnedToPending());
+        self::assertTrue($removal->isPending());
         self::assertSame('v3', $this->rowOf($current->record->getKey())->tenant_policy_version);
         self::assertSame('pending', $this->rowOf($current->record->getKey())->status);
     }
@@ -322,7 +322,7 @@ final class FactorRevocationsTest extends TestCase
 
         self::assertSame(2, $removal->revoked);
         self::assertTrue($removal->currentRevoked);
-        self::assertFalse($removal->returnedToPending());
+        self::assertFalse($removal->isPending());
         self::assertSame(RevocationReason::FACTOR_REMOVED->value, $this->rowOf($current->record->getKey())->revoked_reason);
         self::assertSame(RevocationReason::FACTOR_REMOVED->value, $this->rowOf($other->record->getKey())->revoked_reason);
         self::assertCount(2, $this->recorded);
@@ -388,7 +388,7 @@ final class FactorRevocationsTest extends TestCase
         self::assertNotSame($before, $during);
         self::assertSame(0, $removal->revoked);
         self::assertFalse($removal->currentRevoked);
-        self::assertFalse($removal->returnedToPending());
+        self::assertFalse($removal->isPending());
         self::assertSame($during, $this->columnsOf($current->record->getKey()));
         self::assertSame(['factor-a' => null], $this->voidedOn($current->record->getKey()));
     }
@@ -420,7 +420,7 @@ final class FactorRevocationsTest extends TestCase
 
         self::assertSame(0, $removal->revoked);
         self::assertFalse($removal->currentRevoked);
-        self::assertFalse($removal->returnedToPending());
+        self::assertFalse($removal->isPending());
         self::assertSame($during, $this->columnsOf($current->record->getKey()));
         self::assertSame(['factor-a' => $this->now->toDateTimeString(), 'factor-b' => null], $this->voidedOn($current->record->getKey()));
         self::assertSame([], $this->recordedClasses());
@@ -460,7 +460,7 @@ final class FactorRevocationsTest extends TestCase
         $record  = Session::query()->whereKey($signIn->pending->id)->firstOrFail();
         $removal = Auth::sessions(self::CHOOSERS)->factorRemoved($member, 'factor-a', $record);
 
-        self::assertFalse($removal->returnedToPending());
+        self::assertFalse($removal->isPending());
         self::assertSame(['factor-a' => $this->now->toDateTimeString()], $this->voidedOn($record->getKey()));
 
         $chosen = $this->sessions(self::CHOOSERS)->choose($signIn->credential, $memberships[0]);
@@ -489,7 +489,7 @@ final class FactorRevocationsTest extends TestCase
 
         DB::transaction(function () use ($current, $guard): void {
 
-            self::assertTrue(Auth::sessions('api')->factorRemoved($current->identity, 'factor-a', $current->record)->returnedToPending());
+            self::assertTrue(Auth::sessions('api')->factorRemoved($current->identity, 'factor-a', $current->record)->isPending());
             self::assertNotNull($guard->session());
         });
 
