@@ -226,9 +226,9 @@ final readonly class SessionService
         $this->context->dispatch(new Attempting($this->context->name(), $safe, false));
 
         $subject = new AttemptSubject($this->context->name(), AttemptFlow::SIGN_IN, $identifier, $type, $context->client->ip);
-        $outcome = $this->signInWith($driver, $method, $input, $context, $subject);
+        $outcome = $this->signInWith($driver, $method, $input, $context, $subject, $transport);
 
-        return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, $identifier, $safe) : $this->bound($outcome, $transport);
+        return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, $identifier, $safe) : $outcome;
     }
 
     /**
@@ -431,19 +431,27 @@ final readonly class SessionService
     }
 
     /**
-     * Run a sign-in from the application policy's method check to the session.
+     * Run a sign-in from the application policy's method check to the session,
+     * and bind the guard to a session it started.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\SignInMethod  $driver
      * @param  string  $method
      * @param  array<array-key, mixed>  $input
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject  $subject
+     * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
      * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
-    private function signInWith(SignInMethod $driver, string $method, #[\SensitiveParameter] array $input, SignInContext $context, AttemptSubject $subject): Refused|SignInResult
-    {
+    private function signInWith(
+        SignInMethod $driver,
+        string $method,
+        #[\SensitiveParameter] array $input,
+        SignInContext $context,
+        AttemptSubject $subject,
+        RefreshTokenTransport $transport,
+    ): Refused|SignInResult {
         $policy = CredentialAttempt::checkMethod($this->container, $subject->guard, $method);
 
         if ($policy instanceof Refused) {
@@ -462,15 +470,39 @@ final readonly class SessionService
             fn (Timebox $timebox) => $this->verify($driver, $method, $request, $attempt, $subject->identifierType, $timebox),
         );
 
-        return $verified instanceof Refused ? $verified : $this->continueVerified($driver, $method, $input, $context, $subject->identifierType, $attempt, $verified);
+        $outcome = $verified instanceof Refused ? $verified : $this->continueVerified($driver, $method, $input, $context, $subject->identifierType, $attempt, $verified);
+
+        return $outcome instanceof Refused ? $outcome : $this->settle($outcome, $attempt, $transport);
+    }
+
+    /**
+     * Bind the guard to the session a sign-in started, then give back the
+     * attempt-limit slots of one that started active, so a bind listener that
+     * throws leaves them counted; a pending sign-in keeps them.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInResult  $result
+     * @param  \SineMacula\Laravel\Authentication\Sessions\CredentialAttempt  $attempt
+     * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
+     * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
+     *
+     * @throws \Throwable
+     */
+    private function settle(SignInResult $result, CredentialAttempt $attempt, RefreshTokenTransport $transport): SignInResult
+    {
+        $bound = $this->bound($result, $transport);
+
+        if ($bound->isSignedIn()) {
+            $attempt->release();
+        }
+
+        return $bound;
     }
 
     /**
      * Continue a sign-in whose method verified the input and whose identity is
      * admitted: select its principal (or find the principals it is to choose
      * from), rehash a password whose hash is outdated once that passed, then
-     * take it on to its session, active or pending; a sign-in whose session
-     * started active gives its attempt-limit slots back.
+     * take it on to its session, active or pending.
      *
      * @formatter:off
      *
@@ -512,17 +544,7 @@ final readonly class SessionService
             $driver->rehash($this->context->provider(), $identity, $input);
         }
 
-        $outcome = $this->establishment->proceed($identity, $selection, $method, $identifierType, $context, $proof, $attempt->windows());
-
-        if ($outcome instanceof Refused) {
-            return $outcome;
-        }
-
-        if ($outcome->isSignedIn()) {
-            $attempt->release();
-        }
-
-        return $outcome;
+        return $this->establishment->proceed($identity, $selection, $method, $identifierType, $context, $proof, $attempt->windows());
     }
 
     /**
