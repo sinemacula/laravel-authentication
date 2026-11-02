@@ -35,8 +35,9 @@ trait EndsConnectionSessions
      * `authentication.revocation.connection_disabled` is `false`. Returns how
      * many sessions this call revoked. Call it in the transaction that disables
      * the connection, on the storage connection, so both commit or roll back
-     * together; it runs as a savepoint there and reports each session once that
-     * commits, when this guard, if it is bound to one of them, forgets it.
+     * together; it runs as a savepoint there and, once that commits, this
+     * guard, if it is bound to one of the sessions, forgets it before each is
+     * reported.
      *
      * @param  string  $connectionId
      * @return int

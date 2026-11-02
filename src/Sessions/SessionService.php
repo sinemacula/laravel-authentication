@@ -184,14 +184,13 @@ final readonly class SessionService
         $this->refreshes = new SessionRefresh($context, $binding, $exchange, $this->afterCommit, $container, $refreshProof);
         $this->signOuts  = new SessionSignOut($context, $binding, $this->revocations, $sessions, $refreshProof, $container);
 
-        $this->connectionRevocations = new ConnectionRevocations($context, $binding, $sessions, $container);
+        $this->connectionRevocations = new ConnectionRevocations($context, $binding, $sessions, $this->afterCommit, $container);
         $this->factorRevocations     = new FactorRevocations(
             $context,
             $binding,
             $this->revocations,
             $sessions,
             $this->transitions,
-            $this->afterCommit,
             $container,
         );
 
@@ -687,10 +686,10 @@ final readonly class SessionService
      * only while it is still that session, live, active and acting as the
      * principal in the tenant it was signed in to: a session revoked, returned
      * to pending or switched later in the same transaction is never bound (a
-     * switch binds the guard to its destination itself). A
-     * result without a session binds nothing and is answered as it is. The
-     * transport is built before the sign-in or the action begins, so one that
-     * is misconfigured fails it before anything is written or reported.
+     * switch binds the guard to its destination itself). A result without a
+     * session binds nothing and is answered as it is. The transport is built
+     * before the sign-in or the action begins, so one that is misconfigured
+     * fails it before anything is written or reported.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInResult  $result
      * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport

@@ -12,6 +12,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -768,6 +769,95 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
+     * Rows of `[a change that ends every session of the current session's
+     * identity]`.
+     *
+     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Sessions\SignedInSession): mixed}>
+     */
+    public static function provideEndingsOfEverySession(): iterable
+    {
+        yield 'a reset' => [static fn (SignedInSession $current): int => Auth::sessions('api')->factorReset($current->identity)];
+        yield 'a removal without a current session' => [
+            static fn (SignedInSession $current): FactorRemoval => Auth::sessions('api')->factorRemoved($current->identity, 'factor-a'),
+        ];
+    }
+
+    /**
+     * A `SessionRevoked` listener that throws once a change ending every
+     * session of the identity commits cannot leave the guard bound to the
+     * identity: the binding is forgotten before any session is reported.
+     *
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SignedInSession): mixed  $ending
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideEndingsOfEverySession')]
+    public function testAListenerThatThrowsLeavesTheGuardUnboundFromTheIdentity(\Closure $ending): void
+    {
+        $current = $this->signedIn();
+        $guard   = $this->boundGuard($current);
+
+        $this->throwOnRevocation();
+
+        self::assertSame('listener failed', self::failureOf(static fn (): mixed => $ending($current)));
+        self::assertFalse($guard->check());
+        self::assertNull($guard->session());
+        self::assertNotNull($this->rowOf($current->record->getKey())->revoked_at);
+    }
+
+    /**
+     * A `SessionRevoked` listener that throws on the other session a removal
+     * ended (here one still pending) cannot leave the guard bound to the
+     * current session the removal returned to pending: the binding is forgotten
+     * before any session is reported.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAListenerThatThrowsLeavesTheGuardUnboundFromACurrentSessionReturnedToPending(): void
+    {
+        $this->requireAFurtherFactor();
+
+        $current = $this->satisfied('factor-a');
+        $other   = $this->sessions()->signIn('password', self::credentials())->pending;
+        $guard   = $this->boundGuard($current);
+
+        self::assertNotNull($other);
+
+        $this->throwOnRevocation();
+
+        self::assertSame('listener failed', self::failureOf(static fn (): FactorRemoval => Auth::sessions('api')->factorRemoved($current->identity, 'factor-a', $current->record)));
+        self::assertNull($guard->session());
+        self::assertSame('pending', $this->rowOf($current->record->getKey())->status);
+        self::assertSame(RevocationReason::FACTOR_REMOVED->value, $this->rowOf($other->id)->revoked_reason);
+    }
+
+    /**
+     * A `SessionRevoked` listener that throws on the current session a removal
+     * revoked cannot leave the guard bound to it: the binding is forgotten
+     * before the session is reported.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAListenerThatThrowsLeavesTheGuardUnboundFromARevokedCurrentSession(): void
+    {
+        $current = $this->signedIn();
+        $guard   = $this->boundGuard($current);
+
+        IntegrationIdentity::query()->update(['is_active' => false]);
+
+        $this->throwOnRevocation();
+
+        self::assertSame('listener failed', self::failureOf(static fn (): FactorRemoval => Auth::sessions('api')->factorRemoved($current->identity, 'factor-a', $current->record)));
+        self::assertNull($guard->session());
+        self::assertSame(RevocationReason::FACTOR_REMOVED->value, $this->rowOf($current->record->getKey())->revoked_reason);
+    }
+
+    /**
      * A removed first-factor credential ends the identity's other sessions,
      * keeps the current one and voids no proof.
      *
@@ -949,6 +1039,36 @@ final class FactorRevocationsTest extends TestCase
             CarbonImmutable::now(),
             new ProofBinding($identity, $guard, $sessionId, $purpose),
         );
+    }
+
+    /**
+     * Make every `SessionRevoked` listener throw.
+     *
+     * @return void
+     */
+    private function throwOnRevocation(): void
+    {
+        Event::listen(SessionRevoked::class, static function (): never {
+            throw new \RuntimeException('listener failed');
+        });
+    }
+
+    /**
+     * Run the change, expecting a listener to throw, and return the exception's
+     * message.
+     *
+     * @param  \Closure(): mixed  $change
+     * @return string
+     */
+    private static function failureOf(\Closure $change): string
+    {
+        try {
+            $change();
+        } catch (\RuntimeException $exception) {
+            return $exception->getMessage();
+        }
+
+        self::fail('Expected the listener to throw.');
     }
 
     /**

@@ -212,11 +212,14 @@ final readonly class SessionRevocations
      * Revoke every session of the identity, of every guard, except the given
      * one (its pending sessions among them), and cancel its pending identifier
      * changes; when the identity records a "tokens valid after" cutoff, move it
-     * to now first. Returns how many sessions this call revoked.
+     * to now first. Returns how many sessions this call revoked. The
+     * `$committed` callback given runs once the revocation commits, before any
+     * session it ended is reported.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
+     * @param  ?\Closure(): void  $committed
      * @return int
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -224,9 +227,9 @@ final readonly class SessionRevocations
      * @throws \LogicException
      * @throws \Throwable
      */
-    public function revokeSessions(Identity $identity, RevocationReason $reason, ?Session $except = null): int
+    public function revokeSessions(Identity $identity, RevocationReason $reason, ?Session $except = null, ?\Closure $committed = null): int
     {
-        return $this->endSessions([$this->identityScope($identity)], $reason, $except);
+        return $this->endSessions([$this->identityScope($identity)], $reason, $except, $committed);
     }
 
     /**
@@ -414,19 +417,20 @@ final readonly class SessionRevocations
 
     /**
      * End every session of the scopes, reporting each revoked session and then
-     * each scope of an identity or a principal once the revocations commit; a
-     * tenant's scope signs no one out everywhere, so it reports only its
-     * sessions.
+     * each scope of an identity or a principal once the revocations commit,
+     * after the `$committed` callback given; a tenant's scope signs no one out
+     * everywhere, so it reports only its sessions.
      *
      * @param  non-empty-list<\SineMacula\Laravel\Authentication\Sessions\RevocationScope>  $scopes
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
+     * @param  ?\Closure(): void  $committed
      * @return int
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */
-    private function endSessions(array $scopes, RevocationReason $reason, ?Session $except): int
+    private function endSessions(array $scopes, RevocationReason $reason, ?Session $except, ?\Closure $committed = null): int
     {
         $client = $this->context->client();
         $guard  = $this->context->name();
@@ -451,6 +455,7 @@ final readonly class SessionRevocations
 
                 $this->context->dispatch(new SignedOutEverywhere($context, $reason, $revoked, $cutoff));
             },
+            $committed,
         );
     }
 

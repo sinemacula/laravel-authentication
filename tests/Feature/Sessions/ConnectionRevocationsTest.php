@@ -10,6 +10,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -269,6 +270,63 @@ final class ConnectionRevocationsTest extends TestCase
 
         self::assertSame(1, $trigger(Auth::sessions('api'), $ada));
         self::assertSame($kept->record->getKey(), $bound->session()?->getSessionIdentifier());
+    }
+
+    /**
+     * Rows of `[the trigger, which of the two sessions it ends the guard is
+     * bound to]`.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Identity): int, 1: int}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    public static function provideBoundEndedSessions(): iterable
+    {
+        foreach (self::provideTriggers() as $name => [$trigger]) {
+            yield $name . ', bound to the first session' => [$trigger, 0];
+            yield $name . ', bound to the second session' => [$trigger, 1];
+        }
+    }
+
+    /**
+     * A `SessionRevoked` listener that throws once the trigger commits leaves
+     * the guard bound to none of the sessions the trigger ended, whichever it
+     * is bound to: the binding is forgotten before any session is reported.
+     *
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Identity): int  $trigger
+     * @param  int  $bound
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideBoundEndedSessions')]
+    public function testAListenerThatThrowsLeavesTheGuardBoundToNoSessionTheTriggerEnded(\Closure $trigger, int $bound): void
+    {
+        $ada   = $this->seedIdentity();
+        $ended = [$this->started($ada, 'conn-a'), $this->started($ada, 'conn-a')];
+        $guard = $this->boundGuard($ended[$bound]);
+
+        Event::listen(SessionRevoked::class, static function (): never {
+            throw new \RuntimeException('listener failed');
+        });
+
+        try {
+            $trigger(Auth::sessions('api'), $ada);
+
+            self::fail('Expected the listener to throw once the trigger committed.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('listener failed', $exception->getMessage());
+        }
+
+        self::assertFalse($guard->check());
+        self::assertNull($guard->session());
+        self::assertNotContains(null, $this->reasonsOf([$ended[0]->record->getKey(), $ended[1]->record->getKey()]));
     }
 
     /**
