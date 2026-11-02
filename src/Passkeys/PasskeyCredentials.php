@@ -301,16 +301,17 @@ final class PasskeyCredentials
     }
 
     /**
-     * Whether the credential id is canonical unpadded base64url: of the
-     * alphabet, without padding, and the very encoding of the bytes it decodes
-     * to, so no two spellings name one credential.
+     * Whether the credential id is canonical unpadded base64url: not empty, and
+     * the very encoding of the bytes it decodes to, so no two spellings name
+     * one credential. An encoding holds only the url alphabet and no padding,
+     * so nothing else survives the round trip.
      *
      * @param  string  $credentialId
      * @return bool
      */
     public static function isCanonical(#[\SensitiveParameter] string $credentialId): bool
     {
-        return preg_match('/^[A-Za-z0-9_-]+$/D', $credentialId) === 1 && self::encode(self::decode($credentialId)) === $credentialId;
+        return $credentialId !== '' && self::encode(self::decode($credentialId)) === $credentialId;
     }
 
     /**
@@ -319,7 +320,7 @@ final class PasskeyCredentials
      * @param  string  $bytes
      * @return string
      */
-    public static function encode(string $bytes): string
+    private static function encode(string $bytes): string
     {
         return rtrim(strtr(base64_encode($bytes), '+/', '-_'), '=');
     }
