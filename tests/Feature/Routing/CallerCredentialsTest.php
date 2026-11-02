@@ -148,17 +148,28 @@ final class CallerCredentialsTest extends TestCase
 
     /**
      * A route that declares a credential of a named guard reads that guard,
-     * whatever the default.
+     * whatever the default: its caller is the named guard's.
      *
      * @return void
+     *
+     * @throws \Throwable
      */
     public function testADeclaredGuardIsReadWhateverTheDefault(): void
     {
-        $request = $this->request('POST');
+        $this->seedMember('ada@example.test');
+
+        $session = $this->signedIn('ada@example.test', guard: self::OTHERS);
+        $request = $this->request('POST', body: ['refresh_token' => $session->tokens->refreshToken?->reveal()]);
 
         DeclaredCredential::refresh(self::OTHERS)->declareOn($request);
 
+        $caller = self::callers()->caller($request);
+
         self::assertSame(self::OTHERS, self::callers()->guard($request));
+        self::assertNotNull($caller);
+        self::assertSame(self::OTHERS, $caller->guard);
+        self::assertSame($session->record->getKey(), $caller->session?->getSessionIdentifier());
+        self::assertCount(0, $this->failures);
     }
 
     /**
@@ -366,7 +377,8 @@ final class CallerCredentialsTest extends TestCase
     /**
      * A principal is admitted by its id for a guard that keeps sessions, with
      * the identifier type the caller's session records, as the application
-     * admits it; a guard that keeps none admits none.
+     * admits it, and with none for a caller without a session, as an
+     * access-only token's is; a guard that keeps none admits none.
      *
      * @return void
      *
@@ -380,7 +392,10 @@ final class CallerCredentialsTest extends TestCase
         $callers = self::callers();
         $caller  = new Caller(self::MEMBERS, CallerCredential::ACCESS, $member, $first, null, $session->record);
 
+        $sessionless = new Caller(self::MEMBERS, CallerCredential::ACCESS, $member, $first, null, null);
+
         self::assertSame($second->getKey(), $callers->admitted($caller, $second)?->getPrincipalIdentifier());
+        self::assertSame($second->getKey(), $callers->admitted($sessionless, $second)?->getPrincipalIdentifier());
 
         $second->delete();
 
