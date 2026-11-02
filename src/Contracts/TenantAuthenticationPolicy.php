@@ -13,9 +13,10 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
  * Asked, for a session that is to act or keeps acting in a tenant, what the
  * tenant requires of its authentication: a further factor, the connections it
  * must have been established through, and the version of that answer. The
- * package asks it at sign-in, at a choice of principal, at activation and at
- * every refresh, never on a bearer request; a switch asks it for the
- * destination. The default, `RequireNothingOfTenants`, requires nothing.
+ * package asks it at sign-in, at a choice of principal, at activation, at every
+ * refresh and when the `me` route binding reads a refresh credential, never on
+ * a bearer request; a switch asks it for the destination. The default,
+ * `RequireNothingOfTenants`, requires nothing.
  *
  * It is asked inside `WriteConnection::during()` for the tenant: read the
  * policy's own state from the write connection every time, so a lagging replica

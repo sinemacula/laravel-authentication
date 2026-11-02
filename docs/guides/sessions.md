@@ -598,20 +598,22 @@ must be loaded, or reading it throws a `LogicException`, and the column name com
 ### Tenant authentication policies
 
 A tenant may ask more of the sessions active in it than the identity's own sign-in did: a further factor, or a sign-in
-through one of its connections (single sign-on). The package asks the bound `Contracts\TenantAuthenticationPolicy`
-(the default, `RequireNothingOfTenants`, asks nothing; see [Tenant authentication
+through one of its connections (single sign-on). The package asks the bound `Contracts\TenantAuthenticationPolicy` (the
+default, `RequireNothingOfTenants`, asks nothing; see [Tenant authentication
 policies](extending.md#tenant-authentication-policies)) whenever a session comes to act in a tenant or keeps acting in
 it: at sign-in once a principal is selected, at a choice of principal, when a pending session activates, at every
-refresh, and for the destination of a switch, never on a bearer request. A session that falls short:
+refresh, for the destination of a switch, and when the `me` route binding reads a refresh credential, never on a bearer
+request. A session that falls short:
 
-| Where                       | Needs a connection                                                       | Lacks a further factor                                                   |
-|-----------------------------|--------------------------------------------------------------------------|--------------------------------------------------------------------------|
-| Sign-in                     | refused as `sso_required`, nothing written                               | written pending on `mfa`                                                 |
-| Choice of principal         | that principal refused as `sso_required`, the session stays pending      | the principal recorded, the session pending on `mfa`                     |
-| Satisfying a further factor | refused as `sso_required`, the session stays pending until it expires    | stays pending                                                            |
-| Refresh                     | refused as `sso_required`, the session revoked (`tenant_policy_changed`) | returned to pending: the result `isPending()`, with a pending credential |
-| Switch                      | refused as `sso_required`, the session unchanged                         | returned to pending with the destination recorded, as for a refresh      |
-| `attempt()`                 | refused as `sso_required`                                                | refused as `additional_factor_required`                                  |
+| Where                                 | Needs a connection                                                       | Lacks a further factor                                                   |
+|---------------------------------------|--------------------------------------------------------------------------|--------------------------------------------------------------------------|
+| Sign-in                               | refused as `sso_required`, nothing written                               | written pending on `mfa`                                                 |
+| Choice of principal                   | that principal refused as `sso_required`, the session stays pending      | the principal recorded, the session pending on `mfa`                     |
+| Satisfying a further factor           | refused as `sso_required`, the session stays pending until it expires    | stays pending                                                            |
+| Refresh                               | refused as `sso_required`, the session revoked (`tenant_policy_changed`) | returned to pending: the result `isPending()`, with a pending credential |
+| Switch                                | refused as `sso_required`, the session unchanged                         | returned to pending with the destination recorded, as for a refresh      |
+| `attempt()`                           | refused as `sso_required`                                                | refused as `additional_factor_required`                                  |
+| The `me` binding's refresh credential | binds nothing (`sso_required`), nothing written                          | binds nothing (`additional_factor_required`), nothing written            |
 
 A further factor is met only as the bound `Contracts\RequirementCheck` judges the session's proofs (the default,
 `MeetNoRequirement`, meets nothing, so a tenant that requires a further factor admits no session until a factor package
@@ -657,7 +659,7 @@ Every revocation records one of these reasons in the session's `revoked_reason` 
 | `signed_out`            | The session signed itself out: `logout()`, `Auth::sessions()->signOut()`, `signOutFromRequest()`, `signOutWith()`             |
 | `signed_out_everywhere` | `signOutEverywhere()` ended the identity's sessions                                                                           |
 | `revoked`               | The application revoked it: `revokeSession()`, `revokeSessions()`, `revokePrincipalSessions()`                                |
-| `rotation_reuse`        | A rotated refresh token was replayed, by a refresh, a switch or a sign-out                                                    |
+| `rotation_reuse`        | A rotated refresh token was replayed, by a refresh, a switch, a sign-out or the `me` binding's refresh credential             |
 | `superseded`            | A sign-in that proved the client holds the session, with its current refresh token, replaced it with a new session            |
 | `password_changed`      | `passwordChanged()`: directly, through `Auth::passwords()->set()` with `CHANGE`, or through `RevokeSessionsOnPasswordChange`  |
 | `password_reset`        | `passwordReset()`: directly, through a reset or `set()` with `RESET`, or through `RevokeSessionsOnPasswordReset`              |
@@ -763,23 +765,27 @@ Route::middleware('authentication.pending:choose_principal,api')->post('/sign-in
 ```
 
 `authentication.refresh[:<guard>]` declares the refresh credential: the one the guard's refresh token transport reads
-(see [Refreshing](refreshing.md)), proven and admitted as a refresh would be, without rotating it.
-`authentication.pending:<action>[,<guard>]` declares the pending credential for a pending action by its stable name
-(`mfa.verify`, `choose_principal`, ...): it binds only for a live pending session of the guard that allows that action
-now, so nothing is bound because of a route's purpose, and the operation the route then takes (`satisfy()`, `choose()`,
-an adapter's action after `pending()`) makes its own checks. An action that is not a pending action is an
-`InvalidArgumentException`. Each makes a guard it names the default for the request, as `auth:<guard>` does, and records
-the declaration, nothing else: the credential is never inferred from what a request carries, so a refresh cookie that
-rides on every request does not turn a read route into one a refresh token authenticates. The package orders both
-before `SubstituteBindings` in the HTTP kernel's middleware priority once the kernel is resolved, so they run before
-the bindings however a route lists them, also when the application sets the whole list with `withMiddleware()`'s
-`priority()`, as long as that list holds `SubstituteBindings`; one that replaces the list later must put
-`SineMacula\Laravel\Authentication\Http\Middleware\UseRefreshCredential` and `UsePendingCredential` before
-`SubstituteBindings` itself.
+(see [Refreshing](refreshing.md)), proven and admitted as a refresh would be, without rotating it, and judged against
+the tenant's authentication policy as a refresh judges it, without writing: a session the next refresh would revoke
+binds nothing (`sso_required`), nor does one it would return to pending (`additional_factor_required`). A replayed
+refresh token revokes its session as `rotation_reuse`, as a refresh does, so a read route behind
+`authentication.refresh` can revoke one. `authentication.pending:<action>[,<guard>]` declares the pending credential for
+a pending action by its stable name (`mfa.verify`, `choose_principal`, ...): it binds only for a live pending session of
+the guard that allows that action now, so nothing is bound because of a route's purpose, and the operation the route
+then takes (`satisfy()`, `choose()`, an adapter's action after `pending()`) makes its own checks. An action that is not
+a pending action is an `InvalidArgumentException`. Each makes a guard it names the default for the request, as
+`auth:<guard>` does, and records the declaration, nothing else: the credential is never inferred from what a request
+carries, so a refresh cookie that rides on every request does not turn a read route into one a refresh token
+authenticates. The package orders both before `SubstituteBindings` in the HTTP kernel's middleware priority once the
+kernel is resolved, so they run before the bindings however a route lists them, also when the application sets the whole
+list with `withMiddleware()`'s `priority()`, as long as that list holds `SubstituteBindings`; one that replaces the list
+later must put `SineMacula\Laravel\Authentication\Http\Middleware\UseRefreshCredential` and `UsePendingCredential`
+before `SubstituteBindings` itself.
 
 The caller is read only when a parameter asks for it, and once per request for a guard and a credential, so two bound
 parameters prove a refresh credential once. A refresh or pending credential the request carries and that is refused is
-reported once with `AuthenticationFailed`: flow `refresh` with the reason the refresh would give, or flow `sign_in` with
+reported once with `AuthenticationFailed`: flow `refresh` with the reason the refresh would give
+(`additional_factor_required` where the refresh would return the session to pending), or flow `sign_in` with
 `pending_invalid` or `pending_action_not_allowed`, never the credential; a request that carries none is not reported.
 
 The trait reserves `me` as a value of every parameter its model binds, and binds only the caller's own instances: a

@@ -9,7 +9,10 @@ use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\Refused;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
@@ -19,6 +22,7 @@ use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh;
@@ -27,6 +31,8 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
+use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
+use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
 
 /**
  * Refreshes a session of one guard: exchanges the refresh token, reports the
@@ -170,8 +176,12 @@ final readonly class SessionRefresh
      * owner, reloaded through the guard's provider and active, as the principal
      * the token names, which must be the one the session records, in the
      * session's active tenant, still admitted by the application policy and
-     * `ApplicationAccess`). Dispatches nothing but a replay's `SessionRevoked`,
-     * and binds nothing; the caller reports a refusal.
+     * `ApplicationAccess`); then the session judged against its tenant's
+     * authentication policy, as a refresh judges it: `sso_required` for one the
+     * next refresh would revoke, `additional_factor_required` for one it would
+     * return to pending, neither written here. Dispatches nothing but a
+     * replay's `SessionRevoked`, and binds nothing; the caller reports a
+     * refusal.
      *
      * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Sessions\RefreshCredential|null
      *
@@ -190,7 +200,7 @@ final readonly class SessionRefresh
 
     /**
      * Who the refresh token the request carried would sign in again: the
-     * proof's refusal, the admission's, or the credential.
+     * proof's refusal, the admission's, the tenant policy's, or the credential.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\PresentedRefreshToken  $presented
      * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Sessions\RefreshCredential
@@ -203,7 +213,8 @@ final readonly class SessionRefresh
      */
     private function credentialOf(PresentedRefreshToken $presented): FailureReason|RefreshCredential
     {
-        $proven = $this->proof->prove($presented->token, AuthenticationFlow::REFRESH, CarbonImmutable::now()->startOfSecond());
+        $now    = CarbonImmutable::now()->startOfSecond();
+        $proven = $this->proof->prove($presented->token, AuthenticationFlow::REFRESH, $now);
 
         if ($proven instanceof AuthenticationFailed) {
             return $proven->reason;
@@ -217,8 +228,32 @@ final readonly class SessionRefresh
         }
 
         return PrincipalReference::isRecordedOn($session, $admitted->principal)
-            ? new RefreshCredential($admitted->identity, $admitted->principal, $admitted->tenant, $session, $presented->source)
+            ? $this->underTenantPolicy($admitted, $session, $presented->source, $now)
             : FailureReason::SESSION_PRINCIPAL_MISMATCH;
+    }
+
+    /**
+     * The credential of the admitted session when it meets its tenant's
+     * authentication policy, judged as a refresh judges it but writing nothing:
+     * `sso_required` for a session the next refresh would revoke,
+     * `additional_factor_required` for one it would return to pending.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Sessions\RefreshCredential
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     */
+    private function underTenantPolicy(Admitted $admitted, EloquentSession&Model $session, RefreshTokenSource $source, CarbonImmutable $now): FailureReason|RefreshCredential
+    {
+        return match (TenantPolicyCheck::check($this->context->name(), $admitted->identity, $admitted->principal, $admitted->tenant, $session, $now)->standing) {
+            TenantPolicyStanding::SSO_REQUIRED    => FailureReason::SSO_REQUIRED,
+            TenantPolicyStanding::FACTOR_REQUIRED => FailureReason::ADDITIONAL_FACTOR_REQUIRED,
+            TenantPolicyStanding::MET             => new RefreshCredential($admitted->identity, $admitted->principal, $admitted->tenant, $session, $source),
+        };
     }
 
     /**

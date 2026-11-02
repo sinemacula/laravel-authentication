@@ -16,6 +16,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
@@ -24,21 +25,26 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\RefreshesSessions;
 use SineMacula\Laravel\Authentication\Sessions\RefreshCredential;
 use SineMacula\Laravel\Authentication\Sessions\SessionRefresh;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\TestCase;
 
 /**
  * Feature tests of reading who the request's refresh credential would sign in
  * again, without rotating it or binding anything: the owner, principal, tenant
  * and session a refresh would admit, with where the credential was read from;
- * the reason the transport, the session or the admission refuses it, returned
- * for the caller to report; and nothing for a request that carries none.
+ * the reason the transport, the session, the admission or the tenant's
+ * authentication policy refuses it, returned for the caller to report; and
+ * nothing for a request that carries none.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -124,7 +130,10 @@ final class RefreshCredentialTest extends TestCase
 
     /**
      * A member's refresh token in the header is the credential of the
-     * membership the session acts as, in the tenant it is active in.
+     * membership the session acts as, in the tenant it is active in, once the
+     * tenant's authentication policy, asked about that session as a refresh
+     * asks, is met; the version it answered is not recorded, since nothing is
+     * written.
      *
      * @return void
      *
@@ -134,7 +143,10 @@ final class RefreshCredentialTest extends TestCase
     {
         [$member, $membership, $tenant] = $this->seedMember();
 
-        $session    = $this->signedIn('members', 'member@example.test');
+        $session = $this->signedIn('members', 'member@example.test');
+        $policy  = $this->tenantPolicy(new TenantRequirement('v2'));
+        $before  = (array) DB::table('authentication_sessions')->sole();
+
         $credential = $this->serving(['HTTP_X_REFRESH_TOKEN' => self::refreshOf($session)], guard: 'members')->refreshCredentialFromRequest();
 
         self::assertInstanceOf(RefreshCredential::class, $credential);
@@ -142,6 +154,70 @@ final class RefreshCredentialTest extends TestCase
         self::assertSame($membership->getPrincipalIdentifier(), $credential->principal->getPrincipalIdentifier());
         self::assertSame($tenant->getTenantIdentifier(), $credential->tenant?->getTenantIdentifier());
         self::assertSame(RefreshTokenSource::HEADER, $credential->source);
+        self::assertEquals($before, (array) DB::table('authentication_sessions')->sole());
+        self::assertCount(1, $policy->asked);
+
+        $asked = $policy->asked[0];
+
+        self::assertSame('members', $asked->application);
+        self::assertTrue($member->is($asked->identity));
+        self::assertSame($membership->getPrincipalIdentifier(), $asked->principal->getPrincipalIdentifier());
+        self::assertSame($tenant->getTenantIdentifier(), $asked->tenant->getTenantIdentifier());
+        self::assertSame($session->record->getKey(), $asked->session?->getSessionIdentifier());
+    }
+
+    /**
+     * A session its tenant's authentication policy now requires to have been
+     * established through one of its connections, which the next refresh would
+     * revoke, is no credential: it is refused as `sso_required`, and is neither
+     * revoked nor reported.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionTheNextRefreshWouldRevokeForItsTenantPolicyIsRefused(): void
+    {
+        $this->seedMember();
+
+        $session = $this->signedIn('members', 'member@example.test');
+        $before  = (array) DB::table('authentication_sessions')->sole();
+
+        $this->tenantPolicy(new TenantRequirement('v2', connections: ['conn-a']));
+        $this->recordEvents(self::EVENTS);
+
+        self::assertSame(FailureReason::SSO_REQUIRED, $this->serving(body: ['refresh_token' => self::refreshOf($session)], guard: 'members')->refreshCredentialFromRequest());
+        self::assertSame([], $this->recordedClasses());
+        self::assertEquals($before, (array) DB::table('authentication_sessions')->sole());
+    }
+
+    /**
+     * A session its tenant's authentication policy now requires a further
+     * factor of, which the next refresh would return to pending, is no
+     * credential: it is refused as `additional_factor_required`, since binding
+     * a model cannot wait for the factor, and is neither returned to pending
+     * nor reported.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionTheNextRefreshWouldReturnToPendingForItsTenantPolicyIsRefused(): void
+    {
+        $this->seedMember();
+
+        $session = $this->signedIn('members', 'member@example.test');
+        $before  = (array) DB::table('authentication_sessions')->sole();
+
+        $this->tenantPolicy(new TenantRequirement('v2', new Requirement(new RequirementPart)));
+        $this->recordEvents(self::EVENTS);
+
+        self::assertSame(
+            FailureReason::ADDITIONAL_FACTOR_REQUIRED,
+            $this->serving(body: ['refresh_token' => self::refreshOf($session)], guard: 'members')->refreshCredentialFromRequest(),
+        );
+        self::assertSame([], $this->recordedClasses());
+        self::assertEquals($before, (array) DB::table('authentication_sessions')->sole());
     }
 
     /**
@@ -305,6 +381,22 @@ final class RefreshCredentialTest extends TestCase
         Auth::forgetGuards();
 
         return Auth::sessions($guard);
+    }
+
+    /**
+     * Bind a tenant authentication policy that answers with the requirement,
+     * leaving the default check, which meets no further factor.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement  $requirement
+     * @return \Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy
+     */
+    private function tenantPolicy(TenantRequirement $requirement): ScriptedTenantAuthenticationPolicy
+    {
+        $policy = new ScriptedTenantAuthenticationPolicy($requirement);
+
+        app()->instance(TenantAuthenticationPolicy::class, $policy);
+
+        return $policy;
     }
 
     /**

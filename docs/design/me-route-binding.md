@@ -29,8 +29,12 @@ covers the two lookups the binding shares its rules with: one session (`SessionS
   state; Octane-safe).
   - access: the guard must be a package `ContextualGuard` (else `LogicException`); its identity, principal, active
     tenant and session (none for an access-only token or an API key). The guard reports its own failures.
-  - refresh: `SessionService::refreshCredentialFromRequest()`, which reads the guard's transport (cookie or body) and
-    proves and admits the token as a refresh would, without rotating it (`refresh-token-transport.md`).
+  - refresh: `SessionService::refreshCredentialFromRequest()`, which reads the guard's transport (cookie or body),
+    proves and admits the token as a refresh would, without rotating it (`refresh-token-transport.md`), and judges the
+    session against its tenant's authentication policy as a refresh does, writing nothing: `sso_required` for a session
+    the next refresh would revoke, `additional_factor_required` for one it would return to pending. A replayed token
+    revokes its session as `rotation_reuse`, as every path that accepts a refresh token does, so a read route behind
+    `authentication.refresh` can revoke a session.
   - pending: the `session.pending_credential_field` body field (JSON or form body, never the query string or a header),
     named by `pending()`, and the session must allow the declared action now (the first outstanding requirement's
     actions).

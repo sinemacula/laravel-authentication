@@ -99,12 +99,14 @@ trait RefreshesSessions
      * Who the refresh credential the request carries would sign in again,
      * without rotating it or binding anything: `null` when the request carries
      * none; the reason the transport, the session the token names (a replay
-     * revoking it, as a refresh does) or the session's owner, admitted as a
-     * refresh admits it, refuses it; or the `RefreshCredential` with the owner,
-     * the principal, the active tenant, the session and where the credential
-     * was read from. It dispatches nothing but a replay's `SessionRevoked`: its
-     * caller reports a refusal. The seam the `me` route binding reads a refresh
-     * credential through, not a way to authenticate.
+     * revoking it, as a refresh does), the session's owner, admitted as a
+     * refresh admits it, or the tenant's authentication policy, judged as a
+     * refresh judges it but writing nothing, refuses it; or the
+     * `RefreshCredential` with the owner, the principal, the active tenant, the
+     * session and where the credential was read from. It dispatches nothing but
+     * a replay's `SessionRevoked`: its caller reports a refusal. The seam the
+     * `me` route binding reads a refresh credential through, not a way to
+     * authenticate.
      *
      * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Sessions\RefreshCredential|null
      *

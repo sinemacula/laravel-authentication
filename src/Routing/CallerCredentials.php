@@ -30,13 +30,15 @@ use SineMacula\Laravel\Authentication\Sessions\RefreshCredential;
  * The access credential is the guard's own: its identity, principal, active
  * tenant and session, the guard reporting its own failures. The refresh
  * credential is the one the guard's refresh token transport reads, proven and
- * admitted as a refresh would be, without rotating. The pending credential is
- * read from the configured body field, never the query string or a header, and
- * must name a live pending session of the guard that allows the declared action
- * now. A refresh or pending credential the request carries and that is refused
- * is reported once, with `AuthenticationFailed` and its reason (flow `refresh`,
- * or `sign_in` with `pending_invalid` or `pending_action_not_allowed`), never
- * the credential; a request that carries none is not reported.
+ * admitted as a refresh would be and judged against the tenant's authentication
+ * policy as a refresh judges it, without rotating or writing, though a replayed
+ * one revokes its session. The pending credential is read from the configured
+ * body field, never the query string or a header, and must name a live pending
+ * session of the guard that allows the declared action now. A refresh or
+ * pending credential the request carries and that is refused is reported once,
+ * with `AuthenticationFailed` and its reason (flow `refresh`, or `sign_in` with
+ * `pending_invalid` or `pending_action_not_allowed`), never the credential; a
+ * request that carries none is not reported.
  *
  * The caller is read only when a binding asks for it, and at most once per
  * request for a guard and a credential: it is kept on the request's attributes
