@@ -398,16 +398,20 @@ final class CookieTransportTest extends TestCase
     /**
      * A cookie application's sign-out reads the token from its cookie and
      * revokes the session it proves, and its result carries the expired cookie,
-     * under the application's name and path, whatever happened: when the cookie
-     * signed the session out, when the request sent no cookie, when a script
-     * without the custom header sent it (`cross_site_request`, the session left
-     * live), and when a live access token signed its session out.
+     * under the application's name and path, for a request the application's
+     * own pages sent: when the cookie signed the session out, when a same-site
+     * request sent no cookie, and when a live access token signed its session
+     * out. A request that fails the cookie's same-site checks clears nothing:
+     * one without the custom header that sent the cookie (`cross_site_request`,
+     * the session left live), one from another site that sent none (as a
+     * browser withholds a `SameSite=Strict` cookie from a cross-site form), and
+     * a same-site one that sent the token twice (`refresh_token_conflict`).
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testACookieApplicationsSignOutAlwaysClearsTheCookie(): void
+    public function testACookieApplicationsSignOutClearsTheCookieOnlyForItsOwnPages(): void
     {
         $this->seedIdentity();
 
@@ -429,8 +433,27 @@ final class CookieTransportTest extends TestCase
 
         $crossSite = Auth::sessions(self::BROWSER)->signOutFromRequest();
 
+        app()->instance('request', Request::create('/auth/logout', 'POST', server: [
+            'REMOTE_ADDR'     => self::CLIENT_IP,
+            'HTTP_USER_AGENT' => self::CLIENT_AGENT,
+            'HTTP_ORIGIN'     => 'https://elsewhere.example',
+        ]));
+
+        Auth::forgetGuards();
+
+        $fromElsewhere = Auth::sessions(self::BROWSER)->signOutFromRequest();
+        $conflict      = $this->request(self::BROWSER, ['refresh_token' => $value], [self::COOKIES[self::BROWSER][0] => $value])->signOutFromRequest();
+
         self::assertSame(FailureReason::CROSS_SITE_REQUEST, $crossSite->reason);
+        self::assertFalse($fromElsewhere->isSignedOut());
+        self::assertFalse($fromElsewhere->isFailed());
+        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, $conflict->reason);
         self::assertNull(Session::query()->whereKey($byCookie->record->getKey())->value('revoked_at'));
+
+        foreach ([$crossSite, $fromElsewhere, $conflict] as $result) {
+            self::assertNull($result->forgetCookie);
+            self::assertSame([], $result->attachTo(new Response)->headers->getCookies());
+        }
 
         app()->instance('request', Request::create('/auth/logout', 'POST', server: [
             'REMOTE_ADDR'        => self::CLIENT_IP,
@@ -452,7 +475,7 @@ final class CookieTransportTest extends TestCase
         self::assertSame('signed_out', Session::query()->whereKey($byCookie->record->getKey())->value('revoked_reason'));
         self::assertSame('signed_out', Session::query()->whereKey($byBearer->record->getKey())->value('revoked_reason'));
 
-        foreach ([$crossSite, $bearer, $signed, $nothing] as $result) {
+        foreach ([$bearer, $signed, $nothing] as $result) {
 
             $cookie = $result->forgetCookie;
 

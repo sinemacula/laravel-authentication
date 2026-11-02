@@ -48,8 +48,12 @@ revoked, and when a session that ended is deleted. Starting a session is in
   fires for its owner when the guard's provider still returns it and none fired already, and a binding to it is
   forgotten. A refusal is reported by `AuthenticationFailed` with the flow `sign_out`, never by `Failed`; no attempt
   limit applies (nothing is issued, a token cannot be guessed, revoking is the safe direction). A cookie application's
-  `SignOutResult` always carries the expired cookie. `signOutWith($token)` is the same for a token a body
-  application's code read; a cookie application throws a `LogicException`.
+  `SignOutResult` carries the expired cookie when the access token signed its session out, and otherwise only for a
+  request that passes the cookie's same-site checks and was not refused as `refresh_token_conflict`: a cross-site page
+  that auto-submits a form to the logout route (sending no `SameSite=Strict` cookie, but able to have the response's
+  cookie kept) clears nothing, and a refused request leaves the cookie with the session it still proves.
+  `signOutWith($token)` is the same for a token a body application's code read; a cookie application throws a
+  `LogicException`.
 - A sign-out by refresh credential races a rotation without a lock, as the exchange does: a token rotated in between is
   the previous one inside the grace window and still proves the session, and the conditional revocation means two
   sign-outs, or a sign-out and a replay, revoke and report once.

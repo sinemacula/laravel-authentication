@@ -13,11 +13,12 @@ use Symfony\Component\HttpFoundation\Response;
  * How a sign-out ended: whether this call revoked a session, why the refresh
  * credential was refused when it was, where the refresh credential was read
  * from when one was, and, for a cookie application, the expired cookie that
- * clears the browser's, whatever happened.
+ * clears the browser's when the request came from its own pages.
  *
  * A sign-out is never a failed authentication: a refusal only says why the
- * refresh credential proved no session, and the request is signed out either
- * way. `attachTo()` adds the clearing cookie to the response when there is one.
+ * refresh credential proved no session, and the guard is signed out either way,
+ * though a session the refusal leaves unproven stays live. `attachTo()` adds
+ * the clearing cookie to the response when there is one.
  *
  * @api
  *
@@ -45,7 +46,7 @@ final readonly class SignOutResult
         /** Where the refresh credential was read from, when one was. */
         public ?RefreshTokenSource $source,
 
-        /** A cookie application's expired refresh cookie; `null` for a body application. */
+        /** A cookie application's expired refresh cookie, or `null` for a body application and a request it must not clear for. */
         public ?Cookie $forgetCookie,
     ) {}
 

@@ -205,7 +205,8 @@ Route::post('/auth/refresh', function () {
 });
 ```
 
-Signing out clears the cookie (see [Signing out and revoking sessions](sessions.md#signing-out-and-revoking-sessions)).
+Signing out clears the cookie for a request the application's own pages sent, never for a cross-site one (see
+[Signing out and revoking sessions](sessions.md#signing-out-and-revoking-sessions)).
 
 The cookie is `HttpOnly`, `Secure` and `SameSite=Strict`, host-only (it never names a `Domain`), scoped to the
 configured `path`, and expires when the session does, as the refresh token in it does. Its name is the application's

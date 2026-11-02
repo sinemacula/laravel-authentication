@@ -327,8 +327,8 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 Route::post('/auth/logout', function () {
     $result = Auth::sessions('browser')->signOutFromRequest();
 
-    // A cookie application's result always carries the expired cookie that clears the browser's.
-    return $result->attachTo(response()->noContent());
+    // The expired cookie, when the result carries one, clears the browser's either way.
+    return $result->attachTo($result->isFailed() ? response()->json(['reason' => $result->reason?->value], 401) : response()->noContent());
 });
 ```
 
@@ -348,7 +348,12 @@ token cannot be guessed.
 
 The `Sessions\SignOutResult` says whether this call revoked a session (`isSignedOut()`, `signedOut`), why the refresh
 credential was refused when it was (`isFailed()`, `reason`), where it was read from (`source`), and, for a cookie
-application, carries the expired cookie (`forgetCookie`), whatever happened, which `attachTo($response)` adds.
+application, carries the expired cookie (`forgetCookie`), which `attachTo($response)` adds. It carries the cookie when
+the access token signed its session out, which a cross-site page cannot send, and otherwise only when the request passes
+the cookie's same-site checks (its `Origin` and the custom header, as a refresh from the cookie needs them) and was not
+refused as `refresh_token_conflict`. So a cross-site page that auto-submits a form to the logout route clears nothing,
+though a browser keeps a cookie the response to such a navigation sets, and a request that fails the checks leaves the
+cookie in place with the session it still proves; a failed result is answered as a failure, as above.
 `signOutWith($refreshToken)` signs out with a body application's token your code read itself; on a cookie application
 it throws a `LogicException`. `logout()` and `signOut()` cannot reach the response either, so a route that calls them
 clears a cookie application's cookie with `Auth::refreshTransport('browser')->forgetCookie()` (see [Refresh token

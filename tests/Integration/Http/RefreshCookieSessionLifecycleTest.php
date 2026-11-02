@@ -285,7 +285,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
 
             $response = $this->browser('POST', '/auth/sign-in', headers: $headers)->assertForbidden();
 
-            self::assertSame([], $response->headers->getCookies());
+            self::assertSame([], array_filter($response->headers->getCookies(), static fn (Cookie $set): bool => $set->getName() === self::COOKIE));
         }
 
         self::assertSame(0, DB::table('authentication_sessions')->count());
@@ -352,20 +352,28 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
-     * A sign-out posted from another site clears the cookie but revokes
-     * nothing: the cookie's cross-site checks refuse it, so a cross-site form
-     * cannot end the browser's session, and the cookie it held still refreshes.
+     * A sign-out posted from another site neither revokes nor clears anything,
+     * with or without the cookie (a browser withholds a `SameSite=Strict`
+     * cookie from a cross-site form, but keeps one the response sets): the
+     * cookie's cross-site checks refuse it, so a cross-site form can neither
+     * end the browser's session nor sign the browser out of it, and the cookie
+     * still refreshes.
      *
      * @return void
      */
-    public function testASignOutFromAnotherSiteRevokesNothing(): void
+    public function testASignOutFromAnotherSiteRevokesAndClearsNothing(): void
     {
         $this->seedMemberships();
 
-        $cookie  = self::refreshCookie($this->browser('POST', '/auth/sign-in')->assertOk());
-        $cleared = self::refreshCookie($this->browser('POST', '/auth/logout', $cookie, headers: ['Origin' => 'https://evil.example'])->assertNoContent());
+        $cookie = self::refreshCookie($this->browser('POST', '/auth/sign-in')->assertOk());
 
-        self::assertTrue($cleared->isCleared());
+        foreach ([$cookie, null] as $sent) {
+
+            $response = $this->browser('POST', '/auth/logout', $sent, headers: ['Origin' => 'https://evil.example'])->assertNoContent();
+
+            self::assertSame([], array_filter($response->headers->getCookies(), static fn (Cookie $set): bool => $set->getName() === self::COOKIE));
+        }
+
         self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
 
         $this->browser('POST', '/auth/refresh', $cookie)->assertOk();

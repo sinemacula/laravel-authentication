@@ -9,6 +9,7 @@ use Illuminate\Auth\Events\Logout;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Request;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -29,7 +30,7 @@ use Symfony\Component\HttpFoundation\Cookie;
 /**
  * Signs a session of one guard out by its refresh credential, so a client whose
  * access token has expired, or that holds none, can still sign out, and clears
- * a cookie application's refresh cookie whatever happened.
+ * a cookie application's refresh cookie for a request its own pages sent.
  *
  * A request still bound to a stored session through its access token signs that
  * session out as `signOut()` does, and its refresh credential is not read.
@@ -42,6 +43,14 @@ use Symfony\Component\HttpFoundation\Cookie;
  * with the flow `sign_out`, and by no `Failed`: a sign-out is not an attempt to
  * authenticate. No attempt limit applies: nothing is issued, a refresh token
  * cannot be guessed, and revoking is the safe direction.
+ *
+ * A cookie application's result carries the expired cookie when the access
+ * token signed its session out, which a cross-site page cannot send, or when
+ * the request passes the cookie's same-site checks and the transport did not
+ * refuse it as a conflict. A cross-site page that auto-submits a form to the
+ * logout route therefore clears nothing (a browser keeps a cookie the response
+ * to such a navigation sets), and a request that fails the checks leaves the
+ * cookie with the session it still proves.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -96,10 +105,12 @@ final readonly class SessionSignOut
     public function fromRequest(): SignOutResult
     {
         $transport = $this->transport();
-        $forget    = $transport->usesCookie() ? $transport->forgetCookie() : null;
         $session   = $this->binding->session();
 
         if ($session instanceof EloquentSession && $session instanceof Model) {
+
+            $forget = $transport->usesCookie() ? $transport->forgetCookie() : null;
+
             return $this->revocations->signOut($this->binding) ? SignOutResult::signedOut(null, $forget) : SignOutResult::nothing($forget);
         }
 
@@ -107,7 +118,10 @@ final readonly class SessionSignOut
 
         $this->revocations->signOut($this->binding);
 
-        return $this->signOutPresented($transport->read($this->context->request()), $forget, $loggedOut);
+        $request   = $this->context->request();
+        $presented = $transport->read($request);
+
+        return $this->signOutPresented($presented, self::forget($transport, $request, $presented), $loggedOut);
     }
 
     /**
@@ -129,6 +143,27 @@ final readonly class SessionSignOut
         SessionRefresh::refuseHandedIn($this->transport());
 
         return $this->signOutProven($refreshToken, null, null, false);
+    }
+
+    /**
+     * The expired cookie a cookie application's sign-out by refresh credential
+     * clears the browser's with: only for a request that passes the cookie's
+     * same-site checks and that the transport did not refuse as a conflict, so
+     * neither a cross-site page nor a request whose session stays live clears
+     * it; `null` otherwise, and for a body application.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null  $presented
+     * @return ?\Symfony\Component\HttpFoundation\Cookie
+     *
+     * @throws \LogicException
+     */
+    private static function forget(RefreshTokenTransport $transport, Request $request, FailureReason|PresentedRefreshToken|null $presented): ?Cookie
+    {
+        $clears = $transport->usesCookie() && $transport->isSameSiteRequest($request) && $presented !== FailureReason::REFRESH_TOKEN_CONFLICT;
+
+        return $clears ? $transport->forgetCookie() : null;
     }
 
     /**

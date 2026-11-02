@@ -111,8 +111,11 @@ trait EndsSessions
      * committed), Laravel's `Logout` firing for its owner when the guard's
      * provider still returns it and none fired already. A refusal is reported
      * by `AuthenticationFailed` with the flow `sign_out`, and by no `Failed`. A
-     * cookie application's result always carries the expired cookie that clears
-     * the browser's (`SignOutResult::attachTo()`), whatever happened.
+     * cookie application's result carries the expired cookie that clears the
+     * browser's (`SignOutResult::attachTo()`) when the access token signed its
+     * session out, or when the request passes the cookie's same-site checks and
+     * was not refused as `refresh_token_conflict`, so a cross-site page cannot
+     * clear it.
      *
      * @return \SineMacula\Laravel\Authentication\Sessions\SignOutResult
      *
