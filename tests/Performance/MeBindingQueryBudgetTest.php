@@ -22,8 +22,9 @@ use Tests\Integration\Fixtures\MeSession;
 /**
  * Query-budget contracts for the `me` route binding: `me` with the access
  * credential reads nothing the guard has not read already; an explicit id is
- * the model's own lookup and nothing more; and a refresh credential is proven
- * once for a request, however many parameters bind it.
+ * the model's own lookup and nothing more; a refresh credential is proven once
+ * for a request, however many parameters bind it; and a `me` child costs the
+ * one check that it is within the parent's relationship.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -103,8 +104,9 @@ final class MeBindingQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A refresh credential is proven by the first parameter that binds it; a
-     * second binds without a query.
+     * A refresh credential is proven by the first parameter that binds it,
+     * reading the session, the member and its membership; a second binds
+     * without a query.
      *
      * @return void
      *
@@ -126,10 +128,40 @@ final class MeBindingQueryBudgetTest extends PerformanceContractTestCase
 
         $unused = static fn (): never => self::fail('The lookup ran for me.');
 
-        self::assertSame($session->record->getKey(), MeBinding::current()->resolve(new MeSession, 'me', $unused)?->getKey());
+        $first = $this->assertQueryBudget(3, 0, static fn (): ?Model => MeBinding::current()->resolve(new MeSession, 'me', $unused));
         $again = $this->assertQueryBudget(0, 0, static fn (): ?Model => MeBinding::current()->resolve(new MeSession, 'me', $unused));
 
-        self::assertSame($session->record->getKey(), $again?->getKey());
+        self::assertSame($session->record->getKey(), $first?->getKey());
+        self::assertSame($first, $again);
+    }
+
+    /**
+     * A `me` child of the caller's own member is bound by one query, the check
+     * that the session is within the member's relationship.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAMeChildCostsOneQuery(): void
+    {
+        $this->seedMember('ada@example.test');
+
+        $session = $this->signedIn('ada@example.test');
+
+        $this->bindRequestWithBearer('/members/me/sessions/me', $session->tokens->accessToken->reveal());
+
+        Auth::forgetGuards();
+
+        self::assertNotNull(Auth::guard(self::MEMBERS)->user());
+
+        $member = MeBinding::current()->resolve(new MeMember, 'me', static fn (): never => self::fail('The lookup ran for me.'));
+
+        self::assertInstanceOf(MeMember::class, $member);
+
+        $child = $this->assertQueryBudget(1, 0, static fn (): ?Model => $member->resolveChildRouteBinding('session', 'me', null));
+
+        self::assertSame($session->record->getKey(), $child?->getKey());
     }
 
     /**
