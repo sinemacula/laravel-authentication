@@ -209,7 +209,9 @@ factor on it. Only the factor package knows whether the identity has a factor, s
 a removal names the factor it acts on (and only those name one: an `InvalidArgumentException` otherwise), whose own
 proofs never count. A requirement of the factor package's own is passed as the third argument, and the stricter
 applies. An allowed `FactorChangeVerdict` carries the fresh `proof` and `freshUntil`, the second the session stops being
-fresh for the change; a refused one carries the `reason`. The gate writes nothing and reports nothing.
+fresh for the change; a refused one carries the `reason`. The gate writes nothing and reports nothing: once a removal
+is made, in that same transaction, the factor package ends the sessions it affects with `factorRemoved()` (see [Sign-in
+factors](#sign-in-factors)).
 
 A pending session never goes through the gate: its first factor is enrolled through its pending credential's
 `start_bootstrap_enrollment` and `confirm_bootstrap_enrollment` actions while the factor is its first outstanding

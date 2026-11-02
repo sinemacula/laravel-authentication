@@ -104,7 +104,10 @@ package's.
 - Management: `passkeys($identity)` lists summaries oldest first; `remove($identity, $id)` finds the identity's passkey
   of the relying party, asks the gate, deletes it with one conditional `DELETE` and reports `PasskeyRemoved` from the
   call that removed it. The optional `Listeners\RevokeSessionsOnPasskeyRemoval` then ends the identity's sessions
-  (`factor_removed`).
+  (`factor_removed`, through `credentialRemoved()`). A passkey the factor package associated as a factor is removed the
+  same way, and the factor package then calls the session service's mandatory `factorRemoved()` in the same change,
+  which judges the current session again without that factor; registered alongside it, the listener still ends every
+  session on any passkey's removal, so an application with a factor package registers it only if it wants that.
 
 ## Failure / Edge Cases
 

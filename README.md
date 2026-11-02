@@ -43,7 +43,8 @@ are caught on the server.
   detection, and a refresh transport per application: the body, or for a browser application a host-only `HttpOnly`
   cookie named after it, with CSRF checks, whose results never hand its code the plain refresh token.
 - **Sign-in methods**: password, one-time code to a phone or email, and passkeys, behind one contract that SSO and
-  custom methods plug into.
+  custom methods plug into; a further-factor package can use passkeys as a factor too, with a ceremony bound to the
+  session and the credentials it names, and a gate it takes part in when a passkey is registered or removed.
 - **One-time code challenges**: every code is a challenge with an id the check names, kept across resends with its
   attempt budget, capped in deliveries per destination, and bound to its purpose; a further-factor package's codes are
   bound to the session and factor too, with its counters asked and told inside the transaction that checks them.
@@ -63,7 +64,8 @@ are caught on the server.
   its route authenticates with, and says whether a session, identity or principal is the caller's, so an application can
   scope its own route bindings.
 - **Machine credentials**: API keys and OAuth 2.0 client credentials for non-human identities, with scopes.
-- **Account lifecycle**: password policy, password reset, identifier verification and changing an email or phone.
+- **Account lifecycle**: password policy, changing a password with the current one or establishing a first one on a
+  fresh session, password reset, identifier verification and changing an email or phone.
 - **Per-application settings**: which sign-in methods and machine credentials each application allows (none until it
   lists them), whether identifiers must be verified, and its lifetimes.
 - **Access contracts**: whether a principal may use an application and whether it may act in a tenant, answered by your
