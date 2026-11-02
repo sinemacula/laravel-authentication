@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
@@ -37,6 +38,7 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
+use Tests\Unit\Stubs\StubBareSession;
 
 /**
  * Feature tests of signing out by whichever credential the request carries, on
@@ -175,6 +177,38 @@ final class SessionSignOutTest extends TestCase
             bearer: Auth::jwt('api')->issueAccessToken($identity, $identity, null, null)->reveal(),
             body: ['refresh_token' => self::refreshOf($session)],
         );
+
+        $this->recordEvents(self::EVENTS);
+
+        $result = $sessions->signOutFromRequest();
+
+        self::assertTrue($result->isSignedOut());
+        self::assertSame(RefreshTokenSource::BODY, $result->source);
+        self::assertSame([Logout::class, SessionRevoked::class], $this->recordedClasses());
+        self::assertSame('signed_out', $this->revokedReasonOf($session));
+        self::assertFalse(Auth::guard('api')->check());
+    }
+
+    /**
+     * A binding to a session the package does not store, an Eloquent model the
+     * application bound itself, is forgotten as an access-only token's is: the
+     * refresh token the request carries signs its own session out, and `Logout`
+     * fires once.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testABindingToASessionThePackageDoesNotStoreIsForgottenAndTheRefreshTokenSignsOut(): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->signedIn();
+        $sessions = $this->serving(body: ['refresh_token' => self::refreshOf($session)]);
+        $guard    = app('auth')->guard('api');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        $guard->authenticateAs($identity, $identity, new StubBareSession(['id' => 'bare-session']));
 
         $this->recordEvents(self::EVENTS);
 
