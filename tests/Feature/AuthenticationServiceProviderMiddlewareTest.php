@@ -123,20 +123,22 @@ final class AuthenticationServiceProviderMiddlewareTest extends TestCase
 
     /**
      * A kernel that is not the foundation's has no priority list to join, and
-     * is left as it is.
+     * is left as it is. The mock ignores the calls the test harness makes on
+     * every kernel it resolves, and refuses the package's.
      *
      * @return void
      */
     public function testAKernelOfItsOwnIsLeftAsItIs(): void
     {
-        $kernel = \Mockery::mock(HttpKernel::class);
+        $kernel = \Mockery::mock(HttpKernel::class)->shouldIgnoreMissing();
+
+        $kernel->shouldNotReceive('prependToMiddlewarePriority');
+        $kernel->shouldNotReceive('addToMiddlewarePriorityBefore');
 
         app()->forgetInstance(HttpKernel::class);
         app()->singleton(HttpKernel::class, static fn (): HttpKernel => $kernel);
 
-        app()->make(HttpKernel::class);
-
-        self::assertTrue(app()->resolved(HttpKernel::class));
+        self::assertSame(spl_object_id($kernel), spl_object_id(app()->make(HttpKernel::class)));
     }
 
     /**

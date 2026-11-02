@@ -36,9 +36,10 @@ final class NoStoreTest extends TestCase
     use InteractsWithSessions;
 
     /**
-     * Register routes that hand out secrets of other packages, each listing the
-     * middleware after others, so only the kernel's priority puts it outside
-     * them.
+     * Register routes that hand out secrets of other packages. The routes that
+     * list a middleware the kernel's priority knows list it before this one, so
+     * only the priority puts this one outside it; an application's own
+     * middleware is wrapped only when the route lists this one first.
      *
      * @return void
      */
@@ -49,7 +50,7 @@ final class NoStoreTest extends TestCase
 
         $this->createSessionTables();
 
-        Route::middleware([CacheForAnHour::class, 'authentication.no-store'])
+        Route::middleware(['authentication.no-store', CacheForAnHour::class])
             ->get('/factor-secret', static fn (): JsonResponse => new JsonResponse(['secret' => 'factor-secret-value']));
 
         Route::middleware(['auth:api', 'authentication.no-store'])
@@ -61,10 +62,13 @@ final class NoStoreTest extends TestCase
         Route::middleware(['authentication.no-store', AnswerFromCache::class])
             ->get('/answered-early', static fn (): JsonResponse => new JsonResponse(['unreached' => true]));
 
-        Route::middleware([CacheForAnHour::class, 'authentication.no-store'])
+        Route::middleware(['authentication.no-store', CacheForAnHour::class])
             ->get('/failing', static function (): never {
                 throw new \RuntimeException('a bug in the controller');
             });
+
+        Route::middleware([CacheForAnHour::class, 'authentication.no-store'])
+            ->get('/cached-outside', static fn (): JsonResponse => new JsonResponse(['public' => true]));
 
         Route::middleware(CacheForAnHour::class)
             ->get('/cacheable', static fn (): JsonResponse => new JsonResponse(['public' => true]));
@@ -141,6 +145,22 @@ final class NoStoreTest extends TestCase
         $this->withoutExceptionHandling([\RuntimeException::class]);
 
         self::assertNoStore($this->getJson('/failing')->assertStatus(500));
+    }
+
+    /**
+     * The kernel sorts only the middleware its priority knows, so an
+     * application's own middleware the route lists before this one stays
+     * outside it and may allow caching again: the documented limit.
+     *
+     * @return void
+     */
+    public function testAnApplicationMiddlewareListedBeforeItStaysOutsideIt(): void
+    {
+        $headers = $this->getJson('/cached-outside')->assertOk()->baseResponse->headers;
+
+        self::assertTrue($headers->hasCacheControlDirective('no-store'));
+        self::assertTrue($headers->hasCacheControlDirective('public'));
+        self::assertSame('3600', $headers->getCacheControlDirective('max-age'));
     }
 
     /**
