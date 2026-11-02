@@ -10,6 +10,7 @@ use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Config\IntegerSetting;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
+use SineMacula\Laravel\Authentication\Http\RequestBody;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 
 /**
@@ -37,9 +38,6 @@ final class PendingState
 
     /** @var string Field used when the configuration names none. */
     private const string DEFAULT_FIELD = 'pending_credential';
-
-    /** @var string A field name PHP keeps as it is in a form body: no whitespace, `.`, brackets or control characters. */
-    private const string FIELD_PATTERN = '/^[^\s.\[\]\x00-\x1F\x7F]+$/D';
 
     /** @var int Lifetime used when the configuration has none, in seconds. */
     private const int DEFAULT_TTL_SECONDS = 300;
@@ -86,7 +84,7 @@ final class PendingState
     {
         $field = $config->get(self::FIELD_KEY, self::DEFAULT_FIELD);
 
-        if (!is_string($field) || preg_match(self::FIELD_PATTERN, $field) !== 1) {
+        if (!RequestBody::isFieldName($field)) {
             throw new \InvalidArgumentException(sprintf('%s must be a field name without `.`, spaces or brackets.', self::FIELD_KEY));
         }
 

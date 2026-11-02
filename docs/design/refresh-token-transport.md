@@ -97,7 +97,8 @@ a cookie application's results hand back the cookie instead of the token.
 ## Implementation Anchors
 
 - `src/Http/RefreshTokenTransport.php`: `read()`, `usesCookie()`, `deliver()`, `isSameSiteRequest()`,
-  `forgetCookie()`; `src/Http/RefreshCookie.php`; `src/Http/Enums/Transport.php`; `src/Jwt/TokenPair.php`.
+  `forgetCookie()`; `src/Http/RefreshCookie.php`; `src/Http/Enums/Transport.php`; `src/Jwt/TokenPair.php`;
+  `src/Http/RequestBody.php` (the body fields and the field names, shared with the pending credential's field).
 - `src/Sessions/SessionService.php`: `bound()`; `src/Sessions/Concerns/SwitchesSessions.php`: `switchTo()`,
   `switchFromRequest()`, `switched()`; `src/Sessions/SessionRefresh.php`: `refresh()`, `refreshFromRequest()`,
   `credentialFromRequest()`, `refuseHandedIn()`; and `src/Sessions/SessionSignOut.php`: `fromRequest()`, `with()`;

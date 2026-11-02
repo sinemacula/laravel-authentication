@@ -42,9 +42,6 @@ final readonly class RefreshTokenSettings
     /** @var string A header or cookie name: an HTTP token without `.`, which PHP files as `_`, so the name would never be found. */
     private const string NAME_PATTERN = '/^[!#$%&\'*+^_`|~0-9A-Za-z-]+$/D';
 
-    /** @var string A body field: no `.` or space, which PHP files as `_` in a form body, and no bracket, which nests it. */
-    private const string FIELD_PATTERN = '/^[^\s.\[\]\x00-\x1F\x7F]+$/D';
-
     /** @var string A cookie path: starts with `/`, with no separator, space or control character. */
     private const string PATH_PATTERN = '/^\/[^;,\s\x00-\x1F\x7F]*$/D';
 
@@ -326,7 +323,7 @@ final readonly class RefreshTokenSettings
      */
     private static function bodyField(string $guard, mixed $value): string
     {
-        if (!is_string($value) || preg_match(self::FIELD_PATTERN, $value) !== 1) {
+        if (!RequestBody::isFieldName($value)) {
             throw new \InvalidArgumentException(self::message($guard, 'body_field', 'must be a field name without `.`, spaces or brackets'));
         }
 

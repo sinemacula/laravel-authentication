@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\RequestBody;
 use SineMacula\Laravel\Authentication\Routing\Enums\CallerCredential;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
 use SineMacula\Laravel\Authentication\Sessions\PendingSession;
@@ -200,7 +201,7 @@ final readonly class CallerCredentials
      */
     private function pending(Request $request, string $guard, ?PendingAction $action): ?Caller
     {
-        $body  = self::body($request);
+        $body  = RequestBody::fields($request);
         $field = PendingState::credentialField($this->config);
 
         if (!array_key_exists($field, $body)) {
@@ -265,21 +266,5 @@ final readonly class CallerCredentials
     private function report(EventContext $context, AuthenticationFlow $flow, FailureReason $reason): void
     {
         $this->events->dispatch(new AuthenticationFailed($context, $flow, $reason));
-    }
-
-    /**
-     * The request's body fields: the JSON body, or the form body of a request
-     * that may have one; never the query string.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return array<array-key, mixed>
-     */
-    private static function body(Request $request): array
-    {
-        if ($request->isJson()) {
-            return $request->json()->all();
-        }
-
-        return in_array($request->getRealMethod(), ['GET', 'HEAD'], true) ? [] : $request->request->all();
     }
 }

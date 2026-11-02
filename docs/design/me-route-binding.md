@@ -92,7 +92,8 @@ covers the two lookups the binding shares its rules with: one session (`SessionS
 - `src/Http/Middleware/UseRefreshCredential.php`, `src/Http/Middleware/UsePendingCredential.php`;
   `src/AuthenticationServiceProvider.php` (`registerMiddleware()`)
 - `src/Sessions/Concerns/LooksUpSessions.php`, `src/Sessions/ActiveSessions.php` (`find()`),
-  `src/Sessions/PendingEvaluation.php` (`principal()`), `src/Sessions/PendingState.php` (`credentialField()`)
+  `src/Sessions/PendingEvaluation.php` (`principal()`), `src/Sessions/PendingState.php` (`credentialField()`),
+  `src/Http/RequestBody.php`
 - `src/Sessions/SessionRefresh.php` (`credentialFromRequest()`), `src/Sessions/RefreshCredential.php`
 
 ## Authoritative Tests

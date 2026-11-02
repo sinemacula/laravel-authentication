@@ -228,7 +228,7 @@ final readonly class RefreshTokenTransport
         return match ($source) {
             RefreshTokenSource::COOKIE => $request->cookies->has($this->settings->cookieName),
             RefreshTokenSource::HEADER => $this->settings->header !== null && $request->headers->has($this->settings->header),
-            RefreshTokenSource::BODY   => array_key_exists($this->settings->bodyField, self::body($request)),
+            RefreshTokenSource::BODY   => array_key_exists($this->settings->bodyField, RequestBody::fields($request)),
         };
     }
 
@@ -270,27 +270,11 @@ final readonly class RefreshTokenTransport
         $values = match ($source) {
             RefreshTokenSource::COOKIE => [$request->cookies->all()[$this->settings->cookieName]],
             RefreshTokenSource::HEADER => $request->headers->all((string) $this->settings->header),
-            RefreshTokenSource::BODY   => [self::body($request)[$this->settings->bodyField]],
+            RefreshTokenSource::BODY   => [RequestBody::fields($request)[$this->settings->bodyField]],
         };
 
         $value = count($values) === 1 ? reset($values) : null;
 
         return is_string($value) && $value !== '' ? new PresentedRefreshToken(new Secret($value), $source) : FailureReason::TOKEN_INVALID;
-    }
-
-    /**
-     * The request's body fields: the JSON body, or the form body of a request
-     * that may have one; never the query string.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return array<array-key, mixed>
-     */
-    private static function body(Request $request): array
-    {
-        if ($request->isJson()) {
-            return $request->json()->all();
-        }
-
-        return in_array($request->getRealMethod(), ['GET', 'HEAD'], true) ? [] : $request->request->all();
     }
 }
